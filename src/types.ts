@@ -21,6 +21,8 @@ export interface ResolvedQQBotAccount {
   systemPrompt?: string;
   /** 图床服务器公网地址 */
   imageServerBaseUrl?: string;
+  /** 是否支持 markdown 消息（默认 false，需要机器人具备该权限才能启用） */
+  markdownSupport?: boolean;
   config: QQBotAccountConfig;
 }
 
@@ -39,6 +41,8 @@ export interface QQBotAccountConfig {
   systemPrompt?: string;
   /** 图床服务器公网地址，用于发送图片，例如 http://your-ip:18765 */
   imageServerBaseUrl?: string;
+  /** 是否支持 markdown 消息（默认 false，需要机器人具备该权限才能启用） */
+  markdownSupport?: boolean;
 }
 
 /**

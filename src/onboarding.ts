@@ -1,7 +1,7 @@
 /**
  * QQBot CLI Onboarding Adapter
  * 
- * 提供 moltbot onboard 命令的交互式配置支持
+ * 提供 openclaw onboard 命令的交互式配置支持
  */
 import type { 
   ChannelOnboardingAdapter,
@@ -9,20 +9,11 @@ import type {
   ChannelOnboardingStatusContext,
   ChannelOnboardingConfigureContext,
   ChannelOnboardingResult,
-} from "clawdbot/plugin-sdk";
-import { listQQBotAccountIds, resolveQQBotAccount } from "./config.js";
+  OpenClawConfig,
+} from "openclaw/plugin-sdk";
+import { DEFAULT_ACCOUNT_ID, listQQBotAccountIds, resolveQQBotAccount } from "./config.js";
 
-const DEFAULT_ACCOUNT_ID = "default";
-
-// 内部类型（避免循环依赖）
-interface MoltbotConfig {
-  channels?: {
-    qqbot?: QQBotChannelConfig;
-    [key: string]: unknown;
-  };
-  [key: string]: unknown;
-}
-
+// 内部类型（用于类型安全）
 interface QQBotChannelConfig {
   enabled?: boolean;
   appId?: string;
@@ -40,10 +31,18 @@ interface QQBotChannelConfig {
   }>;
 }
 
+// Prompter 类型定义
+interface Prompter {
+  note: (message: string, title?: string) => Promise<void>;
+  confirm: (opts: { message: string; initialValue?: boolean }) => Promise<boolean>;
+  text: (opts: { message: string; placeholder?: string; initialValue?: string; validate?: (value: string) => string | undefined }) => Promise<string>;
+  select: <T>(opts: { message: string; options: Array<{ value: T; label: string }>; initialValue?: T }) => Promise<T>;
+}
+
 /**
  * 解析默认账户 ID
  */
-function resolveDefaultQQBotAccountId(cfg: MoltbotConfig): string {
+function resolveDefaultQQBotAccountId(cfg: OpenClawConfig): string {
   const ids = listQQBotAccountIds(cfg);
   return ids[0] ?? DEFAULT_ACCOUNT_ID;
 }
@@ -55,32 +54,34 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
   channel: "qqbot" as any,
 
   getStatus: async (ctx: ChannelOnboardingStatusContext): Promise<ChannelOnboardingStatus> => {
-    const { cfg } = ctx;
-    const configured = listQQBotAccountIds(cfg as MoltbotConfig).some((accountId) => {
-      const account = resolveQQBotAccount(cfg as MoltbotConfig, accountId);
+    const cfg = ctx.cfg as OpenClawConfig;
+    const configured = listQQBotAccountIds(cfg).some((accountId) => {
+      const account = resolveQQBotAccount(cfg, accountId);
       return Boolean(account.appId && account.clientSecret);
     });
 
     return {
       channel: "qqbot" as any,
       configured,
-      statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecret"}`],
-      selectionHint: configured ? "已配置" : "支持 QQ 群聊和私聊",
+statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecret"}`],
+      selectionHint: configured ? "已配置" : "支持 QQ 群聊和私聊（流式消息）",
       quickstartScore: configured ? 1 : 20,
     };
   },
 
   configure: async (ctx: ChannelOnboardingConfigureContext): Promise<ChannelOnboardingResult> => {
-    const { cfg, prompter, accountOverrides, shouldPromptAccountIds } = ctx;
-    const moltbotCfg = cfg as MoltbotConfig;
+    const cfg = ctx.cfg as OpenClawConfig;
+    const prompter = ctx.prompter as Prompter;
+    const accountOverrides = ctx.accountOverrides as Record<string, string> | undefined;
+    const shouldPromptAccountIds = ctx.shouldPromptAccountIds;
     
-    const qqbotOverride = (accountOverrides as Record<string, string>).qqbot?.trim();
-    const defaultAccountId = resolveDefaultQQBotAccountId(moltbotCfg);
+    const qqbotOverride = accountOverrides?.qqbot?.trim();
+    const defaultAccountId = resolveDefaultQQBotAccountId(cfg);
     let accountId = qqbotOverride ?? defaultAccountId;
 
     // 是否需要提示选择账户
     if (shouldPromptAccountIds && !qqbotOverride) {
-      const existingIds = listQQBotAccountIds(moltbotCfg);
+      const existingIds = listQQBotAccountIds(cfg);
       if (existingIds.length > 1) {
         accountId = await prompter.select({
           message: "选择 QQBot 账户",
@@ -93,7 +94,7 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
       }
     }
 
-    let next = moltbotCfg;
+    let next: OpenClawConfig = cfg;
     const resolvedAccount = resolveQQBotAccount(next, accountId);
     const accountConfigured = Boolean(resolvedAccount.appId && resolvedAccount.clientSecret);
     const allowEnv = accountId === DEFAULT_ACCOUNT_ID;
@@ -115,8 +116,10 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
           "4) 你也可以设置环境变量 QQBOT_APP_ID 和 QQBOT_CLIENT_SECRET",
           "",
           "文档: https://bot.q.qq.com/wiki/",
+          "",
+          "此版本支持流式消息发送！",
         ].join("\n"),
-        "QQ Bot 配置",
+"QQ Bot 配置",
       );
     }
 
@@ -132,7 +135,7 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
           channels: {
             ...next.channels,
             qqbot: {
-              ...next.channels?.qqbot,
+              ...(next.channels?.qqbot as Record<string, unknown> || {}),
               enabled: true,
             },
           },
@@ -144,14 +147,14 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
             message: "请输入 QQ Bot AppID",
             placeholder: "例如: 102146862",
             initialValue: resolvedAccount.appId || undefined,
-            validate: (value) => (value?.trim() ? undefined : "AppID 不能为空"),
+            validate: (value: string) => (value?.trim() ? undefined : "AppID 不能为空"),
           }),
         ).trim();
         clientSecret = String(
           await prompter.text({
             message: "请输入 QQ Bot ClientSecret",
             placeholder: "你的 ClientSecret",
-            validate: (value) => (value?.trim() ? undefined : "ClientSecret 不能为空"),
+            validate: (value: string) => (value?.trim() ? undefined : "ClientSecret 不能为空"),
           }),
         ).trim();
       }
@@ -167,14 +170,14 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
             message: "请输入 QQ Bot AppID",
             placeholder: "例如: 102146862",
             initialValue: resolvedAccount.appId || undefined,
-            validate: (value) => (value?.trim() ? undefined : "AppID 不能为空"),
+            validate: (value: string) => (value?.trim() ? undefined : "AppID 不能为空"),
           }),
         ).trim();
         clientSecret = String(
           await prompter.text({
             message: "请输入 QQ Bot ClientSecret",
             placeholder: "你的 ClientSecret",
-            validate: (value) => (value?.trim() ? undefined : "ClientSecret 不能为空"),
+            validate: (value: string) => (value?.trim() ? undefined : "ClientSecret 不能为空"),
           }),
         ).trim();
       }
@@ -185,14 +188,14 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
           message: "请输入 QQ Bot AppID",
           placeholder: "例如: 102146862",
           initialValue: resolvedAccount.appId || undefined,
-          validate: (value) => (value?.trim() ? undefined : "AppID 不能为空"),
+          validate: (value: string) => (value?.trim() ? undefined : "AppID 不能为空"),
         }),
       ).trim();
       clientSecret = String(
         await prompter.text({
           message: "请输入 QQ Bot ClientSecret",
           placeholder: "你的 ClientSecret",
-          validate: (value) => (value?.trim() ? undefined : "ClientSecret 不能为空"),
+          validate: (value: string) => (value?.trim() ? undefined : "ClientSecret 不能为空"),
         }),
       ).trim();
     }
@@ -205,7 +208,7 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
           channels: {
             ...next.channels,
             qqbot: {
-              ...next.channels?.qqbot,
+              ...(next.channels?.qqbot as Record<string, unknown> || {}),
               enabled: true,
               appId,
               clientSecret,
@@ -218,12 +221,12 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
           channels: {
             ...next.channels,
             qqbot: {
-              ...next.channels?.qqbot,
+              ...(next.channels?.qqbot as Record<string, unknown> || {}),
               enabled: true,
               accounts: {
-                ...(next.channels?.qqbot as QQBotChannelConfig)?.accounts,
+                ...((next.channels?.qqbot as QQBotChannelConfig)?.accounts || {}),
                 [accountId]: {
-                  ...(next.channels?.qqbot as QQBotChannelConfig)?.accounts?.[accountId],
+                  ...((next.channels?.qqbot as QQBotChannelConfig)?.accounts?.[accountId] || {}),
                   enabled: true,
                   appId,
                   clientSecret,
@@ -235,14 +238,17 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
       }
     }
 
-    return { cfg: next as any, accountId };
+    return { success: true, cfg: next as any, accountId };
   },
 
-  disable: (cfg) => ({
-    ...cfg,
-    channels: {
-      ...(cfg as MoltbotConfig).channels,
-      qqbot: { ...(cfg as MoltbotConfig).channels?.qqbot, enabled: false },
-    },
-  }) as any,
+  disable: (cfg: unknown) => {
+    const config = cfg as OpenClawConfig;
+    return {
+      ...config,
+      channels: {
+        ...config.channels,
+        qqbot: { ...(config.channels?.qqbot as Record<string, unknown> || {}), enabled: false },
+      },
+    } as any;
+  },
 };
