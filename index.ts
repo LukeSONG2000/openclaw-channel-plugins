@@ -1,4 +1,6 @@
-import type { MoltbotPluginApi } from "clawdbot/plugin-sdk";
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+
 import { qqbotPlugin } from "./src/channel.js";
 import { setQQBotRuntime } from "./src/runtime.js";
 
@@ -6,7 +8,8 @@ const plugin = {
   id: "qqbot",
   name: "QQ Bot",
   description: "QQ Bot channel plugin",
-  register(api: MoltbotPluginApi) {
+  configSchema: emptyPluginConfigSchema(),
+  register(api: OpenClawPluginApi) {
     setQQBotRuntime(api.runtime);
     api.registerChannel({ plugin: qqbotPlugin });
   },
