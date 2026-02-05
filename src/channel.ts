@@ -124,6 +124,7 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     resolveAllowFrom: ({ cfg, accountId }: { cfg: OpenClawConfig; accountId?: string }) => {
       const account = resolveQQBotAccount(cfg, accountId);
       const allowFrom = account.config?.allowFrom ?? [];
+      console.log(`[qqbot] resolveAllowFrom: accountId=${accountId}, allowFrom=${JSON.stringify(allowFrom)}`);
       return allowFrom.map((entry: string | number) => String(entry));
     },
     // 格式化 allowFrom 条目（移除 qqbot: 前缀，统一大写）
