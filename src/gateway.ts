@@ -602,6 +602,14 @@ openclaw cron add \\
                          : `qqbot:c2c:${event.senderId}`;
         const toAddress = fromAddress;
 
+        // 计算命令授权状态
+        // allowFrom: ["*"] 表示允许所有人，否则检查 senderId 是否在 allowFrom 列表中
+        const allowFromList = account.config?.allowFrom ?? [];
+        const allowAll = allowFromList.length === 0 || allowFromList.some((entry: string) => entry === "*");
+        const commandAuthorized = allowAll || allowFromList.some((entry: string) => 
+          entry.toUpperCase() === event.senderId.toUpperCase()
+        );
+
         const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext({
           Body: body,
           RawBody: event.content,
@@ -622,6 +630,7 @@ openclaw cron add \\
           QQChannelId: event.channelId,
           QQGuildId: event.guildId,
           QQGroupOpenid: event.groupOpenid,
+          CommandAuthorized: commandAuthorized,
         });
 
         // 发送消息的辅助函数，带 token 过期重试
