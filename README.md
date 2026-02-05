@@ -13,17 +13,13 @@ QQ 开放平台 Bot API 的 Moltbot 渠道插件，支持 C2C 私聊、群聊 @�
 
 </div>
 
----
-
-## ⭐ Star 趋势
-
-<!-- 在这里放置 Star 数量变化图 -->
 
 ---
 
 ## 📸 使用示例
-
-<img width="600" alt="使用示例" src="https://github.com/user-attachments/assets/6f1704ab-584b-497e-8937-96f84ce2958f" />
+<div align="center">
+<img width="400" alt="使用示例" src="https://github.com/user-attachments/assets/6f1704ab-584b-497e-8937-96f84ce2958f" />
+</div>
 
 ---
 
@@ -37,6 +33,13 @@ QQ 开放平台 Bot API 的 Moltbot 渠道插件，支持 C2C 私聊、群聊 @�
 - 🔄 **热更新** - 支持 npm 方式安装和热更新
 - 📝 **Markdown** - 支持 Markdown 格式（即将更新）
 
+  
+---
+
+## ⭐ Star 趋势
+<div align="center">
+<img width="564" height="448" alt="star-history-202625" src="https://github.com/user-attachments/assets/338900c9-5d4f-4e71-9490-b4804e356283" />
+</div>
 ---
 
 ## 📦 安装
