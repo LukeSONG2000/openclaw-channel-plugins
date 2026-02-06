@@ -19,6 +19,8 @@ QQ 开放平台 Bot API 的 Openclaw 渠道插件，支持 C2C 私聊、群聊 @
 ## 📸 使用示例
 <div align="center">
 <img width="400" alt="使用示例" src="https://github.com/user-attachments/assets/6f1704ab-584b-497e-8937-96f84ce2958f" />
+<img width="670" height="396" alt="Clipboard_Screenshot_1770366319" src="https://github.com/user-attachments/assets/e21e9292-fb93-41a7-81fe-39eeefe3b01d" />
+
 </div>
 
 ---
@@ -178,7 +180,7 @@ clawdbot gateway restart
 ## 📚 版本历史
 
 <details>
-<summary><b>v1.4.0（即将更新）</b></summary>
+<summary><b>v1.4.0</b></summary>
 
 - 支持 Markdown 格式
 
