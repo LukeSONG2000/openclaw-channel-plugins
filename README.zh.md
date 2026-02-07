@@ -1,3 +1,23 @@
+# QQ
+QQ 是一款覆盖广泛用户群体的即时通讯平台，提供文字、语音、图片、文件等多种沟通能力，并支持群聊、频道等协作场景，适用于个人交流与团队协同。
+
+该接入方式可将 OpenClaw 与 QQ Bot 进行连接，通过平台的长连接事件订阅机制接收消息与事件回调，从而在不对外暴露公网 Webhook 地址的情况下实现稳定、安全的消息收发与自动化能力集成。
+
+# QQ Bot插件安装
+安装 QQ Bot插件:
+
+OpenClaw plugins命令安装
+
+```openclaw plugins install @sliverp/qqbot@latest```
+
+使用源码安装：
+
+```
+git clone https://github.com/sliverp/qqbot.git && cd qqbot
+clawdbot plugins install .
+```
+
+
 # 注册QQ开放平台
 前往腾讯QQ开放平台官网，默认无法使用您的QQ账号直接登录，需要新注册QQ开放平台账号。
 <img width="2140" height="1004" alt="1" src="https://github.com/user-attachments/assets/d76a780c-5040-43fb-ac41-5808f975ae4b" />
