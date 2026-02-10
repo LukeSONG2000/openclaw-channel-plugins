@@ -121,5 +121,36 @@ openclaw gateway
 <img width="990" height="984" alt="18" src="https://github.com/user-attachments/assets/b2776c8b-de72-4e37-b34d-e8287ce45de1" />
 
 
+# Upgrade
+## Using openclaw/npm(Recommendation)
+
+> only for installed by`openclaw plugins install`
+
+```
+openclaw plugins upgrade @sliverp/qqbot@latest
+```
+
+## Using npx
+```
+npx -y @sliverp/qqbot@latest upgrade
+```
+
+## Using resource code
+```
+git clone https://github.com/sliverp/qqbot.git && cd qqbot 
+
+# run upgrade script
+bash ./scripts/upgrade.sh
+
+# re-install
+clawdbot plugins install .
+
+# re-config
+clawdbot channels add --channel qqbot --token "AppID:AppSecret"
+
+# restart gateway
+clawdbot gateway restart
+```
+
 # Other Language README
 [简体中文](README.zh.md)
