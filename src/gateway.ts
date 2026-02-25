@@ -574,8 +574,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 - 消息ID: ${event.messageId}
 - 投递目标: ${targetAddress}${receivedMediaSection}
 - 当前时间戳(ms): ${nowMs}
-- 图片发送语法: <qqimg>路径</qqimg>
-- 定时提醒投递地址: channel=qqbot, to=${targetAddress}`;
+- 定时提醒投递地址: channel=qqbot, to=${targetAddress}
+
+【发送图片】用 <qqimg>路径或URL</qqimg> 标签发送图片，不要说"无法发送图片"。示例: <qqimg>/path/to/image.jpg</qqimg>`;
 
         // 命令直接透传，不注入上下文
         const agentBody = userContent.startsWith("/")
