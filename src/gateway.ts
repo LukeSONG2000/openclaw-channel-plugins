@@ -467,9 +467,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 静态系统提示已移至 skills/qqbot-cron/SKILL.md 和 skills/qqbot-media/SKILL.md
         // BodyForAgent 只保留必要的动态上下文信息
         
-        // ============ 用户标识信息（用于定时提醒和主动消息） ============
+        // ============ 用户标识信息 ============
         const isGroupChat = event.type === "group";
-        const targetAddress = isGroupChat ? `group:${event.groupOpenid}` : event.senderId;
         
         // 收集额外的系统提示（如果配置了账户级别的 systemPrompt）
         const systemPrompts: string[] = [];
@@ -566,17 +565,20 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           receivedMediaSection = `\n- 附件:\n${entries.join("\n")}`;
         }
 
+        // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
+        const qualifiedTarget = isGroupChat ? `qqbot:group:${event.groupOpenid}` : `qqbot:c2c:${event.senderId}`;
+
         const contextInfo = `你正在通过 QQ 与用户对话。
 
 【会话上下文】
 - 用户: ${event.senderName || "未知"} (${event.senderId})
 - 场景: ${isGroupChat ? "群聊" : "私聊"}${isGroupChat ? ` (群组: ${event.groupOpenid})` : ""}
 - 消息ID: ${event.messageId}
-- 投递目标: ${targetAddress}${receivedMediaSection}
+- 投递目标: ${qualifiedTarget}${receivedMediaSection}
 - 当前时间戳(ms): ${nowMs}
-- 定时提醒投递地址: channel=qqbot, to=${targetAddress}
+- 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}
 
-【发送图片】用 <qqimg>路径或URL</qqimg> 标签发送图片，不要说"无法发送图片"。示例: <qqimg>/path/to/image.jpg</qqimg>`;
+【发送图片】用 <qqimg>本地路径或URL</qqimg> 标签发送图片，不要说"无法发送图片"。示例: <qqimg>/path/to/image.jpg</qqimg>`;
 
         // 命令直接透传，不注入上下文
         const agentBody = userContent.startsWith("/")
