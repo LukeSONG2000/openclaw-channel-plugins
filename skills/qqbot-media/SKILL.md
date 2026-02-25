@@ -24,6 +24,7 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 
 ## 规则
 
+- ⚠️ **禁止使用 message tool 发送图片**，直接在回复文本中写 `<qqimg>` 标签即可，系统自动处理
 - **永远不要说**"无法发送图片"或"无法访问之前的图片"
 - 直接使用 `<qqimg>` 标签，不要只输出路径文本
 - 标签外的文字会作为消息正文一起发送
