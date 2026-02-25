@@ -485,103 +485,53 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const downloadDir = path.join(process.env.HOME || "/home/ubuntu", ".openclaw", "qqbot", "downloads");
         
         if (event.attachments?.length) {
-          // ============ 接收附件描述生成（图片 / 语音 / 其他） ============
-          const imageDescriptions: string[] = [];
-          const voiceDescriptions: string[] = [];
           const otherAttachments: string[] = [];
           
           for (const att of event.attachments) {
-            // 下载附件到本地，使用原始文件名
-            const localPath = await downloadFile(att.url, downloadDir, att.filename);
+            // 修复 QQ 返回的 // 前缀 URL
+            const attUrl = att.url?.startsWith("//") ? `https:${att.url}` : att.url;
+            const localPath = await downloadFile(attUrl, downloadDir, att.filename);
+
             if (localPath) {
               if (att.content_type?.startsWith("image/")) {
                 imageUrls.push(localPath);
                 imageMediaTypes.push(att.content_type);
-                
-                // 构建自然语言描述（根据需求 4.2）
-                const format = att.content_type?.split("/")[1] || "未知格式";
-                const timestamp = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-                
-                imageDescriptions.push(`
-用户发送了一张图片：
-- 图片地址：${localPath}
-- 图片格式：${format}
-- 消息ID：${event.messageId}
-- 发送时间：${timestamp}
-
-请根据图片内容进行回复。`);
               } else if (isVoiceAttachment(att)) {
-                // ============ 语音消息处理：SILK → WAV ============
-                log?.info(`[qqbot:${account.accountId}] Voice attachment detected: ${att.filename}, converting SILK to WAV...`);
+                // 语音消息：SILK → WAV 转换
+                log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename}, converting SILK→WAV...`);
                 try {
                   const result = await convertSilkToWav(localPath, downloadDir);
                   if (result) {
-                    const durationStr = formatDuration(result.duration);
-                    log?.info(`[qqbot:${account.accountId}] Voice converted: ${result.wavPath} (duration: ${durationStr})`);
-                    
-                    const timestamp = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-                    voiceDescriptions.push(`
-用户发送了一条语音消息：
-- 语音文件：${result.wavPath}
-- 语音时长：${durationStr}
-- 发送时间：${timestamp}`);
+                    log?.info(`[qqbot:${account.accountId}] Voice converted: ${result.wavPath} (${formatDuration(result.duration)})`);
+                    // 语音转换成功后当作音频路径处理
+                    imageUrls.push(result.wavPath);
+                    imageMediaTypes.push("audio/wav");
                   } else {
-                    // SILK 解码失败，保留原始文件
-                    log?.info(`[qqbot:${account.accountId}] Voice file is not SILK format, keeping original: ${localPath}`);
-                    voiceDescriptions.push(`
-用户发送了一条语音消息（非SILK格式，无法转换）：
-- 语音文件：${localPath}
-- 原始格式：${att.filename || "unknown"}
-- 消息ID：${event.messageId}
-
-请告知用户该语音格式暂不支持解析。`);
+                    log?.info(`[qqbot:${account.accountId}] Not SILK format, keeping original: ${localPath}`);
+                    imageUrls.push(localPath);
+                    imageMediaTypes.push(att.content_type || "audio/unknown");
                   }
                 } catch (convertErr) {
                   log?.error(`[qqbot:${account.accountId}] Voice conversion failed: ${convertErr}`);
-                  voiceDescriptions.push(`
-用户发送了一条语音消息（转换失败）：
-- 原始文件：${localPath}
-- 错误信息：${convertErr}
-- 消息ID：${event.messageId}
-
-请告知用户语音处理出现问题。`);
+                  imageUrls.push(localPath);
+                  imageMediaTypes.push(att.content_type || "audio/unknown");
                 }
               } else {
                 otherAttachments.push(`[附件: ${localPath}]`);
               }
               log?.info(`[qqbot:${account.accountId}] Downloaded attachment to: ${localPath}`);
             } else {
-              // 下载失败，提供原始 URL 作为后备
-              log?.error(`[qqbot:${account.accountId}] Failed to download attachment: ${att.url}`);
+              // 下载失败，fallback 到原始 URL
+              log?.error(`[qqbot:${account.accountId}] Failed to download: ${attUrl}`);
               if (att.content_type?.startsWith("image/")) {
-                imageUrls.push(att.url);
+                imageUrls.push(attUrl);
                 imageMediaTypes.push(att.content_type);
-                
-                // 下载失败时的自然语言描述
-                const format = att.content_type?.split("/")[1] || "未知格式";
-                const timestamp = new Date().toLocaleString("zh-CN", { timeZone: "Asia/Shanghai" });
-                
-                imageDescriptions.push(`
-用户发送了一张图片（下载失败，使用原始URL）：
-- 图片地址：${att.url}
-- 图片格式：${format}
-- 消息ID：${event.messageId}
-- 发送时间：${timestamp}
-
-请根据图片内容进行回复。`);
               } else {
                 otherAttachments.push(`[附件: ${att.filename ?? att.content_type}] (下载失败)`);
               }
             }
           }
           
-          // 组合附件信息：先图片描述，后语音描述，后其他附件
-          if (imageDescriptions.length > 0) {
-            attachmentInfo += "\n" + imageDescriptions.join("\n");
-          }
-          if (voiceDescriptions.length > 0) {
-            attachmentInfo += "\n" + voiceDescriptions.join("\n");
-          }
           if (otherAttachments.length > 0) {
             attachmentInfo += "\n" + otherAttachments.join("\n");
           }
@@ -590,13 +540,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 解析 QQ 表情标签，将 <faceType=...,ext="base64"> 替换为 【表情: 中文名】
         const parsedContent = parseFaceTags(event.content);
         const userContent = parsedContent + attachmentInfo;
-        let messageBody = `【系统提示】\n${systemPrompts.join("\n")}\n\n【用户输入】\n${userContent}`;
 
-        if(userContent.startsWith("/")){ // 保留Openclaw原始命令
-          messageBody = userContent
-        }
-        log?.info(`[qqbot:${account.accountId}] messageBody: ${messageBody}`);
-
+        // Body: 展示用的用户原文（Web UI 看到的）
         const body = pluginRuntime.channel.reply.formatInboundEnvelope({
           channel: "qqbot",
           from: event.senderName ?? event.senderId,
@@ -608,18 +553,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             name: event.senderName,
           },
           envelope: envelopeOptions,
-          // 传递图片 URL 列表
           ...(imageUrls.length > 0 ? { imageUrls } : {}),
         });
         
-        // AI 可见的运行时上下文 — 只注入动态数据，行为指导由 skills 承担
+        // BodyForAgent: AI 实际看到的完整上下文（动态数据 + 系统提示 + 用户输入）
         const nowMs = Date.now();
 
-        // 构建媒体附件的纯数据描述（只列路径，不指导行为）
+        // 构建媒体附件纯数据描述（图片 + 语音统一列出）
         let receivedMediaSection = "";
         if (imageUrls.length > 0) {
-          const entries = imageUrls.map(p => `  - ${p}`);
-          receivedMediaSection = `\n- 附件（已下载到本地）:\n${entries.join("\n")}`;
+          const entries = imageUrls.map((p, i) => `  - ${p} (${imageMediaTypes[i] || "unknown"})`);
+          receivedMediaSection = `\n- 附件:\n${entries.join("\n")}`;
         }
 
         const contextInfo = `你正在通过 QQ 与用户对话。
@@ -633,10 +577,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 - 图片发送语法: <qqimg>路径</qqimg>
 - 定时提醒投递地址: channel=qqbot, to=${targetAddress}`;
 
-
-        const agentBody = systemPrompts.length > 0 
-          ? `${contextInfo}\n\n${systemPrompts.join("\n")}\n\n${userContent}`
-          : `${contextInfo}\n\n${userContent}`;
+        // 命令直接透传，不注入上下文
+        const agentBody = userContent.startsWith("/")
+          ? userContent
+          : systemPrompts.length > 0 
+            ? `${contextInfo}\n\n${systemPrompts.join("\n")}\n\n${userContent}`
+            : `${contextInfo}\n\n${userContent}`;
+        
+        log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
 
         const fromAddress = event.type === "guild" ? `qqbot:channel:${event.channelId}`
                          : event.type === "group" ? `qqbot:group:${event.groupOpenid}`
@@ -670,7 +618,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext({
           Body: body,
-          BodyForAgent: messageBody,
+          BodyForAgent: agentBody,
           RawBody: event.content,
           CommandBody: event.content,
           From: fromAddress,
