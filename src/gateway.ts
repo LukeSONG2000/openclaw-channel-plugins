@@ -578,13 +578,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 - 当前时间戳(ms): ${nowMs}
 - 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}
 
-【发送图片 - 重要规则】
-1. 你必须始终用文字回复用户，回复中可以包含图片标签
-2. 发图方法: 在回复文本中写 <qqimg>本地路径或URL</qqimg>，系统自动处理
-3. 正确示例: "龙虾来啦！🦞 <qqimg>https://example.com/lobster.jpg</qqimg>"
-4. ⚠️ 禁止用 message tool 发图（会报错）
-5. ⚠️ 禁止只调 tool 不回复文字（用户看不到任何内容）
-6. 不要说"无法发送图片"，直接用 <qqimg> 标签发`;
+【发送图片 - 重要】
+⚠️ 禁止使用 message tool 发送图片！直接在你的回复文本中写 <qqimg>路径或URL</qqimg> 标签，系统自动处理。
+正确示例: "龙虾来啦！🦞 <qqimg>https://example.com/lobster.jpg</qqimg>"
+错误做法: 调用 message tool 发图（会失败）
+不要说"无法发送图片"，直接用标签发。`;
 
         // 命令直接透传，不注入上下文
         const agentBody = userContent.startsWith("/")
