@@ -13,6 +13,12 @@ The Openclaw channel plugin of the Bot API of the QQ Open Platform supports C2C 
 [![Node.js](https://img.shields.io/badge/Node.js->=18-339933)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6)](https://www.typescriptlang.org/)
 
+
+
+扫描二维码加入群聊，一起交流
+
+<img width="316" height="410" alt="Clipboard_Screenshot_1772443710" src="https://github.com/user-attachments/assets/d079ba89-ecd0-437f-9e66-92319801a325" />
+
 </div>
 
 
