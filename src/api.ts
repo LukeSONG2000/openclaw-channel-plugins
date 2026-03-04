@@ -451,7 +451,7 @@ export enum MediaFileType {
   IMAGE = 1,
   VIDEO = 2,
   VOICE = 3,
-  FILE = 4, // 暂未开放
+  FILE = 4,
 }
 
 /**
@@ -632,6 +632,66 @@ export async function sendGroupImageMessage(
   
   // 发送富媒体消息
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId, content);
+}
+
+/**
+ * 发送 C2C 单聊语音消息（封装上传+发送）
+ * @param voiceBase64 - SILK 格式语音的 Base64 编码
+ */
+export async function sendC2CVoiceMessage(
+  accessToken: string,
+  openid: string,
+  voiceBase64: string,
+  msgId?: string,
+): Promise<{ id: string; timestamp: number }> {
+  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VOICE, undefined, voiceBase64, false);
+  return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId);
+}
+
+/**
+ * 发送群聊语音消息（封装上传+发送）
+ * @param voiceBase64 - SILK 格式语音的 Base64 编码
+ */
+export async function sendGroupVoiceMessage(
+  accessToken: string,
+  groupOpenid: string,
+  voiceBase64: string,
+  msgId?: string,
+): Promise<{ id: string; timestamp: string }> {
+  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VOICE, undefined, voiceBase64, false);
+  return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
+}
+
+/**
+ * 发送 C2C 单聊文件消息（封装上传+发送）
+ * @param fileBase64 - Base64 编码的文件内容
+ * @param fileUrl - 公网可访问的文件 URL（与 fileBase64 二选一）
+ */
+export async function sendC2CFileMessage(
+  accessToken: string,
+  openid: string,
+  fileBase64?: string,
+  fileUrl?: string,
+  msgId?: string,
+): Promise<{ id: string; timestamp: number }> {
+  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.FILE, fileUrl, fileBase64, false);
+  return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId);
+}
+
+/**
+ * 发送群聊文件消息（封装上传+发送）
+ * @param fileBase64 - Base64 编码的文件内容
+ * @param fileUrl - 公网可访问的文件 URL（与 fileBase64 二选一）
+ */
+export async function sendGroupFileMessage(
+  accessToken: string,
+  groupOpenid: string,
+  fileBase64?: string,
+  fileUrl?: string,
+  msgId?: string,
+): Promise<{ id: string; timestamp: string }> {
+  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.FILE, fileUrl, fileBase64, false);
+  return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
 }
 
 // ============ 后台 Token 刷新 (P1-1) ============

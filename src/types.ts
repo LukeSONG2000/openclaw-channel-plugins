@@ -43,6 +43,36 @@ export interface QQBotAccountConfig {
   imageServerBaseUrl?: string;
   /** 是否支持 markdown 消息（默认 true，设为 false 可禁用） */
   markdownSupport?: boolean;
+  /**
+   * @deprecated 请使用 audioFormatPolicy.uploadDirectFormats
+   * 可直接上传的音频格式（不转换为 SILK），向后兼容
+   */
+  voiceDirectUploadFormats?: string[];
+  /**
+   * 音频格式策略配置
+   * 统一管理入站（STT）和出站（上传）的音频格式转换行为
+   */
+  audioFormatPolicy?: AudioFormatPolicy;
+}
+
+/**
+ * 音频格式策略：控制哪些格式可跳过转换
+ */
+export interface AudioFormatPolicy {
+  /**
+   * STT 模型直接支持的音频格式（入站：跳过 SILK→WAV 转换）
+   * 如果 STT 服务支持直接处理某些格式（如 silk/amr），可将其加入此列表
+   * 例如: [".silk", ".amr", ".wav", ".mp3", ".ogg"]
+   * 默认为空（所有语音都先转换为 WAV 再送 STT）
+   */
+  sttDirectFormats?: string[];
+  /**
+   * QQ 平台支持直传的音频格式（出站：跳过→SILK 转换）
+   * 当 QQ 平台支持更多音频格式上传时，可将其加入此列表
+   * 例如: [".mp3", ".wav", ".ogg"]
+   * 默认为空（所有格式都转换为 SILK 后上传）
+   */
+  uploadDirectFormats?: string[];
 }
 
 /**
