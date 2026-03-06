@@ -1,7 +1,4 @@
 node_modules
 dist
-.DS_Store
-.idea/
-.codebuddy/
-.codebuddy.zip
-*.log
+distnode_modules
+package-lock.json

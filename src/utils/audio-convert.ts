@@ -3,216 +3,18 @@ import * as path from "node:path";
 import { execFile } from "node:child_process";
 import { decode, encode, isSilk } from "silk-wasm";
 
-// ============ 文件就绪等待 ============
-
 /**
- * 等待文件就绪（非空且大小稳定）
- *
- * 解决时序竞争问题：框架 TTS 工具异步生成音频文件，AI 模型拿到路径后
- * 立即输出到 <qqvoice> 标签，但文件可能还没写完（0 bytes 或正在写入中）。
- *
- * 策略：轮询文件大小，当连续两次检测大小相同且 > 0 时视为就绪。
- *
- * @param filePath 文件路径
- * @param timeoutMs 最大等待时间（默认 15 秒，TTS 生成通常需要 2-8 秒）
- * @param pollMs 轮询间隔（默认 300ms）
- * @returns 文件大小（字节），超时或文件始终为空返回 0
+ * 检查文件是否为 SILK 格式（QQ/微信语音常用格式）
+ * QQ 语音文件通常以 .amr 扩展名保存，但实际编码可能是 SILK v3
+ * SILK 文件头部标识: 0x02 "#!SILK_V3"
  */
-export async function waitForFile(filePath: string, timeoutMs: number = 30000, pollMs: number = 500): Promise<number> {
-  const start = Date.now();
-  let lastSize = -1;
-  let stableCount = 0;
-  let fileExists = false;
-  let pollCount = 0;
-
-  while (Date.now() - start < timeoutMs) {
-    pollCount++;
-    try {
-      const stat = fs.statSync(filePath);
-      if (!fileExists) {
-        fileExists = true;
-        console.log(`[audio-convert] waitForFile: file appeared (${stat.size} bytes, after ${Date.now() - start}ms): ${path.basename(filePath)}`);
-      }
-      if (stat.size > 0) {
-        if (stat.size === lastSize) {
-          stableCount++;
-          if (stableCount >= 2) {
-            console.log(`[audio-convert] waitForFile: ready (${stat.size} bytes, waited ${Date.now() - start}ms, polls=${pollCount})`);
-            return stat.size;
-          }
-        } else {
-          stableCount = 0;
-        }
-        lastSize = stat.size;
-      }
-    } catch {
-      // 文件可能还不存在，继续等
-    }
-
-    await new Promise((r) => setTimeout(r, pollMs));
-  }
-
-  // 超时后最后检查一次
+function isSilkFile(filePath: string): boolean {
   try {
-    const finalStat = fs.statSync(filePath);
-    if (finalStat.size > 0) {
-      console.warn(`[audio-convert] waitForFile: timeout but file has data (${finalStat.size} bytes), using it`);
-      return finalStat.size;
-    }
-    console.error(`[audio-convert] waitForFile: timeout after ${timeoutMs}ms, file exists but empty (0 bytes): ${path.basename(filePath)}`);
+    const buf = fs.readFileSync(filePath);
+    return isSilk(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
   } catch {
-    console.error(`[audio-convert] waitForFile: timeout after ${timeoutMs}ms, file never appeared: ${path.basename(filePath)}`);
+    return false;
   }
-
-  return 0;
-}
-
-// ============ ffmpeg 可用性检测 ============
-
-let _ffmpegAvailable: boolean | null = null;
-
-/**
- * 检测系统是否安装了 ffmpeg
- * 结果会缓存，只检测一次
- */
-function checkFfmpeg(): Promise<boolean> {
-  if (_ffmpegAvailable !== null) return Promise.resolve(_ffmpegAvailable);
-  return new Promise((resolve) => {
-    execFile("ffmpeg", ["-version"], { timeout: 5000 }, (err) => {
-      _ffmpegAvailable = !err;
-      if (_ffmpegAvailable) {
-        console.log("[audio-convert] ffmpeg detected, using ffmpeg for audio decoding");
-      } else {
-        console.warn("[audio-convert] ffmpeg not found, falling back to WASM decoders (limited format support)");
-      }
-      resolve(_ffmpegAvailable);
-    });
-  });
-}
-
-/**
- * 使用 ffmpeg 将任意音频文件转换为 PCM s16le 单声道 24kHz
- *
- * 这是业界标准做法（Discord/Telegram/NapCat/go-cqhttp 均使用 ffmpeg 做前置解码）：
- * - 支持所有主流音频格式（mp3, ogg, opus, aac, flac, wav, wma, m4a...）
- * - 高质量重采样（SoX resampler）
- * - 正确处理各种边界情况（截断文件、非标准头、流式编码等）
- */
-function ffmpegToPCM(inputPath: string, sampleRate: number = 24000): Promise<Buffer> {
-  return new Promise((resolve, reject) => {
-    const args = [
-      "-i", inputPath,
-      "-f", "s16le",      // 输出格式: raw PCM signed 16-bit little-endian
-      "-ar", String(sampleRate),  // 采样率
-      "-ac", "1",          // 单声道
-      "-acodec", "pcm_s16le",
-      "-v", "error",       // 只输出错误日志
-      "pipe:1",            // 输出到 stdout
-    ];
-
-    const proc = execFile("ffmpeg", args, {
-      maxBuffer: 50 * 1024 * 1024, // 50MB，足以处理大多数语音
-      encoding: "buffer" as any,
-    }, (err, stdout) => {
-      if (err) {
-        reject(new Error(`ffmpeg failed: ${err.message}`));
-        return;
-      }
-      resolve(stdout as unknown as Buffer);
-    });
-  });
-}
-
-// ============ WASM fallback: MP3 解码 ============
-
-/**
- * 使用 mpg123-decoder (WASM) 解码 MP3 为 PCM
- * 仅在 ffmpeg 不可用时作为 fallback
- */
-async function wasmDecodeMp3ToPCM(buf: Buffer, targetRate: number): Promise<Buffer | null> {
-  try {
-    const { MPEGDecoder } = await import("mpg123-decoder");
-    console.log(`[audio-convert] WASM MP3 decode: size=${buf.length} bytes`);
-    const decoder = new MPEGDecoder();
-    await decoder.ready;
-    const decoded = decoder.decode(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
-    decoder.free();
-
-    if (decoded.samplesDecoded === 0 || decoded.channelData.length === 0) {
-      console.error(`[audio-convert] WASM MP3 decode: no samples (samplesDecoded=${decoded.samplesDecoded})`);
-      return null;
-    }
-
-    console.log(`[audio-convert] WASM MP3 decode: samples=${decoded.samplesDecoded}, sampleRate=${decoded.sampleRate}, channels=${decoded.channelData.length}`);
-
-    // Float32 多声道混缩为单声道
-    let floatMono: Float32Array;
-    if (decoded.channelData.length === 1) {
-      floatMono = decoded.channelData[0]!;
-    } else {
-      floatMono = new Float32Array(decoded.samplesDecoded);
-      const channels = decoded.channelData.length;
-      for (let i = 0; i < decoded.samplesDecoded; i++) {
-        let sum = 0;
-        for (let ch = 0; ch < channels; ch++) {
-          sum += decoded.channelData[ch]![i]!;
-        }
-        floatMono[i] = sum / channels;
-      }
-    }
-
-    // Float32 → s16le
-    const s16 = new Uint8Array(floatMono.length * 2);
-    const view = new DataView(s16.buffer);
-    for (let i = 0; i < floatMono.length; i++) {
-      const clamped = Math.max(-1, Math.min(1, floatMono[i]!));
-      const val = clamped < 0 ? clamped * 32768 : clamped * 32767;
-      view.setInt16(i * 2, Math.round(val), true);
-    }
-
-    // 简单线性插值重采样（仅 fallback 时使用，质量不如 ffmpeg）
-    let pcm: Uint8Array = s16;
-    if (decoded.sampleRate !== targetRate) {
-      const inputSamples = s16.length / 2;
-      const outputSamples = Math.round(inputSamples * targetRate / decoded.sampleRate);
-      const output = new Uint8Array(outputSamples * 2);
-      const inView = new DataView(s16.buffer, s16.byteOffset, s16.byteLength);
-      const outView = new DataView(output.buffer, output.byteOffset, output.byteLength);
-      for (let i = 0; i < outputSamples; i++) {
-        const srcIdx = i * decoded.sampleRate / targetRate;
-        const idx0 = Math.floor(srcIdx);
-        const idx1 = Math.min(idx0 + 1, inputSamples - 1);
-        const frac = srcIdx - idx0;
-        const s0 = inView.getInt16(idx0 * 2, true);
-        const s1 = inView.getInt16(idx1 * 2, true);
-        const sample = Math.round(s0 + (s1 - s0) * frac);
-        outView.setInt16(i * 2, Math.max(-32768, Math.min(32767, sample)), true);
-      }
-      pcm = output;
-    }
-
-    return Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength);
-  } catch (err) {
-    console.error(`[audio-convert] WASM MP3 decode failed: ${err instanceof Error ? err.message : String(err)}`);
-    if (err instanceof Error && err.stack) {
-      console.error(`[audio-convert] stack: ${err.stack}`);
-    }
-    return null;
-  }
-}
-
-// ============ SILK 相关基础函数 ============
-
-/**
- * 去除 QQ 语音文件的 AMR 头（如果存在）
- * QQ 的 .amr 文件可能在 SILK 数据前有 "#!AMR\n" 头（6 字节）
- */
-function stripAmrHeader(buf: Buffer): Buffer {
-  const AMR_HEADER = Buffer.from("#!AMR\n");
-  if (buf.length > 6 && buf.subarray(0, 6).equals(AMR_HEADER)) {
-    return buf.subarray(6);
-  }
-  return buf;
 }
 
 /**
@@ -228,19 +30,22 @@ function pcmToWav(pcmData: Uint8Array, sampleRate: number, channels: number = 1,
 
   const buffer = Buffer.alloc(fileSize);
 
+  // RIFF header
   buffer.write("RIFF", 0);
   buffer.writeUInt32LE(fileSize - 8, 4);
   buffer.write("WAVE", 8);
 
+  // fmt sub-chunk
   buffer.write("fmt ", 12);
-  buffer.writeUInt32LE(16, 16);
-  buffer.writeUInt16LE(1, 20);
+  buffer.writeUInt32LE(16, 16);         // sub-chunk size
+  buffer.writeUInt16LE(1, 20);          // PCM format
   buffer.writeUInt16LE(channels, 22);
   buffer.writeUInt32LE(sampleRate, 24);
   buffer.writeUInt32LE(byteRate, 28);
   buffer.writeUInt16LE(blockAlign, 32);
   buffer.writeUInt16LE(bitsPerSample, 34);
 
+  // data sub-chunk
   buffer.write("data", 36);
   buffer.writeUInt32LE(dataSize, 40);
   Buffer.from(pcmData.buffer, pcmData.byteOffset, pcmData.byteLength).copy(buffer, headerSize);
@@ -248,51 +53,60 @@ function pcmToWav(pcmData: Uint8Array, sampleRate: number, channels: number = 1,
   return buffer;
 }
 
-// ============ 格式列表标准化 ============
-
 /**
- * 标准化音频格式列表（统一为 ".xxx" 小写格式）
- * 供入站 STT 和出站上传共用
+ * 去除 QQ 语音文件的 AMR 头（如果存在）
+ * QQ 的 .amr 文件可能在 SILK 数据前有 "#!AMR\n" 头（6 字节）
+ * 需要去除后才能被 silk-wasm 正确解码
  */
-export function normalizeFormats(formats?: string[]): string[] {
-  if (!formats?.length) return [];
-  return formats.map(f => f.startsWith(".") ? f.toLowerCase() : `.${f.toLowerCase()}`);
+function stripAmrHeader(buf: Buffer): Buffer {
+  const AMR_HEADER = Buffer.from("#!AMR\n");
+  if (buf.length > 6 && buf.subarray(0, 6).equals(AMR_HEADER)) {
+    return buf.subarray(6);
+  }
+  return buf;
 }
 
-// ============ 入站：SILK → WAV ============
-
 /**
- * 将 SILK/AMR 语音文件转换为 WAV 格式（用于 STT）
- * @param sttDirectFormats - STT 模型直接支持的格式列表，匹配时跳过转换，直接返回原始路径
+ * 将 SILK/AMR 语音文件转换为 WAV 格式
+ *
+ * @param inputPath 输入文件路径（.amr / .silk / .slk）
+ * @param outputDir 输出目录（默认与输入文件同目录）
+ * @returns 转换后的 WAV 文件路径，失败返回 null
  */
 export async function convertSilkToWav(
   inputPath: string,
   outputDir?: string,
-  sttDirectFormats?: string[],
-): Promise<{ wavPath: string; duration: number; skipped?: boolean } | null> {
-  if (!fs.existsSync(inputPath)) return null;
-
-  const ext = path.extname(inputPath).toLowerCase();
-
-  // 如果 STT 模型直接支持该格式，跳过转换
-  const normalized = normalizeFormats(sttDirectFormats);
-  if (normalized.includes(ext)) {
-    console.log(`[audio-convert] STT direct format (skip SILK→WAV): ${ext}`);
-    return { wavPath: inputPath, duration: 0, skipped: true };
+): Promise<{ wavPath: string; duration: number } | null> {
+  if (!fs.existsSync(inputPath)) {
+    return null;
   }
 
   const fileBuf = fs.readFileSync(inputPath);
+
+  // 去除可能的 AMR 头
   const strippedBuf = stripAmrHeader(fileBuf);
+
+  // 转为 Uint8Array 以兼容 silk-wasm 类型要求
   const rawData = new Uint8Array(strippedBuf.buffer, strippedBuf.byteOffset, strippedBuf.byteLength);
 
-  if (!isSilk(rawData)) return null;
+  // 验证是否为 SILK 格式
+  if (!isSilk(rawData)) {
+    return null;
+  }
 
+  // SILK 解码为 PCM (s16le)
+  // QQ 语音通常采样率为 24000Hz
   const sampleRate = 24000;
   const result = await decode(rawData, sampleRate);
+
+  // PCM → WAV
   const wavBuffer = pcmToWav(result.data, sampleRate);
 
+  // 写入 WAV 文件
   const dir = outputDir || path.dirname(inputPath);
-  if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  if (!fs.existsSync(dir)) {
+    fs.mkdirSync(dir, { recursive: true });
+  }
   const baseName = path.basename(inputPath, path.extname(inputPath));
   const wavPath = path.join(dir, `${baseName}.wav`);
   fs.writeFileSync(wavPath, wavBuffer);
@@ -300,17 +114,25 @@ export async function convertSilkToWav(
   return { wavPath, duration: result.duration };
 }
 
-// ============ 工具函数 ============
-
+/**
+ * 判断是否为语音附件（根据 content_type 或文件扩展名）
+ */
 export function isVoiceAttachment(att: { content_type?: string; filename?: string }): boolean {
-  if (att.content_type === "voice" || att.content_type?.startsWith("audio/")) return true;
+  if (att.content_type === "voice" || att.content_type?.startsWith("audio/")) {
+    return true;
+  }
   const ext = att.filename ? path.extname(att.filename).toLowerCase() : "";
-  return [".amr", ".silk", ".slk"].includes(ext);
+  return [".amr", ".silk", ".slk", ".slac"].includes(ext);
 }
 
+/**
+ * 格式化语音时长为可读字符串
+ */
 export function formatDuration(durationMs: number): string {
   const seconds = Math.round(durationMs / 1000);
-  if (seconds < 60) return `${seconds}秒`;
+  if (seconds < 60) {
+    return `${seconds}秒`;
+  }
   const minutes = Math.floor(seconds / 60);
   const remainSeconds = seconds % 60;
   return remainSeconds > 0 ? `${minutes}分${remainSeconds}秒` : `${minutes}分钟`;
@@ -332,19 +154,37 @@ export interface TTSConfig {
 
 export function resolveTTSConfig(cfg: Record<string, unknown>): TTSConfig | null {
   const c = cfg as any;
-  const ttsCfg = c?.channels?.qqbot?.tts;
-  if (!ttsCfg || ttsCfg.enabled === false) return null;
 
-  const providerId: string = ttsCfg?.provider || "openai";
-  const providerCfg = c?.models?.providers?.[providerId];
+  // 优先使用 channels.qqbot.tts（插件专属配置）
+  const channelTts = c?.channels?.qqbot?.tts;
+  if (channelTts && channelTts.enabled !== false) {
+    const providerId: string = channelTts?.provider || "openai";
+    const providerCfg = c?.models?.providers?.[providerId];
+    const baseUrl: string | undefined = channelTts?.baseUrl || providerCfg?.baseUrl;
+    const apiKey: string | undefined = channelTts?.apiKey || providerCfg?.apiKey;
+    const model: string = channelTts?.model || "tts-1";
+    const voice: string = channelTts?.voice || "alloy";
+    if (baseUrl && apiKey) {
+      return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model, voice };
+    }
+  }
 
-  const baseUrl: string | undefined = ttsCfg?.baseUrl || providerCfg?.baseUrl;
-  const apiKey: string | undefined = ttsCfg?.apiKey || providerCfg?.apiKey;
-  const model: string = ttsCfg?.model || "tts-1";
-  const voice: string = ttsCfg?.voice || "alloy";
+  // 回退到 messages.tts（openclaw 框架级 TTS 配置）
+  const msgTts = c?.messages?.tts;
+  if (msgTts && msgTts.auto !== "disabled") {
+    const providerId: string = msgTts?.provider || "openai";
+    const providerBlock = msgTts?.[providerId];  // messages.tts.openai / messages.tts.xxx
+    const providerCfg = c?.models?.providers?.[providerId];
+    const baseUrl: string | undefined = providerBlock?.baseUrl || providerCfg?.baseUrl;
+    const apiKey: string | undefined = providerBlock?.apiKey || providerCfg?.apiKey;
+    const model: string = providerBlock?.model || "tts-1";
+    const voice: string = providerBlock?.voice || "alloy";
+    if (baseUrl && apiKey) {
+      return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model, voice };
+    }
+  }
 
-  if (!baseUrl || !apiKey) return null;
-  return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model, voice };
+  return null;
 }
 
 export async function textToSpeechPCM(
@@ -407,18 +247,21 @@ export async function textToSilk(
 
 // ============ 核心：任意音频 → SILK Base64 ============
 
+/** QQ Bot API 原生支持上传的音频格式（无需转换为 SILK） */
+const QQ_NATIVE_UPLOAD_FORMATS = [".wav", ".mp3", ".silk"];
+
 /**
- * 将本地音频文件转换为 SILK 格式的 Base64（用于 QQ Bot 语音上传）
+ * 将本地音频文件转换为 QQ Bot 可上传的 Base64
  *
+ * QQ Bot API 支持直传 WAV、MP3、SILK 三种格式，其他格式仍需转换。
  * 转换策略（参考 NapCat/go-cqhttp/Discord/Telegram 的做法）：
  *
- * 1. SILK 格式 → 直接使用
+ * 1. WAV / MP3 / SILK → 直传（跳过转换）
  * 2. 有 ffmpeg → ffmpeg 万能解码为 PCM → silk-wasm 编码
- *    支持: mp3, ogg, opus, aac, flac, wav, wma, m4a, pcm 等所有 ffmpeg 支持的格式
- * 3. 无 ffmpeg → WASM fallback（仅支持 mp3, wav, pcm）
- */
-/**
- * @param directUploadFormats - 可直接上传的音频格式列表（跳过 SILK 转换），如 [".mp3", ".wav"]
+ *    支持: ogg, opus, aac, flac, wma, m4a, pcm 等所有 ffmpeg 支持的格式
+ * 3. 无 ffmpeg → WASM fallback（仅支持 pcm, wav）
+ *
+ * @param directUploadFormats - 自定义直传格式列表，覆盖默认值。传 undefined 使用 QQ_NATIVE_UPLOAD_FORMATS
  */
 export async function audioFileToSilkBase64(filePath: string, directUploadFormats?: string[]): Promise<string | null> {
   if (!fs.existsSync(filePath)) return null;
@@ -431,15 +274,15 @@ export async function audioFileToSilkBase64(filePath: string, directUploadFormat
 
   const ext = path.extname(filePath).toLowerCase();
 
-  // 0. 如果当前格式在直传列表中，跳过 SILK 转换，直接返回原始 Base64
-  const normalized = normalizeFormats(directUploadFormats);
-  if (normalized.includes(ext)) {
-    console.log(`[audio-convert] direct upload (skip SILK conversion): ${ext} (${buf.length} bytes)`);
+  // 0. 直传判断：QQ Bot API 原生支持 WAV/MP3/SILK，可通过配置覆盖
+  const uploadFormats = directUploadFormats ? normalizeFormats(directUploadFormats) : QQ_NATIVE_UPLOAD_FORMATS;
+  if (uploadFormats.includes(ext)) {
+    console.log(`[audio-convert] direct upload (QQ native format): ${ext} (${buf.length} bytes)`);
     return buf.toString("base64");
   }
 
-  // 1. SILK 格式文件直接使用（无需转换）
-  if ([".silk", ".slk", ".amr"].includes(ext)) {
+  // 1. .slk / .amr 扩展名 → 检测 SILK 魔数，是 SILK 则直传
+  if ([".slk", ".slac"].includes(ext)) {
     const stripped = stripAmrHeader(buf);
     const raw = new Uint8Array(stripped.buffer, stripped.byteOffset, stripped.byteLength);
     if (isSilk(raw)) {
@@ -512,6 +355,201 @@ export async function audioFileToSilkBase64(filePath: string, directUploadFormat
 }
 
 /**
+ * 等待文件就绪（轮询直到文件出现且大小稳定）
+ * 用于 TTS 生成后等待文件写入完成
+ *
+ * @param filePath 文件路径
+ * @param timeoutMs 最大等待时间（默认 30 秒）
+ * @param pollMs 轮询间隔（默认 500ms）
+ * @returns 文件大小（字节），超时或文件始终为空返回 0
+ */
+export async function waitForFile(filePath: string, timeoutMs: number = 30000, pollMs: number = 500): Promise<number> {
+  const start = Date.now();
+  let lastSize = -1;
+  let stableCount = 0;
+  let fileExists = false;
+  let pollCount = 0;
+
+  while (Date.now() - start < timeoutMs) {
+    pollCount++;
+    try {
+      const stat = fs.statSync(filePath);
+      if (!fileExists) {
+        fileExists = true;
+        console.log(`[audio-convert] waitForFile: file appeared (${stat.size} bytes, after ${Date.now() - start}ms): ${path.basename(filePath)}`);
+      }
+      if (stat.size > 0) {
+        if (stat.size === lastSize) {
+          stableCount++;
+          if (stableCount >= 2) {
+            console.log(`[audio-convert] waitForFile: ready (${stat.size} bytes, waited ${Date.now() - start}ms, polls=${pollCount})`);
+            return stat.size;
+          }
+        } else {
+          stableCount = 0;
+        }
+        lastSize = stat.size;
+      }
+    } catch {
+      // 文件可能还不存在，继续等
+    }
+    await new Promise((r) => setTimeout(r, pollMs));
+  }
+
+  // 超时后最后检查一次
+  try {
+    const finalStat = fs.statSync(filePath);
+    if (finalStat.size > 0) {
+      console.warn(`[audio-convert] waitForFile: timeout but file has data (${finalStat.size} bytes), using it`);
+      return finalStat.size;
+    }
+    console.error(`[audio-convert] waitForFile: timeout after ${timeoutMs}ms, file exists but empty (0 bytes): ${path.basename(filePath)}`);
+  } catch {
+    console.error(`[audio-convert] waitForFile: timeout after ${timeoutMs}ms, file never appeared: ${path.basename(filePath)}`);
+  }
+  return 0;
+}
+
+// ============ ffmpeg 可用性检测 ============
+
+let _ffmpegAvailable: boolean | null = null;
+
+/**
+ * 检测系统是否安装了 ffmpeg
+ * 结果会缓存，只检测一次
+ */
+function checkFfmpeg(): Promise<boolean> {
+  if (_ffmpegAvailable !== null) return Promise.resolve(_ffmpegAvailable);
+  return new Promise((resolve) => {
+    execFile("ffmpeg", ["-version"], { timeout: 5000 }, (err) => {
+      _ffmpegAvailable = !err;
+      if (_ffmpegAvailable) {
+        console.log("[audio-convert] ffmpeg detected, using ffmpeg for audio decoding");
+      } else {
+        console.warn("[audio-convert] ffmpeg not found, falling back to WASM decoders (limited format support)");
+      }
+      resolve(_ffmpegAvailable);
+    });
+  });
+}
+
+/**
+ * 使用 ffmpeg 将任意音频文件转换为 PCM s16le 单声道 24kHz
+ */
+function ffmpegToPCM(inputPath: string, sampleRate: number = 24000): Promise<Buffer> {
+  return new Promise((resolve, reject) => {
+    const args = [
+      "-i", inputPath,
+      "-f", "s16le",
+      "-ar", String(sampleRate),
+      "-ac", "1",
+      "-acodec", "pcm_s16le",
+      "-v", "error",
+      "pipe:1",
+    ];
+    execFile("ffmpeg", args, {
+      maxBuffer: 50 * 1024 * 1024,
+      encoding: "buffer",
+    }, (err, stdout) => {
+      if (err) {
+        reject(new Error(`ffmpeg failed: ${err.message}`));
+        return;
+      }
+      resolve(stdout as unknown as Buffer);
+    });
+  });
+}
+
+// ============ WASM fallback: MP3 解码 ============
+
+/**
+ * 使用 mpg123-decoder (WASM) 解码 MP3 为 PCM
+ * 仅在 ffmpeg 不可用时作为 fallback
+ */
+async function wasmDecodeMp3ToPCM(buf: Buffer, targetRate: number): Promise<Buffer | null> {
+  try {
+    const { MPEGDecoder } = await import("mpg123-decoder");
+    console.log(`[audio-convert] WASM MP3 decode: size=${buf.length} bytes`);
+    const decoder = new MPEGDecoder();
+    await decoder.ready;
+
+    const decoded = decoder.decode(new Uint8Array(buf.buffer, buf.byteOffset, buf.byteLength));
+    decoder.free();
+
+    if (decoded.samplesDecoded === 0 || decoded.channelData.length === 0) {
+      console.error(`[audio-convert] WASM MP3 decode: no samples (samplesDecoded=${decoded.samplesDecoded})`);
+      return null;
+    }
+
+    console.log(`[audio-convert] WASM MP3 decode: samples=${decoded.samplesDecoded}, sampleRate=${decoded.sampleRate}, channels=${decoded.channelData.length}`);
+
+    // Float32 多声道混缩为单声道
+    let floatMono: Float32Array;
+    if (decoded.channelData.length === 1) {
+      floatMono = decoded.channelData[0];
+    } else {
+      floatMono = new Float32Array(decoded.samplesDecoded);
+      const channels = decoded.channelData.length;
+      for (let i = 0; i < decoded.samplesDecoded; i++) {
+        let sum = 0;
+        for (let ch = 0; ch < channels; ch++) {
+          sum += decoded.channelData[ch][i];
+        }
+        floatMono[i] = sum / channels;
+      }
+    }
+
+    // Float32 → s16le
+    const s16 = new Uint8Array(floatMono.length * 2);
+    const view = new DataView(s16.buffer);
+    for (let i = 0; i < floatMono.length; i++) {
+      const clamped = Math.max(-1, Math.min(1, floatMono[i]));
+      const val = clamped < 0 ? clamped * 32768 : clamped * 32767;
+      view.setInt16(i * 2, Math.round(val), true);
+    }
+
+    // 简单线性插值重采样
+    let pcm: Uint8Array = s16;
+    if (decoded.sampleRate !== targetRate) {
+      const inputSamples = s16.length / 2;
+      const outputSamples = Math.round(inputSamples * targetRate / decoded.sampleRate);
+      const output = new Uint8Array(outputSamples * 2);
+      const inView = new DataView(s16.buffer, s16.byteOffset, s16.byteLength);
+      const outView = new DataView(output.buffer, output.byteOffset, output.byteLength);
+      for (let i = 0; i < outputSamples; i++) {
+        const srcIdx = i * decoded.sampleRate / targetRate;
+        const idx0 = Math.floor(srcIdx);
+        const idx1 = Math.min(idx0 + 1, inputSamples - 1);
+        const frac = srcIdx - idx0;
+        const s0 = inView.getInt16(idx0 * 2, true);
+        const s1 = inView.getInt16(idx1 * 2, true);
+        const sample = Math.round(s0 + (s1 - s0) * frac);
+        outView.setInt16(i * 2, Math.max(-32768, Math.min(32767, sample)), true);
+      }
+      pcm = output;
+    }
+
+    return Buffer.from(pcm.buffer, pcm.byteOffset, pcm.byteLength);
+  } catch (err) {
+    console.error(`[audio-convert] WASM MP3 decode failed: ${err instanceof Error ? err.message : String(err)}`);
+    if (err instanceof Error && err.stack) {
+      console.error(`[audio-convert] stack: ${err.stack}`);
+    }
+    return null;
+  }
+}
+
+/**
+ * 规范化格式列表（确保以 . 开头，小写）
+ */
+function normalizeFormats(formats: string[]): string[] {
+  return formats.map((f) => {
+    const lower = f.toLowerCase().trim();
+    return lower.startsWith(".") ? lower : `.${lower}`;
+  });
+}
+
+/**
  * WAV fallback 解析（无 ffmpeg 时使用）
  * 仅支持标准 PCM WAV (format=1, 16bit)
  */
@@ -580,3 +618,4 @@ function parseWavFallback(buf: Buffer): Buffer | null {
 
   return null;
 }
+

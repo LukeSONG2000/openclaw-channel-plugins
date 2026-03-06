@@ -1,3 +1,59 @@
+<div align="center">
+
+# QQ Bot Channel Plugin for Openclaw(Clawdbot/Moltbot)
+
+QQ 开放平台 Bot API 的 Openclaw 渠道插件，支持 C2C 私聊、群聊 @消息、频道消息。
+
+The Openclaw channel plugin of the Bot API of the QQ Open Platform supports C2C private chats, group chat @ messages, and channel messages.
+
+[![npm version](https://img.shields.io/badge/npm-v1.4.1-blue)](https://www.npmjs.com/package/@sliverp/qqbot)
+[![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
+[![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
+[![Platform](https://img.shields.io/badge/platform-Openclaw-orange)](https://github.com/sliverp/openclaw)
+[![Node.js](https://img.shields.io/badge/Node.js->=18-339933)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6)](https://www.typescriptlang.org/)
+
+
+
+扫描二维码加入群聊，一起交流
+
+<img width="316" height="410" alt="Clipboard_Screenshot_1772443710" src="https://github.com/user-attachments/assets/d079ba89-ecd0-437f-9e66-92319801a325" />
+
+</div>
+
+
+---
+
+## 📸 使用示例
+<div align="center">
+<img width="400" alt="使用示例" src="https://github.com/user-attachments/assets/6f1704ab-584b-497e-8937-96f84ce2958f" />
+<img width="670" height="396" alt="Clipboard_Screenshot_1770366319" src="https://github.com/user-attachments/assets/e21e9292-fb93-41a7-81fe-39eeefe3b01d" />
+
+</div>
+
+---
+
+## ✨ 功能特性
+
+- 🔒 **多场景支持** - C2C 私聊、群聊 @消息、频道消息、频道私信
+- 🖼️ **富媒体消息** - 支持图片收发、文件发送
+- ⏰ **定时推送** - 支持定时任务到时后主动推送
+- 🔗 **URL 无限制** - 私聊可直接发送 URL
+- ⌨️ **输入状态** - Bot 正在输入中状态提示
+- 🔄 **热更新** - 支持 npm 方式安装和热更新
+- 📝 **Markdown** - 支持 Markdown 格式
+- 📝 **Command** - 支持Openclaw原生命令
+
+  
+---
+
+## ⭐ Star History
+<div align="center">
+  
+[![Star History Chart](https://api.star-history.com/svg?repos=sliverp/qqbot&type=date&legend=top-left)](https://www.star-history.com/#sliverp/qqbot&type=date&legend=top-left)
+
+</div>
+
 # QQ
 
 QQ is a widely-used instant messaging platform that provides various communication capabilities such as text, voice, images, and files. It supports collaborative scenarios like group chats and channels, making it suitable for both personal communication and team collaboration.
@@ -107,6 +163,67 @@ Edit ~/.openclaw/openclaw.json:
   }
 }
 ```
+
+## Voice Capabilities (Optional)
+
+### STT (Speech-to-Text) — Transcribe incoming voice messages
+
+STT reuses your existing model provider configuration. Add an audio model entry in `tools.media.audio.models`:
+
+``` json
+{
+  "tools": {
+    "media": {
+      "audio": {
+        "models": [
+          {
+            "provider": "openai",
+            "model": "whisper-1"
+          }
+        ]
+      }
+    }
+  },
+  "models": {
+    "providers": {
+      "openai": {
+        "baseUrl": "https://api.openai.com/v1",
+        "apiKey": "sk-xxx"
+      }
+    }
+  }
+}
+```
+
+- `provider` — references a key in `models.providers` to inherit `baseUrl` and `apiKey` (default: `"openai"`)
+- `model` — STT model name (default: `"whisper-1"`)
+- You can also set `baseUrl` / `apiKey` directly in the audio model entry to override the provider defaults
+- When configured, incoming voice messages are automatically converted (SILK→WAV) and transcribed
+
+### TTS (Text-to-Speech) — Send voice messages
+
+Configure TTS under `channels.qqbot.tts`:
+
+``` json
+{
+  "channels": {
+    "qqbot": {
+      "tts": {
+        "provider": "openai",
+        "model": "tts-1",
+        "voice": "alloy"
+      }
+    }
+  }
+}
+```
+
+- `provider` — references a key in `models.providers` to inherit `baseUrl` and `apiKey` (default: `"openai"`)
+- `model` — TTS model name (default: `"tts-1"`)
+- `voice` — voice variant (default: `"alloy"`)
+- `baseUrl` / `apiKey` — optional overrides for the provider defaults
+- `enabled` — set to `false` to disable (default: `true`)
+- When configured, the AI can use `<qqvoice>` tags to generate and send voice messages via OpenAI-compatible TTS API
 
 # Step 4: Start and Test
 
