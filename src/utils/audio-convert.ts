@@ -151,6 +151,37 @@ export interface TTSConfig {
   apiKey: string;
   model: string;
   voice: string;
+  /** Azure OpenAI 风格：使用 api-key header 而非 Bearer token */
+  authStyle?: "bearer" | "api-key";
+  /** 附加在 URL 后的查询参数，如 Azure 的 api-version */
+  queryParams?: Record<string, string>;
+  /** 自定义速度（默认不传） */
+  speed?: number;
+}
+
+function resolveTTSFromBlock(
+  block: Record<string, any>,
+  providerCfg: Record<string, any> | undefined,
+): TTSConfig | null {
+  const baseUrl: string | undefined = block?.baseUrl || providerCfg?.baseUrl;
+  const apiKey: string | undefined = block?.apiKey || providerCfg?.apiKey;
+  const model: string = block?.model || "tts-1";
+  const voice: string = block?.voice || "alloy";
+  if (!baseUrl || !apiKey) return null;
+
+  const authStyle = (block?.authStyle || providerCfg?.authStyle) === "api-key" ? "api-key" as const : "bearer" as const;
+  const queryParams: Record<string, string> = { ...(providerCfg?.queryParams ?? {}), ...(block?.queryParams ?? {}) };
+  const speed: number | undefined = block?.speed;
+
+  return {
+    baseUrl: baseUrl.replace(/\/+$/, ""),
+    apiKey,
+    model,
+    voice,
+    authStyle,
+    ...(Object.keys(queryParams).length > 0 ? { queryParams } : {}),
+    ...(speed !== undefined ? { speed } : {}),
+  };
 }
 
 export function resolveTTSConfig(cfg: Record<string, unknown>): TTSConfig | null {
@@ -161,31 +192,44 @@ export function resolveTTSConfig(cfg: Record<string, unknown>): TTSConfig | null
   if (channelTts && channelTts.enabled !== false) {
     const providerId: string = channelTts?.provider || "openai";
     const providerCfg = c?.models?.providers?.[providerId];
-    const baseUrl: string | undefined = channelTts?.baseUrl || providerCfg?.baseUrl;
-    const apiKey: string | undefined = channelTts?.apiKey || providerCfg?.apiKey;
-    const model: string = channelTts?.model || "tts-1";
-    const voice: string = channelTts?.voice || "alloy";
-    if (baseUrl && apiKey) {
-      return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model, voice };
-    }
+    const result = resolveTTSFromBlock(channelTts, providerCfg);
+    if (result) return result;
   }
 
   // 回退到 messages.tts（openclaw 框架级 TTS 配置）
   const msgTts = c?.messages?.tts;
   if (msgTts && msgTts.auto !== "disabled") {
     const providerId: string = msgTts?.provider || "openai";
-    const providerBlock = msgTts?.[providerId];  // messages.tts.openai / messages.tts.xxx
+    const providerBlock = msgTts?.[providerId];
     const providerCfg = c?.models?.providers?.[providerId];
-    const baseUrl: string | undefined = providerBlock?.baseUrl || providerCfg?.baseUrl;
-    const apiKey: string | undefined = providerBlock?.apiKey || providerCfg?.apiKey;
-    const model: string = providerBlock?.model || "tts-1";
-    const voice: string = providerBlock?.voice || "alloy";
-    if (baseUrl && apiKey) {
-      return { baseUrl: baseUrl.replace(/\/+$/, ""), apiKey, model, voice };
-    }
+    const result = resolveTTSFromBlock(providerBlock ?? {}, providerCfg);
+    if (result) return result;
   }
 
   return null;
+}
+
+/**
+ * 构建 TTS 请求 URL 和 Headers
+ * 支持 OpenAI 标准和 Azure OpenAI 两种风格
+ */
+function buildTTSRequest(ttsCfg: TTSConfig): { url: string; headers: Record<string, string> } {
+  // 构建 URL：baseUrl + /audio/speech + 可选 queryParams
+  let url = `${ttsCfg.baseUrl}/audio/speech`;
+  if (ttsCfg.queryParams && Object.keys(ttsCfg.queryParams).length > 0) {
+    const qs = new URLSearchParams(ttsCfg.queryParams).toString();
+    url += `?${qs}`;
+  }
+
+  // 构建认证 Header
+  const headers: Record<string, string> = { "Content-Type": "application/json" };
+  if (ttsCfg.authStyle === "api-key") {
+    headers["api-key"] = ttsCfg.apiKey;
+  } else {
+    headers["Authorization"] = `Bearer ${ttsCfg.apiKey}`;
+  }
+
+  return { url, headers };
 }
 
 export async function textToSpeechPCM(
@@ -193,34 +237,104 @@ export async function textToSpeechPCM(
   ttsCfg: TTSConfig,
 ): Promise<{ pcmBuffer: Buffer; sampleRate: number }> {
   const sampleRate = 24000;
+  const { url, headers } = buildTTSRequest(ttsCfg);
 
-  const controller = new AbortController();
-  const ttsTimeout = setTimeout(() => controller.abort(), 120000);
+  console.log(`[tts] Request: model=${ttsCfg.model}, voice=${ttsCfg.voice}, authStyle=${ttsCfg.authStyle ?? "bearer"}, url=${url}`);
+  console.log(`[tts] Input text (${text.length} chars): "${text.slice(0, 80)}${text.length > 80 ? "..." : ""}"`);
 
-  const resp = await fetch(`${ttsCfg.baseUrl}/audio/speech`, {
-    method: "POST",
-    headers: {
-      "Authorization": `Bearer ${ttsCfg.apiKey}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({
-      model: ttsCfg.model,
-      input: text,
-      voice: ttsCfg.voice,
-      response_format: "pcm",
-      sample_rate: sampleRate,
-      stream: false,
-    }),
-    signal: controller.signal,
-  }).finally(() => clearTimeout(ttsTimeout));
+  // 先尝试 PCM 格式（最高质量，无需二次转码）
+  const formats: Array<{ format: string; needsDecode: boolean }> = [
+    { format: "pcm", needsDecode: false },
+    { format: "mp3", needsDecode: true },
+  ];
 
-  if (!resp.ok) {
-    const detail = await resp.text().catch(() => "");
-    throw new Error(`TTS failed (HTTP ${resp.status}): ${detail.slice(0, 300)}`);
+  let lastError: Error | null = null;
+  const startTime = Date.now();
+
+  for (const { format, needsDecode } of formats) {
+    const controller = new AbortController();
+    const ttsTimeout = setTimeout(() => controller.abort(), 120000);
+
+    try {
+      const body: Record<string, unknown> = {
+        model: ttsCfg.model,
+        input: text,
+        voice: ttsCfg.voice,
+        response_format: format,
+        ...(format === "pcm" ? { sample_rate: sampleRate } : {}),
+        ...(ttsCfg.speed !== undefined ? { speed: ttsCfg.speed } : {}),
+      };
+
+      console.log(`[tts] Trying format=${format}...`);
+      const fetchStart = Date.now();
+      const resp = await fetch(url, {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+        signal: controller.signal,
+      }).finally(() => clearTimeout(ttsTimeout));
+
+      const fetchMs = Date.now() - fetchStart;
+
+      if (!resp.ok) {
+        const detail = await resp.text().catch(() => "");
+        console.log(`[tts] HTTP ${resp.status} for format=${format} (${fetchMs}ms): ${detail.slice(0, 200)}`);
+        // 如果 PCM 不支持（Azure 等），回退到 mp3
+        if (format === "pcm" && (resp.status === 400 || resp.status === 422)) {
+          console.log(`[tts] PCM format not supported, falling back to mp3`);
+          lastError = new Error(`TTS PCM not supported: ${detail.slice(0, 200)}`);
+          continue;
+        }
+        throw new Error(`TTS failed (HTTP ${resp.status}): ${detail.slice(0, 300)}`);
+      }
+
+      const arrayBuffer = await resp.arrayBuffer();
+      const rawBuffer = Buffer.from(arrayBuffer);
+      console.log(`[tts] Response OK: format=${format}, size=${rawBuffer.length} bytes, latency=${fetchMs}ms`);
+
+      if (!needsDecode) {
+        console.log(`[tts] Done: PCM direct, ${rawBuffer.length} bytes, total=${Date.now() - startTime}ms`);
+        return { pcmBuffer: rawBuffer, sampleRate };
+      }
+
+      // mp3 需要解码为 PCM
+      console.log(`[tts] Decoding mp3 response (${rawBuffer.length} bytes) to PCM...`);
+      const tmpDir = path.join(fs.mkdtempSync(path.join(require("node:os").tmpdir(), "tts-")));
+      const tmpMp3 = path.join(tmpDir, "tts.mp3");
+      fs.writeFileSync(tmpMp3, rawBuffer);
+
+      try {
+        // 优先用 ffmpeg
+        const ffmpegCmd = await checkFfmpeg();
+        if (ffmpegCmd) {
+          const pcmBuf = await ffmpegToPCM(ffmpegCmd, tmpMp3, sampleRate);
+          console.log(`[tts] Done: mp3→PCM (ffmpeg), ${pcmBuf.length} bytes, total=${Date.now() - startTime}ms`);
+          return { pcmBuffer: pcmBuf, sampleRate };
+        }
+        // WASM fallback
+        const pcmBuf = await wasmDecodeMp3ToPCM(rawBuffer, sampleRate);
+        if (pcmBuf) {
+          console.log(`[tts] Done: mp3→PCM (wasm), ${pcmBuf.length} bytes, total=${Date.now() - startTime}ms`);
+          return { pcmBuffer: pcmBuf, sampleRate };
+        }
+        throw new Error("No decoder available for mp3 (install ffmpeg for best compatibility)");
+      } finally {
+        try { fs.unlinkSync(tmpMp3); fs.rmdirSync(tmpDir); } catch {}
+      }
+    } catch (err) {
+      clearTimeout(ttsTimeout);
+      lastError = err instanceof Error ? err : new Error(String(err));
+      console.log(`[tts] Error for format=${format}: ${lastError.message.slice(0, 200)}`);
+      if (format === "pcm") {
+        // PCM 失败时不立即抛出，尝试 mp3
+        continue;
+      }
+      throw lastError;
+    }
   }
 
-  const arrayBuffer = await resp.arrayBuffer();
-  return { pcmBuffer: Buffer.from(arrayBuffer), sampleRate };
+  console.log(`[tts] All formats exhausted after ${Date.now() - startTime}ms`);
+  throw lastError ?? new Error("TTS failed: all formats exhausted");
 }
 
 export async function pcmToSilk(

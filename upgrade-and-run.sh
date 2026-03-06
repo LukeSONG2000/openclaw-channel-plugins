@@ -297,20 +297,46 @@ case "$start_choice" in
             echo ""
             echo "✅ OpenClaw 网关已在后台重启"
             echo ""
-            echo "正在跟踪日志输出（按 Ctrl+C 停止查看，不影响后台服务）..."
+            # 等待 gateway 端口就绪（插件安装+自动重启可能需要 30-60 秒）
+            echo "等待 gateway 就绪（插件安装中，可能需要 30-60 秒）..."
             echo "========================================="
-            sleep 3
-            _retries=0
-            while ! openclaw logs --follow 2>&1; do
-                _retries=$((_retries + 1))
-                if [ $_retries -ge 3 ]; then
-                    echo ""
-                    echo "⚠️  无法连接日志流，请手动执行: openclaw logs --follow"
+            _port_ready=0
+            for i in $(seq 1 30); do
+                if lsof -i :18789 -sTCP:LISTEN >/dev/null 2>&1; then
+                    _port_ready=1
                     break
                 fi
-                echo "等待 gateway 就绪... (${_retries}/3)"
+                printf "\r  等待端口 18789 就绪... (%d/30)" "$i"
                 sleep 2
             done
+            echo ""
+
+            if [ "$_port_ready" -eq 0 ]; then
+                echo "⚠️  等待超时，gateway 可能仍在启动中"
+                echo "请手动检查: openclaw doctor"
+                echo "或查看日志: tail -f /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log"
+            else
+                echo "✅ Gateway 端口已就绪"
+                echo ""
+                # 额外等待几秒，让插件重启循环稳定
+                echo "等待插件加载稳定..."
+                sleep 8
+                echo ""
+                echo "正在跟踪日志输出（按 Ctrl+C 停止查看，不影响后台服务）..."
+                echo "========================================="
+                _retries=0
+                while ! openclaw logs --follow 2>&1; do
+                    _retries=$((_retries + 1))
+                    if [ $_retries -ge 5 ]; then
+                        echo ""
+                        echo "⚠️  无法连接日志流，请手动执行: openclaw logs --follow"
+                        echo "或直接查看日志文件: tail -f /tmp/openclaw/openclaw-$(date +%Y-%m-%d).log"
+                        break
+                    fi
+                    echo "等待日志流就绪... (${_retries}/5)"
+                    sleep 3
+                done
+            fi
         else
             echo ""
             echo "⚠️  后台重启失败，可能服务未安装"

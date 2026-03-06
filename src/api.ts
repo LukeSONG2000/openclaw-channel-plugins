@@ -26,7 +26,7 @@ export function isMarkdownSupport(): boolean {
   return currentMarkdownSupport;
 }
 
-let cachedToken: { token: string; expiresAt: number } | null = null;
+let cachedToken: { token: string; expiresAt: number; appId: string } | null = null;
 // Singleflight: 防止并发获取 Token 的 Promise 缓存
 let tokenFetchPromise: Promise<string> | null = null;
 
@@ -35,11 +35,20 @@ let tokenFetchPromise: Promise<string> | null = null;
  * 
  * 使用 singleflight 模式：当多个请求同时发现 Token 过期时，
  * 只有第一个请求会真正去获取新 Token，其他请求复用同一个 Promise。
+ * 
+ * 当 appId 发生变化时，自动使旧缓存失效并获取新 Token。
  */
 export async function getAccessToken(appId: string, clientSecret: string): Promise<string> {
-  // 检查缓存，提前 5 分钟刷新
-  if (cachedToken && Date.now() < cachedToken.expiresAt - 5 * 60 * 1000) {
+  // 检查缓存：未过期 且 appId 未变化 时复用
+  if (cachedToken && Date.now() < cachedToken.expiresAt - 5 * 60 * 1000 && cachedToken.appId === appId) {
     return cachedToken.token;
+  }
+
+  // appId 变化时，主动清除旧缓存
+  if (cachedToken && cachedToken.appId !== appId) {
+    console.log(`[qqbot-api] appId changed (${cachedToken.appId} → ${appId}), clearing token cache`);
+    cachedToken = null;
+    tokenFetchPromise = null; // 旧 appId 的 inflight 请求也作废
   }
 
   // Singleflight: 如果已有进行中的 Token 获取请求，复用它
@@ -114,9 +123,10 @@ async function doFetchToken(appId: string, clientSecret: string): Promise<string
   cachedToken = {
     token: data.access_token,
     expiresAt: Date.now() + (data.expires_in ?? 7200) * 1000,
+    appId,
   };
 
-  console.log(`[qqbot-api] Token cached, expires at: ${new Date(cachedToken.expiresAt).toISOString()}`);
+  console.log(`[qqbot-api] Token cached for appId=${appId}, expires at: ${new Date(cachedToken.expiresAt).toISOString()}`);
   return cachedToken.token;
 }
 
@@ -175,7 +185,7 @@ export function getNextMsgSeq(msgId: string): number {
 
 // API 请求超时配置（毫秒）
 const DEFAULT_API_TIMEOUT = 30000; // 默认 30 秒
-const FILE_UPLOAD_TIMEOUT = 120000; // 文件上传 120 秒（2 分钟）
+const FILE_UPLOAD_TIMEOUT = 120000; // 文件上传 120 秒
 
 /**
  * API 请求封装
@@ -298,9 +308,15 @@ async function apiRequestWithRetry<T = unknown>(
     } catch (err) {
       lastError = err instanceof Error ? err : new Error(String(err));
       
-      // 不对以下错误重试：参数错误(400)、鉴权错误(401)、格式错误
+      // 不对以下错误重试，直接快速失败：
+      // - 参数错误(400)、鉴权错误(401)、格式错误
+      // - 服务端返回"上传超时"（QQ 平台侧拉取资源超时，重试也没用）
+      // - 本地请求超时（已等够 120s）
       const errMsg = lastError.message;
-      if (errMsg.includes("400") || errMsg.includes("401") || errMsg.includes("Invalid")) {
+      if (
+        errMsg.includes("400") || errMsg.includes("401") || errMsg.includes("Invalid") ||
+        errMsg.includes("上传超时") || errMsg.includes("timeout") || errMsg.includes("Timeout")
+      ) {
         throw lastError;
       }
 
