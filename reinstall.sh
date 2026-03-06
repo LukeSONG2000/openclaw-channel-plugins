@@ -287,7 +287,7 @@ printf "%b\n" "\033[32m=====================================\033[0m"
 # 1. 克隆 QQBot 插件源码（默认用户目录）
 QQBOT_SOURCE_DIR=~/qqbot
 printf "%b\n" "\033[34m1. 克隆 QQBot 插件源码到 $QQBOT_SOURCE_DIR...\033[0m"
-git clone https://github.com/sliverp/qqbot.git "$QQBOT_SOURCE_DIR"
+git clone https://github.com/ryanlee-gemini/qqbot.git "$QQBOT_SOURCE_DIR"
 cd "$QQBOT_SOURCE_DIR" || { printf "%b\n" "\033[31m❌ 进入 QQBot 插件目录失败，脚本终止！\033[0m"; exit 1; }
 
 # 2. 安装 QQBot 插件依赖
