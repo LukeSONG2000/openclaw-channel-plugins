@@ -283,79 +283,83 @@ if ! command -v openclaw &> /dev/null; then
     echo "2. PATH环境变量未包含openclaw路径"
     echo "3. 需要重新登录或重启终端"
     echo ""
-    echo "解决方案:"
-    echo "1. 检查OpenClaw安装: which openclaw 或 find / -name openclaw 2>/dev/null"
-    echo "2. 手动启动: 进入OpenClaw安装目录执行"
-    echo "3. 添加PATH: export PATH=\"\$PATH:/path/to/openclaw\""
-    echo ""
     exit 1
 fi
 
-# 显示启动信息
-echo "启动命令: openclaw gateway --verbose"
 echo "OpenClaw版本: $(openclaw --version 2>/dev/null || echo '未知')"
-echo "当前目录: $(pwd)"
 echo ""
-echo "如果启动失败，请检查:"
-echo "1. 端口占用: lsof -i :3000 (或OpenClaw使用的端口)"
-echo "2. 配置文件: ls -la ~/.openclaw/"
-
-echo "3. 查看日志: tail -f ~/.openclaw/logs/*.log 2>/dev/null || echo '无日志文件'"
+echo "请选择启动方式:"
 echo ""
-echo "按 Ctrl+C 停止服务"
-echo "========================================="
-
-# 如果已有 gateway 在运行，先停掉再启动（插件更新后需要重启才能生效）
-if openclaw gateway stop 2>/dev/null; then
-    echo "已停止旧的 gateway 进程，等待释放端口..."
-    sleep 2
-fi
-
-echo "正在启动 OpenClaw 网关服务..."
-START_TIME=$(date +%s)
-
-# 启动服务并捕获输出
-GATEWAY_LOG="/tmp/openclaw-gateway-$(date +%s).log"
-echo "网关日志: $GATEWAY_LOG"
-
-set +e  # 临时禁用严格错误检查，让用户可以Ctrl+C停止
-openclaw gateway --verbose 2>&1 | grep --line-buffered -v '\[ws\] → event \(health\|tick\)' | tee "$GATEWAY_LOG"
-EXIT_CODE=$?
-set -e  # 重新启用严格错误检查
-
-END_TIME=$(date +%s)
-RUNTIME=$((END_TIME - START_TIME))
-
+echo "  1) 后台重启 (推荐)"
+echo "     重启已有的后台服务，不影响 openclaw gateway start/install 等设置"
 echo ""
-echo "========================================="
-echo "服务运行了 ${RUNTIME} 秒后退出，退出代码: $EXIT_CODE"
+echo "  2) 前台启动"
+echo "     在当前终端前台运行，可以直接看到日志，Ctrl+C 停止"
+echo "     ⚠️  注意: 会停掉已有后台服务，之后需要 openclaw gateway install 重新注册"
+echo ""
+echo "  3) 不启动"
+echo "     插件已更新完毕，稍后自己手动启动"
+echo ""
+read -p "请输入选择 [1/2/3] (默认 1): " start_choice
+start_choice="${start_choice:-1}"
 
-if [ $EXIT_CODE -eq 0 ]; then
-    echo "✅ OpenClaw 正常退出"
-elif [ $EXIT_CODE -eq 130 ]; then
-    echo "⚠️  OpenClaw 被用户中断 (Ctrl+C)"
-else
-    echo "❌ OpenClaw 异常退出 (代码: $EXIT_CODE)"
-    echo ""
-    echo "故障诊断信息:"
-    echo "1. 查看完整日志: cat $GATEWAY_LOG"
-    echo "2. 常见错误代码:"
-    echo "   - 1: 一般错误"
-    echo "   - 2: 配置错误"
-    echo "   - 3: 端口占用"
-    echo "   - 4: 依赖缺失"
-    echo ""
-    echo "3. 检查步骤:"
-    echo "   a. 检查端口: lsof -i :3000 2>/dev/null || echo '端口3000可用'"
-    echo "   b. 检查依赖: openclaw --version"
-    echo "   c. 检查配置: ls -la ~/.openclaw/config.yaml 2>/dev/null"
-    
-    # 显示错误摘要
-    if [ -f "$GATEWAY_LOG" ]; then
+case "$start_choice" in
+    1)
         echo ""
-        echo "4. 错误摘要:"
-        tail -30 "$GATEWAY_LOG" | grep -i -E "(error|fail|exception|panic|uncaught|syntax)"
-    fi
-fi
+        echo "正在后台重启 OpenClaw 网关服务..."
+        if openclaw gateway restart 2>&1; then
+            echo ""
+            echo "✅ OpenClaw 网关已在后台重启"
+            echo "查看日志: openclaw gateway log"
+        else
+            echo ""
+            echo "⚠️  后台重启失败，可能服务未安装"
+            echo "尝试: openclaw gateway install && openclaw gateway start"
+        fi
+        ;;
+    2)
+        echo ""
+        echo "正在前台启动 OpenClaw 网关服务..."
+        echo "按 Ctrl+C 停止服务"
+        echo "========================================="
+
+        if openclaw gateway stop 2>/dev/null; then
+            echo "已停止旧的 gateway 进程，等待释放端口..."
+            sleep 2
+        fi
+
+        GATEWAY_LOG="/tmp/openclaw-gateway-$(date +%s).log"
+        echo "网关日志: $GATEWAY_LOG"
+
+        set +e
+        openclaw gateway --verbose 2>&1 | grep --line-buffered -v '\[ws\] → event \(health\|tick\)' | tee "$GATEWAY_LOG"
+        EXIT_CODE=$?
+        set -e
+
+        echo ""
+        if [ $EXIT_CODE -eq 0 ] || [ $EXIT_CODE -eq 130 ]; then
+            echo "OpenClaw 已停止"
+        else
+            echo "❌ OpenClaw 异常退出 (代码: $EXIT_CODE)"
+            echo "查看日志: cat $GATEWAY_LOG"
+        fi
+
+        echo ""
+        echo "提示: 如需恢复后台运行模式:"
+        echo "  openclaw gateway install"
+        echo "  openclaw gateway start"
+        ;;
+    3)
+        echo ""
+        echo "✅ 插件更新完毕，未启动服务"
+        echo ""
+        echo "后续可手动启动:"
+        echo "  openclaw gateway restart    # 重启后台服务"
+        echo "  openclaw gateway            # 前台运行"
+        ;;
+    *)
+        echo "无效选择，跳过启动"
+        ;;
+esac
 
 echo "========================================="
