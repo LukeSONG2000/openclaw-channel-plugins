@@ -896,7 +896,7 @@ ${ttsHint}${sttHint}`;
 
           // 追踪是否有响应
           let hasResponse = false;
-          const responseTimeout = 60000; // 60秒超时（1分钟）
+          const responseTimeout = 120000; // 120秒超时（2分钟，与 TTS/文件生成超时对齐）
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
 
           const timeoutPromise = new Promise<void>((_, reject) => {

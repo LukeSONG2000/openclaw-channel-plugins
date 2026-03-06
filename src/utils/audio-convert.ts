@@ -194,6 +194,9 @@ export async function textToSpeechPCM(
 ): Promise<{ pcmBuffer: Buffer; sampleRate: number }> {
   const sampleRate = 24000;
 
+  const controller = new AbortController();
+  const ttsTimeout = setTimeout(() => controller.abort(), 120000);
+
   const resp = await fetch(`${ttsCfg.baseUrl}/audio/speech`, {
     method: "POST",
     headers: {
@@ -208,7 +211,8 @@ export async function textToSpeechPCM(
       sample_rate: sampleRate,
       stream: false,
     }),
-  });
+    signal: controller.signal,
+  }).finally(() => clearTimeout(ttsTimeout));
 
   if (!resp.ok) {
     const detail = await resp.text().catch(() => "");
@@ -365,11 +369,11 @@ export async function audioFileToSilkBase64(filePath: string, directUploadFormat
  * 用于 TTS 生成后等待文件写入完成
  *
  * @param filePath 文件路径
- * @param timeoutMs 最大等待时间（默认 30 秒）
+ * @param timeoutMs 最大等待时间（默认 2 分钟）
  * @param pollMs 轮询间隔（默认 500ms）
  * @returns 文件大小（字节），超时或文件始终为空返回 0
  */
-export async function waitForFile(filePath: string, timeoutMs: number = 30000, pollMs: number = 500): Promise<number> {
+export async function waitForFile(filePath: string, timeoutMs: number = 120000, pollMs: number = 500): Promise<number> {
   const start = Date.now();
   let lastSize = -1;
   let stableCount = 0;
