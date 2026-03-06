@@ -4,6 +4,8 @@
  * 小模型常见的标签拼写错误及变体，在正则匹配前统一修正为标准格式。
  */
 
+import { expandTilde } from "./platform.js";
+
 // 标准标签名
 const VALID_TAGS = ["qqimg", "qqvoice", "qqvideo", "qqfile"] as const;
 
@@ -102,6 +104,8 @@ export function normalizeMediaTags(text: string): string {
     const tag = resolveTagName(rawTag);
     const trimmed = content.trim();
     if (!trimmed) return _match; // 空内容不处理
-    return `<${tag}>${trimmed}</${tag}>`;
+    // 展开波浪线路径：~/Desktop/file.png → /Users/xxx/Desktop/file.png
+    const expanded = expandTilde(trimmed);
+    return `<${tag}>${expanded}</${tag}>`;
   });
 }
