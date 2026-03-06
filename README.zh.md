@@ -225,7 +225,48 @@ openclaw plugins upgrade @sliverp/qqbot@latest
 npx -y @sliverp/qqbot@latest upgrade
 ```
 
-## 使用源码升级
+## 使用 upgrade-and-run.sh 一键升级
+
+```bash
+bash ./upgrade-and-run.sh
+```
+
+不传 `--appid` / `--secret` 参数时，脚本会自动读取 `~/.openclaw/openclaw.json`（或 `~/.clawdbot/clawdbot.json`）中已有的通道配置，无需每次升级都重新输入凭据。
+
+首次配置或需要覆盖时：
+
+```bash
+bash ./upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+```
+
+完整选项：
+
+| 选项 | 说明 |
+|---|---|
+| `--appid <id>` | QQ 机器人 AppID |
+| `--secret <secret>` | QQ 机器人 AppSecret |
+| `--markdown <yes\|no>` | 是否启用 Markdown 消息格式（默认: no） |
+| `-h, --help` | 显示帮助 |
+
+也支持环境变量：`QQBOT_APPID`、`QQBOT_SECRET`、`QQBOT_TOKEN`（AppID:Secret）。
+
+## 使用 pull-latest.sh（Git 源码更新）
+
+从 GitHub 拉取最新源码，安装依赖并重启：
+
+```bash
+bash ./pull-latest.sh
+```
+
+如果插件目录已有 `.git` 仓库，会执行增量 `git pull`；否则从头克隆。已有的通道配置会自动备份和恢复。
+
+```bash
+bash ./pull-latest.sh --branch main            # 指定分支（默认 main）
+bash ./pull-latest.sh --force                   # 跳过交互，强制更新
+bash ./pull-latest.sh --repo <git-url>          # 使用其他仓库地址
+```
+
+## 使用源码升级（手动）
 ```
 git clone https://github.com/sliverp/qqbot.git && cd qqbot 
 

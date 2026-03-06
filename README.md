@@ -252,7 +252,48 @@ openclaw plugins upgrade @sliverp/qqbot@latest
 npx -y @sliverp/qqbot@latest upgrade
 ```
 
-## Using source code
+## Using upgrade-and-run.sh (One-Click)
+
+```bash
+bash ./upgrade-and-run.sh
+```
+
+When no `--appid` / `--secret` is provided, the script reads the existing configuration from `~/.openclaw/openclaw.json` (or `~/.clawdbot/clawdbot.json`) automatically — no need to re-enter credentials on every upgrade.
+
+To override or set credentials for the first time:
+
+```bash
+bash ./upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+```
+
+Full options:
+
+| Option | Description |
+|---|---|
+| `--appid <id>` | QQ Bot AppID |
+| `--secret <secret>` | QQ Bot AppSecret |
+| `--markdown <yes\|no>` | Enable Markdown message format (default: no) |
+| `-h, --help` | Show help |
+
+Environment variables `QQBOT_APPID`, `QQBOT_SECRET`, `QQBOT_TOKEN` (AppID:Secret) are also supported.
+
+## Using pull-latest.sh (Git Source)
+
+Pull the latest source code from GitHub, install dependencies and restart:
+
+```bash
+bash ./pull-latest.sh
+```
+
+If the plugin directory already contains a `.git` repo, it does an incremental `git pull`; otherwise it clones from scratch. Existing channel configuration is automatically backed up and restored.
+
+```bash
+bash ./pull-latest.sh --branch main            # specify branch (default: main)
+bash ./pull-latest.sh --force                   # skip prompts, force update
+bash ./pull-latest.sh --repo <git-url>          # use a different repo
+```
+
+## Using source code (Manual)
 ```
 git clone https://github.com/sliverp/qqbot.git && cd qqbot 
 
