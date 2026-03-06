@@ -81,18 +81,41 @@ echo "========================================="
 echo "  QQBot 一键更新启动脚本"
 echo "========================================="
 
-# 1. 移除老版本
+# 1. 备份已有 qqbot 通道配置，防止升级过程丢失
 echo ""
-echo "[1/4] 移除老版本..."
+echo "[1/6] 备份已有配置..."
+SAVED_QQBOT_TOKEN=""
+for APP_NAME in openclaw clawdbot; do
+    CONFIG_FILE="$HOME/.$APP_NAME/$APP_NAME.json"
+    if [ -f "$CONFIG_FILE" ]; then
+        SAVED_QQBOT_TOKEN=$(node -e "
+            const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf8'));
+            const ch = cfg.channels && cfg.channels.qqbot;
+            if (!ch) process.exit(0);
+            // token 字段（openclaw channels add 写入）
+            if (ch.token) { process.stdout.write(ch.token); process.exit(0); }
+            // appId + clientSecret 字段（openclaw 实际存储格式）
+            if (ch.appId && ch.clientSecret) { process.stdout.write(ch.appId + ':' + ch.clientSecret); process.exit(0); }
+        " 2>/dev/null || true)
+        if [ -n "$SAVED_QQBOT_TOKEN" ]; then
+            echo "已备份 qqbot 通道 token: ${SAVED_QQBOT_TOKEN:0:10}..."
+            break
+        fi
+    fi
+done
+
+# 2. 移除老版本
+echo ""
+echo "[2/6] 移除老版本..."
 if [ -f "./scripts/upgrade.sh" ]; then
     bash ./scripts/upgrade.sh
 else
     echo "警告: upgrade.sh 不存在，跳过移除步骤"
 fi
 
-# 2. 安装当前版本
+# 3. 安装当前版本
 echo ""
-echo "[2/4] 安装当前版本..."
+echo "[3/6] 安装当前版本..."
 
 echo "检查当前目录: $(pwd)"
 echo "检查openclaw版本: $(openclaw --version 2>/dev/null || echo 'openclaw not found')"
@@ -164,9 +187,9 @@ else
     echo "安装日志已保存到: $INSTALL_LOG"
 fi
 
-# 3. 配置机器人通道（仅在提供了 appid/secret 时才配置，否则使用已有配置）
+# 4. 配置机器人通道（仅在提供了 appid/secret 时才配置，否则使用已有配置）
 echo ""
-echo "[3/4] 配置机器人通道..."
+echo "[4/6] 配置机器人通道..."
 
 if [ -n "$APPID" ] && [ -n "$SECRET" ]; then
     QQBOT_TOKEN="${APPID}:${SECRET}"
@@ -196,12 +219,22 @@ elif [ -n "$QQBOT_TOKEN" ]; then
         echo "✅ 机器人通道配置成功"
     fi
 else
-    echo "未提供 AppID/Secret，使用已有配置"
+    # 未传参数，尝试用备份的 token 恢复通道配置
+    if [ -n "$SAVED_QQBOT_TOKEN" ]; then
+        echo "未提供 AppID/Secret，使用备份的 token 恢复配置..."
+        if ! openclaw channels add --channel qqbot --token "$SAVED_QQBOT_TOKEN" 2>&1; then
+            echo "⚠️  警告: 恢复通道配置失败，可能通道已存在"
+        else
+            echo "✅ 已从备份恢复 qqbot 通道配置"
+        fi
+    else
+        echo "未提供 AppID/Secret，使用已有配置"
+    fi
 fi
 
-# 4. 配置 Markdown 选项（仅在明确指定时才配置）
+# 5. 配置 Markdown 选项（仅在明确指定时才配置）
 echo ""
-echo "[4/4] 配置 Markdown 选项..."
+echo "[5/6] 配置 Markdown 选项..."
 
 if [ -n "$MARKDOWN" ]; then
     # 设置 markdown 配置
@@ -238,7 +271,7 @@ fi
 
 # 6. 启动 openclaw
 echo ""
-echo "[5/5] 启动 openclaw..."
+echo "[6/6] 启动 openclaw..."
 echo "========================================="
 
 # 检查openclaw是否可用
