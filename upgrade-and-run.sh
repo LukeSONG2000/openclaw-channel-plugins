@@ -283,13 +283,10 @@ echo ""
 echo "  1) 后台重启 (推荐)"
 echo "     重启后台服务，自动跟踪日志输出"
 echo ""
-echo "  2) 后台重启 + 不看日志"
-echo "     只重启，不打印日志"
-echo ""
-echo "  3) 不启动"
+echo "  2) 不启动"
 echo "     插件已更新完毕，稍后自己手动启动"
 echo ""
-read -p "请输入选择 [1/2/3] (默认 1): " start_choice
+read -p "请输入选择 [1/2] (默认 1): " start_choice
 start_choice="${start_choice:-1}"
 
 case "$start_choice" in
@@ -321,20 +318,6 @@ case "$start_choice" in
         fi
         ;;
     2)
-        echo ""
-        echo "正在后台重启 OpenClaw 网关服务..."
-        if openclaw gateway restart 2>&1; then
-            echo ""
-            echo "✅ OpenClaw 网关已在后台重启"
-            echo ""
-            echo "查看日志: openclaw logs (或 openclaw logs --follow)"
-        else
-            echo ""
-            echo "⚠️  后台重启失败，可能服务未安装"
-            echo "尝试: openclaw gateway install && openclaw gateway start"
-        fi
-        ;;
-    3)
         echo ""
         echo "✅ 插件更新完毕，未启动服务"
         echo ""
