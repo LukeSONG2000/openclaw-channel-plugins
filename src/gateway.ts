@@ -988,7 +988,7 @@ ${ttsHint}${sttHint}`;
             cfg,
             dispatcherOptions: {
               responsePrefix: messagesConfig.responsePrefix,
-              deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string; audioAsVoice?: boolean; replyToId?: string }, info: { kind: string }) => {
+              deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
                 hasResponse = true;
                 if (timeoutId) {
                   clearTimeout(timeoutId);
@@ -1008,45 +1008,6 @@ ${ttsHint}${sttHint}`;
 
                 let replyText = payload.text ?? "";
                 
-                // ============ audioAsVoice：框架标记的语音回复 ============
-                // openclaw 框架在 payload 上附带 audioAsVoice=true 表示"AI 希望以语音形式发送"
-                // 当文本中没有 <qqvoice> 标签时，自动走 TTS → SILK → 语音发送
-                if (payload.audioAsVoice && replyText.trim()) {
-                  const hasVoiceTag = /<qqvoice>/i.test(replyText) || /<voice>/i.test(replyText) || /<audio>/i.test(replyText);
-                  if (!hasVoiceTag) {
-                    log?.info(`[qqbot:${account.accountId}] audioAsVoice detected, attempting TTS for text: "${replyText.slice(0, 60)}..."`);
-                    const ttsCfg = resolveTTSConfig(cfg as Record<string, unknown>);
-                    if (ttsCfg) {
-                      try {
-                        const ttsDir = getQQBotDataDir("tts");
-                        const { silkBase64, duration } = await textToSilk(replyText, ttsCfg, ttsDir);
-                        log?.info(`[qqbot:${account.accountId}] audioAsVoice TTS done: ${formatDuration(duration)}, uploading voice...`);
-                        await sendWithTokenRetry(async (token) => {
-                          if (event.type === "c2c") {
-                            await sendC2CVoiceMessage(token, event.senderId, silkBase64, event.messageId);
-                          } else if (event.type === "group" && event.groupOpenid) {
-                            await sendGroupVoiceMessage(token, event.groupOpenid, silkBase64, event.messageId);
-                          } else if (event.channelId) {
-                            await sendChannelMessage(token, event.channelId, replyText, event.messageId);
-                          }
-                        });
-                        log?.info(`[qqbot:${account.accountId}] audioAsVoice: voice message sent`);
-                        pluginRuntime.channel.activity.record({
-                          channel: "qqbot",
-                          accountId: account.accountId,
-                          direction: "outbound",
-                        });
-                        return; // 语音发送成功，不再走文本路径
-                      } catch (err) {
-                        log?.error(`[qqbot:${account.accountId}] audioAsVoice TTS failed, falling back to text: ${err}`);
-                        // TTS 失败，继续走正常文本发送流程
-                      }
-                    } else {
-                      log?.info(`[qqbot:${account.accountId}] audioAsVoice: TTS not configured, falling back to text`);
-                    }
-                  }
-                }
-
                 // ============ 媒体标签解析 ============
                 // 支持四种标签:
                 //   <qqimg>路径</qqimg> 或 <qqimg>路径</img>  — 图片
@@ -1718,12 +1679,14 @@ ${ttsHint}${sttHint}`;
                   }
                 }
                 
-                // ============ 非结构化消息处理 ============
+                // ============ 非结构化消息：简化处理 ============
+                // 📝 设计原则：JSON payload (QQBOT_PAYLOAD) 是发送本地图片的唯一方式
+                // 非结构化消息只处理：公网 URL (http/https) 和 Base64 Data URL
                 const imageUrls: string[] = [];
                 
                 /**
-                 * 收集媒体 URL（仅处理公网图片 URL 和 Base64 Data URL）
-                 * 非图片类型已在前置阶段通过 <qqXXX> 标签处理
+                 * 检查并收集图片 URL（仅支持公网 URL 和 Base64 Data URL）
+                 * ⚠️ 本地文件路径必须使用 QQBOT_PAYLOAD JSON 格式发送
                  */
                 const collectImageUrl = (url: string | undefined | null): boolean => {
                   if (!url) return false;
@@ -1743,10 +1706,29 @@ ${ttsHint}${sttHint}`;
                     return true;
                   }
                   
+                  // ⚠️ 本地文件路径不再在此处处理，应使用对应的 <qqXXX> 标签
+                  if (isLocalFilePath(url)) {
+                    const ext = path.extname(url).toLowerCase();
+                    const VIDEO_EXTS = [".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv"];
+                    let suggestedTag = "qqimg";
+                    let mediaDesc = "图片";
+                    if (isAudioFile(url)) {
+                      suggestedTag = "qqvoice";
+                      mediaDesc = "语音";
+                    } else if (VIDEO_EXTS.includes(ext)) {
+                      suggestedTag = "qqvideo";
+                      mediaDesc = "视频";
+                    } else if (![".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"].includes(ext)) {
+                      suggestedTag = "qqfile";
+                      mediaDesc = "文件";
+                    }
+                    log?.info(`[qqbot:${account.accountId}] 💡 Local path detected in non-structured message (not sending): ${url}`);
+                    log?.info(`[qqbot:${account.accountId}] 💡 Hint: Use <${suggestedTag}>${url}</${suggestedTag}> tag to send local ${mediaDesc}`);
+                  }
                   return false;
                 };
                 
-                // 处理 mediaUrls 和 mediaUrl 字段（非图片类型已在前面转为 <qqXXX> 标签）
+                // 处理 mediaUrls 和 mediaUrl 字段
                 if (payload.mediaUrls?.length) {
                   for (const url of payload.mediaUrls) {
                     collectImageUrl(url);
@@ -1757,6 +1739,7 @@ ${ttsHint}${sttHint}`;
                 }
                 
                 // 提取文本中的图片格式（仅处理公网 URL）
+                // 📝 设计：本地路径必须使用 QQBOT_PAYLOAD JSON 格式发送
                 const mdImageRegex = /!\[([^\]]*)\]\(([^)]+)\)/gi;
                 const mdMatches = [...replyText.matchAll(mdImageRegex)];
                 for (const match of mdMatches) {

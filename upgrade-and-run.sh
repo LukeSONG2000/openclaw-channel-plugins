@@ -293,45 +293,7 @@ case "$start_choice" in
     1)
         echo ""
         echo "正在后台重启 OpenClaw 网关服务..."
-
-        # 捕获 restart 的输出，检测是否真正启动（命令可能返回 0 但服务未加载）
-        _restart_output=$(openclaw gateway restart 2>&1) || true
-        echo "$_restart_output"
-
-        _gateway_started=0
-        if echo "$_restart_output" | grep -qi "not loaded\|not found\|not installed"; then
-            echo ""
-            echo "⚠️  Gateway 服务未加载，尝试重新安装并启动..."
-            if openclaw gateway install 2>&1; then
-                echo "✅ Gateway 服务已安装"
-                if openclaw gateway start 2>&1; then
-                    echo "✅ Gateway 服务已启动"
-                    _gateway_started=1
-                else
-                    echo "❌ Gateway 启动失败，尝试 launchctl 直接加载..."
-                    if launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/ai.openclaw.gateway.plist 2>&1; then
-                        echo "✅ 已通过 launchctl 加载服务"
-                        _gateway_started=1
-                    else
-                        echo "❌ launchctl 加载也失败"
-                    fi
-                fi
-            else
-                echo "❌ Gateway 安装失败"
-            fi
-        else
-            _gateway_started=1
-        fi
-
-        if [ "$_gateway_started" -eq 0 ]; then
-            echo ""
-            echo "========================================="
-            echo "❌ Gateway 无法启动，请手动排查："
-            echo "  openclaw gateway install"
-            echo "  openclaw gateway start"
-            echo "  openclaw doctor"
-            echo "========================================="
-        else
+        if openclaw gateway restart 2>&1; then
             echo ""
             echo "✅ OpenClaw 网关已在后台重启"
             echo ""
@@ -375,6 +337,10 @@ case "$start_choice" in
                     sleep 3
                 done
             fi
+        else
+            echo ""
+            echo "⚠️  后台重启失败，可能服务未安装"
+            echo "尝试: openclaw gateway install && openclaw gateway start"
         fi
         ;;
     2)
