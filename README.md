@@ -200,6 +200,87 @@ Open QQ, find your bot, and send a message!
 
 ---
 
+## 🤖 Multi-Account Setup (Multi-Bot)
+
+Run multiple QQ bots under a single OpenClaw instance.
+
+### Configuration
+
+Edit `~/.openclaw/openclaw.json` and add an `accounts` field under `channels.qqbot`:
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "enabled": true,
+      "appId": "111111111",
+      "clientSecret": "secret-of-bot-1",
+
+      "accounts": {
+        "bot2": {
+          "enabled": true,
+          "appId": "222222222",
+          "clientSecret": "secret-of-bot-2"
+        },
+        "bot3": {
+          "enabled": true,
+          "appId": "333333333",
+          "clientSecret": "secret-of-bot-3"
+        }
+      }
+    }
+  }
+}
+```
+
+**Notes:**
+
+- The top-level `appId` / `clientSecret` is the **default account** (accountId = `"default"`)
+- Each key under `accounts` (e.g. `bot2`, `bot3`) is the `accountId` for that bot
+- Each account can independently configure `enabled`, `name`, `allowFrom`, `systemPrompt`, etc.
+- You may also skip the top-level default account and only configure bots inside `accounts`
+
+Add a second bot via CLI (if the framework supports the `--account` parameter):
+
+```bash
+openclaw channels add --channel qqbot --account bot2 --token "222222222:secret-of-bot-2"
+```
+
+### Sending Messages to a Specific Account's Users
+
+When using `openclaw message send`, specify which bot to use with the `--account` parameter:
+
+```bash
+# Send with the default bot (no --account = uses "default")
+openclaw message send --channel "qqbot" \
+  --target "qqbot:c2c:OPENID" \
+  --message "hello from default bot"
+
+# Send with bot2
+openclaw message send --channel "qqbot" \
+  --account bot2 \
+  --target "qqbot:c2c:OPENID" \
+  --message "hello from bot2"
+```
+
+**Target Formats:**
+
+| Format | Description |
+|--------|-------------|
+| `qqbot:c2c:OPENID` | Private chat (C2C) |
+| `qqbot:group:GROUP_OPENID` | Group chat |
+| `qqbot:channel:CHANNEL_ID` | Guild channel |
+
+> ⚠️ **Important**: Each bot has its own set of user OpenIDs. An OpenID received by Bot A **cannot** be used to send messages via Bot B — this will result in a 500 error. Always use the matching bot's `accountId` to send messages to its users.
+
+### How It Works
+
+- When `openclaw gateway` starts, all accounts with `enabled: true` launch their own WebSocket connections
+- Each account maintains an independent Token cache (isolated by `appId`), preventing cross-contamination
+- Incoming message logs are prefixed with `[qqbot:accountId]` for easy debugging
+
+---
+
 ## 🎙️ Voice Configuration (Optional)
 
 ### STT (Speech-to-Text) — Transcribe Incoming Voice Messages

@@ -198,6 +198,87 @@ openclaw gateway
 
 ---
 
+## 🤖 多账户配置（Multi-Bot）
+
+支持在同一个 OpenClaw 实例下同时运行多个 QQ 机器人。
+
+### 配置方式
+
+编辑 `~/.openclaw/openclaw.json`，在 `channels.qqbot` 下增加 `accounts` 字段：
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "enabled": true,
+      "appId": "111111111",
+      "clientSecret": "secret-of-bot-1",
+
+      "accounts": {
+        "bot2": {
+          "enabled": true,
+          "appId": "222222222",
+          "clientSecret": "secret-of-bot-2"
+        },
+        "bot3": {
+          "enabled": true,
+          "appId": "333333333",
+          "clientSecret": "secret-of-bot-3"
+        }
+      }
+    }
+  }
+}
+```
+
+**说明：**
+
+- 顶层的 `appId` / `clientSecret` 是**默认账户**（accountId = `"default"`）
+- `accounts` 下的每个 key（如 `bot2`、`bot3`）就是该账户的 `accountId`
+- 每个账户都可以独立配置 `enabled`、`name`、`allowFrom`、`systemPrompt` 等字段
+- 也可以不配顶层默认账户，只在 `accounts` 里配置所有机器人
+
+通过 CLI 添加第二个机器人（如果框架支持 `--account` 参数）：
+
+```bash
+openclaw channels add --channel qqbot --account bot2 --token "222222222:secret-of-bot-2"
+```
+
+### 向指定账户的用户发送消息
+
+使用 `openclaw message send` 发消息时，需要通过 `--account` 参数指定使用哪个机器人发送：
+
+```bash
+# 使用默认机器人发送（不指定 --account 时自动使用 default）
+openclaw message send --channel "qqbot" \
+  --target "qqbot:c2c:OPENID" \
+  --message "hello from default bot"
+
+# 使用 bot2 发送
+openclaw message send --channel "qqbot" \
+  --account bot2 \
+  --target "qqbot:c2c:OPENID" \
+  --message "hello from bot2"
+```
+
+**Target 格式支持：**
+
+| 格式 | 说明 |
+|------|------|
+| `qqbot:c2c:OPENID` | 私聊 |
+| `qqbot:group:GROUP_OPENID` | 群聊 |
+| `qqbot:channel:CHANNEL_ID` | 频道 |
+
+> ⚠️ **注意**：每个机器人的用户 OpenID 是不同的。机器人 A 收到的用户 OpenID 不能用机器人 B 去发消息，否则会返回 500 错误。必须用对应机器人的 accountId 去给该机器人的用户发消息。
+
+### 工作原理
+
+- 启动 `openclaw gateway` 后，所有 `enabled: true` 的账户会同时启动 WebSocket 连接
+- 每个账户独立维护 Token 缓存（基于 `appId` 隔离），互不干扰
+- 接收消息时，日志会带上 `[qqbot:accountId]` 前缀方便排查
+
+---
+
 ## 🎙️ 语音能力配置（可选）
 
 ### STT（语音转文字）— 自动转录用户发来的语音消息
