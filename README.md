@@ -1,158 +1,180 @@
 <div align="center">
 
-# QQ Bot Channel Plugin for Openclaw(Clawdbot/Moltbot)
 
-QQ 开放平台 Bot API 的 Openclaw 渠道插件，支持 C2C 私聊、群聊 @消息、频道消息。
 
-The Openclaw channel plugin of the Bot API of the QQ Open Platform supports C2C private chats, group chat @ messages, and channel messages.
+<img width="120" src="https://img.shields.io/badge/🤖-QQ_Bot-blue?style=for-the-badge" alt="QQ Bot" />
 
-[![npm version](https://img.shields.io/badge/npm-v1.5.2-blue)](https://www.npmjs.com/package/@sliverp/qqbot)
+# QQ Bot Channel Plugin for OpenClaw
+
+**Connect your AI assistant to QQ — private chat, group chat, and rich media, all in one plugin.**
+
+[![npm version](https://img.shields.io/npm/v/@sliverp/qqbot?color=blue&label=npm)](https://www.npmjs.com/package/@sliverp/qqbot)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
-[![Platform](https://img.shields.io/badge/platform-Openclaw-orange)](https://github.com/sliverp/openclaw)
-[![Node.js](https://img.shields.io/badge/Node.js->=18-339933)](https://nodejs.org/)
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6)](https://www.typescriptlang.org/)
+[![Platform](https://img.shields.io/badge/platform-OpenClaw-orange)](https://github.com/sliverp/openclaw)
+[![Node.js](https://img.shields.io/badge/Node.js->=18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
+<br/>
 
+**[简体中文](README.zh.md) | English**
 
-扫描二维码加入群聊，一起交流
+Scan to join the QQ group chat
 
-<img width="316" height="410" alt="Clipboard_Screenshot_1772443710" src="https://github.com/user-attachments/assets/d079ba89-ecd0-437f-9e66-92319801a325" />
-
-</div>
-
-
----
-
-## 📸 使用示例
-<div align="center">
-<img width="400" alt="使用示例" src="https://github.com/user-attachments/assets/6f1704ab-584b-497e-8937-96f84ce2958f" />
-<img width="670" height="396" alt="Clipboard_Screenshot_1770366319" src="https://github.com/user-attachments/assets/e21e9292-fb93-41a7-81fe-39eeefe3b01d" />
+<img width="316" height="410" alt="QQ Group QR Code" src="https://github.com/user-attachments/assets/d079ba89-ecd0-437f-9e66-92319801a325" />
 
 </div>
 
 ---
 
-## ✨ 功能特性
+## ✨ Features
 
-- 🔒 **多场景支持** - C2C 私聊、群聊 @消息、频道消息、频道私信
-- 🖼️ **富媒体消息** - 支持图片、语音、视频、文件收发
-- ⏰ **定时推送** - 支持定时任务到时后主动推送
-- 🔗 **URL 无限制** - 私聊可直接发送 URL
-- ⌨️ **输入状态** - Bot 正在输入中状态提示
-- 🔄 **热更新** - 支持 npm 方式安装和热更新
-- 📝 **Markdown** - 支持 Markdown 格式
-- 📝 **Command** - 支持Openclaw原生命令
+| Feature | Description |
+|---------|-------------|
+| 🔒 **Multi-Scene** | C2C private chat, group @messages, channel messages, channel DMs |
+| 🖼️ **Rich Media** | Send & receive images, voice, video, and files |
+| 🎙️ **Voice (STT/TTS)** | Speech-to-text transcription & text-to-speech replies |
+| ⏰ **Scheduled Push** | Proactive message delivery via scheduled tasks |
+| 🔗 **URL Support** | Direct URL sending in private chat (no restrictions) |
+| ⌨️ **Typing Indicator** | "Bot is typing..." status shown in real-time |
+| 🔄 **Hot Reload** | Install via npm with seamless hot updates |
+| 📝 **Markdown** | Full Markdown formatting support |
+| 🛠️ **Commands** | Native OpenClaw command integration |
 
-  
+---
+
+## 📸 Feature Showcase
+
+> **Note:** This plugin serves as a **message channel** only — it relays messages between QQ and OpenClaw. Capabilities like image understanding, voice transcription, drawing, etc. depend on the **AI model** you configure and the **skills** installed in OpenClaw, not on this plugin itself.
+
+<details>
+<summary><b>🎙️ Voice Messages (STT)</b> — AI understands voice messages, auto-transcribes speech to text</summary>
+
+> **You**: *(send a voice message)* "What's the weather like tomorrow in Shenzhen?"
+>
+> **QQBot**: Tomorrow (March 7, Saturday) Shenzhen weather forecast 🌤️ ...
+
+<img width="360" src="docs/images/fc7b2236896cfba3a37c94be5d59ce3e_720.jpg" alt="Voice STT Demo" />
+
+</details>
+
+<details>
+<summary><b>📄 File Understanding</b> — Send any file, AI reads and understands it</summary>
+
+> **You**: *(send a TXT file of "War and Peace")*
+>
+> **QQBot**: Got it! You uploaded the Chinese version of "War and Peace" by Leo Tolstoy. This appears to be the opening of Chapter 1...
+
+<img width="360" src="docs/images/07bff56ab68e03173d2af586eeb3bcee_720.jpg" alt="File Understanding Demo" />
+
+</details>
+
+<details>
+<summary><b>🖼️ Image Understanding</b> — Vision-capable models can see and describe images</summary>
+
+> **You**: *(send an image)*
+>
+> **QQBot**: Haha, so cute! Is that a QQ penguin in a lobster costume? 🦞🐧 ...
+
+<img width="360" src="docs/images/59d421891f813b0d3c0cbe12574b6a72_720.jpg" alt="Image Understanding Demo" />
+
+</details>
+
+<details>
+<summary><b>🎨 Image Generation</b> — Ask the bot to draw, it sends the result back</summary>
+
+> **You**: Draw me a cat
+>
+> **QQBot**: Here you go! 🐱
+
+<img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="Image Generation Demo" />
+
+</details>
+
+<details>
+<summary><b>🔊 Voice Reply (TTS)</b> — Bot replies with voice messages</summary>
+
+> **You**: Tell me a joke in voice
+>
+> **QQBot**: *(sends a voice message)*
+
+<img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="TTS Voice Demo" />
+
+</details>
+
+<details>
+<summary><b>📎 File Sending</b> — Generate and send files of any format (up to 20MB)</summary>
+
+> **You**: Extract chapter 1 of War and Peace and send it as a file
+>
+> **QQBot**: *(sends a .txt file)*
+
+<img width="360" src="docs/images/17cada70df90185d45a2d6dd36e92f2f_720.jpg" alt="File Sending Demo" />
+
+</details>
+
+<details>
+<summary><b>🎬 Video Sending</b> — Send videos, large files auto-show upload progress</summary>
+
+> **You**: Send me a demo video
+>
+> **QQBot**: *(sends a video)*
+
+<img width="360" src="docs/images/85d03b8a216f267ab7b2aee248a18a41_720.jpg" alt="Video Sending Demo" />
+
+</details>
+
+> For a deep dive into rich media capabilities, see the [Media Guide](docs/qqbot-media-guide.md).
+
 ---
 
 ## ⭐ Star History
+
 <div align="center">
-  
+
 [![Star History Chart](https://api.star-history.com/svg?repos=sliverp/qqbot&type=date&legend=top-left)](https://www.star-history.com/#sliverp/qqbot&type=date&legend=top-left)
 
 </div>
 
-# QQ
+---
 
-QQ is a widely-used instant messaging platform that provides various communication capabilities such as text, voice, images, and files. It supports collaborative scenarios like group chats and channels, making it suitable for both personal communication and team collaboration.
+## 🚀 Getting Started
 
-This integration method connects OpenClaw with a QQ Bot. It utilizes the platform's long-connection event subscription mechanism to receive message and event callbacks, enabling stable and secure message exchange and automation capability integration without exposing a public webhook address.
+### Step 1 — Create a QQ Bot on the QQ Open Platform
 
-# Step 1: Install the QQ Bot Plugin
+1. Go to the [QQ Open Platform](https://q.qq.com/) and **scan the QR code with your phone QQ** to register / log in. If you haven't registered before, scanning will automatically complete the registration and bindyour QQ account.
+2. After scanning, tap **Agree** on your phone — you'll land on the bot configuration page.
+3. Click **Create Bot** to create a new QQ bot.
+4. Find **AppID** and **AppSecret** on the bot's page, click **Copy** for each, and save them somewhere safe (e.g., a notepad). **AppSecret is not stored in plaintext — if you leave the page without saving it, you'll have to regenerate a new one.**
 
-Install via the OpenClaw plugins command.
+> For a step-by-step walkthrough with screenshots, see the [official guide](https://cloud.tencent.com/developer/article/2626045).
 
-```
+> ⚠️ The bot will automatically appear in your QQ message list and send a first message. However, it will reply "The bot has gone to Mars" until you complete the configuration steps below.
+
+### Step 2 — Install the Plugin
+
+```bash
+# Via OpenClaw CLI (recommended)
 openclaw plugins install @sliverp/qqbot@latest
-```
 
-Install from source code:
-
-```
+# Or from source
 git clone https://github.com/sliverp/qqbot.git && cd qqbot
 openclaw plugins install .
 ```
 
-# Step 2: Create a QQ Bot
+### Step 3 — Configure OpenClaw
 
-## 1. Register on the QQ Open Platform
+**Option 1: CLI Wizard (Recommended)**
 
-Go to the official website of the Tencent QQ Open Platform. You cannot log in directly with your personal QQ account by default; you need to register a new QQ Open Platform account.
-<img width="2140" height="1004" alt="1" src="https://github.com/user-attachments/assets/d76a780c-5040-43fb-ac41-5808f975ae4b" />
-
-After the initial registration, follow the platform's instructions to set up a super administrator.
-
-<img width="2556" height="1744" alt="2" src="https://github.com/user-attachments/assets/ad0a54d5-6997-4f52-ae8f-bea71aa11c30" />
-After successfully scanning the QR code with your mobile QQ, proceed to the next step to fill in the relevant entity information.
-
-Using "Individual" as an example here, follow the prompts to enter your name, ID number, phone number, and verification code, then click continue to proceed to the facial recognition step.
-<img width="2544" height="1744" alt="3" src="https://github.com/user-attachments/assets/b85c11f8-5627-4e08-b522-b38c4929bcb6" />
-
-Use your mobile QQ to scan the QR code for facial recognition.
-<img width="2542" height="1272" alt="4" src="https://github.com/user-attachments/assets/d0db5539-56ef-4189-930f-595348892bef" />
-
-Once the facial recognition review is approved, you can log in to the QQ Open Platform.
-<img width="2356" height="1308" alt="5" src="https://github.com/user-attachments/assets/c1875b27-fefc-4a1c-81ef-863da8b15ec6" />
-
-## 2. Create a QQ Bot
-
-On the QQ Open Platform's QQ Bot page, you can create a bot.
-<img width="2334" height="1274" alt="6" src="https://github.com/user-attachments/assets/8389c38d-6662-46d0-ae04-92af374b61ef" />
-<img width="2316" height="1258" alt="7" src="https://github.com/user-attachments/assets/15cfe57a-0404-4b02-85fe-42a22cf96d01" />
-
-After the QQ Bot is created, you can select it and click to enter the management page.
-<img width="3002" height="1536" alt="8" src="https://github.com/user-attachments/assets/7c0c7c69-29db-457f-974a-4aa52ebd7973" />
-
-On the QQ Bot management page, obtain the current bot's AppID and AppSecret, copy them, and save them to your personal notepad or memo (please ensure data security and do not leak them). They will be needed later in "Step 3: Configuring OpenClaw".
-
-Note: For security reasons, the QQ Bot's AppSecret is not stored in plain text. If you view it for the first time or forget it, you need to regenerate it.
-<img width="2970" height="1562" alt="9" src="https://github.com/user-attachments/assets/c7fc3094-2840-4780-a202-47b2c2b74e50" />
-<img width="1258" height="594" alt="10" src="https://github.com/user-attachments/assets/4445bede-e7d5-4927-9821-039e7ad8f1f5" />
-
-## 3. Sandbox Configuration
-
-On the QQ Bot's "Development Management" page, in the "Sandbox Configuration" section, set up private chat (select "Configure in Message List").
-
-You can configure this according to your own usage scenario, or you can complete the subsequent steps and then return to this step to operate.
-
-⚠️ Note:
-The QQ Bot created here does not need to be published and made available to all QQ users. It can be used for personal (sandbox) debugging and experience.
-The QQ Open Platform does not support "Configuration in QQ Groups" for bots; it only supports private chat with the QQ Bot.
-<img width="1904" height="801" alt="11" src="https://github.com/user-attachments/assets/f3940a87-aae7-4c89-8f9a-c94fb52cd3ea" />
-
-Note: When selecting "Configure in Message List", you need to first add members, and then use the QQ scan code of that member to add the bot.
-<img width="2582" height="484" alt="12" src="https://github.com/user-attachments/assets/5631fe76-2205-4b1e-b463-75fa3a397464" />
-Note here that after successfully adding a member, you still need to use QQ scan code to add the bot.
-
-<img width="2286" height="1324" alt="13" src="https://github.com/user-attachments/assets/cbf379be-ef6e-4391-8cb1-67c08aad2d43" />
-At this point, after adding the bot to your QQ account, you still cannot have a normal conversation with it. You will receive a prompt saying "The bot has gone to Mars, please try again later." This is because the QQ bot has not yet been connected to the OpenClaw application.
-
-You need to proceed with the following steps to configure the QQ bot's AppID and AppSecret for the OpenClaw application.
-
-<img width="872" height="1052" alt="14" src="https://github.com/user-attachments/assets/0c02aaf6-6cf9-419c-a6ab-36398d73c5ba" />
-
-(Optional) You can also add more members by referring to the previous steps: First, add a new member in the member management page, then add the member in the sandbox configuration page. After that, the new member can add this QQ bot by scanning the QR code with QQ.
-<img width="3006" height="1504" alt="15" src="https://github.com/user-attachments/assets/cecef3a6-0596-4da0-8b92-8d67b8f3cdca" />
-<img width="2902" height="1394" alt="16" src="https://github.com/user-attachments/assets/eb98ffce-490f-402c-8b0c-af7ede1b1303" />
-<img width="1306" height="672" alt="17" src="https://github.com/user-attachments/assets/799056e3-82a6-44bc-9e3d-9c840faafa41" />
-
-# Step 3: Configure OpenClaw
-
-## Method 1: Configure via Wizard (Recommended)
-
-Add the qqbot channel and input the AppID and AppSecret obtained in Step 2.
-
-```
+```bash
 openclaw channels add --channel qqbot --token "AppID:AppSecret"
 ```
 
-## Method 2: Configure via Configuration File
+**Option 2: Edit Config File**
 
-Edit ~/.openclaw/openclaw.json:
+Edit `~/.openclaw/openclaw.json`:
 
-``` json
+```json
 {
   "channels": {
     "qqbot": {
@@ -164,31 +186,38 @@ Edit ~/.openclaw/openclaw.json:
 }
 ```
 
-## Voice Capabilities (Optional)
+### Step 4 — Start & Test
 
-### STT (Speech-to-Text) — Transcribe incoming voice messages
+```bash
+openclaw gateway
+```
 
-STT supports any provider that implements a compatible transcription API. Add an audio model entry in `tools.media.audio.models`:
+Open QQ, find your bot, and send a message!
 
-``` json
+<div align="center">
+<img width="500" alt="Chat Demo" src="https://github.com/user-attachments/assets/b2776c8b-de72-4e37-b34d-e8287ce45de1" />
+</div>
+
+---
+
+## 🎙️ Voice Configuration (Optional)
+
+### STT (Speech-to-Text) — Transcribe Incoming Voice Messages
+
+STT supports two-level configuration with priority fallback:
+
+| Priority | Config Path | Scope |
+|----------|------------|-------|
+| 1 (highest) | `channels.qqbot.stt` | Plugin-specific |
+| 2 (fallback) | `tools.media.audio.models[0]` | Framework-level |
+
+```json
 {
-  "tools": {
-    "media": {
-      "audio": {
-        "models": [
-          {
-            "provider": "your-provider",
-            "model": "your-stt-model"
-          }
-        ]
-      }
-    }
-  },
-  "models": {
-    "providers": {
-      "your-provider": {
-        "baseUrl": "https://your-provider-api-base-url",
-        "apiKey": "your-api-key"
+  "channels": {
+    "qqbot": {
+      "stt": {
+        "provider": "your-provider",
+        "model": "your-stt-model"
       }
     }
   }
@@ -196,15 +225,17 @@ STT supports any provider that implements a compatible transcription API. Add an
 ```
 
 - `provider` — references a key in `models.providers` to inherit `baseUrl` and `apiKey`
-- `model` — STT model name
-- You can also set `baseUrl` / `apiKey` directly in the audio model entry to override the provider defaults
+- Set `enabled: false` to disable
 - When configured, incoming voice messages are automatically converted (SILK→WAV) and transcribed
 
-### TTS (Text-to-Speech) — Send voice messages
+### TTS (Text-to-Speech) — Send Voice Messages
 
-Configure TTS under `channels.qqbot.tts`:
+| Priority | Config Path | Scope |
+|----------|------------|-------|
+| 1 (highest) | `channels.qqbot.tts` | Plugin-specific |
+| 2 (fallback) | `messages.tts` | Framework-level |
 
-``` json
+```json
 {
   "channels": {
     "qqbot": {
@@ -219,73 +250,63 @@ Configure TTS under `channels.qqbot.tts`:
 ```
 
 - `provider` — references a key in `models.providers` to inherit `baseUrl` and `apiKey`
-- `model` — TTS model name
 - `voice` — voice variant
-- `baseUrl` / `apiKey` — optional overrides for the provider defaults
-- `enabled` — set to `false` to disable (default: `true`)
-- When configured, the AI can use `<qqvoice>` tags to generate and send voice messages via compatible TTS API
+- Set `enabled: false` to disable (default: `true`)
+- When configured, AI can use `<qqvoice>` tags to generate and send voice messages
 
-# Step 4: Start and Test
+---
 
-## 1. Start the gateway
+## 🔄 Upgrade
 
-```
-openclaw gateway
-```
+### Via OpenClaw / npm (Recommended)
 
-## 2. Chat with the QQbot in QQ
+> For installations via `openclaw plugins install`
 
-<img width="990" height="984" alt="18" src="https://github.com/user-attachments/assets/b2776c8b-de72-4e37-b34d-e8287ce45de1" />
-
-
-# Upgrade
-## Using openclaw/npm(Recommendation)
-
-> only for installed by`openclaw plugins install`
-
-```
+```bash
 openclaw plugins upgrade @sliverp/qqbot@latest
 ```
 
-## Using npx
-```
+### Via npx
+
+```bash
 npx -y @sliverp/qqbot@latest upgrade
 ```
 
-## Using upgrade-and-run.sh (One-Click)
+### Via upgrade-and-run.sh (One-Click)
 
 ```bash
 bash ./upgrade-and-run.sh
 ```
 
-When no `--appid` / `--secret` is provided, the script reads the existing configuration from `~/.openclaw/openclaw.json` (or `~/.clawdbot/clawdbot.json`) automatically — no need to re-enter credentials on every upgrade.
-
-To override or set credentials for the first time:
+When no `--appid` / `--secret` is provided, the script reads existing config from `~/.openclaw/openclaw.json` automatically.
 
 ```bash
+# First-time or override credentials
 bash ./upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
-Full options:
+<details>
+<summary>Full Options</summary>
 
 | Option | Description |
-|---|---|
+|--------|-------------|
 | `--appid <id>` | QQ Bot AppID |
 | `--secret <secret>` | QQ Bot AppSecret |
-| `--markdown <yes\|no>` | Enable Markdown message format (default: no) |
+| `--markdown <yes\|no>` | Enable Markdown format (default: no) |
 | `-h, --help` | Show help |
 
 Environment variables `QQBOT_APPID`, `QQBOT_SECRET`, `QQBOT_TOKEN` (AppID:Secret) are also supported.
 
-## Using pull-latest.sh (Git Source)
+</details>
 
-Pull the latest source code from GitHub, install dependencies and restart:
+### Via pull-latest.sh (Git Source)
 
 ```bash
 bash ./pull-latest.sh
 ```
 
-If the plugin directory already contains a `.git` repo, it does an incremental `git pull`; otherwise it clones from scratch. Existing channel configuration is automatically backed up and restored.
+<details>
+<summary>Options</summary>
 
 ```bash
 bash ./pull-latest.sh --branch main            # specify branch (default: main)
@@ -293,22 +314,23 @@ bash ./pull-latest.sh --force                   # skip prompts, force update
 bash ./pull-latest.sh --repo <git-url>          # use a different repo
 ```
 
-## Using source code (Manual)
-```
-git clone https://github.com/sliverp/qqbot.git && cd qqbot 
+</details>
 
-# run upgrade script
+### From Source (Manual)
+
+```bash
+git clone https://github.com/sliverp/qqbot.git && cd qqbot
 bash ./scripts/upgrade.sh
-
-# re-install
 openclaw plugins install .
-
-# re-config
 openclaw channels add --channel qqbot --token "AppID:AppSecret"
-
-# restart gateway
 openclaw gateway restart
 ```
 
-# Other Language README
-[简体中文](README.zh.md)
+---
+
+## 📚 Documentation
+
+- [Rich Media Guide](docs/qqbot-media-guide.md) — images, voice, video, files
+- [Command Reference](docs/commands.md) — OpenClaw CLI commands
+
+
