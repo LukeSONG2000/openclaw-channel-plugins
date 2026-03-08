@@ -73,9 +73,21 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
   onboarding: qqbotOnboardingAdapter,
 
   config: {
-    listAccountIds: (cfg) => listQQBotAccountIds(cfg),
-    resolveAccount: (cfg, accountId) => resolveQQBotAccount(cfg, accountId),
-    defaultAccountId: (cfg) => resolveDefaultQQBotAccountId(cfg),
+    listAccountIds: (cfg) => {
+      const ids = listQQBotAccountIds(cfg);
+      console.log(`[qqbot:channel] listAccountIds: ${JSON.stringify(ids)}`);
+      return ids;
+    },
+    resolveAccount: (cfg, accountId) => {
+      const account = resolveQQBotAccount(cfg, accountId);
+      console.log(`[qqbot:channel] resolveAccount: input=${accountId} → resolved=${account.accountId}, appId=${account.appId}, enabled=${account.enabled}`);
+      return account;
+    },
+    defaultAccountId: (cfg) => {
+      const id = resolveDefaultQQBotAccountId(cfg);
+      console.log(`[qqbot:channel] defaultAccountId: ${id}`);
+      return id;
+    },
     // 新增：设置账户启用状态
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
@@ -167,27 +179,30 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
      * - channel:channelid -> 频道
      * - 纯 openid（32位十六进制）-> 私聊
      */
-    normalizeTarget: (target: string) => {
+    normalizeTarget: (target: string): string | undefined => {
       // 去掉 qqbot: 前缀（如果有）
-      let id = target.replace(/^qqbot:/i, "");
+      const id = target.replace(/^qqbot:/i, "");
       
       // 检查是否是已知格式
       if (id.startsWith("c2c:") || id.startsWith("group:") || id.startsWith("channel:")) {
-        return { ok: true, to: `qqbot:${id}` };
+        return `qqbot:${id}`;
       }
       
-      // 检查是否是纯 openid（32位十六进制，带连字符）
+      // 检查是否是纯 openid（32位十六进制，不带连字符）
       // QQ Bot OpenID 格式类似: 207A5B8339D01F6582911C014668B77B
-      const openIdPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
-      if (openIdPattern.test(id)) {
-        return { ok: true, to: `qqbot:c2c:${id}` };
+      const openIdHexPattern = /^[0-9a-fA-F]{32}$/;
+      if (openIdHexPattern.test(id)) {
+        return `qqbot:c2c:${id}`;
+      }
+
+      // 检查是否是 UUID 格式的 openid（带连字符）
+      const openIdUuidPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
+      if (openIdUuidPattern.test(id)) {
+        return `qqbot:c2c:${id}`;
       }
       
-      // 不认识的格式
-      return { 
-        ok: false, 
-        error: `Invalid QQ Bot target format: "${target}". Expected: qqbot:c2c:openid, qqbot:group:groupid, or openid (UUID format)` 
-      };
+      // 不认识的格式，返回 undefined
+      return undefined;
     },
     /**
      * 目标解析器配置
@@ -214,7 +229,11 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
         if (/^(c2c|group|channel):/i.test(id)) {
           return true;
         }
-        // UUID 格式的 openid（QQ Bot 的用户/群 ID 格式）
+        // 32位十六进制 openid（不带连字符）
+        if (/^[0-9a-fA-F]{32}$/.test(id)) {
+          return true;
+        }
+        // UUID 格式的 openid（带连字符）
         const openIdPattern = /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/;
         return openIdPattern.test(id);
       },
@@ -227,8 +246,12 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     chunkerMode: "markdown",
     textChunkLimit: 2000,
     sendText: async ({ to, text, accountId, replyToId, cfg }) => {
+      console.log(`[qqbot:channel] sendText called — accountId=${accountId}, to=${to}, replyToId=${replyToId}, text.length=${text?.length ?? 0}`);
+      console.log(`[qqbot:channel] sendText text preview: ${text?.slice(0, 100)}${(text?.length ?? 0) > 100 ? "..." : ""}`);
       const account = resolveQQBotAccount(cfg, accountId);
+      console.log(`[qqbot:channel] sendText resolved account: id=${account.accountId}, appId=${account.appId}, enabled=${account.enabled}`);
       const result = await sendText({ to, text, accountId, replyToId, account });
+      console.log(`[qqbot:channel] sendText result: messageId=${result.messageId}, error=${result.error ?? "none"}`);
       return {
         channel: "qqbot",
         messageId: result.messageId,
@@ -236,8 +259,11 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
       };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyToId, cfg }) => {
+      console.log(`[qqbot:channel] sendMedia called — accountId=${accountId}, to=${to}, replyToId=${replyToId}, mediaUrl=${mediaUrl?.slice(0, 80)}, text.length=${text?.length ?? 0}`);
       const account = resolveQQBotAccount(cfg, accountId);
+      console.log(`[qqbot:channel] sendMedia resolved account: id=${account.accountId}, appId=${account.appId}, enabled=${account.enabled}`);
       const result = await sendMedia({ to, text: text ?? "", mediaUrl: mediaUrl ?? "", accountId, replyToId, account });
+      console.log(`[qqbot:channel] sendMedia result: messageId=${result.messageId}, error=${result.error ?? "none"}`);
       return {
         channel: "qqbot",
         messageId: result.messageId,
@@ -249,7 +275,8 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     startAccount: async (ctx) => {
       const { account, abortSignal, log, cfg } = ctx;
 
-      log?.info(`[qqbot:${account.accountId}] Starting gateway`);
+      log?.info(`[qqbot:${account.accountId}] Starting gateway — appId=${account.appId}, enabled=${account.enabled}, name=${account.name ?? "unnamed"}`);
+      console.log(`[qqbot:channel] startAccount: accountId=${account.accountId}, appId=${account.appId}, secretSource=${account.secretSource}`);
 
       await startGateway({
         account,
