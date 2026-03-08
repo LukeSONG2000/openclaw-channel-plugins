@@ -141,9 +141,17 @@
 ### 第一步 — 在 QQ 开放平台创建机器人
 
 1. 前往 [QQ 开放平台](https://q.qq.com/)，用**手机 QQ 扫描页面二维码**即可注册/登录。若尚未注册，扫码后系统会自动完成注册并绑定你的 QQ 账号。
+
+<img width="3246" height="1886" alt="Clipboard_Screenshot_1772980354" src="https://github.com/user-attachments/assets/d8491859-57e8-47e4-9d39-b21138be54d0" />
+
 2. 手机 QQ 扫码后选择**同意**，即完成注册，进入 QQ 机器人配置页。
 3. 点击**创建机器人**，即可直接新建一个 QQ 机器人。
+
+<img width="1982" height="1316" alt="Clipboard_Screenshot_1772980440" src="https://github.com/user-attachments/assets/3ccb494d-6e4d-462c-9218-b4dfd43a254f" />
+
 4. 在机器人页面中找到 **AppID** 和 **AppSecret**，分别点击右侧**复制**按钮，保存到记事本或备忘录中。**AppSecret 不支持明文保存，离开页面后再查看会强制重置，请务必妥善保存。**
+
+<img width="1670" height="1036" alt="Clipboard_Screenshot_1772980413" src="https://github.com/user-attachments/assets/b898d171-5711-4d42-bc07-2de967b119ec" />
 
 > 详细图文教程请参阅 [官方指南](https://cloud.tencent.com/developer/article/2626045)。
 
