@@ -413,5 +413,6 @@ openclaw gateway restart
 
 - [Rich Media Guide](docs/qqbot-media-guide.md) — images, voice, video, files
 - [Command Reference](docs/commands.md) — OpenClaw CLI commands
+- [Changelog](docs/changelog/) — release notes ([latest: 1.5.4](docs/changelog/1.5.4.md))
 
 

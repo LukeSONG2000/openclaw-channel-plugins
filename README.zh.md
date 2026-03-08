@@ -411,5 +411,6 @@ openclaw gateway restart
 
 - [富媒体指南](docs/qqbot-media-guide.md) — 图片、语音、视频、文件
 - [命令参考](docs/commands.md) — OpenClaw CLI 常用命令
+- [更新日志](docs/changelog/) — 各版本变更记录（[最新: 1.5.4](docs/changelog/1.5.4.md)）
 
 
