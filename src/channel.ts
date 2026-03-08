@@ -73,9 +73,21 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
   onboarding: qqbotOnboardingAdapter,
 
   config: {
-    listAccountIds: (cfg) => listQQBotAccountIds(cfg),
-    resolveAccount: (cfg, accountId) => resolveQQBotAccount(cfg, accountId),
-    defaultAccountId: (cfg) => resolveDefaultQQBotAccountId(cfg),
+    listAccountIds: (cfg) => {
+      const ids = listQQBotAccountIds(cfg);
+      console.log(`[qqbot:channel] listAccountIds: ${JSON.stringify(ids)}`);
+      return ids;
+    },
+    resolveAccount: (cfg, accountId) => {
+      const account = resolveQQBotAccount(cfg, accountId);
+      console.log(`[qqbot:channel] resolveAccount: input=${accountId} → resolved=${account.accountId}, appId=${account.appId}, enabled=${account.enabled}`);
+      return account;
+    },
+    defaultAccountId: (cfg) => {
+      const id = resolveDefaultQQBotAccountId(cfg);
+      console.log(`[qqbot:channel] defaultAccountId: ${id}`);
+      return id;
+    },
     // 新增：设置账户启用状态
     setAccountEnabled: ({ cfg, accountId, enabled }) =>
       setAccountEnabledInConfigSection({
@@ -234,8 +246,12 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     chunkerMode: "markdown",
     textChunkLimit: 2000,
     sendText: async ({ to, text, accountId, replyToId, cfg }) => {
+      console.log(`[qqbot:channel] sendText called — accountId=${accountId}, to=${to}, replyToId=${replyToId}, text.length=${text?.length ?? 0}`);
+      console.log(`[qqbot:channel] sendText text preview: ${text?.slice(0, 100)}${(text?.length ?? 0) > 100 ? "..." : ""}`);
       const account = resolveQQBotAccount(cfg, accountId);
+      console.log(`[qqbot:channel] sendText resolved account: id=${account.accountId}, appId=${account.appId}, enabled=${account.enabled}`);
       const result = await sendText({ to, text, accountId, replyToId, account });
+      console.log(`[qqbot:channel] sendText result: messageId=${result.messageId}, error=${result.error ?? "none"}`);
       return {
         channel: "qqbot",
         messageId: result.messageId,
@@ -243,8 +259,11 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
       };
     },
     sendMedia: async ({ to, text, mediaUrl, accountId, replyToId, cfg }) => {
+      console.log(`[qqbot:channel] sendMedia called — accountId=${accountId}, to=${to}, replyToId=${replyToId}, mediaUrl=${mediaUrl?.slice(0, 80)}, text.length=${text?.length ?? 0}`);
       const account = resolveQQBotAccount(cfg, accountId);
+      console.log(`[qqbot:channel] sendMedia resolved account: id=${account.accountId}, appId=${account.appId}, enabled=${account.enabled}`);
       const result = await sendMedia({ to, text: text ?? "", mediaUrl: mediaUrl ?? "", accountId, replyToId, account });
+      console.log(`[qqbot:channel] sendMedia result: messageId=${result.messageId}, error=${result.error ?? "none"}`);
       return {
         channel: "qqbot",
         messageId: result.messageId,
@@ -256,7 +275,8 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     startAccount: async (ctx) => {
       const { account, abortSignal, log, cfg } = ctx;
 
-      log?.info(`[qqbot:${account.accountId}] Starting gateway`);
+      log?.info(`[qqbot:${account.accountId}] Starting gateway — appId=${account.appId}, enabled=${account.enabled}, name=${account.name ?? "unnamed"}`);
+      console.log(`[qqbot:channel] startAccount: accountId=${account.accountId}, appId=${account.appId}, secretSource=${account.secretSource}`);
 
       await startGateway({
         account,
