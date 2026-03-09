@@ -10,7 +10,7 @@
 # 4. 智能故障排查指南
 # 5. 用户友好的交互提示
 
-set -e
+set -eo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 # 如果脚本在 scripts/ 子目录里，往上一级就是项目根目录
@@ -119,7 +119,7 @@ echo "检查当前目录: $(pwd)"
 echo "检查openclaw版本: $(openclaw --version 2>/dev/null || echo 'openclaw not found')"
 
 echo "开始安装插件..."
-INSTALL_LOG="/tmp/openclaw-install-\$(date +%s).log"
+INSTALL_LOG="/tmp/openclaw-install-$(date +%s).log"
 
 echo "安装日志文件: $INSTALL_LOG"
 echo "详细信息将记录到日志文件中..."
@@ -168,7 +168,7 @@ if ! openclaw plugins install . 2>&1 | tee "$INSTALL_LOG"; then
     echo "或者尝试手动安装: cd $(pwd) && npm install"
     echo "========================================="
     
-    read -p "是否继续配置其他步骤? (y/N): " continue_choice
+    read -t 10 -p "是否继续配置其他步骤? (y/N): " continue_choice || continue_choice="N"
     case "$continue_choice" in
         [Yy]* )
             echo "继续执行后续配置步骤..."
@@ -294,7 +294,7 @@ echo ""
 echo "  2) 不启动"
 echo "     插件已更新完毕，稍后自己手动启动"
 echo ""
-read -p "请输入选择 [1/2] (默认 1): " start_choice
+read -t 10 -p "请输入选择 [1/2] (默认 1): " start_choice || start_choice="1"
 start_choice="${start_choice:-1}"
 
 case "$start_choice" in
