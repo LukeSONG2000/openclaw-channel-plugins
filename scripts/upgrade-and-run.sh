@@ -13,7 +13,13 @@
 set -e
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-cd "$SCRIPT_DIR"
+# 如果脚本在 scripts/ 子目录里，往上一级就是项目根目录
+if [ "$(basename "$SCRIPT_DIR")" = "scripts" ]; then
+    PROJ_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+else
+    PROJ_DIR="$SCRIPT_DIR"
+fi
+cd "$PROJ_DIR"
 
 # 解析命令行参数
 APPID=""
@@ -75,17 +81,19 @@ echo "========================================="
 echo ""
 echo "[1/6] 备份已有配置..."
 SAVED_QQBOT_TOKEN=""
-for APP_NAME in openclaw clawdbot; do
+for APP_NAME in openclaw clawdbot moltbot; do
     CONFIG_FILE="$HOME/.$APP_NAME/$APP_NAME.json"
     if [ -f "$CONFIG_FILE" ]; then
         SAVED_QQBOT_TOKEN=$(node -e "
             const cfg = JSON.parse(require('fs').readFileSync('$CONFIG_FILE', 'utf8'));
-            const ch = cfg.channels && cfg.channels.qqbot;
-            if (!ch) process.exit(0);
-            // token 字段（openclaw channels add 写入）
-            if (ch.token) { process.stdout.write(ch.token); process.exit(0); }
-            // appId + clientSecret 字段（openclaw 实际存储格式）
-            if (ch.appId && ch.clientSecret) { process.stdout.write(ch.appId + ':' + ch.clientSecret); process.exit(0); }
+            // 尝试所有可能的 channel key（原仓库 + 本仓库）
+            const keys = ['qqbot', 'openclaw-qq'];
+            for (const key of keys) {
+                const ch = cfg.channels && cfg.channels[key];
+                if (!ch) continue;
+                if (ch.token) { process.stdout.write(ch.token); process.exit(0); }
+                if (ch.appId && ch.clientSecret) { process.stdout.write(ch.appId + ':' + ch.clientSecret); process.exit(0); }
+            }
         " 2>/dev/null || true)
         if [ -n "$SAVED_QQBOT_TOKEN" ]; then
             echo "已备份 qqbot 通道 token: ${SAVED_QQBOT_TOKEN:0:10}..."
@@ -97,8 +105,8 @@ done
 # 2. 移除老版本
 echo ""
 echo "[2/6] 移除老版本..."
-if [ -f "./scripts/upgrade.sh" ]; then
-    bash ./scripts/upgrade.sh
+if [ -f "$PROJ_DIR/scripts/upgrade.sh" ]; then
+    bash "$PROJ_DIR/scripts/upgrade.sh"
 else
     echo "警告: upgrade.sh 不存在，跳过移除步骤"
 fi

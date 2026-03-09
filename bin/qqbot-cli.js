@@ -35,18 +35,22 @@ function detectInstallation() {
   return null;
 }
 
+// 需要清理的所有可能的插件 ID / 包名（原仓库 + 本仓库 + 框架推断名）
+const PLUGIN_IDS = ['qqbot', 'openclaw-qq', '@sliverp/qqbot', '@tencent-connect/openclaw-qq'];
+// 可能的扩展目录名
+const EXTENSION_DIR_NAMES = ['qqbot', 'openclaw-qq'];
+
 // 清理旧版本插件，返回旧的 qqbot 配置
 function cleanupInstallation(appName) {
   const home = homedir();
   const appDir = join(home, `.${appName}`);
   const configFile = join(appDir, `${appName}.json`);
-  const extensionDir = join(appDir, 'extensions', 'qqbot');
 
   let oldQqbotConfig = null;
 
   console.log(`\n>>> 处理 ${appName} 安装...`);
 
-  // 1. 先读取旧的 qqbot 配置
+  // 1. 先读取旧的 qqbot 配置（尝试所有可能的 channel key）
   if (existsSync(configFile)) {
     try {
       const config = JSON.parse(readFileSync(configFile, 'utf8'));
@@ -59,36 +63,39 @@ function cleanupInstallation(appName) {
     }
   }
 
-  // 2. 删除旧的扩展目录
-  if (existsSync(extensionDir)) {
-    console.log(`删除旧版本插件: ${extensionDir}`);
-    rmSync(extensionDir, { recursive: true, force: true });
-  } else {
-    console.log('未找到旧版本插件目录，跳过删除');
+  // 2. 删除所有可能的旧扩展目录
+  for (const dirName of EXTENSION_DIR_NAMES) {
+    const extensionDir = join(appDir, 'extensions', dirName);
+    if (existsSync(extensionDir)) {
+      console.log(`删除旧版本插件: ${extensionDir}`);
+      rmSync(extensionDir, { recursive: true, force: true });
+    }
   }
 
-  // 3. 清理配置文件中的 qqbot 相关字段
+  // 3. 清理配置文件中所有可能的插件 ID 相关字段
   if (existsSync(configFile)) {
-    console.log('清理配置文件中的 qqbot 字段...');
+    console.log('清理配置文件中的插件字段...');
     try {
       const config = JSON.parse(readFileSync(configFile, 'utf8'));
 
-      // 删除 channels.qqbot
-      if (config.channels?.qqbot) {
-        delete config.channels.qqbot;
-        console.log('  - 已删除 channels.qqbot');
-      }
+      for (const id of PLUGIN_IDS) {
+        // 删除 channels.<id>
+        if (config.channels?.[id]) {
+          delete config.channels[id];
+          console.log(`  - 已删除 channels.${id}`);
+        }
 
-      // 删除 plugins.entries.qqbot
-      if (config.plugins?.entries?.qqbot) {
-        delete config.plugins.entries.qqbot;
-        console.log('  - 已删除 plugins.entries.qqbot');
-      }
+        // 删除 plugins.entries.<id>
+        if (config.plugins?.entries?.[id]) {
+          delete config.plugins.entries[id];
+          console.log(`  - 已删除 plugins.entries.${id}`);
+        }
 
-      // 删除 plugins.installs.qqbot
-      if (config.plugins?.installs?.qqbot) {
-        delete config.plugins.installs.qqbot;
-        console.log('  - 已删除 plugins.installs.qqbot');
+        // 删除 plugins.installs.<id>
+        if (config.plugins?.installs?.[id]) {
+          delete config.plugins.installs[id];
+          console.log(`  - 已删除 plugins.installs.${id}`);
+        }
       }
 
       writeFileSync(configFile, JSON.stringify(config, null, 2));

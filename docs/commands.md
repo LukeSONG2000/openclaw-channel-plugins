@@ -138,16 +138,16 @@ openclaw config
 ### 一键升级并启动
 ```bash
 # 基本用法
-./upgrade-and-run.sh
+./scripts/upgrade-and-run.sh
 
 # 指定 AppID 和 Secret
-./upgrade-and-run.sh --appid 123456789 --secret your_secret
+./scripts/upgrade-and-run.sh --appid 123456789 --secret your_secret
 
 # 同时启用 Markdown
-./upgrade-and-run.sh --appid 123456789 --secret your_secret --markdown yes
+./scripts/upgrade-and-run.sh --appid 123456789 --secret your_secret --markdown yes
 
 # 查看帮助
-./upgrade-and-run.sh --help
+./scripts/upgrade-and-run.sh --help
 ```
 
 **环境变量方式：**
@@ -155,22 +155,22 @@ openclaw config
 export QQBOT_APPID="123456789"
 export QQBOT_SECRET="your_secret"
 export QQBOT_MARKDOWN="no"
-./upgrade-and-run.sh
+./scripts/upgrade-and-run.sh
 ```
 
 ### Markdown 设置脚本
 ```bash
 # 启用 Markdown
-./set-markdown.sh enable
+./scripts/set-markdown.sh enable
 
 # 禁用 Markdown
-./set-markdown.sh disable
+./scripts/set-markdown.sh disable
 
 # 查看当前状态
-./set-markdown.sh status
+./scripts/set-markdown.sh status
 
 # 交互式选择
-./set-markdown.sh
+./scripts/set-markdown.sh
 ```
 
 ### 升级脚本（清理旧版本）

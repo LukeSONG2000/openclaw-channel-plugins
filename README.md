@@ -358,14 +358,14 @@ STT supports two-level configuration with priority fallback:
 ### Via upgrade-and-run.sh (One-Click)
 
 ```bash
-bash ./upgrade-and-run.sh
+bash ./scripts/upgrade-and-run.sh
 ```
 
 When no `--appid` / `--secret` is provided, the script reads existing config from `~/.openclaw/openclaw.json` automatically.
 
 ```bash
 # First-time or override credentials
-bash ./upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
 <details>
@@ -385,16 +385,16 @@ Environment variables `QQBOT_APPID`, `QQBOT_SECRET`, `QQBOT_TOKEN` (AppID:Secret
 ### Via pull-latest.sh (Git Source)
 
 ```bash
-bash ./pull-latest.sh
+bash ./scripts/pull-latest.sh
 ```
 
 <details>
 <summary>Options</summary>
 
 ```bash
-bash ./pull-latest.sh --branch main            # specify branch (default: main)
-bash ./pull-latest.sh --force                   # skip prompts, force update
-bash ./pull-latest.sh --repo <git-url>          # use a different repo
+bash ./scripts/pull-latest.sh --branch main            # specify branch (default: main)
+bash ./scripts/pull-latest.sh --force                   # skip prompts, force update
+bash ./scripts/pull-latest.sh --repo <git-url>          # use a different repo
 ```
 
 </details>

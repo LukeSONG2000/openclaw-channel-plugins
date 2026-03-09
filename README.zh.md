@@ -354,14 +354,14 @@ STT 支持两级配置，按优先级查找：
 ### 通过 upgrade-and-run.sh 一键升级
 
 ```bash
-bash ./upgrade-and-run.sh
+bash ./scripts/upgrade-and-run.sh
 ```
 
 不传 `--appid` / `--secret` 参数时，脚本会自动读取 `~/.openclaw/openclaw.json` 中已有的配置。
 
 ```bash
 # 首次配置或需要覆盖时
-bash ./upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
 <details>
@@ -381,16 +381,16 @@ bash ./upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
 ### 通过 pull-latest.sh（Git 源码更新）
 
 ```bash
-bash ./pull-latest.sh
+bash ./scripts/pull-latest.sh
 ```
 
 <details>
 <summary>选项</summary>
 
 ```bash
-bash ./pull-latest.sh --branch main            # 指定分支（默认 main）
-bash ./pull-latest.sh --force                   # 跳过交互，强制更新
-bash ./pull-latest.sh --repo <git-url>          # 使用其他仓库地址
+bash ./scripts/pull-latest.sh --branch main            # 指定分支（默认 main）
+bash ./scripts/pull-latest.sh --force                   # 跳过交互，强制更新
+bash ./scripts/pull-latest.sh --repo <git-url>          # 使用其他仓库地址
 ```
 
 </details>
