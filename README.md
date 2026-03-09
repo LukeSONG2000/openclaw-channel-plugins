@@ -10,7 +10,7 @@
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
-[![Platform](https://img.shields.io/badge/platform-OpenClaw-orange)](https://github.com/tencent-connect/openclaw-qq)
+[![Platform](https://img.shields.io/badge/platform-OpenClaw-orange)](https://github.com/tencent-connect/openclaw-qqbot)
 [![Node.js](https://img.shields.io/badge/Node.js->=18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
 
@@ -50,6 +50,8 @@ Scan to join the QQ group chat
 <details>
 <summary><b>🎙️ Voice Messages (STT)</b> — AI understands voice messages, auto-transcribes speech to text</summary>
 
+With STT configured, the plugin automatically transcribes voice messages to text before passing them to AI. The whole process is transparent to the user — sending voice feels as natural as sending text.
+
 > **You**: *(send a voice message)* "What's the weather like tomorrow in Shenzhen?"
 >
 > **QQBot**: Tomorrow (March 7, Saturday) Shenzhen weather forecast 🌤️ ...
@@ -61,6 +63,8 @@ Scan to join the QQ group chat
 <details>
 <summary><b>📄 File Understanding</b> — Send any file, AI reads and understands it</summary>
 
+Send any file to the bot — novels, reports, spreadsheets — AI automatically recognizes the content and gives an intelligent reply.
+
 > **You**: *(send a TXT file of "War and Peace")*
 >
 > **QQBot**: Got it! You uploaded the Chinese version of "War and Peace" by Leo Tolstoy. This appears to be the opening of Chapter 1...
@@ -71,6 +75,8 @@ Scan to join the QQ group chat
 
 <details>
 <summary><b>🖼️ Image Understanding</b> — Vision-capable models can see and describe images</summary>
+
+If your main model supports vision (e.g. Tencent Hunyuan `hunyuan-vision`), AI can understand images too. This is a general multimodal capability, not plugin-specific.
 
 > **You**: *(send an image)*
 >
@@ -87,6 +93,12 @@ Scan to join the QQ group chat
 >
 > **QQBot**: Here you go! 🐱
 
+AI uses the `<qqimg>` tag to send images. Both local file paths and URLs are supported. Formats: jpg/png/gif/webp/bmp.
+
+```
+<qqimg>~/.openclaw/qqbot/images/cute-cat.png</qqimg>
+```
+
 <img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="Image Generation Demo" />
 
 </details>
@@ -97,6 +109,12 @@ Scan to join the QQ group chat
 > **You**: Tell me a joke in voice
 >
 > **QQBot**: *(sends a voice message)*
+
+AI uses the `<qqvoice>` tag to send voice messages. Formats: mp3/wav/silk/ogg. Works without ffmpeg.
+
+```
+<qqvoice>~/.openclaw/qqbot/tts/joke.silk</qqvoice>
+```
 
 <img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="TTS Voice Demo" />
 
@@ -109,6 +127,12 @@ Scan to join the QQ group chat
 >
 > **QQBot**: *(sends a .txt file)*
 
+AI uses the `<qqfile>` tag to send files. PDF, Excel, ZIP, TXT — any format, up to 20MB.
+
+```
+<qqfile>~/.openclaw/qqbot/downloads/war-and-peace-ch1.txt</qqfile>
+```
+
 <img width="360" src="docs/images/17cada70df90185d45a2d6dd36e92f2f_720.jpg" alt="File Sending Demo" />
 
 </details>
@@ -120,11 +144,40 @@ Scan to join the QQ group chat
 >
 > **QQBot**: *(sends a video)*
 
+AI uses the `<qqvideo>` tag to send videos. Both local files and URLs are supported. Large files (>5MB) auto-show "uploading..." status.
+
+```
+<qqvideo>~/.openclaw/qqbot/downloads/demo.mp4</qqvideo>
+```
+
 <img width="360" src="docs/images/85d03b8a216f267ab7b2aee248a18a41_720.jpg" alt="Video Sending Demo" />
 
 </details>
 
-> For a deep dive into rich media capabilities, see the [Media Guide](docs/qqbot-media-guide.md).
+### Rich Media Tag Reference
+
+| Tag | Direction | Usage | Notes |
+|-----|-----------|-------|-------|
+| `<qqimg>path</qqimg>` | Send | Image | Local path or URL, jpg/png/gif/webp/bmp |
+| `<qqvoice>path</qqvoice>` | Send | Voice | mp3/wav/silk/ogg, no ffmpeg required |
+| `<qqfile>path</qqfile>` | Send | File | Any format, up to 20MB |
+| `<qqvideo>path</qqvideo>` | Send | Video | Local path or URL |
+| Voice message | Receive | STT | Auto-transcribe with configured STT model |
+| File attachment | Receive | File | Auto-download and feed content to AI |
+| Image attachment | Receive | Vision | Requires vision-capable model |
+
+### Try It Yourself
+
+| Direction | You say | AI does |
+|-----------|---------|---------|
+| Receive voice | Send a voice message asking about weather | STT auto-transcribes, AI replies with text |
+| Receive file | Send a file to the bot | AI reads file content, gives intelligent reply |
+| Send image | "Draw me a cat" | Calls drawing tool, sends image back |
+| Send voice | "Tell me a joke in voice" | TTS generates voice, sends voice message |
+| Send file | "Generate a file for me" | Creates file, sends via `<qqfile>` |
+| Send video | "Send me a video" | Sends video via `<qqvideo>` |
+
+**Under the hood:** Tag variant auto-correction (30+ variants like `<qq_img>`, `<image>`, `＜qqimg＞` are all recognized), upload caching (dedup within short windows), ordered queue delivery, and multi-layer audio format fallback.
 
 ---
 
@@ -165,7 +218,7 @@ Scan to join the QQ group chat
 **Option A: One-Click Install & Run (Recommended)**
 
 ```bash
-git clone https://github.com/tencent-connect/openclaw-qq.git && cd openclaw-qq
+git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
 bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
@@ -174,7 +227,7 @@ The script handles everything: cleanup old plugins → install deps → register
 **Option B: Manual Step-by-Step**
 
 ```bash
-git clone https://github.com/tencent-connect/openclaw-qq.git && cd openclaw-qq
+git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
 npm install --omit=dev
 openclaw plugins install .
 ```
@@ -412,7 +465,7 @@ bash ./scripts/pull-latest.sh --repo <git-url>          # use a different repo
 ### From Source
 
 ```bash
-git clone https://github.com/tencent-connect/openclaw-qq.git && cd openclaw-qq
+git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
 npm install --omit=dev
 bash ./scripts/upgrade.sh
 openclaw plugins install .
@@ -424,7 +477,7 @@ openclaw gateway restart
 
 ## 📚 Documentation
 
-- [Rich Media Guide](docs/qqbot-media-guide.md) — images, voice, video, files
+- [Rich Media Guide](docs/qqbot-media-guide.md) — detailed STT/TTS config examples and tag usage
 - [Command Reference](docs/commands.md) — OpenClaw CLI commands
 - [Changelog](docs/changelog/) — release notes ([latest: 1.5.4](docs/changelog/1.5.4.md))
 
