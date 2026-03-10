@@ -97,6 +97,16 @@ AI sends voice via `<qqvoice>path</qqvoice>`. Formats: mp3/wav/silk/ogg. No ffmp
 
 <img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="TTS Voice Demo" />
 
+### ⏰ Scheduled Reminder (Proactive Message)
+
+> **You**: Remind me to eat in 5 minutes
+>
+> **QQBot**: confirms the reminder first, then proactively sends a voice + text reminder when time is up
+
+This capability depends on OpenClaw cron scheduling and proactive messaging. If no reminder arrives, a common reason is QQ-side interception of bot proactive messages.
+
+<img width="360" src="docs/images/reminder.jpg" alt="Scheduled Reminder Demo" />
+
 ### 📎 File Sending
 
 > **You**: Extract chapter 1 of War and Peace and send it as a file

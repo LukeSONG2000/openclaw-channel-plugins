@@ -842,6 +842,20 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const uniqueVoicePaths = [...new Set(voiceAttachmentPaths)];
         const uniqueVoiceUrls = [...new Set(voiceAttachmentUrls)];
         const uniqueVoiceAsrReferTexts = [...new Set(voiceAsrReferTexts)].filter(Boolean);
+        const sttTranscriptCount = voiceTranscriptSources.filter((s) => s === "stt").length;
+        const asrFallbackCount = voiceTranscriptSources.filter((s) => s === "asr").length;
+        const fallbackCount = voiceTranscriptSources.filter((s) => s === "fallback").length;
+        if (voiceAttachmentPaths.length > 0 || voiceAttachmentUrls.length > 0 || uniqueVoiceAsrReferTexts.length > 0) {
+          const asrPreview = uniqueVoiceAsrReferTexts.length > 0
+            ? uniqueVoiceAsrReferTexts[0].slice(0, 50)
+            : "";
+          log?.info(
+            `[qqbot:${account.accountId}] Voice input summary: local=${uniqueVoicePaths.length}, remote=${uniqueVoiceUrls.length}, `
+            + `asrReferTexts=${uniqueVoiceAsrReferTexts.length}, transcripts=${voiceTranscripts.length}, `
+            + `source(stt/asr/fallback)=${sttTranscriptCount}/${asrFallbackCount}/${fallbackCount}`
+            + (asrPreview ? `, asr_preview="${asrPreview}${uniqueVoiceAsrReferTexts[0].length > 50 ? "..." : ""}"` : "")
+          );
+        }
         let receivedMediaSection = "";
         if (imageUrls.length > 0 || uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
           const mediaSections: string[] = [];

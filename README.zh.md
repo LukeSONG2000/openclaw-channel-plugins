@@ -94,6 +94,16 @@ AI 通过 `<qqvoice>路径</qqvoice>` 发送语音消息。格式：mp3/wav/silk
 
 <img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="发语音演示" />
 
+### ⏰ 定时提醒（主动消息）
+
+> **你**：5分钟后提醒我吃饭
+>
+> **QQBot**：先确认已创建提醒，到点后再主动推送语音 + 文本提醒
+
+该能力依赖 OpenClaw cron 调度与主动消息能力。若未收到提醒，常见原因是 QQ 侧拦截了机器人主动消息。
+
+<img width="360" src="docs/images/reminder.jpg" alt="定时提醒演示" />
+
 ### 📎 文件发送
 
 > **你**：战争与和平的第一章截取一下发文件给我
