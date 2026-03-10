@@ -97,6 +97,16 @@ AI sends voice via `<qqvoice>path</qqvoice>`. Formats: mp3/wav/silk/ogg. No ffmp
 
 <img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="TTS Voice Demo" />
 
+### ⏰ Scheduled Reminder (Proactive Message)
+
+> **You**: Remind me to eat in 5 minutes
+>
+> **QQBot**: confirms the reminder first, then proactively sends a voice + text reminder when time is up
+
+This capability depends on OpenClaw cron scheduling and proactive messaging. If no reminder arrives, a common reason is QQ-side interception of bot proactive messages.
+
+<img width="360" src="docs/images/reminder.jpg" alt="Scheduled Reminder Demo" />
+
 ### 📎 File Sending
 
 > **You**: Extract chapter 1 of War and Peace and send it as a file
@@ -144,13 +154,15 @@ AI sends videos via `<qqvideo>path</qqvideo>`. Supports local files and URLs. La
 
 <img width="720" alt="Create Bot" src="docs/images/create_robot.png" />
 
+> ⚠️ The bot will automatically appear in your QQ message list and send a first message. However, it will reply "The bot has gone to Mars" until you complete the configuration steps below.
+
+<img width="400" alt="Bot Say Hello" src="docs/images/bot_say_hello.jpg" />
+
 4. Find **AppID** and **AppSecret** on the bot's page, click **Copy** for each, and save them somewhere safe (e.g., a notepad). **AppSecret is not stored in plaintext — if you leave the page without saving it, you'll have to regenerate a new one.**
 
-<img width="1670" height="1036" alt="Clipboard_Screenshot_1772980413" src="https://github.com/user-attachments/assets/b898d171-5711-4d42-bc07-2de967b119ec" />
+<img width="720" alt="Find AppID and AppSecret" src="docs/images/find_appid_secret.png" />
 
 > For a step-by-step walkthrough with screenshots, see the [official guide](https://cloud.tencent.com/developer/article/2626045).
-
-> ⚠️ The bot will automatically appear in your QQ message list and send a first message. However, it will reply "The bot has gone to Mars" until you complete the configuration steps below.
 
 ### Step 2 — Install the Plugin
 

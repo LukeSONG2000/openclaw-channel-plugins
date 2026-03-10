@@ -94,6 +94,16 @@ AI 通过 `<qqvoice>路径</qqvoice>` 发送语音消息。格式：mp3/wav/silk
 
 <img width="360" src="docs/images/21dce8bfc553ce23d1bd1b270e9c516c.jpg" alt="发语音演示" />
 
+### ⏰ 定时提醒（主动消息）
+
+> **你**：5分钟后提醒我吃饭
+>
+> **QQBot**：先确认已创建提醒，到点后再主动推送语音 + 文本提醒
+
+该能力依赖 OpenClaw cron 调度与主动消息能力。若未收到提醒，常见原因是 QQ 侧拦截了机器人主动消息。
+
+<img width="360" src="docs/images/reminder.jpg" alt="定时提醒演示" />
+
 ### 📎 文件发送
 
 > **你**：战争与和平的第一章截取一下发文件给我
@@ -141,13 +151,15 @@ AI 通过 `<qqvideo>路径</qqvideo>` 发送视频，支持本地文件和公网
 
 <img width="720" alt="创建机器人" src="docs/images/create_robot.png" />
 
+> ⚠️ 机器人创建后会自动出现在你的 QQ 消息列表中，并发送第一条消息。但在完成下面的配置之前，发消息会提示"该机器人去火星了"，属于正常现象。
+
+<img width="400" alt="机器人打招呼" src="docs/images/bot_say_hello.jpg" />
+
 4. 在机器人页面中找到 **AppID** 和 **AppSecret**，分别点击右侧**复制**按钮，保存到记事本或备忘录中。**AppSecret 不支持明文保存，离开页面后再查看会强制重置，请务必妥善保存。**
 
-<img width="1670" height="1036" alt="Clipboard_Screenshot_1772980413" src="https://github.com/user-attachments/assets/b898d171-5711-4d42-bc07-2de967b119ec" />
+<img width="720" alt="找到 AppID 和 AppSecret" src="docs/images/find_appid_secret.png" />
 
 > 详细图文教程请参阅 [官方指南](https://cloud.tencent.com/developer/article/2626045)。
-
-> ⚠️ 机器人创建后会自动出现在你的 QQ 消息列表中，并发送第一条消息。但在完成下面的配置之前，发消息会提示"该机器人去火星了"，属于正常现象。
 
 ### 第二步 — 安装插件
 
