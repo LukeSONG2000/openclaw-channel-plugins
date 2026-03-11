@@ -176,7 +176,10 @@ openclaw plugins install @tencent-connect/openclaw-qqbot
 
 ```bash
 git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
+# First-time install/config (appid and secret are required)
 bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
+# Subsequent upgrades (existing config)
+bash ./scripts/upgrade-via-source.sh
 ```
 
 The script handles everything: cleanup old plugins → install deps → register plugin → configure channel → start service. Once done, skip to [Step 4](#step-4--start--test).
@@ -370,7 +373,7 @@ STT supports two-level configuration with priority fallback:
 
 ### Option 1: Upgrade via npm (Recommended)
 
-Current latest npm version: `1.5.6`
+Check latest npm version: `npm view @tencent-connect/openclaw-qqbot version`
 
 ```bash
 bash ./scripts/upgrade-via-npm.sh
@@ -380,12 +383,24 @@ The script automatically backs up channel config → uninstalls old plugins → 
 
 ```bash
 # Specify exact version
-bash ./scripts/upgrade-via-npm.sh --version 1.5.6
+bash ./scripts/upgrade-via-npm.sh --version <version>
+```
+
+If `--version` is not provided, the script installs `latest` by default.
+
+You can also download and run the npm upgrade script directly (without cloning the whole repository):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh -o /tmp/upgrade-via-npm.sh
+bash /tmp/upgrade-via-npm.sh
+# or: bash /tmp/upgrade-via-npm.sh --version <version>
 ```
 
 ### Option 2: Upgrade via Source
 
-Run the one-click script to upgrade and restart:
+Run the one-click script to upgrade and restart.
+
+Note: this script must be executed inside this repository (it installs from local source via `openclaw plugins install .`).
 
 ```bash
 bash ./scripts/upgrade-via-source.sh
@@ -416,7 +431,11 @@ Environment variables `QQBOT_APPID`, `QQBOT_SECRET`, `QQBOT_TOKEN` (AppID:Secret
 
 ## 🔀 Migrating from Legacy Plugins
 
-If you previously installed `qqbot`, `@sliverp/qqbot`, `@tencent-connect/qqbot`, or other related legacy plugins, you need to uninstall the old plugin before installing the new version.
+Common legacy plugin migrations include:
+- `qqbot` (npm package: `@sliverp/qqbot`)
+- `openclaw-qqbot` (npm package: `@tencent-connect/openclaw-qqbot`)
+
+If you previously installed any of these (or other similar legacy variants), uninstall the old plugin before installing the new version.
 
 ### Recommended: Use upgrade-via-npm Script (Automatic)
 
@@ -424,7 +443,7 @@ If you previously installed `qqbot`, `@sliverp/qqbot`, `@tencent-connect/qqbot`,
 bash ./scripts/upgrade-via-npm.sh
 ```
 
-The script automatically uninstalls all legacy plugin variants (`qqbot`, `@sliverp/qqbot`, etc.), cleans up residual directories, and backs up/restores channel config.
+The script automatically uninstalls legacy variants of these two plugin IDs (`qqbot`, `openclaw-qqbot`), cleans up residual directories, and backs up/restores channel config.
 
 ### Manual Migration
 
@@ -437,10 +456,8 @@ Save the `channels.qqbot` section from `~/.openclaw/openclaw.json` (including `a
 Run the appropriate uninstall command(s) based on what you had installed:
 
 ```bash
-# Uninstall legacy plugin variants (pick the ones that apply)
+# Uninstall legacy plugin IDs (pick the ones that apply)
 openclaw plugins uninstall qqbot
-openclaw plugins uninstall @sliverp/qqbot
-openclaw plugins uninstall @tencent-connect/qqbot
 openclaw plugins uninstall openclaw-qqbot
 ```
 

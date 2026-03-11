@@ -173,7 +173,10 @@ openclaw plugins install @tencent-connect/openclaw-qqbot
 
 ```bash
 git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
+# 首次安装/首次配置（需要提供 appid 和 secret）
 bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
+# 后续升级（已有配置）
+bash ./scripts/upgrade-via-source.sh
 ```
 
 脚本会自动完成：清理旧插件 → 安装依赖 → 注册插件 → 配置通道 → 启动服务。完成后可直接跳到[第四步](#第四步--启动并测试)。
@@ -367,7 +370,7 @@ STT 支持两级配置，按优先级查找：
 
 ### 方式一：通过 npm 升级（推荐）
 
-当前最新 npm 版本：`1.5.6`
+查看最新 npm 版本：`npm view @tencent-connect/openclaw-qqbot version`
 
 ```bash
 bash ./scripts/upgrade-via-npm.sh
@@ -377,12 +380,24 @@ bash ./scripts/upgrade-via-npm.sh
 
 ```bash
 # 指定版本号
-bash ./scripts/upgrade-via-npm.sh --version 1.5.6
+bash ./scripts/upgrade-via-npm.sh --version <version>
+```
+
+不传 `--version` 时，脚本默认安装 `latest`。
+
+也可以不拉完整仓库，直接下载并执行 npm 升级脚本：
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh -o /tmp/upgrade-via-npm.sh
+bash /tmp/upgrade-via-npm.sh
+# 或：bash /tmp/upgrade-via-npm.sh --version <version>
 ```
 
 ### 方式二：通过源码升级
 
-运行一键脚本即可升级并重启：
+运行一键脚本即可升级并重启。
+
+注意：该脚本必须在当前仓库内执行（通过 `openclaw plugins install .` 从本地源码安装）。
 
 ```bash
 bash ./scripts/upgrade-via-source.sh
@@ -402,7 +417,7 @@ bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 |------|------|
 | `--appid <id>` | QQ 机器人 AppID |
 | `--secret <secret>` | QQ 机器人 AppSecret |
-| `--markdown <yes\|no>` | 是否启用 Markdown 消息格式（默认: no） |
+| `--markdown <yes\|no>` | 是否启用 Markdown 消息格式（默认: yes） |
 | `-h, --help` | 显示帮助 |
 
 也支持环境变量：`QQBOT_APPID`、`QQBOT_SECRET`、`QQBOT_TOKEN`（AppID:Secret）。
@@ -413,7 +428,11 @@ bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 
 ## 🔀 从旧版插件迁移
 
-如果你之前安装的是 `qqbot`、`@sliverp/qqbot`、`@tencent-connect/qqbot` 等关联插件，需要先卸载旧插件再安装新版本。
+常见需要迁移的历史插件包括：
+- `qqbot`（npm 包：`@sliverp/qqbot`）
+- `openclaw-qqbot`（npm 包：`@tencent-connect/openclaw-qqbot`）
+
+如果你之前安装过其中任意一个（或其他同类历史变体），都需要先卸载旧插件再安装新版本。
 
 ### 推荐：使用 upgrade-via-npm 脚本（自动处理）
 
@@ -421,7 +440,7 @@ bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 bash ./scripts/upgrade-via-npm.sh
 ```
 
-脚本会自动卸载所有历史版本的插件（`qqbot`、`@sliverp/qqbot` 等）、清理残留目录、备份恢复通道配置。
+脚本会自动卸载这两条历史线相关的旧插件变体（`qqbot`、`openclaw-qqbot`），并清理残留目录、备份恢复通道配置。
 
 ### 手动迁移
 
@@ -434,10 +453,8 @@ bash ./scripts/upgrade-via-npm.sh
 根据你之前安装的插件名，执行对应的卸载命令：
 
 ```bash
-# 卸载可能存在的旧版插件（按实际情况选择）
+# 卸载可能存在的旧插件 ID（按实际情况选择）
 openclaw plugins uninstall qqbot
-openclaw plugins uninstall @sliverp/qqbot
-openclaw plugins uninstall @tencent-connect/qqbot
 openclaw plugins uninstall openclaw-qqbot
 ```
 

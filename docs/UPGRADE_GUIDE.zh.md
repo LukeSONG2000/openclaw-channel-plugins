@@ -11,10 +11,22 @@
 bash ./scripts/upgrade-via-npm.sh
 
 # 指定版本
-bash ./scripts/upgrade-via-npm.sh --version 1.5.6
+bash ./scripts/upgrade-via-npm.sh --version <version>
 ```
 
+> 不传 `--version` 时，默认使用 `latest`。
+
+> 也可以不拉完整仓库，直接下载并执行该脚本：
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh -o /tmp/upgrade-via-npm.sh
+> bash /tmp/upgrade-via-npm.sh
+> # 或：bash /tmp/upgrade-via-npm.sh --version <version>
+> ```
+
 ### 2) 通过源码一键升级并重启
+
+> 注意：该脚本必须在当前仓库内执行（通过 `openclaw plugins install .` 安装本地源码）。
 
 ```bash
 # 已有配置时可直接执行
@@ -24,7 +36,7 @@ bash ./scripts/upgrade-via-source.sh
 bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 ```
 
-> 注意：首次安装必须设置 `appid` 和 `secret`（或设置环境变量 `QQBOT_APPID` / `QQBOT_SECRET`）。
+> 注意：首次安装必须设置 `appid` 和 `secret`（或设置环境变量 `QQBOT_APPID` / `QQBOT_SECRET`）；后续升级如已有配置可直接执行 `bash ./scripts/upgrade-via-source.sh`。
 
 ---
 
@@ -36,6 +48,7 @@ bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 # 可选：先卸载旧插件（按实际安装情况执行）
 # 可先执行 `openclaw plugins list` 查看已安装插件 ID
 # 常见历史插件 ID：qqbot / openclaw-qqbot
+# 对应 npm 包：@sliverp/qqbot / @tencent-connect/openclaw-qqbot
 openclaw plugins uninstall qqbot
 openclaw plugins uninstall openclaw-qqbot
 
@@ -46,7 +59,7 @@ openclaw plugins uninstall openclaw-qqbot
 openclaw plugins install @tencent-connect/openclaw-qqbot@latest
 
 # 或安装指定版本
-openclaw plugins install @tencent-connect/openclaw-qqbot@1.5.6
+openclaw plugins install @tencent-connect/openclaw-qqbot@<version>
 ```
 
 ### B. 从源码目录安装

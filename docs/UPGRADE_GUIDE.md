@@ -11,10 +11,22 @@ If you previously installed qqbot but are not familiar with `openclaw plugins` c
 bash ./scripts/upgrade-via-npm.sh
 
 # Upgrade to a specific version
-bash ./scripts/upgrade-via-npm.sh --version 1.5.6
+bash ./scripts/upgrade-via-npm.sh --version <version>
 ```
 
+> If `--version` is omitted, `latest` is used by default.
+
+> You can also download and run this script directly (without cloning the whole repository):
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh -o /tmp/upgrade-via-npm.sh
+> bash /tmp/upgrade-via-npm.sh
+> # or: bash /tmp/upgrade-via-npm.sh --version <version>
+> ```
+
 ### 2) One-click upgrade from local source and restart
+
+> Note: this script must be run inside this repository (it installs via `openclaw plugins install .`).
 
 ```bash
 # Run directly if you already have config
@@ -24,7 +36,7 @@ bash ./scripts/upgrade-via-source.sh
 bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 ```
 
-> Note: For first-time installation, you must provide `appid` and `secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`).
+> Note: For first-time installation, you must provide `appid` and `secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`); for subsequent upgrades with existing config, run `bash ./scripts/upgrade-via-source.sh` directly.
 
 ---
 
@@ -36,6 +48,7 @@ bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 # Optional: uninstall old plugins first (based on your actual installation)
 # Run `openclaw plugins list` to check installed plugin IDs
 # Common legacy plugin IDs: qqbot / openclaw-qqbot
+# Corresponding npm packages: @sliverp/qqbot / @tencent-connect/openclaw-qqbot
 openclaw plugins uninstall qqbot
 openclaw plugins uninstall openclaw-qqbot
 
@@ -46,7 +59,7 @@ openclaw plugins uninstall openclaw-qqbot
 openclaw plugins install @tencent-connect/openclaw-qqbot@latest
 
 # Or install a specific version
-openclaw plugins install @tencent-connect/openclaw-qqbot@1.5.6
+openclaw plugins install @tencent-connect/openclaw-qqbot@<version>
 ```
 
 ### B. Install from source directory

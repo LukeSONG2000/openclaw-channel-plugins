@@ -4,7 +4,7 @@
 #
 # 用法:
 #   upgrade-via-npm.sh                                    # 升级到 latest（默认）
-#   upgrade-via-npm.sh --version 1.5.6                    # 升级到指定版本
+#   upgrade-via-npm.sh --version <version>                # 升级到指定版本
 #   upgrade-via-npm.sh --self-version                     # 升级到当前仓库 package.json 版本
 
 set -eo pipefail
