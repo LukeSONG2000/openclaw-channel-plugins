@@ -134,18 +134,33 @@ fi
 # 2. 移除老版本
 echo ""
 echo "[2/6] 移除老版本..."
-if [ -f "$PROJ_DIR/scripts/upgrade.sh" ]; then
-    bash "$PROJ_DIR/scripts/upgrade.sh"
+if [ -f "$PROJ_DIR/scripts/cleanup-legacy-plugins.sh" ]; then
+    bash "$PROJ_DIR/scripts/cleanup-legacy-plugins.sh"
 else
-    echo "警告: upgrade.sh 不存在，跳过移除步骤"
+    echo "警告: cleanup-legacy-plugins.sh 不存在，跳过移除步骤"
 fi
 
 # 3. 安装当前版本
 echo ""
-echo "[3/6] 安装当前版本..."
+echo "[3/6] 安装当前版本（源码安装）..."
 
 echo "检查当前目录: $(pwd)"
 echo "检查openclaw版本: $(openclaw --version 2>/dev/null || echo 'openclaw not found')"
+
+LOCAL_PACKAGE_VERSION=$(node -e "
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const p = path.join('$PROJ_DIR', 'package.json');
+    const v = JSON.parse(fs.readFileSync(p, 'utf8')).version;
+    if (v) process.stdout.write(String(v));
+  } catch {}
+" 2>/dev/null || true)
+if [ -n "$LOCAL_PACKAGE_VERSION" ]; then
+    echo "即将安装本地源码版本: $LOCAL_PACKAGE_VERSION"
+else
+    echo "即将安装本地源码版本: unknown（未读取到 package.json version）"
+fi
 
 # 记录更新前的 qqbot 插件版本
 OLD_QQBOT_VERSION=$(node -e '
@@ -165,6 +180,7 @@ OLD_QQBOT_VERSION=$(node -e '
 ' 2>/dev/null || echo "not_installed")
 
 echo "开始安装插件..."
+echo "安装来源: 当前仓库源码（openclaw plugins install .）"
 INSTALL_LOG="/tmp/openclaw-install-$(date +%s).log"
 
 echo "安装日志文件: $INSTALL_LOG"

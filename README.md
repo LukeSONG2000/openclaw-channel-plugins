@@ -176,7 +176,7 @@ openclaw plugins install @tencent-connect/openclaw-qqbot
 
 ```bash
 git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
-bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
 The script handles everything: cleanup old plugins → install deps → register plugin → configure channel → start service. Once done, skip to [Step 4](#step-4--start--test).
@@ -373,14 +373,14 @@ STT supports two-level configuration with priority fallback:
 Current latest npm version: `1.5.6`
 
 ```bash
-bash ./scripts/npm-upgrade.sh
+bash ./scripts/upgrade-via-npm.sh
 ```
 
 The script automatically backs up channel config → uninstalls old plugins → installs new version → restores config → restarts gateway.
 
 ```bash
 # Specify exact version
-bash ./scripts/npm-upgrade.sh --version 1.5.6
+bash ./scripts/upgrade-via-npm.sh --version 1.5.6
 ```
 
 ### Option 2: Upgrade via Source
@@ -388,14 +388,14 @@ bash ./scripts/npm-upgrade.sh --version 1.5.6
 Run the one-click script to upgrade and restart:
 
 ```bash
-bash ./scripts/upgrade-and-run.sh
+bash ./scripts/upgrade-via-source.sh
 ```
 
 When no `--appid` / `--secret` is provided, the script reads existing config from `~/.openclaw/openclaw.json` automatically.
 
 ```bash
 # First-time or override credentials
-bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
 <details>
@@ -418,13 +418,13 @@ Environment variables `QQBOT_APPID`, `QQBOT_SECRET`, `QQBOT_TOKEN` (AppID:Secret
 
 If you previously installed `qqbot`, `@sliverp/qqbot`, `@tencent-connect/qqbot`, or other related legacy plugins, you need to uninstall the old plugin before installing the new version.
 
-### Recommended: Use npm-upgrade Script (Automatic)
+### Recommended: Use upgrade-via-npm Script (Automatic)
 
 ```bash
-bash ./scripts/npm-upgrade.sh
+bash ./scripts/upgrade-via-npm.sh
 ```
 
-The script automatically uninstalls all legacy plugin variants (`qqbot`, `@sliverp/qqbot`, `openclaw-qq`, etc.), cleans up residual directories, and backs up/restores channel config.
+The script automatically uninstalls all legacy plugin variants (`qqbot`, `@sliverp/qqbot`, etc.), cleans up residual directories, and backs up/restores channel config.
 
 ### Manual Migration
 
@@ -442,7 +442,6 @@ openclaw plugins uninstall qqbot
 openclaw plugins uninstall @sliverp/qqbot
 openclaw plugins uninstall @tencent-connect/qqbot
 openclaw plugins uninstall openclaw-qqbot
-openclaw plugins uninstall openclaw-qq
 ```
 
 If `plugins uninstall` doesn't fully clean up, manually remove residual directories:
@@ -450,7 +449,6 @@ If `plugins uninstall` doesn't fully clean up, manually remove residual director
 ```bash
 rm -rf ~/.openclaw/extensions/qqbot
 rm -rf ~/.openclaw/extensions/openclaw-qqbot
-rm -rf ~/.openclaw/extensions/openclaw-qq
 ```
 
 **3. Temporarily remove channel config**

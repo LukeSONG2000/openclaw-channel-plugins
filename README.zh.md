@@ -173,7 +173,7 @@ openclaw plugins install @tencent-connect/openclaw-qqbot
 
 ```bash
 git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
-bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
 脚本会自动完成：清理旧插件 → 安装依赖 → 注册插件 → 配置通道 → 启动服务。完成后可直接跳到[第四步](#第四步--启动并测试)。
@@ -370,14 +370,14 @@ STT 支持两级配置，按优先级查找：
 当前最新 npm 版本：`1.5.6`
 
 ```bash
-bash ./scripts/npm-upgrade.sh
+bash ./scripts/upgrade-via-npm.sh
 ```
 
 脚本会自动备份通道配置 → 卸载旧插件 → 安装新版本 → 恢复配置 → 重启网关。
 
 ```bash
 # 指定版本号
-bash ./scripts/npm-upgrade.sh --version 1.5.6
+bash ./scripts/upgrade-via-npm.sh --version 1.5.6
 ```
 
 ### 方式二：通过源码升级
@@ -385,14 +385,14 @@ bash ./scripts/npm-upgrade.sh --version 1.5.6
 运行一键脚本即可升级并重启：
 
 ```bash
-bash ./scripts/upgrade-and-run.sh
+bash ./scripts/upgrade-via-source.sh
 ```
 
 不传 `--appid` / `--secret` 参数时，脚本会自动读取 `~/.openclaw/openclaw.json` 中已有的配置。
 
 ```bash
 # 首次配置或需要覆盖时
-bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 ```
 
 <details>
@@ -415,13 +415,13 @@ bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
 
 如果你之前安装的是 `qqbot`、`@sliverp/qqbot`、`@tencent-connect/qqbot` 等关联插件，需要先卸载旧插件再安装新版本。
 
-### 推荐：使用 npm-upgrade 脚本（自动处理）
+### 推荐：使用 upgrade-via-npm 脚本（自动处理）
 
 ```bash
-bash ./scripts/npm-upgrade.sh
+bash ./scripts/upgrade-via-npm.sh
 ```
 
-脚本会自动卸载所有历史版本的插件（`qqbot`、`@sliverp/qqbot`、`openclaw-qq` 等）、清理残留目录、备份恢复通道配置。
+脚本会自动卸载所有历史版本的插件（`qqbot`、`@sliverp/qqbot` 等）、清理残留目录、备份恢复通道配置。
 
 ### 手动迁移
 
@@ -439,7 +439,6 @@ openclaw plugins uninstall qqbot
 openclaw plugins uninstall @sliverp/qqbot
 openclaw plugins uninstall @tencent-connect/qqbot
 openclaw plugins uninstall openclaw-qqbot
-openclaw plugins uninstall openclaw-qq
 ```
 
 如果 `plugins uninstall` 未能完全清理，手动删除残留目录：
@@ -447,7 +446,6 @@ openclaw plugins uninstall openclaw-qq
 ```bash
 rm -rf ~/.openclaw/extensions/qqbot
 rm -rf ~/.openclaw/extensions/openclaw-qqbot
-rm -rf ~/.openclaw/extensions/openclaw-qq
 ```
 
 **3. 临时移除通道配置**

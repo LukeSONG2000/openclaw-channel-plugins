@@ -138,16 +138,16 @@ openclaw config
 ### 一键升级并启动
 ```bash
 # 基本用法
-./scripts/upgrade-and-run.sh
+./scripts/upgrade-via-source.sh
 
 # 指定 AppID 和 Secret
-./scripts/upgrade-and-run.sh --appid 123456789 --secret your_secret
+./scripts/upgrade-via-source.sh --appid 123456789 --secret your_secret
 
 # 同时启用 Markdown
-./scripts/upgrade-and-run.sh --appid 123456789 --secret your_secret --markdown yes
+./scripts/upgrade-via-source.sh --appid 123456789 --secret your_secret --markdown yes
 
 # 查看帮助
-./scripts/upgrade-and-run.sh --help
+./scripts/upgrade-via-source.sh --help
 ```
 
 **环境变量方式：**
@@ -155,7 +155,7 @@ openclaw config
 export QQBOT_APPID="123456789"
 export QQBOT_SECRET="your_secret"
 export QQBOT_MARKDOWN="no"
-./scripts/upgrade-and-run.sh
+./scripts/upgrade-via-source.sh
 ```
 
 ### Markdown 设置脚本
@@ -176,7 +176,7 @@ export QQBOT_MARKDOWN="no"
 ### 升级脚本（清理旧版本）
 ```bash
 # 清理旧版本插件和配置
-bash ./scripts/upgrade.sh
+bash ./scripts/cleanup-legacy-plugins.sh
 ```
 
 ---
@@ -212,7 +212,7 @@ openclaw channels list
 ### 重新安装插件
 ```bash
 # 1. 清理旧版本
-bash ./scripts/upgrade.sh
+bash ./scripts/cleanup-legacy-plugins.sh
 
 # 2. 重新安装
 openclaw plugins install .
