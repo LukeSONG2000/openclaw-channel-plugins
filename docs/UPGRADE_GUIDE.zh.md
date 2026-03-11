@@ -16,10 +16,10 @@ bash ./scripts/upgrade-via-npm.sh --version <version>
 
 > 不传 `--version` 时，默认使用 `latest`。
 
-> 也可以不拉完整仓库，直接下载并执行该脚本：
+> 也可以直接下载并执行该脚本：
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh -o /tmp/upgrade-via-npm.sh
+> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/npm-upgrade.sh -o /tmp/upgrade-via-npm.sh
 > bash /tmp/upgrade-via-npm.sh
 > # 或：bash /tmp/upgrade-via-npm.sh --version <version>
 > ```

@@ -16,10 +16,10 @@ bash ./scripts/upgrade-via-npm.sh --version <version>
 
 > If `--version` is omitted, `latest` is used by default.
 
-> You can also download and run this script directly (without cloning the whole repository):
+> You can also download and run this script directly:
 >
 > ```bash
-> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh -o /tmp/upgrade-via-npm.sh
+> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/npm-upgrade.sh -o /tmp/upgrade-via-npm.sh
 > bash /tmp/upgrade-via-npm.sh
 > # or: bash /tmp/upgrade-via-npm.sh --version <version>
 > ```
