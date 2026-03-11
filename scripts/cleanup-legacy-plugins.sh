@@ -1,11 +1,11 @@
 #!/bin/bash
-# QQBot 插件升级脚本
+# qqbot 插件升级脚本
 # 用于清理旧版本插件并重新安装
 # 兼容 clawdbot 和 openclaw 两种安装
 
 set -e
 
-echo "=== QQBot 插件升级脚本 ==="
+echo "=== qqbot 插件升级脚本 ==="
 
 # 检测使用的是 clawdbot 还是 openclaw
 detect_installation() {
@@ -123,5 +123,5 @@ echo ""
 echo "接下来请执行以下命令重新安装插件:"
 echo "  cd /path/to/openclaw-qqbot"
 echo "  $CMD plugins install ."
-echo "  $CMD channels add --channel qqbot --token \"AppID:AppSecret\""
+echo "  $CMD channels add --channel qqbot --token \"appid:appsecret\""
 echo "  $CMD gateway restart"

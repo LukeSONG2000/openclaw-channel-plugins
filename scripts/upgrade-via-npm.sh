@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# QQBot 通过 npm 包升级
+# qqbot 通过 npm 包升级
 #
 # 用法:
 #   upgrade-via-npm.sh                                    # 升级到 latest（默认）
@@ -72,7 +72,7 @@ APP_CONFIG="$HOME/.$CMD/$CMD.json"
 EXTENSIONS_DIR="$HOME/.$CMD/extensions"
 
 echo "==========================================="
-echo "  QQBot npm 升级: $INSTALL_SRC"
+echo "  qqbot npm 升级: $INSTALL_SRC"
 echo "==========================================="
 echo ""
 

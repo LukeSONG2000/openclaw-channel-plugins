@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 /**
- * QQBot CLI - 用于升级和管理 QQBot 插件
+ * qqbot CLI - 用于升级和管理 qqbot 插件
  * 
  * 用法:
  *   npx openclaw-qqbot upgrade    # 升级插件
@@ -131,7 +131,7 @@ function runCommand(cmd, args = []) {
 
 // 升级命令
 function upgrade() {
-  console.log('=== QQBot 插件升级脚本 ===');
+  console.log('=== qqbot 插件升级脚本 ===');
 
   let foundInstallation = null;
   let savedConfig = null;
@@ -175,7 +175,7 @@ function upgrade() {
     }
   } else {
     console.log('未找到已保存的 qqbot 配置，请手动配置:');
-    console.log(`  ${foundInstallation} channels add --channel qqbot --token "AppID:AppSecret"`);
+    console.log(`  ${foundInstallation} channels add --channel qqbot --token "appid:appsecret"`);
     return;
   }
 
@@ -186,7 +186,7 @@ function upgrade() {
 
 // 安装命令
 function install() {
-  console.log('=== QQBot 插件安装 ===');
+  console.log('=== qqbot 插件安装 ===');
 
   const cmd = detectInstallation();
   if (!cmd) {
@@ -200,13 +200,13 @@ function install() {
 
   console.log('\n=== 安装完成 ===');
   console.log('\n请配置机器人通道:');
-  console.log(`  ${cmd} channels add --channel qqbot --token "AppID:AppSecret"`);
+  console.log(`  ${cmd} channels add --channel qqbot --token "appid:appsecret"`);
 }
 
 // 显示帮助
 function showHelp() {
   console.log(`
-QQBot CLI - QQ机器人插件管理工具
+qqbot CLI - QQ机器人插件管理工具
 
 用法:
   npx openclaw-qqbot <命令>

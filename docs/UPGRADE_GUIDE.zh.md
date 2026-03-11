@@ -1,6 +1,6 @@
-# QQBot 插件升级指南
+# qqbot 插件升级指南
 
-如果你之前安装过 QQBot 插件，但不熟悉 `openclaw plugins` 升级命令或 `npm` 操作，建议优先使用项目内置脚本。
+如果你之前安装过 qqbot 插件，但不熟悉 `openclaw plugins` 升级命令或 `npm` 操作，建议优先使用项目内置脚本。
 
 ## 方式一：推荐（脚本升级）
 
@@ -20,11 +20,11 @@ bash ./scripts/upgrade-via-npm.sh --version 1.5.6
 # 已有配置时可直接执行
 bash ./scripts/upgrade-via-source.sh
 
-# 首次安装/首次配置（必须提供 AppID 和 Secret）
-bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
+# 首次安装/首次配置（必须提供 appid 和 secret）
+bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 ```
 
-> 注意：首次安装必须设置 `AppID` 和 `Secret`（或设置环境变量 `QQBOT_APPID` / `QQBOT_SECRET`）。
+> 注意：首次安装必须设置 `appid` 和 `secret`（或设置环境变量 `QQBOT_APPID` / `QQBOT_SECRET`）。
 
 ---
 
@@ -39,7 +39,7 @@ bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 openclaw plugins uninstall qqbot
 openclaw plugins uninstall openclaw-qqbot
 
-# 如果你还安装过其它 QQBot 相关插件，也请一并 uninstall
+# 如果你还安装过其它 qqbot 相关插件，也请一并 uninstall
 # openclaw plugins uninstall <其它插件ID>
 
 # 安装最新版本
@@ -60,7 +60,7 @@ openclaw plugins install .
 ### C. 配置通道（首次安装必做）
 
 ```bash
-openclaw channels add --channel qqbot --token "AppID:AppSecret"
+openclaw channels add --channel qqbot --token "appid:appsecret"
 ```
 
 ### D. 重启网关

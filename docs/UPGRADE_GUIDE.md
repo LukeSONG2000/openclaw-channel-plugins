@@ -1,6 +1,6 @@
-# QQBot Plugin Upgrade Guide
+# qqbot Plugin Upgrade Guide
 
-If you previously installed QQBot but are not familiar with `openclaw plugins` commands or npm operations, use the built-in scripts first.
+If you previously installed qqbot but are not familiar with `openclaw plugins` commands or npm operations, use the built-in scripts first.
 
 ## Option 1: Recommended (Script-based upgrade)
 
@@ -20,11 +20,11 @@ bash ./scripts/upgrade-via-npm.sh --version 1.5.6
 # Run directly if you already have config
 bash ./scripts/upgrade-via-source.sh
 
-# First install / first-time config (AppID and Secret are required)
-bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
+# First install / first-time config (appid and secret are required)
+bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 ```
 
-> Note: For first-time installation, you must provide `AppID` and `Secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`).
+> Note: For first-time installation, you must provide `appid` and `secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`).
 
 ---
 
@@ -39,7 +39,7 @@ bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 openclaw plugins uninstall qqbot
 openclaw plugins uninstall openclaw-qqbot
 
-# If you installed other QQBot-related plugins, uninstall them as well
+# If you installed other qqbot-related plugins, uninstall them as well
 # openclaw plugins uninstall <other-plugin-id>
 
 # Install latest
@@ -60,7 +60,7 @@ openclaw plugins install .
 ### C. Configure channel (required for first install)
 
 ```bash
-openclaw channels add --channel qqbot --token "AppID:AppSecret"
+openclaw channels add --channel qqbot --token "appid:appsecret"
 ```
 
 ### D. Restart gateway

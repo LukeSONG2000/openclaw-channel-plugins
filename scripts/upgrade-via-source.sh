@@ -1,6 +1,6 @@
 #!/bin/bash
 
-# QQBot 一键更新并启动脚本
+# qqbot 一键更新并启动脚本
 # 版本: 2.0 (增强错误处理版)
 #
 # 主要改进:
@@ -44,20 +44,20 @@ while [[ $# -gt 0 ]]; do
             echo "用法: $0 [选项]"
             echo ""
             echo "选项:"
-            echo "  --appid <appid>       QQ机器人 AppID"
-            echo "  --secret <secret>     QQ机器人 Secret"
-            echo "  --markdown <yes|no>   是否启用 Markdown 消息格式（默认: no）"
+            echo "  --appid <appid>       QQ机器人 appid"
+            echo "  --secret <secret>     QQ机器人 secret"
+            echo "  --markdown <yes|no>   是否启用 markdown 消息格式（默认: no）"
             echo "  -h, --help            显示帮助信息"
             echo ""
             echo "也可以通过环境变量设置:"
-            echo "  QQBOT_APPID           QQ机器人 AppID"
-            echo "  QQBOT_SECRET          QQ机器人 Secret"
-            echo "  QQBOT_TOKEN           QQ机器人 Token (AppID:Secret)"
-            echo "  QQBOT_MARKDOWN        是否启用 Markdown（yes/no）"
+            echo "  QQBOT_APPID           QQ机器人 appid"
+            echo "  QQBOT_SECRET          QQ机器人 secret"
+            echo "  QQBOT_TOKEN           QQ机器人 token (appid:secret)"
+            echo "  QQBOT_MARKDOWN        是否启用 markdown（yes/no）"
             echo ""
             echo "不带参数时，将使用已有配置直接启动。"
             echo ""
-            echo "⚠️  注意: 启用 Markdown 需要在 QQ 开放平台申请 Markdown 消息权限"
+            echo "⚠️  注意: 启用 markdown 需要在 QQ 开放平台申请 markdown 消息权限"
             exit 0
             ;;
         *)
@@ -74,7 +74,7 @@ SECRET="${SECRET:-$QQBOT_SECRET}"
 MARKDOWN="${MARKDOWN:-$QQBOT_MARKDOWN}"
 
 echo "========================================="
-echo "  QQBot 一键更新启动脚本"
+echo "  qqbot 一键更新启动脚本"
 echo "========================================="
 
 # 1. 备份已有 qqbot 通道配置，防止升级过程丢失
@@ -297,13 +297,13 @@ done
 DESIRED_QQBOT_TOKEN=""
 if [ -n "$APPID" ] && [ -n "$SECRET" ]; then
     DESIRED_QQBOT_TOKEN="${APPID}:${SECRET}"
-    echo "使用提供的 AppID 和 Secret 配置..."
+    echo "使用提供的 appid 和 secret 配置..."
 elif [ -n "$QQBOT_TOKEN" ]; then
     DESIRED_QQBOT_TOKEN="$QQBOT_TOKEN"
     echo "使用环境变量 QQBOT_TOKEN 配置..."
 elif [ -n "$SAVED_QQBOT_TOKEN" ]; then
     DESIRED_QQBOT_TOKEN="$SAVED_QQBOT_TOKEN"
-    echo "未提供 AppID/Secret，使用备份 token 恢复配置..."
+    echo "未提供 appid/secret，使用备份 token 恢复配置..."
 fi
 
 if [ -n "$DESIRED_QQBOT_TOKEN" ]; then
@@ -334,33 +334,33 @@ else
         echo ""
         echo "❌ 未检测到 qqbot 通道配置！"
         echo ""
-        echo "首次运行请提供 AppID 和 AppSecret："
+        echo "首次运行请提供 appid 和 appsecret："
         echo ""
-        echo "  bash $0 --appid <你的AppID> --secret <你的AppSecret>"
+        echo "  bash $0 --appid <你的appid> --secret <你的appsecret>"
         echo ""
         echo "也可以通过环境变量："
         echo ""
-        echo "  QQBOT_APPID=<AppID> QQBOT_SECRET=<AppSecret> bash $0"
+        echo "  QQBOT_APPID=<appid> QQBOT_SECRET=<appsecret> bash $0"
         echo ""
-        echo "AppID 和 AppSecret 可在 QQ 开放平台 (https://q.qq.com) 获取。"
+        echo "appid 和 appsecret 可在 QQ 开放平台 (https://q.qq.com) 获取。"
         exit 1
     else
         echo "使用已有配置"
     fi
 fi
 
-# 5. 配置 Markdown 选项（仅在明确指定时才配置）
+# 5. 配置 markdown 选项（仅在明确指定时才配置）
 echo ""
-echo "[5/6] 配置 Markdown 选项..."
+echo "[5/6] 配置 markdown 选项..."
 
 if [ -n "$MARKDOWN" ]; then
     # 设置 markdown 配置
     if [ "$MARKDOWN" = "yes" ] || [ "$MARKDOWN" = "y" ] || [ "$MARKDOWN" = "true" ]; then
         MARKDOWN_VALUE="true"
-        echo "启用 Markdown 消息格式..."
+        echo "启用 markdown 消息格式..."
     else
         MARKDOWN_VALUE="false"
-        echo "禁用 Markdown 消息格式（使用纯文本）..."
+        echo "禁用 markdown 消息格式（使用纯文本）..."
     fi
 
     CURRENT_MARKDOWN_VALUE=$(node -e "
@@ -383,9 +383,9 @@ if [ -n "$MARKDOWN" ]; then
     " 2>/dev/null || true)
 
     if [ "$CURRENT_MARKDOWN_VALUE" = "$MARKDOWN_VALUE" ]; then
-        echo "✅ Markdown 配置已是目标值，跳过写入（避免配置覆盖提示）"
+        echo "✅ markdown 配置已是目标值，跳过写入（避免配置覆盖提示）"
     elif openclaw config set channels.qqbot.markdownSupport "$MARKDOWN_VALUE" 2>&1; then
-        echo "✅ Markdown配置成功"
+        echo "✅ markdown配置成功"
         _config_changed=1
     else
         echo "⚠️  openclaw config set 失败，尝试直接编辑配置文件..."
@@ -400,14 +400,14 @@ if [ -n "$MARKDOWN" ]; then
           cfg.channels.qqbot.markdownSupport = target;
           fs.writeFileSync('$OPENCLAW_CONFIG', JSON.stringify(cfg, null, 4) + '\n');
         " 2>&1; then
-            echo "✅ Markdown配置成功（直接编辑配置文件）"
+            echo "✅ markdown配置成功（直接编辑配置文件）"
             _config_changed=1
         else
-            echo "⚠️  Markdown配置设置失败，不影响后续运行"
+            echo "⚠️  markdown配置设置失败，不影响后续运行"
         fi
     fi
 else
-    echo "未指定 Markdown 选项，使用已有配置"
+    echo "未指定 markdown 选项，使用已有配置"
 fi
 
 # 6. 启动 openclaw
@@ -420,26 +420,26 @@ if ! command -v openclaw &> /dev/null; then
     echo "❌ 错误: openclaw 命令未找到！"
     echo ""
     echo "可能的原因:"
-    echo "1. OpenClaw未安装或安装失败"
+    echo "1. openclaw未安装或安装失败"
     echo "2. PATH环境变量未包含openclaw路径"
     echo "3. 需要重新登录或重启终端"
     echo ""
     exit 1
 fi
 
-echo "OpenClaw版本: $(openclaw --version 2>/dev/null || echo '未知')"
+echo "openclaw版本: $(openclaw --version 2>/dev/null || echo '未知')"
 
 # 显示 qqbot 插件更新信息
 NEW_QQBOT_VERSION="${NEW_QQBOT_VERSION:-unknown}"
 if [ "$OLD_QQBOT_VERSION" = "$NEW_QQBOT_VERSION" ]; then
-    echo "QQBot 插件版本: $NEW_QQBOT_VERSION (未变化)"
+    echo "qqbot 插件版本: $NEW_QQBOT_VERSION (未变化)"
 elif [ "$OLD_QQBOT_VERSION" = "not_installed" ]; then
-    echo "QQBot 插件版本: $NEW_QQBOT_VERSION (新安装)"
+    echo "qqbot 插件版本: $NEW_QQBOT_VERSION (新安装)"
 else
-    echo "QQBot 插件版本: $OLD_QQBOT_VERSION -> $NEW_QQBOT_VERSION"
+    echo "qqbot 插件版本: $OLD_QQBOT_VERSION -> $NEW_QQBOT_VERSION"
 fi
 echo ""
-read -t 120 -p "是否后台重启 OpenClaw 网关服务？[Y/n] " start_choice || start_choice="y"
+read -t 120 -p "是否后台重启 openclaw 网关服务？[Y/n] " start_choice || start_choice="y"
 start_choice="${start_choice:-y}"
 start_choice=$(printf '%s' "$start_choice" | tr '[:upper:]' '[:lower:]')
 
@@ -448,14 +448,14 @@ case "$start_choice" in
         echo ""
         # 不论配置是否变更，都显式 restart 一次，确保插件正确加载
         # （plugins install 触发的自动重启链已在第 3 步等待完成）
-        echo "正在后台重启 OpenClaw 网关服务..."
+        echo "正在后台重启 openclaw 网关服务..."
         if ! openclaw gateway restart 2>&1; then
             echo ""
             echo "⚠️  后台重启失败，可能服务未安装"
             echo "尝试: openclaw gateway install && openclaw gateway start"
         fi
         echo ""
-        echo "✅ OpenClaw 网关已在后台重启"
+        echo "✅ openclaw 网关已在后台重启"
         echo ""
         # 等待 gateway 端口就绪（插件安装+自动重启可能需要 30-60 秒）
         echo "等待 gateway 就绪（插件安装中，可能需要 30-60 秒）..."
@@ -478,8 +478,8 @@ case "$start_choice" in
         else
             echo "✅ Gateway 端口已就绪"
             echo ""
-            # 检查 QQBot WS 是否连接成功（最多等 30 秒）
-            echo "检查 QQBot 插件连接状态..."
+            # 检查 qqbot WS 是否连接成功（最多等 30 秒）
+            echo "检查 qqbot 插件连接状态..."
             _LOG_FILE="/tmp/openclaw/openclaw-$(date +%Y-%m-%d).log"
             _qqbot_ready=0
             for _j in $(seq 1 15); do
@@ -489,17 +489,17 @@ case "$start_choice" in
                     _qqbot_ready=1
                     break
                 fi
-                printf "\r  等待 QQBot WS 连接... (%d/15)" "$_j"
+                printf "\r  等待 qqbot WS 连接... (%d/15)" "$_j"
                 sleep 2
             done
             echo ""
 
             if [ "$_qqbot_ready" -eq 0 ]; then
-                echo "⚠️  QQBot 插件可能未正确加载，尝试再次重启..."
+                echo "⚠️  qqbot 插件可能未正确加载，尝试再次重启..."
                 openclaw gateway restart 2>&1 || true
                 sleep 10
             else
-                echo "✅ QQBot 插件已连接"
+                echo "✅ qqbot 插件已连接"
             fi
             echo ""
             echo "正在跟踪日志输出（按 Ctrl+C 停止查看，不影响后台服务）..."
@@ -529,12 +529,12 @@ case "$start_choice" in
     *)
         echo "无效选择，按默认值 y 执行后台重启"
         echo ""
-        echo "正在后台重启 OpenClaw 网关服务..."
+        echo "正在后台重启 openclaw 网关服务..."
         if ! openclaw gateway restart 2>&1; then
             echo "⚠️  后台重启失败，可能服务未安装"
             echo "尝试: openclaw gateway install && openclaw gateway start"
         fi
-        echo "✅ OpenClaw 网关已在后台重启"
+        echo "✅ openclaw 网关已在后台重启"
         ;;
 esac
 
