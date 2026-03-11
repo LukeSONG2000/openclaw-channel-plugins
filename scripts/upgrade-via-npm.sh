@@ -1,29 +1,62 @@
 #!/bin/bash
 
-# QQBot 通过 npm 包升级
+# qqbot 通过 npm 包升级
 #
 # 用法:
-#   npm-upgrade.sh                                    # 升级到 latest（默认）
-#   npm-upgrade.sh --tag alpha                        # 升级到 alpha
-#   npm-upgrade.sh --version 1.0.0-alpha.0            # 升级到指定版本
+#   upgrade-via-npm.sh                                    # 升级到 latest（默认）
+#   upgrade-via-npm.sh --version <version>                # 升级到指定版本
+#   upgrade-via-npm.sh --self-version                     # 升级到当前仓库 package.json 版本
 
 set -eo pipefail
 
 PKG_NAME="@tencent-connect/openclaw-qqbot"
 INSTALL_SRC=""
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+
+LOCAL_VERSION="$(node -e "
+  try {
+    const fs = require('fs');
+    const path = require('path');
+    const p = path.join('$PROJECT_DIR', 'package.json');
+    const v = JSON.parse(fs.readFileSync(p, 'utf8')).version;
+    if (v) process.stdout.write(String(v));
+  } catch {}
+" 2>/dev/null || true)"
+
+print_usage() {
+    echo "用法:"
+    echo "  upgrade-via-npm.sh                              # 升级到 latest（默认）"
+    echo "  upgrade-via-npm.sh --version <版本号>            # 升级到指定版本"
+    if [ -n "$LOCAL_VERSION" ]; then
+        echo "  upgrade-via-npm.sh --self-version               # 升级到当前仓库版本（$LOCAL_VERSION）"
+    else
+        echo "  upgrade-via-npm.sh --self-version               # 升级到当前仓库版本"
+    fi
+}
 
 while [[ $# -gt 0 ]]; do
     case "$1" in
-        --tag)     INSTALL_SRC="${PKG_NAME}@$2"; shift 2 ;;
-        --version) INSTALL_SRC="${PKG_NAME}@$2"; shift 2 ;;
+        --tag)
+            [ -z "$2" ] && echo "❌ --tag 需要参数" && exit 1
+            INSTALL_SRC="${PKG_NAME}@$2"
+            shift 2
+            ;;
+        --version)
+            [ -z "$2" ] && echo "❌ --version 需要参数" && exit 1
+            INSTALL_SRC="${PKG_NAME}@$2"
+            shift 2
+            ;;
+        --self-version)
+            [ -z "$LOCAL_VERSION" ] && echo "❌ 无法从 package.json 读取版本" && exit 1
+            INSTALL_SRC="${PKG_NAME}@${LOCAL_VERSION}"
+            shift 1
+            ;;
         -h|--help)
-            echo "用法:"
-            echo "  npm-upgrade.sh                              # 升级到 latest（默认）"
-            echo "  npm-upgrade.sh --tag alpha                   # 升级到 alpha"
-            echo "  npm-upgrade.sh --version 1.0.0-alpha.0       # 升级到指定版本"
+            print_usage
             exit 0
             ;;
-        *) echo "未知选项: $1"; exit 1 ;;
+        *) echo "未知选项: $1"; print_usage; exit 1 ;;
     esac
 done
 INSTALL_SRC="${INSTALL_SRC:-${PKG_NAME}@latest}"
@@ -39,7 +72,7 @@ APP_CONFIG="$HOME/.$CMD/$CMD.json"
 EXTENSIONS_DIR="$HOME/.$CMD/extensions"
 
 echo "==========================================="
-echo "  QQBot npm 升级: $INSTALL_SRC"
+echo "  qqbot npm 升级: $INSTALL_SRC"
 echo "==========================================="
 echo ""
 

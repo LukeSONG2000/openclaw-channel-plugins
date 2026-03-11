@@ -176,7 +176,10 @@ openclaw plugins install @tencent-connect/openclaw-qqbot
 
 ```bash
 git clone https://github.com/tencent-connect/openclaw-qqbot.git && cd openclaw-qqbot
-bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
+# First-time install/config (appid and secret are required)
+bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
+# Subsequent upgrades (existing config)
+bash ./scripts/upgrade-via-source.sh
 ```
 
 The script handles everything: cleanup old plugins → install deps → register plugin → configure channel → start service. Once done, skip to [Step 4](#step-4--start--test).
@@ -368,111 +371,92 @@ STT supports two-level configuration with priority fallback:
 
 ## 🔄 Upgrade
 
-### Option 1: Upgrade via npm (Recommended)
+If you previously installed qqbot but are not familiar with `openclaw plugins` commands or npm operations, use the built-in scripts first.
 
-Current latest npm version: `1.5.6`
+### Option 1: Recommended (Script-based upgrade)
+
+#### 1) Upgrade via npm package (easiest)
 
 ```bash
-bash ./scripts/npm-upgrade.sh
+# Upgrade to latest
+bash ./scripts/upgrade-via-npm.sh
+
+# Upgrade to a specific version
+bash ./scripts/upgrade-via-npm.sh --version <version>
 ```
 
-The script automatically backs up channel config → uninstalls old plugins → installs new version → restores config → restarts gateway.
+> If `--version` is omitted, `latest` is used by default.
+
+> You can also download and run this script directly:
+>
+> ```bash
+> curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/npm-upgrade.sh -o /tmp/upgrade-via-npm.sh
+> bash /tmp/upgrade-via-npm.sh
+> # or: bash /tmp/upgrade-via-npm.sh --version <version>
+> ```
+
+#### 2) One-click upgrade from local source and restart
+
+> Note: this script must be run inside this repository (it installs via `openclaw plugins install .`).
 
 ```bash
-# Specify exact version
-bash ./scripts/npm-upgrade.sh --version 1.5.6
+# Run directly if you already have config
+bash ./scripts/upgrade-via-source.sh
+
+# First install / first-time config (appid and secret are required)
+bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
 ```
 
-### Option 2: Upgrade via Source
+> Note: For first-time installation, you must provide `appid` and `secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`); for subsequent upgrades with existing config, run `bash ./scripts/upgrade-via-source.sh` directly.
 
-Run the one-click script to upgrade and restart:
+### Option 2: Manual upgrade (for users familiar with openclaw / npm)
 
-```bash
-bash ./scripts/upgrade-and-run.sh
-```
-
-When no `--appid` / `--secret` is provided, the script reads existing config from `~/.openclaw/openclaw.json` automatically.
+#### A. Install latest from npm directly
 
 ```bash
-# First-time or override credentials
-bash ./scripts/upgrade-and-run.sh --appid YOUR_APPID --secret YOUR_SECRET
-```
-
-<details>
-<summary>Full Options</summary>
-
-| Option | Description |
-|--------|-------------|
-| `--appid <id>` | QQ Bot AppID |
-| `--secret <secret>` | QQ Bot AppSecret |
-| `--markdown <yes\|no>` | Enable Markdown format (default: no) |
-| `-h, --help` | Show help |
-
-Environment variables `QQBOT_APPID`, `QQBOT_SECRET`, `QQBOT_TOKEN` (AppID:Secret) are also supported.
-
-</details>
-
----
-
-## 🔀 Migrating from Legacy Plugins
-
-If you previously installed `qqbot`, `@sliverp/qqbot`, `@tencent-connect/qqbot`, or other related legacy plugins, you need to uninstall the old plugin before installing the new version.
-
-### Recommended: Use npm-upgrade Script (Automatic)
-
-```bash
-bash ./scripts/npm-upgrade.sh
-```
-
-The script automatically uninstalls all legacy plugin variants (`qqbot`, `@sliverp/qqbot`, `openclaw-qq`, etc.), cleans up residual directories, and backs up/restores channel config.
-
-### Manual Migration
-
-**1. Back up your channel config**
-
-Save the `channels.qqbot` section from `~/.openclaw/openclaw.json` (including `appId`, `clientSecret`, `allowFrom`, etc.) — you'll need to restore it later.
-
-**2. Uninstall old plugins**
-
-Run the appropriate uninstall command(s) based on what you had installed:
-
-```bash
-# Uninstall legacy plugin variants (pick the ones that apply)
+# Optional: uninstall old plugins first (based on your actual installation)
+# Run `openclaw plugins list` to check installed plugin IDs
+# Common legacy plugin IDs: qqbot / openclaw-qqbot
+# Corresponding npm packages: @sliverp/qqbot / @tencent-connect/openclaw-qqbot
 openclaw plugins uninstall qqbot
-openclaw plugins uninstall @sliverp/qqbot
-openclaw plugins uninstall @tencent-connect/qqbot
 openclaw plugins uninstall openclaw-qqbot
-openclaw plugins uninstall openclaw-qq
+
+# If you installed other qqbot-related plugins, uninstall them as well
+# openclaw plugins uninstall <other-plugin-id>
+
+# Install latest
+openclaw plugins install @tencent-connect/openclaw-qqbot@latest
+
+# Or install a specific version
+openclaw plugins install @tencent-connect/openclaw-qqbot@<version>
 ```
 
-If `plugins uninstall` doesn't fully clean up, manually remove residual directories:
+#### B. Install from source directory
 
 ```bash
-rm -rf ~/.openclaw/extensions/qqbot
-rm -rf ~/.openclaw/extensions/openclaw-qqbot
-rm -rf ~/.openclaw/extensions/openclaw-qq
+cd /path/to/openclaw-qqbot
+npm install --omit=dev
+openclaw plugins install .
 ```
 
-**3. Temporarily remove channel config**
-
-> ⚠️ Important: `openclaw plugins install` validates the config file. If `channels.qqbot` exists but no plugin provides that channel, it will fail with `unknown channel id: qqbot`.
-
-Before installing, temporarily remove the `channels.qqbot` section from `~/.openclaw/openclaw.json`.
-
-**4. Install the new version**
+#### C. Configure channel (required for first install)
 
 ```bash
-openclaw plugins install @tencent-connect/openclaw-qqbot
+openclaw channels add --channel qqbot --token "appid:appsecret"
 ```
 
-**5. Restore channel config**
-
-Write back the previously saved `channels.qqbot` config to `~/.openclaw/openclaw.json`.
-
-**6. Restart the gateway**
+#### D. Restart gateway
 
 ```bash
 openclaw gateway restart
+```
+
+#### E. Verify
+
+```bash
+openclaw plugins list
+openclaw channels list
+openclaw logs --follow
 ```
 
 ---
