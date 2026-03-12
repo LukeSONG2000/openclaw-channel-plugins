@@ -6,15 +6,17 @@
 
 # QQ Bot Channel Plugin for OpenClaw
 
-**Latest version: `1.5.7`** — Adds quoted-message context with persistent index recovery for more accurate threaded replies.
+
 
 **Connect your AI assistant to QQ — private chat, group chat, and rich media, all in one plugin.**
 
+![Version](https://img.shields.io/badge/version-1.5.7-blue)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
 [![Platform](https://img.shields.io/badge/platform-OpenClaw-orange)](https://github.com/tencent-connect/openclaw-qqbot)
 [![Node.js](https://img.shields.io/badge/Node.js->=18-339933?logo=node.js&logoColor=white)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.9-3178C6?logo=typescript&logoColor=white)](https://www.typescriptlang.org/)
+
 
 <br/>
 

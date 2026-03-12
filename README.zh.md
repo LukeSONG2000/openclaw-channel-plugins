@@ -6,10 +6,9 @@
 
 # QQ Bot — OpenClaw 渠道插件
 
-**最新版本：`1.5.7`** —— 新增引用消息上下文与持久化索引，提升串联回复准确性。
 
 **让你的 AI 助手接入 QQ — 私聊、群聊、富媒体，一个插件全搞定。**
-
+![Version](https://img.shields.io/badge/version-1.5.7-blue)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
 [![Platform](https://img.shields.io/badge/platform-OpenClaw-orange)](https://github.com/tencent-connect/openclaw-qqbot)
