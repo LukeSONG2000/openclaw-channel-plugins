@@ -12,7 +12,6 @@
 
 ### 🚀 Current Version: `v1.5.7`
 
-![Version](https://img.shields.io/badge/version-1.5.7-blue)
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
 [![Platform](https://img.shields.io/badge/platform-OpenClaw-orange)](https://github.com/tencent-connect/openclaw-qqbot)
@@ -94,7 +93,7 @@ If your main model supports vision (e.g. Tencent Hunyuan `hunyuan-vision`), AI c
 
 <img width="360" src="docs/images/59d421891f813b0d3c0cbe12574b6a72_720.jpg" alt="Image Understanding Demo" />
 
-### 🎨 Image Generation
+### 🎨 Image Sending
 
 > **You**: Draw me a cat
 >
@@ -104,7 +103,7 @@ AI sends images via `<qqimg>path</qqimg>`. Supports local paths and URLs. Format
 
 <img width="360" src="docs/images/4645f2b3a20822b7f8d6664a708529eb_720.jpg" alt="Image Generation Demo" />
 
-### 🔊 Voice Reply (TTS)
+### 🔊 Voice Sending
 
 > **You**: Tell me a joke in voice
 >
