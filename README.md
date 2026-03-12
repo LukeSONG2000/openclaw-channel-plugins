@@ -6,7 +6,7 @@
 
 # QQ Bot Channel Plugin for OpenClaw
 
-**Latest version: `1.5.7`** — Adds quoted-message context (QQ `REFIDX_*`) with persistent index recovery for more accurate threaded replies.
+**Latest version: `1.5.7`** — Adds quoted-message context with persistent index recovery for more accurate threaded replies.
 
 **Connect your AI assistant to QQ — private chat, group chat, and rich media, all in one plugin.**
 
@@ -58,7 +58,7 @@ QQ quote events carry index keys (e.g. `REFIDX_xxx`) instead of full original me
 - Store path: `~/.openclaw/qqbot/data/ref-index.jsonl` (survives gateway restart).
 - Quote body may include text + media summary (image/voice/video/file).
 
-<img width="720" src="docs/images/ref_msg.png" alt="Quoted Message Context Demo" />
+<img width="360" src="docs/images/ref_msg.png" alt="Quoted Message Context Demo" />
 
 ### 🎙️ Voice Messages (STT)
 
