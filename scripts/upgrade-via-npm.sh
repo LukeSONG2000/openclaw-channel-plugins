@@ -102,11 +102,17 @@ rm -rf "$STAGING_DIR"
 mkdir -p "$STAGING_DIR"
 cp -R "$PACKAGE_DIR/"* "$STAGING_DIR/"
 
-# 安装依赖（使用临时缓存目录，避免全局缓存权限问题）
-if [ -f "$STAGING_DIR/package.json" ]; then
-    echo "  安装依赖..."
+# 依赖处理：所有 production dependencies 都声明为 bundledDependencies，
+# npm pack 时已打包进 tgz，解压后 node_modules/ 已包含全部依赖，无需 npm install。
+# 注意：不能执行 npm install，否则会安装 peerDependencies（openclaw 平台及其 400+ 传递依赖），
+# 导致插件目录膨胀到 900MB+，而这些依赖在运行时由宿主 openclaw 提供。
+if [ -d "$STAGING_DIR/node_modules" ]; then
+    BUNDLED_COUNT=$(ls -d "$STAGING_DIR/node_modules"/*/ "$STAGING_DIR/node_modules"/@*/*/ 2>/dev/null | wc -l | tr -d ' ')
+    echo "  bundled 依赖已就绪（${BUNDLED_COUNT} 个包）"
+else
+    echo "  ⚠️  未找到 bundled node_modules，尝试安装依赖..."
     NPM_TMP_CACHE=$(mktemp -d)
-    (cd "$STAGING_DIR" && npm install --omit=dev --cache="$NPM_TMP_CACHE" --quiet 2>&1) || echo "  ⚠️  依赖安装失败（可能无 dependencies）"
+    (cd "$STAGING_DIR" && npm install --omit=dev --omit=peer --ignore-scripts --cache="$NPM_TMP_CACHE" --quiet 2>&1) || echo "  ⚠️  依赖安装失败"
     rm -rf "$NPM_TMP_CACHE"
 fi
 
