@@ -912,17 +912,29 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
   const isLocal = isLocalFilePath(mediaUrl);
   const isHttp = mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://");
 
-  // 按类型分发到对应的 Telegram 风格函数
+  // 按类型分发到对应的 Telegram 风格函数，失败时 fallback 到 sendDocument
   if (isLocal && isAudioFile(mediaUrl)) {
     const formats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
     const result = await sendVoice(target, mediaUrl, formats);
-    if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
-    return result;
+    if (!result.error) {
+      if (text?.trim()) await sendTextAfterMedia(target, text);
+      return result;
+    }
+    console.warn(`[qqbot] sendMedia: sendVoice failed (${result.error}), falling back to sendDocument`);
+    const fallback = await sendDocument(target, mediaUrl);
+    if (!fallback.error && text?.trim()) await sendTextAfterMedia(target, text);
+    return fallback;
   }
   if (isVideoFile(mediaUrl)) {
     const result = await sendVideoMsg(target, mediaUrl);
-    if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
-    return result;
+    if (!result.error) {
+      if (text?.trim()) await sendTextAfterMedia(target, text);
+      return result;
+    }
+    console.warn(`[qqbot] sendMedia: sendVideoMsg failed (${result.error}), falling back to sendDocument`);
+    const fallback = await sendDocument(target, mediaUrl);
+    if (!fallback.error && text?.trim()) await sendTextAfterMedia(target, text);
+    return fallback;
   }
   if (isLocal && !isImageFile(mediaUrl) && !isAudioFile(mediaUrl)) {
     const result = await sendDocument(target, mediaUrl);
@@ -930,9 +942,18 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
     return result;
   }
 
-  // 默认：图片
+  // 默认：图片，失败时 fallback 到 sendDocument
   const result = await sendPhoto(target, mediaUrl);
-  if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
+  if (!result.error) {
+    if (text?.trim()) await sendTextAfterMedia(target, text);
+    return result;
+  }
+  if (isLocal) {
+    console.warn(`[qqbot] sendMedia: sendPhoto failed (${result.error}), falling back to sendDocument`);
+    const fallback = await sendDocument(target, mediaUrl);
+    if (!fallback.error && text?.trim()) await sendTextAfterMedia(target, text);
+    return fallback;
+  }
   return result;
 }
 

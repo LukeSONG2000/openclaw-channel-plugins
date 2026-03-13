@@ -1,12 +1,12 @@
 ---
 name: qqbot-media
-description: QQBot 富媒体收发能力。推荐使用 <qqmedia> 统一标签，系统根据文件扩展名自动识别类型（图片/语音/视频/文件），也兼容 <qqimg>/<qqvoice>/<qqvideo>/<qqfile> 旧标签。
+description: QQBot 富媒体收发能力。使用 <qqmedia> 标签，系统根据文件扩展名自动识别类型（图片/语音/视频/文件）。
 metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 ---
 
 # QQBot 富媒体收发
 
-## 推荐用法（统一标签）
+## 用法
 
 ```
 <qqmedia>路径或URL</qqmedia>
@@ -18,17 +18,7 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 - `.mp4/.mov/.avi/.mkv/.webm` 等 → 视频
 - 其他扩展名 → 文件
 - 无扩展名的 URL → 默认按图片处理
-
-## 兼容旧标签
-
-| 类型 | 标签 |
-|------|------|
-| 图片 | `<qqimg>路径或URL</qqimg>` |
-| 语音 | `<qqvoice>音频路径</qqvoice>` |
-| 视频 | `<qqvideo>路径或URL</qqvideo>` |
-| 文件 | `<qqfile>路径或URL</qqfile>` |
-
-旧标签完全兼容，系统按标签名指定的类型处理。
+- 发送失败时自动 fallback 为文件发送
 
 ## 接收媒体
 

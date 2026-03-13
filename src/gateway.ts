@@ -1066,12 +1066,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           }
         }
 
-        // 媒体能力单行摘要（详细格式由 qqbot-media skill 提供）
-        const mediaCapabilities = [
-          "图片", "文件", "视频",
-          ...(hasTTS || hasSTT ? ["语音"] : []),
-        ].join("/");
-
         const contextInfo = `你正在通过 QQ 与用户对话。
 
 【会话上下文】
@@ -1080,8 +1074,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 - 消息ID: ${event.messageId}
 - 投递目标: ${qualifiedTarget}${receivedMediaSection}${voiceAsrSection}
 - 当前时间戳(ms): ${nowMs}
-- 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}
-- 富媒体: 支持${mediaCapabilities}，用 <qqmedia>路径或URL</qqmedia> 嵌入回复即可（系统根据扩展名自动识别类型）${hasTTS ? "；TTS已启用" : ""}${hasSTT ? "；STT已启用" : ""}
+- 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}${hasTTS ? "\n- TTS已启用" : ""}${hasSTT ? "\n- STT已启用" : ""}
 
 `;
         // 命令直接透传，不注入上下文
