@@ -574,6 +574,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       channelId: msg.channelId,
       groupOpenid: msg.groupOpenid,
       accountId: account.accountId,
+      accountConfig: account.config,
       queueSnapshot: getQueueSnapshot(peerId),
     };
 

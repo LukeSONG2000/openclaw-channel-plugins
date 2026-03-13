@@ -59,6 +59,11 @@ export interface QQBotAccountConfig {
    * 禁用时：公网 URL 始终由插件先下载到本地，再以 Base64 上传（适用于 QQ 平台无法访问目标 URL 的场景）
    */
   urlDirectUpload?: boolean;
+  /**
+   * /upgrade 指令返回的升级指引网址
+   * 默认: https://github.com/tencent-connect/openclaw-qqbot
+   */
+  upgradeUrl?: string;
 }
 
 /**

@@ -11,6 +11,7 @@
  *   从而计算「开平→插件」和「插件处理」两段耗时
  */
 
+import type { QQBotAccountConfig } from "./types.js";
 import { createRequire } from "node:module";
 const require = createRequire(import.meta.url);
 
@@ -49,6 +50,8 @@ export interface SlashCommandContext {
   groupOpenid?: string;
   /** 账号 ID */
   accountId: string;
+  /** 账号配置（供指令读取可配置项） */
+  accountConfig?: QQBotAccountConfig;
   /** 当前用户队列状态快照 */
   queueSnapshot: QueueSnapshot;
 }
@@ -89,34 +92,6 @@ function registerCommand(cmd: SlashCommand): void {
 // ============ 内置指令 ============
 
 /**
- * /echo — 诊断指令
- * 回复：插件版本、链路耗时（开平→插件、插件处理）、当前用户队列状态
- */
-registerCommand({
-  name: "echo",
-  description: "诊断信息：版本、链路耗时、队列状态",
-  handler: (ctx) => {
-    const now = Date.now();
-    const eventTime = new Date(ctx.eventTimestamp).getTime();
-    const platformToPlugin = isNaN(eventTime) ? "N/A" : `${ctx.receivedAt - eventTime}ms`;
-    const pluginProcessing = `${now - ctx.receivedAt}ms`;
-
-    const lines = [
-      `**qqbot plugin** v${PLUGIN_VERSION}`,
-      ``,
-      `**链路耗时**`,
-      `- 平台 → 插件: ${platformToPlugin}`,
-      `- 插件处理: ${pluginProcessing}`,
-      ``,
-      `**队列状态**`,
-      `- 当前待处理: ${ctx.queueSnapshot.senderPending}`,
-      `- 全局待处理: ${ctx.queueSnapshot.totalPending}`,
-    ];
-    return lines.join("\n");
-  },
-});
-
-/**
  * /ping — 轻量连通性检查
  */
 registerCommand({
@@ -154,6 +129,25 @@ registerCommand({
     }
     lines.push(``, `其他 "/" 开头的消息将由 AI 框架处理。`);
     return lines.join("\n");
+  },
+});
+
+const DEFAULT_UPGRADE_URL = "https://github.com/tencent-connect/openclaw-qqbot";
+
+/**
+ * /upgrade — 升级指引
+ */
+registerCommand({
+  name: "upgrade",
+  description: "获取插件升级指引",
+  handler: (ctx) => {
+    const url = ctx.accountConfig?.upgradeUrl || DEFAULT_UPGRADE_URL;
+    return [
+      `**QQBot 插件升级指引**`,
+      ``,
+      `当前版本: v${PLUGIN_VERSION}`,
+      `升级文档: ${url}`,
+    ].join("\n");
   },
 });
 
