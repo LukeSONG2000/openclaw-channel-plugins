@@ -21,10 +21,11 @@ import {
   sendC2CFileMessage,
   sendGroupFileMessage,
 } from "./api.js";
-import { isAudioFile, audioFileToSilkBase64, waitForFile } from "./utils/audio-convert.js";
+import { isAudioFile, audioFileToSilkBase64, waitForFile, shouldTranscodeVoice } from "./utils/audio-convert.js";
 import { normalizeMediaTags } from "./utils/media-tags.js";
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize } from "./utils/file-utils.js";
-import { isLocalPath as isLocalFilePath, normalizePath, sanitizeFileName } from "./utils/platform.js";
+import { isLocalPath as isLocalFilePath, normalizePath, sanitizeFileName, getQQBotDataDir } from "./utils/platform.js";
+import { downloadFile } from "./image-server.js";
 import { MSG } from "./user-messages.js";
 
 // ============ 消息回复限流器 ============
@@ -164,6 +165,8 @@ export interface OutboundContext {
 
 export interface MediaOutboundContext extends OutboundContext {
   mediaUrl: string;
+  /** 可选的 MIME 类型，优先于扩展名判断媒体类型 */
+  mimeType?: string;
 }
 
 export interface OutboundResult {
@@ -273,12 +276,17 @@ async function getToken(account: ResolvedQQBotAccount): Promise<string> {
   return getAccessToken(account.appId, account.clientSecret);
 }
 
+/** 判断是否应该对公网 URL 执行直传（不下载） */
+function shouldDirectUploadUrl(account: ResolvedQQBotAccount): boolean {
+  return account.config?.urlDirectUpload !== false; // 默认 true
+}
+
 /**
  * sendPhoto — 发送图片消息（对齐 Telegram sendPhoto）
  * 
  * 支持三种来源：
  * - 本地文件路径（自动读取转 Base64）
- * - 公网 HTTP/HTTPS URL
+ * - 公网 HTTP/HTTPS URL（urlDirectUpload=true 时先直传平台，失败自动下载重试；=false 时直接下载）
  * - Base64 Data URL
  */
 export async function sendPhoto(
@@ -290,6 +298,16 @@ export async function sendPhoto(
   const isLocal = isLocalFilePath(mediaPath);
   const isHttp = mediaPath.startsWith("http://") || mediaPath.startsWith("https://");
   const isData = mediaPath.startsWith("data:");
+
+  // urlDirectUpload=false 时，公网 URL 直接下载到本地再发送
+  if (isHttp && !shouldDirectUploadUrl(ctx.account)) {
+    console.log(`${prefix} sendPhoto: urlDirectUpload=false, downloading URL first...`);
+    const localFile = await downloadToFallbackDir(mediaPath, prefix, "sendPhoto");
+    if (localFile) {
+      return await sendPhoto(ctx, localFile);
+    }
+    return { channel: "qqbot", error: `下载失败: ${mediaPath.slice(0, 80)}` };
+  }
 
   let imageUrl = mediaPath;
 
@@ -338,29 +356,125 @@ export async function sendPhoto(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
+
+    // 公网 URL 直传失败（如 QQ 平台拉取海外域名超时/被墙）→ 插件自己下载 → Base64 重试
+    if (isHttp && !isData) {
+      console.warn(`${prefix} sendPhoto: URL direct upload failed (${msg}), downloading locally and retrying as Base64...`);
+      const retryResult = await downloadAndRetrySendPhoto(ctx, mediaPath, prefix);
+      if (retryResult) return retryResult;
+    }
+
     console.error(`${prefix} sendPhoto failed: ${msg}`);
     return { channel: "qqbot", error: msg };
   }
 }
 
 /**
+ * sendPhoto 的 URL fallback：下载远程图片到本地 → 转 Base64 → 重试发送
+ * 解决 QQ 开放平台无法拉取某些公网 URL（如海外域名）的问题
+ */
+async function downloadAndRetrySendPhoto(
+  ctx: MediaTargetContext,
+  httpUrl: string,
+  prefix: string,
+): Promise<OutboundResult | null> {
+  try {
+    const downloadDir = getQQBotDataDir("downloads", "url-fallback");
+    const localFile = await downloadFile(httpUrl, downloadDir);
+    if (!localFile) {
+      console.error(`${prefix} sendPhoto fallback: download also failed for ${httpUrl.slice(0, 80)}`);
+      return null;
+    }
+
+    console.log(`${prefix} sendPhoto fallback: downloaded → ${localFile}, retrying as Base64`);
+    // 递归调用 sendPhoto，此时走本地文件路径
+    return await sendPhoto(ctx, localFile);
+  } catch (err) {
+    console.error(`${prefix} sendPhoto fallback error:`, err);
+    return null;
+  }
+}
+
+/**
  * sendVoice — 发送语音消息（对齐 Telegram sendVoice）
  * 
- * 接收本地音频文件路径，自动转换为 SILK 格式后上传。
+ * 支持本地音频文件和公网 URL：
+ * - urlDirectUpload=true + 公网URL：先直传平台，失败后下载到本地再转码重试
+ * - urlDirectUpload=false + 公网URL：直接下载到本地再转码发送
+ * - 本地文件：自动转换为 SILK 格式后上传
+ * 
+ * 支持 transcodeEnabled 配置：禁用时非原生格式 fallback 到文件发送。
  */
 export async function sendVoice(
   ctx: MediaTargetContext,
   voicePath: string,
   /** 直传格式列表（跳过 SILK 转换），可选 */
   directUploadFormats?: string[],
+  /** 是否启用转码（默认 true），false 时非原生格式直接返回错误 */
+  transcodeEnabled: boolean = true,
 ): Promise<OutboundResult> {
   const prefix = ctx.logPrefix ?? "[qqbot]";
   const mediaPath = normalizePath(voicePath);
+  const isHttp = mediaPath.startsWith("http://") || mediaPath.startsWith("https://");
 
+  // 公网 URL 处理
+  if (isHttp) {
+    // urlDirectUpload=true: 先尝试直传平台
+    if (shouldDirectUploadUrl(ctx.account)) {
+      try {
+        const token = await getToken(ctx.account);
+        if (ctx.targetType === "c2c") {
+          const r = await sendC2CVoiceMessage(token, ctx.targetId, undefined, mediaPath, ctx.replyToId);
+          return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
+        } else if (ctx.targetType === "group") {
+          const r = await sendGroupVoiceMessage(token, ctx.targetId, undefined, mediaPath, ctx.replyToId);
+          return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
+        } else {
+          const r = await sendChannelMessage(token, ctx.targetId, MSG.VOICE_CHANNEL_UNSUPPORTED, ctx.replyToId);
+          return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
+        }
+      } catch (err) {
+        const msg = err instanceof Error ? err.message : String(err);
+        console.warn(`${prefix} sendVoice: URL direct upload failed (${msg}), downloading locally and retrying...`);
+      }
+    } else {
+      console.log(`${prefix} sendVoice: urlDirectUpload=false, downloading URL first...`);
+    }
+
+    // 下载到本地，然后走本地文件路径（含转码）
+    const localFile = await downloadToFallbackDir(mediaPath, prefix, "sendVoice");
+    if (localFile) {
+      return await sendVoiceFromLocal(ctx, localFile, directUploadFormats, transcodeEnabled, prefix);
+    }
+    return { channel: "qqbot", error: `下载失败: ${mediaPath.slice(0, 80)}` };
+  }
+
+  // 本地文件
+  return await sendVoiceFromLocal(ctx, mediaPath, directUploadFormats, transcodeEnabled, prefix);
+}
+
+/** 从本地文件发送语音（sendVoice 的内部辅助） */
+async function sendVoiceFromLocal(
+  ctx: MediaTargetContext,
+  mediaPath: string,
+  directUploadFormats: string[] | undefined,
+  transcodeEnabled: boolean,
+  prefix: string,
+): Promise<OutboundResult> {
   // 等待文件就绪（TTS 异步生成，文件可能还没写完）
   const fileSize = await waitForFile(mediaPath);
   if (fileSize === 0) {
     return { channel: "qqbot", error: MSG.VOICE_GENERATE_FAILED };
+  }
+
+  // 精细检测：是否需要转码
+  const needsTranscode = shouldTranscodeVoice(mediaPath);
+
+  // 转码已禁用但需要转码 → 提前 fallback
+  if (needsTranscode && !transcodeEnabled) {
+    const ext = path.extname(mediaPath).toLowerCase();
+    console.log(`${prefix} sendVoice: transcode disabled, format ${ext} needs transcode, returning error for fallback`);
+    return { channel: "qqbot", error: `语音转码已禁用，格式 ${ext} 不支持直传` };
   }
 
   try {
@@ -368,7 +482,6 @@ export async function sendVoice(
     let uploadBase64 = silkBase64;
 
     if (!uploadBase64) {
-      // SILK 转换失败，尝试直传原始文件
       const buf = await readFileAsync(mediaPath);
       uploadBase64 = buf.toString("base64");
       console.log(`${prefix} sendVoice: SILK conversion failed, uploading raw (${formatFileSize(buf.length)})`);
@@ -379,10 +492,10 @@ export async function sendVoice(
     const token = await getToken(ctx.account);
 
     if (ctx.targetType === "c2c") {
-      const r = await sendC2CVoiceMessage(token, ctx.targetId, uploadBase64, ctx.replyToId, undefined, mediaPath);
+      const r = await sendC2CVoiceMessage(token, ctx.targetId, uploadBase64, undefined, ctx.replyToId, undefined, mediaPath);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     } else if (ctx.targetType === "group") {
-      const r = await sendGroupVoiceMessage(token, ctx.targetId, uploadBase64, ctx.replyToId);
+      const r = await sendGroupVoiceMessage(token, ctx.targetId, uploadBase64, undefined, ctx.replyToId);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     } else {
       const r = await sendChannelMessage(token, ctx.targetId, MSG.VOICE_CHANNEL_UNSUPPORTED, ctx.replyToId);
@@ -390,7 +503,7 @@ export async function sendVoice(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`${prefix} sendVoice failed: ${msg}`);
+    console.error(`${prefix} sendVoice (local) failed: ${msg}`);
     return { channel: "qqbot", error: msg };
   }
 }
@@ -398,7 +511,7 @@ export async function sendVoice(
 /**
  * sendVideoMsg — 发送视频消息（对齐 Telegram sendVideo）
  * 
- * 支持公网 URL 和本地文件路径。
+ * 支持公网 URL（urlDirectUpload 控制直传或下载，失败自动 fallback）和本地文件路径。
  */
 export async function sendVideoMsg(
   ctx: MediaTargetContext,
@@ -408,11 +521,21 @@ export async function sendVideoMsg(
   const mediaPath = normalizePath(videoPath);
   const isHttp = mediaPath.startsWith("http://") || mediaPath.startsWith("https://");
 
+  // urlDirectUpload=false 时，公网 URL 直接下载到本地再发送
+  if (isHttp && !shouldDirectUploadUrl(ctx.account)) {
+    console.log(`${prefix} sendVideoMsg: urlDirectUpload=false, downloading URL first...`);
+    const localFile = await downloadToFallbackDir(mediaPath, prefix, "sendVideoMsg");
+    if (localFile) {
+      return await sendVideoFromLocal(ctx, localFile, prefix);
+    }
+    return { channel: "qqbot", error: `下载失败: ${mediaPath.slice(0, 80)}` };
+  }
+
   try {
     const token = await getToken(ctx.account);
 
     if (isHttp) {
-      // 公网 URL
+      // 公网 URL：先尝试直传平台
       if (ctx.targetType === "c2c") {
         const r = await sendC2CVideoMessage(token, ctx.targetId, mediaPath, undefined, ctx.replyToId);
         return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
@@ -426,18 +549,40 @@ export async function sendVideoMsg(
     }
 
     // 本地文件
-    if (!(await fileExistsAsync(mediaPath))) {
-      return { channel: "qqbot", error: MSG.VIDEO_NOT_FOUND };
-    }
-    const sizeCheck = checkFileSize(mediaPath);
-    if (!sizeCheck.ok) {
-      return { channel: "qqbot", error: sizeCheck.error! };
+    return await sendVideoFromLocal(ctx, mediaPath, prefix);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+
+    // 公网 URL 直传失败 → 插件下载 → Base64 重试
+    if (isHttp) {
+      console.warn(`${prefix} sendVideoMsg: URL direct upload failed (${msg}), downloading locally and retrying as Base64...`);
+      const localFile = await downloadToFallbackDir(mediaPath, prefix, "sendVideoMsg");
+      if (localFile) {
+        return await sendVideoFromLocal(ctx, localFile, prefix);
+      }
     }
 
-    const fileBuffer = await readFileAsync(mediaPath);
-    const videoBase64 = fileBuffer.toString("base64");
-    console.log(`${prefix} sendVideoMsg: local video (${formatFileSize(fileBuffer.length)})`);
+    console.error(`${prefix} sendVideoMsg failed: ${msg}`);
+    return { channel: "qqbot", error: msg };
+  }
+}
 
+/** 从本地文件发送视频（sendVideoMsg 的内部辅助） */
+async function sendVideoFromLocal(ctx: MediaTargetContext, mediaPath: string, prefix: string): Promise<OutboundResult> {
+  if (!(await fileExistsAsync(mediaPath))) {
+    return { channel: "qqbot", error: MSG.VIDEO_NOT_FOUND };
+  }
+  const sizeCheck = checkFileSize(mediaPath);
+  if (!sizeCheck.ok) {
+    return { channel: "qqbot", error: sizeCheck.error! };
+  }
+
+  const fileBuffer = await readFileAsync(mediaPath);
+  const videoBase64 = fileBuffer.toString("base64");
+  console.log(`${prefix} sendVideoMsg: local video (${formatFileSize(fileBuffer.length)})`);
+
+  try {
+    const token = await getToken(ctx.account);
     if (ctx.targetType === "c2c") {
       const r = await sendC2CVideoMessage(token, ctx.targetId, undefined, videoBase64, ctx.replyToId, undefined, mediaPath);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
@@ -450,7 +595,7 @@ export async function sendVideoMsg(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`${prefix} sendVideoMsg failed: ${msg}`);
+    console.error(`${prefix} sendVideoMsg (local) failed: ${msg}`);
     return { channel: "qqbot", error: msg };
   }
 }
@@ -458,7 +603,7 @@ export async function sendVideoMsg(
 /**
  * sendDocument — 发送文件消息（对齐 Telegram sendDocument）
  * 
- * 支持本地文件路径和公网 URL。
+ * 支持本地文件路径和公网 URL（urlDirectUpload 控制直传或下载，失败自动 fallback）。
  */
 export async function sendDocument(
   ctx: MediaTargetContext,
@@ -469,10 +614,21 @@ export async function sendDocument(
   const isHttp = mediaPath.startsWith("http://") || mediaPath.startsWith("https://");
   const fileName = sanitizeFileName(path.basename(mediaPath));
 
+  // urlDirectUpload=false 时，公网 URL 直接下载到本地再发送
+  if (isHttp && !shouldDirectUploadUrl(ctx.account)) {
+    console.log(`${prefix} sendDocument: urlDirectUpload=false, downloading URL first...`);
+    const localFile = await downloadToFallbackDir(mediaPath, prefix, "sendDocument");
+    if (localFile) {
+      return await sendDocumentFromLocal(ctx, localFile, prefix);
+    }
+    return { channel: "qqbot", error: `下载失败: ${mediaPath.slice(0, 80)}` };
+  }
+
   try {
     const token = await getToken(ctx.account);
 
     if (isHttp) {
+      // 公网 URL：先尝试直传平台
       if (ctx.targetType === "c2c") {
         const r = await sendC2CFileMessage(token, ctx.targetId, undefined, mediaPath, ctx.replyToId, fileName);
         return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
@@ -486,20 +642,44 @@ export async function sendDocument(
     }
 
     // 本地文件
-    if (!(await fileExistsAsync(mediaPath))) {
-      return { channel: "qqbot", error: MSG.FILE_NOT_FOUND };
-    }
-    const sizeCheck = checkFileSize(mediaPath);
-    if (!sizeCheck.ok) {
-      return { channel: "qqbot", error: sizeCheck.error! };
-    }
-    const fileBuffer = await readFileAsync(mediaPath);
-    if (fileBuffer.length === 0) {
-      return { channel: "qqbot", error: `文件内容为空: ${mediaPath}` };
-    }
-    const fileBase64 = fileBuffer.toString("base64");
-    console.log(`${prefix} sendDocument: local file (${formatFileSize(fileBuffer.length)})`);
+    return await sendDocumentFromLocal(ctx, mediaPath, prefix);
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
 
+    // 公网 URL 直传失败 → 插件下载 → Base64 重试
+    if (isHttp) {
+      console.warn(`${prefix} sendDocument: URL direct upload failed (${msg}), downloading locally and retrying as Base64...`);
+      const localFile = await downloadToFallbackDir(mediaPath, prefix, "sendDocument");
+      if (localFile) {
+        return await sendDocumentFromLocal(ctx, localFile, prefix);
+      }
+    }
+
+    console.error(`${prefix} sendDocument failed: ${msg}`);
+    return { channel: "qqbot", error: msg };
+  }
+}
+
+/** 从本地文件发送文件（sendDocument 的内部辅助） */
+async function sendDocumentFromLocal(ctx: MediaTargetContext, mediaPath: string, prefix: string): Promise<OutboundResult> {
+  const fileName = sanitizeFileName(path.basename(mediaPath));
+
+  if (!(await fileExistsAsync(mediaPath))) {
+    return { channel: "qqbot", error: MSG.FILE_NOT_FOUND };
+  }
+  const sizeCheck = checkFileSize(mediaPath);
+  if (!sizeCheck.ok) {
+    return { channel: "qqbot", error: sizeCheck.error! };
+  }
+  const fileBuffer = await readFileAsync(mediaPath);
+  if (fileBuffer.length === 0) {
+    return { channel: "qqbot", error: `文件内容为空: ${mediaPath}` };
+  }
+  const fileBase64 = fileBuffer.toString("base64");
+  console.log(`${prefix} sendDocument: local file (${formatFileSize(fileBuffer.length)})`);
+
+  try {
+    const token = await getToken(ctx.account);
     if (ctx.targetType === "c2c") {
       const r = await sendC2CFileMessage(token, ctx.targetId, fileBase64, undefined, ctx.replyToId, fileName, mediaPath);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
@@ -512,8 +692,28 @@ export async function sendDocument(
     }
   } catch (err) {
     const msg = err instanceof Error ? err.message : String(err);
-    console.error(`${prefix} sendDocument failed: ${msg}`);
+    console.error(`${prefix} sendDocument (local) failed: ${msg}`);
     return { channel: "qqbot", error: msg };
+  }
+}
+
+/**
+ * 通用辅助：下载远程文件到 fallback 目录
+ * 用于各 send* 函数的 URL 直传失败 fallback
+ */
+async function downloadToFallbackDir(httpUrl: string, prefix: string, caller: string): Promise<string | null> {
+  try {
+    const downloadDir = getQQBotDataDir("downloads", "url-fallback");
+    const localFile = await downloadFile(httpUrl, downloadDir);
+    if (!localFile) {
+      console.error(`${prefix} ${caller} fallback: download also failed for ${httpUrl.slice(0, 80)}`);
+      return null;
+    }
+    console.log(`${prefix} ${caller} fallback: downloaded → ${localFile}`);
+    return localFile;
+  } catch (err) {
+    console.error(`${prefix} ${caller} fallback download error:`, err);
+    return null;
   }
 }
 
@@ -712,7 +912,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
         } else if (item.type === "image") {
           lastResult = await sendPhoto(mediaTarget, item.content);
         } else if (item.type === "voice") {
-          lastResult = await sendVoice(mediaTarget, item.content);
+          lastResult = await sendVoice(mediaTarget, item.content, undefined, account.config?.audioFormatPolicy?.transcodeEnabled !== false);
         } else if (item.type === "video") {
           lastResult = await sendVideoMsg(mediaTarget, item.content);
         } else if (item.type === "file") {
@@ -898,7 +1098,7 @@ export async function sendProactiveMessage(
  * ```
  */
 export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResult> {
-  const { to, text, replyToId, account } = ctx;
+  const { to, text, replyToId, account, mimeType } = ctx;
   const mediaUrl = normalizePath(ctx.mediaUrl);
 
   if (!account.appId || !account.clientSecret) {
@@ -909,51 +1109,44 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
   }
 
   const target = buildMediaTarget({ to, account, replyToId }, "[qqbot:sendMedia]");
-  const isLocal = isLocalFilePath(mediaUrl);
-  const isHttp = mediaUrl.startsWith("http://") || mediaUrl.startsWith("https://");
 
-  // 按类型分发到对应的 Telegram 风格函数，失败时 fallback 到 sendDocument
-  if (isLocal && isAudioFile(mediaUrl)) {
+  // 按类型分发（MIME 优先，扩展名回退）
+  // 各 send* 函数内部已自带 URL 直传/下载策略（受 urlDirectUpload 开关控制）
+  if (isAudioFile(mediaUrl, mimeType)) {
     const formats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
-    const result = await sendVoice(target, mediaUrl, formats);
+    const transcodeEnabled = account.config?.audioFormatPolicy?.transcodeEnabled !== false;
+    const result = await sendVoice(target, mediaUrl, formats, transcodeEnabled);
     if (!result.error) {
       if (text?.trim()) await sendTextAfterMedia(target, text);
       return result;
     }
-    console.warn(`[qqbot] sendMedia: sendVoice failed (${result.error}), falling back to sendDocument`);
+    // 语音发送失败 fallback 到文件发送（保留错误链）
+    const voiceError = result.error;
+    console.warn(`[qqbot] sendMedia: sendVoice failed (${voiceError}), falling back to sendDocument`);
     const fallback = await sendDocument(target, mediaUrl);
-    if (!fallback.error && text?.trim()) await sendTextAfterMedia(target, text);
-    return fallback;
+    if (!fallback.error) {
+      if (text?.trim()) await sendTextAfterMedia(target, text);
+      return fallback;
+    }
+    return { channel: "qqbot", error: `voice: ${voiceError} | fallback file: ${fallback.error}` };
   }
-  if (isVideoFile(mediaUrl)) {
+
+  if (isVideoFile(mediaUrl, mimeType)) {
     const result = await sendVideoMsg(target, mediaUrl);
-    if (!result.error) {
-      if (text?.trim()) await sendTextAfterMedia(target, text);
-      return result;
-    }
-    console.warn(`[qqbot] sendMedia: sendVideoMsg failed (${result.error}), falling back to sendDocument`);
-    const fallback = await sendDocument(target, mediaUrl);
-    if (!fallback.error && text?.trim()) await sendTextAfterMedia(target, text);
-    return fallback;
+    if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
+    return result;
   }
-  if (isLocal && !isImageFile(mediaUrl) && !isAudioFile(mediaUrl)) {
+
+  // 非图片、非音频、非视频 → 文件发送
+  if (!isImageFile(mediaUrl, mimeType) && !isAudioFile(mediaUrl, mimeType) && !isVideoFile(mediaUrl, mimeType)) {
     const result = await sendDocument(target, mediaUrl);
     if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
     return result;
   }
 
-  // 默认：图片，失败时 fallback 到 sendDocument
+  // 默认：图片（sendPhoto 内置 URL fallback）
   const result = await sendPhoto(target, mediaUrl);
-  if (!result.error) {
-    if (text?.trim()) await sendTextAfterMedia(target, text);
-    return result;
-  }
-  if (isLocal) {
-    console.warn(`[qqbot] sendMedia: sendPhoto failed (${result.error}), falling back to sendDocument`);
-    const fallback = await sendDocument(target, mediaUrl);
-    if (!fallback.error && text?.trim()) await sendTextAfterMedia(target, text);
-    return fallback;
-  }
+  if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
   return result;
 }
 
@@ -971,16 +1164,27 @@ async function sendTextAfterMedia(ctx: MediaTargetContext, text: string): Promis
   }
 }
 
-/** 判断文件是否为图片格式 */
-function isImageFile(filePath: string): boolean {
-  const ext = path.extname(filePath).toLowerCase();
+/** 从路径/URL 中提取扩展名（去除查询参数和 hash） */
+function getCleanExt(filePath: string): string {
+  const cleanPath = filePath.split("?")[0]!.split("#")[0]!;
+  return path.extname(cleanPath).toLowerCase();
+}
+
+/** 判断文件是否为图片格式（MIME 优先，扩展名回退） */
+function isImageFile(filePath: string, mimeType?: string): boolean {
+  if (mimeType) {
+    if (mimeType.startsWith("image/")) return true;
+  }
+  const ext = getCleanExt(filePath);
   return [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp"].includes(ext);
 }
 
-/** 判断文件/URL 是否为视频格式 */
-function isVideoFile(filePath: string): boolean {
-  const cleanPath = filePath.split("?")[0]!;
-  const ext = path.extname(cleanPath).toLowerCase();
+/** 判断文件/URL 是否为视频格式（MIME 优先，扩展名回退） */
+function isVideoFile(filePath: string, mimeType?: string): boolean {
+  if (mimeType) {
+    if (mimeType.startsWith("video/")) return true;
+  }
+  const ext = getCleanExt(filePath);
   return [".mp4", ".mov", ".avi", ".mkv", ".webm", ".flv", ".wmv"].includes(ext);
 }
 

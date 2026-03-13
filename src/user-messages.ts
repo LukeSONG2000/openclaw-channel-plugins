@@ -49,9 +49,6 @@ export const MSG = {
   PAYLOAD_PARSE_ERROR: "抱歉，消息格式异常，无法处理～",
   UNSUPPORTED_MEDIA_TYPE: "抱歉，暂不支持该媒体类型～",
   UNSUPPORTED_PAYLOAD_TYPE: "抱歉，暂不支持该消息类型～",
-
-  // 工具调用兜底
-  TOOL_CALLING: "正在调用工具…",
 } as const;
 
 /**

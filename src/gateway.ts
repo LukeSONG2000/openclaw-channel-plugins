@@ -1031,9 +1031,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
         const qualifiedTarget = isGroupChat ? `qqbot:group:${event.groupOpenid}` : `qqbot:c2c:${event.senderId}`;
 
-        // 动态检测 TTS/STT 配置状态
+        // 动态检测 TTS 配置状态
         const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
-        const hasSTT = !!resolveSTTConfig(cfg as Record<string, unknown>);
 
         // 引用消息上下文
         let quotePart = "";
@@ -1053,41 +1052,38 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         //   - 动态标签：每条消息变化的数据（时间、附件、ASR），
         //     以紧凑的 [ctx] 块标注在用户消息前，最小化 token 开销。
 
-        // --- 静态指引（不随消息变化） ---
-        // to 字段已自描述场景：qqbot:c2c:xxx = 私聊，qqbot:group:xxx = 群聊
+        // --- 静态指引（仅注入框架信封未覆盖的 QQBot 特有信息） ---
+        // 框架 formatInboundEnvelope 已提供：平台标识、发送者、时间戳
+        // 这里只补充 QQBot 独有的：投递地址（cron skill 需要）
         const staticParts: string[] = [
-          `你正在通过 QQ 与用户对话。`,
-          `- to: ${qualifiedTarget}`,
-          `- 发送媒体: 用 <qqmedia>路径或URL</qqmedia> 嵌入回复`,
+          `[QQBot] to=${qualifiedTarget}`,
         ];
-        if (hasTTS) staticParts.push(`- TTS: 已启用`);
-        if (hasSTT) staticParts.push(`- STT: 已启用`);
-        const staticInstruction = staticParts.join("\n");
+        // TTS 能力声明：仅在启用时告知 AI 可以发语音（与 qqbot-media SKILL.md 互补）
+        // STT 无需声明：转写结果已在动态上下文的 ASR 行中，AI 自然可见
+        if (hasTTS) staticParts.push("语音合成已启用，可用<qqmedia>发送语音");
+        const staticInstruction = staticParts.join(" | ");
 
-        // 静态指引作为 systemPrompts 的首项注入（位置固定，语义明确）
+        // 静态指引作为 systemPrompts 的首项注入
         systemPrompts.unshift(staticInstruction);
 
-        // --- 动态标签（每条消息不同） ---
-        const dynParts: string[] = [
-          `t=${nowMs}`,
-          `from=${event.senderName || "未知"}(${event.senderId})`,
-        ];
+        // --- 动态上下文（仅框架信封未覆盖的附件信息） ---
+        const dynLines: string[] = [];
         if (imageUrls.length > 0) {
-          dynParts.push(`img=${imageUrls.join(",")}`);
+          dynLines.push(`- 图片: ${imageUrls.join(", ")}`);
         }
         if (uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
-          dynParts.push(`voice=${[...uniqueVoicePaths, ...uniqueVoiceUrls].join(",")}`);
+          dynLines.push(`- 语音: ${[...uniqueVoicePaths, ...uniqueVoiceUrls].join(", ")}`);
         }
         if (uniqueVoiceAsrReferTexts.length > 0) {
-          dynParts.push(`asr=${uniqueVoiceAsrReferTexts.join("|")}`);
+          dynLines.push(`- ASR: ${uniqueVoiceAsrReferTexts.join(" | ")}`);
         }
-        const dynamicCtx = `[ctx ${dynParts.join(" ")}]`;
+        const dynamicCtx = dynLines.length > 0 ? dynLines.join("\n") + "\n" : "";
 
         // 命令直接透传，不注入上下文
         const userMessage = `${quotePart}${userContent}`;
         const agentBody = userContent.startsWith("/")
           ? userContent
-          : `${systemPrompts.join("\n")}\n\n${dynamicCtx}\n${userMessage}`;
+          : `${systemPrompts.join("\n")}\n\n${dynamicCtx}${userMessage}`;
         
         log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
 
@@ -1212,7 +1208,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           let hasResponse = false;
           let hasBlockResponse = false; // 是否收到了面向用户的 block 回复
           let toolDeliverCount = 0; // tool deliver 计数
-          const toolTexts: string[] = []; // 收集所有 tool deliver 文本（用于格式化展示）
+          const toolTexts: string[] = []; // 收集所有 tool deliver 文本
+          const toolMediaUrls: string[] = []; // 收集所有 tool deliver 媒体 URL
           let toolFallbackSent = false; // 兜底消息是否已发送（只发一次）
           const responseTimeout = 120000; // 120秒超时（2分钟，与 TTS/文件生成超时对齐）
           const toolOnlyTimeout = 60000; // tool-only 兜底超时：60秒内没有 block 就兜底
@@ -1221,19 +1218,39 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
           let toolOnlyTimeoutId: ReturnType<typeof setTimeout> | null = null;
 
-          // 格式化 tool 兜底消息：极简，只展示工具原始参数
-          const formatToolFallback = (): string => {
-            if (toolTexts.length === 0) {
-              return MSG.TOOL_CALLING;
+          // tool-only 兜底：转发工具产生的实际内容（媒体/文本），而非生硬的提示语
+          const sendToolFallback = async (): Promise<void> => {
+            // 优先发送工具产出的媒体文件（TTS 语音、生成图片等）
+            if (toolMediaUrls.length > 0) {
+              log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding ${toolMediaUrls.length} media URL(s) from tool deliver(s)`);
+              for (const mediaUrl of toolMediaUrls) {
+                try {
+                  const result = await sendMediaAuto({
+                    to: qualifiedTarget,
+                    text: "",
+                    mediaUrl,
+                    accountId: account.accountId,
+                    replyToId: event.messageId,
+                    account,
+                  });
+                  if (result.error) {
+                    log?.error(`[qqbot:${account.accountId}] Tool fallback sendMedia error: ${result.error}`);
+                  }
+                } catch (err) {
+                  log?.error(`[qqbot:${account.accountId}] Tool fallback sendMedia failed: ${err}`);
+                }
+              }
+              return;
             }
-            const recentTools = toolTexts.slice(-3);
-            const totalLen = recentTools.reduce((s, t) => s + t.length, 0);
-            if (totalLen > 1800) {
-              const last = recentTools[recentTools.length - 1]!;
-              return `${MSG.TOOL_CALLING}\n\`\`\`\n${last.slice(0, 1500)}\n\`\`\``;
+            // 其次转发工具产出的文本
+            if (toolTexts.length > 0) {
+              const text = toolTexts.slice(-3).join("\n---\n").slice(0, 2000);
+              log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding tool text (${text.length} chars)`);
+              await sendErrorMessage(text);
+              return;
             }
-            const toolBlock = recentTools.join("\n---\n");
-            return `${MSG.TOOL_CALLING}\n\`\`\`\n${toolBlock}\n\`\`\``;
+            // 既无媒体也无文本，静默处理（仅日志记录）
+            log?.info(`[qqbot:${account.accountId}] Tool fallback: no media or text collected from ${toolDeliverCount} tool deliver(s), silently dropping`);
           };
 
           const timeoutPromise = new Promise<void>((_, reject) => {
@@ -1267,7 +1284,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   if (toolText) {
                     toolTexts.push(toolText);
                   }
-                  log?.info(`[qqbot:${account.accountId}] Skipping tool result deliver #${toolDeliverCount} (intermediate, not user-facing), text length: ${toolText.length}`);
+                  // 收集工具产出的媒体 URL（TTS 语音、生成图片等），供 fallback 转发
+                  if (payload.mediaUrls?.length) {
+                    toolMediaUrls.push(...payload.mediaUrls);
+                  }
+                  if (payload.mediaUrl && !toolMediaUrls.includes(payload.mediaUrl)) {
+                    toolMediaUrls.push(payload.mediaUrl);
+                  }
+                  log?.info(`[qqbot:${account.accountId}] Collected tool deliver #${toolDeliverCount}: text=${toolText.length} chars, media=${toolMediaUrls.length} URLs`);
 
                   // 兜底已发送，不再续期
                   if (toolFallbackSent) {
@@ -1291,17 +1315,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     if (!hasBlockResponse && !toolFallbackSent) {
                       toolFallbackSent = true;
                       log?.error(`[qqbot:${account.accountId}] Tool-only timeout: ${toolDeliverCount} tool deliver(s) but no block within ${toolOnlyTimeout / 1000}s, sending fallback`);
-                      const fallback = formatToolFallback();
                       try {
-                        await sendWithTokenRetry(async (token) => {
-                          if (event.type === "c2c") {
-                            await sendC2CMessage(token, event.senderId, fallback, event.messageId);
-                          } else if (event.type === "group" && event.groupOpenid) {
-                            await sendGroupMessage(token, event.groupOpenid, fallback, event.messageId);
-                          } else if (event.channelId) {
-                            await sendChannelMessage(token, event.channelId, fallback, event.messageId);
-                          }
-                        });
+                        await sendToolFallback();
                       } catch (sendErr) {
                         log?.error(`[qqbot:${account.accountId}] Failed to send tool-only fallback: ${sendErr}`);
                       }
@@ -1487,7 +1502,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                       }
                     } else if (item.type === "voice") {
                       const uploadFormats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
-                      const result = await sendVoice(mediaTarget, item.content, uploadFormats);
+                      const transcodeEnabled = account.config?.audioFormatPolicy?.transcodeEnabled !== false;
+                      const result = await sendVoice(mediaTarget, item.content, uploadFormats, transcodeEnabled);
                       if (result.error) {
                         log?.error(`[qqbot:${account.accountId}] sendVoice error: ${result.error}`);
                         await sendErrorMessage(formatMediaErrorMessage("语音", new Error(result.error)));
@@ -2027,7 +2043,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     }
                   }
                 } else {
-                  // ============ 普通文本模式：使用富媒体 API 发送图片 ============
+                  // ============ 普通文本模式：使用 sendPhoto 发送图片（内置 URL fallback） ============
+                  const imgMediaTarget: MediaTargetContext = {
+                    targetType: event.type === "c2c" ? "c2c" : event.type === "group" ? "group" : "channel",
+                    targetId: event.type === "c2c" ? event.senderId : event.type === "group" ? event.groupOpenid! : event.channelId!,
+                    account,
+                    replyToId: event.messageId,
+                    logPrefix: `[qqbot:${account.accountId}]`,
+                  };
                   // 从文本中移除所有图片相关内容
                   for (const match of mdMatches) {
                     textWithoutImages = textWithoutImages.replace(match[0], "").trim();
@@ -2042,20 +2065,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   }
                   
                   try {
-                    // 发送图片（通过富媒体 API）
+                    // 发送图片（通过 sendPhoto，内置 URL 直传 → 下载 fallback）
                     for (const imageUrl of imageUrls) {
                       try {
-                        await sendWithTokenRetry(async (token) => {
-                          if (event.type === "c2c") {
-                            await sendC2CImageMessage(token, event.senderId, imageUrl, event.messageId);
-                          } else if (event.type === "group" && event.groupOpenid) {
-                            await sendGroupImageMessage(token, event.groupOpenid, imageUrl, event.messageId);
-                          } else if (event.channelId) {
-                            // 频道暂不支持富媒体，发送文本 URL
-                            await sendChannelMessage(token, event.channelId, imageUrl, event.messageId);
-                          }
-                        });
-                        log?.info(`[qqbot:${account.accountId}] Sent image via media API: ${imageUrl.slice(0, 80)}...`);
+                        const imgResult = await sendPhoto(imgMediaTarget, imageUrl);
+                        if (imgResult.error) {
+                          log?.error(`[qqbot:${account.accountId}] Failed to send image: ${imgResult.error}`);
+                        } else {
+                          log?.info(`[qqbot:${account.accountId}] Sent image via sendPhoto: ${imageUrl.slice(0, 80)}...`);
+                        }
                       } catch (imgErr) {
                         log?.error(`[qqbot:${account.accountId}] Failed to send image: ${imgErr}`);
                       }
@@ -2153,8 +2171,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             if (toolDeliverCount > 0 && !hasBlockResponse && !toolFallbackSent) {
               toolFallbackSent = true;
               log?.error(`[qqbot:${account.accountId}] Dispatch completed with ${toolDeliverCount} tool deliver(s) but no block deliver, sending fallback`);
-              const fallback = formatToolFallback();
-              await sendErrorMessage(fallback);
+              await sendToolFallback();
             }
           }
         } catch (err) {

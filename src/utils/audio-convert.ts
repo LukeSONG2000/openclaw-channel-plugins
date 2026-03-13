@@ -139,9 +139,48 @@ export function formatDuration(durationMs: number): string {
   return remainSeconds > 0 ? `${minutes}分${remainSeconds}秒` : `${minutes}分钟`;
 }
 
-export function isAudioFile(filePath: string): boolean {
+export function isAudioFile(filePath: string, mimeType?: string): boolean {
+  // MIME 优先判断（解决无扩展名或扩展名不匹配的问题）
+  if (mimeType) {
+    if (mimeType === "voice" || mimeType.startsWith("audio/")) return true;
+  }
   const ext = path.extname(filePath).toLowerCase();
   return [".silk", ".slk", ".amr", ".wav", ".mp3", ".ogg", ".opus", ".aac", ".flac", ".m4a", ".wma", ".pcm"].includes(ext);
+}
+
+/** QQ 平台原生支持的语音 MIME 类型（不需要转码） */
+const QQ_NATIVE_VOICE_MIMES = new Set([
+  "audio/silk", "audio/amr", "audio/wav", "audio/wave",
+  "audio/x-wav", "audio/mpeg", "audio/mp3",
+]);
+
+/** QQ 平台原生支持的语音扩展名（不需要转码） */
+const QQ_NATIVE_VOICE_EXTS = new Set([
+  ".silk", ".slk", ".amr", ".wav", ".mp3",
+]);
+
+/**
+ * 判断语音是否需要转码（参考企微 wecom-app 的 shouldTranscodeWecomVoice）
+ * 
+ * QQ Bot API 原生支持 WAV/MP3/SILK 三种格式，其他格式需要先转码。
+ * 使用 MIME + 扩展名双重判断，避免仅靠扩展名导致误判。
+ * 
+ * @param filePath 音频文件路径
+ * @param mimeType 可选的 MIME 类型
+ * @returns true 表示需要转码，false 表示可以直传
+ */
+export function shouldTranscodeVoice(filePath: string, mimeType?: string): boolean {
+  // MIME 优先：如果 MIME 是 QQ 原生支持的格式，不需要转码
+  if (mimeType && QQ_NATIVE_VOICE_MIMES.has(mimeType.toLowerCase())) {
+    return false;
+  }
+  // 扩展名判断
+  const ext = path.extname(filePath).toLowerCase();
+  if (QQ_NATIVE_VOICE_EXTS.has(ext)) {
+    return false;
+  }
+  // 是音频但不是原生格式 → 需要转码
+  return isAudioFile(filePath, mimeType);
 }
 
 // ============ TTS（文字转语音）============

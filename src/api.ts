@@ -628,8 +628,8 @@ export async function sendGroupImageMessage(accessToken: string, groupOpenid: st
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId, content);
 }
 
-export async function sendC2CVoiceMessage(accessToken: string, openid: string, voiceBase64: string, msgId?: string, ttsText?: string, filePath?: string): Promise<MessageResponse> {
-  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VOICE, undefined, voiceBase64, false);
+export async function sendC2CVoiceMessage(accessToken: string, openid: string, voiceBase64?: string, voiceUrl?: string, msgId?: string, ttsText?: string, filePath?: string): Promise<MessageResponse> {
+  const uploadResult = await uploadC2CMedia(accessToken, openid, MediaFileType.VOICE, voiceUrl, voiceBase64, false);
   return sendC2CMediaMessage(accessToken, openid, uploadResult.file_info, msgId, undefined, { 
     mediaType: "voice", 
     ...(ttsText ? { ttsText } : {}),
@@ -637,8 +637,8 @@ export async function sendC2CVoiceMessage(accessToken: string, openid: string, v
   });
 }
 
-export async function sendGroupVoiceMessage(accessToken: string, groupOpenid: string, voiceBase64: string, msgId?: string): Promise<{ id: string; timestamp: string }> {
-  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VOICE, undefined, voiceBase64, false);
+export async function sendGroupVoiceMessage(accessToken: string, groupOpenid: string, voiceBase64?: string, voiceUrl?: string, msgId?: string): Promise<{ id: string; timestamp: string }> {
+  const uploadResult = await uploadGroupMedia(accessToken, groupOpenid, MediaFileType.VOICE, voiceUrl, voiceBase64, false);
   return sendGroupMediaMessage(accessToken, groupOpenid, uploadResult.file_info, msgId);
 }
 

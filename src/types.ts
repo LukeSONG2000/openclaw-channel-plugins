@@ -53,6 +53,12 @@ export interface QQBotAccountConfig {
    * 统一管理入站（STT）和出站（上传）的音频格式转换行为
    */
   audioFormatPolicy?: AudioFormatPolicy;
+  /**
+   * 是否启用公网 URL 直传 QQ 平台（默认 true）
+   * 启用时：公网 URL 先直传给 QQ 开放平台的富媒体 API，平台自行拉取；失败后自动 fallback 到插件下载再 Base64 上传
+   * 禁用时：公网 URL 始终由插件先下载到本地，再以 Base64 上传（适用于 QQ 平台无法访问目标 URL 的场景）
+   */
+  urlDirectUpload?: boolean;
 }
 
 /**
@@ -72,6 +78,12 @@ export interface AudioFormatPolicy {
    * 仅当需要覆盖默认值时才配置此项
    */
   uploadDirectFormats?: string[];
+  /**
+   * 是否启用语音转码（默认 true）
+   * 设为 false 可在环境无 ffmpeg 时跳过转码，直接以文件形式发送
+   * 当禁用时，非原生格式的音频会 fallback 到 sendDocument（文件发送）
+   */
+  transcodeEnabled?: boolean;
 }
 
 /**
