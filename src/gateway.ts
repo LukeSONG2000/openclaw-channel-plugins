@@ -15,6 +15,7 @@ import { convertSilkToWav, isVoiceAttachment, formatDuration, resolveTTSConfig, 
 import { normalizeMediaTags } from "./utils/media-tags.js";
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize } from "./utils/file-utils.js";
 import { getQQBotDataDir, isLocalPath as isLocalFilePath, looksLikeLocalPath, normalizePath, sanitizeFileName, runDiagnostics } from "./utils/platform.js";
+import { MSG, formatMediaErrorMessage } from "./user-messages.js";
 
 /**
  * 通用 OpenAI 兼容 STT（语音转文字）
@@ -218,27 +219,7 @@ function parseFaceTags(text: string): string {
   });
 }
 
-// ============ 媒体发送友好错误提示 ============
-
-/**
- * 将媒体上传/发送错误转为对用户友好的提示文案
- */
-function formatMediaErrorMessage(mediaType: string, err: unknown): string {
-  const msg = err instanceof Error ? err.message : String(err);
-  if (msg.includes("上传超时") || msg.includes("timeout") || msg.includes("Timeout")) {
-    return `抱歉，${mediaType}资源加载超时，可能是网络原因或文件太大，请稍后再试～`;
-  }
-  if (msg.includes("文件不存在") || msg.includes("not found") || msg.includes("Not Found")) {
-    return `抱歉，${mediaType}文件不存在或已失效，无法发送～`;
-  }
-  if (msg.includes("文件大小") || msg.includes("too large") || msg.includes("exceed")) {
-    return `抱歉，${mediaType}文件太大了，超出了发送限制～`;
-  }
-  if (msg.includes("Network error") || msg.includes("ECONNREFUSED") || msg.includes("ENOTFOUND")) {
-    return `抱歉，网络连接异常，${mediaType}发送失败，请稍后再试～`;
-  }
-  return `抱歉，${mediaType}发送失败了，请稍后再试～`;
-}
+// formatMediaErrorMessage 已移至 user-messages.ts 集中管理
 
 // ============ 内部标记过滤 ============
 
@@ -1070,30 +1051,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
         const hasSTT = !!resolveSTTConfig(cfg as Record<string, unknown>);
 
-        // 语音能力说明：<qqvoice> 标签本身只负责发送已有的音频文件，不依赖插件 TTS。
-        // TTS 只是生成音频文件的一种方式，框架侧的 TTS 工具（如 audio_speech）也能生成。
-        // 因此始终暴露 <qqvoice> 能力，但根据 TTS 状态给出不同的使用指引。
-        const ttsHint = hasTTS
-          ? `6. 🎤 插件 TTS 已启用: 如果你有 TTS 工具（如 audio_speech），可用它生成音频文件后用 <qqvoice> 发送`
-          : `6. ⚠️ 插件 TTS 未配置: 如果你有 TTS 工具（如 audio_speech），仍可用它生成音频文件后用 <qqvoice> 发送；若无 TTS 工具，则无法主动生成语音`;
-        const sttHint = hasSTT
-          ? `\n7. 插件侧 STT 已配置，用户发送的语音消息会尽量自动转录`
-          : `\n7. 插件侧 STT 未配置，插件不会自动转录语音消息`;
-        const asrFallbackHint = hasAsrReferFallback
-          ? `\n8. 本条消息包含平台返回的语音识别文本，可直接用于理解用户意图。`
+        const voiceSection = hasTTS || hasSTT
+          ? `\n- 语音: <qqvoice>音频文件路径</qqvoice> (支持 .silk/.wav/.mp3/.ogg 等)${hasTTS ? "，TTS 已启用" : ""}${hasSTT ? "，STT 已启用" : ""}${hasAsrReferFallback ? "，本条含平台语音识别文本" : ""}`
           : "";
-        const voiceForwardHint = uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0
-          ? `\n9. 本条消息已附带语音文件路径/URL。若你具备 STT 能力（框架能力或 STT skill），可直接转写音频。`
-          : "";
-        const voiceSection = `
-
-【发送语音 - 必须遵守】
-1. 发语音方法: 在回复文本中写 <qqvoice>本地音频文件路径</qqvoice>，系统自动处理
-2. 示例: "来听听吧！ <qqvoice>/tmp/tts/voice.mp3</qqvoice>"
-3. 支持格式: .silk, .slk, .slac, .amr, .wav, .mp3, .ogg, .pcm
-4. ⚠️ <qqvoice> 只用于语音文件，图片请用 <qqimg>；两者不要混用
-5. 发送语音时，不要重复输出语音中已朗读的文字内容；语音前后的文字应是补充信息而非语音的文字版重复
-${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
 
         const voiceAsrSection = uniqueVoiceAsrReferTexts.length > 0
           ? `\n- 语音识别文本:\n${uniqueVoiceAsrReferTexts.map((t, i) => `  ${i + 1}. ${t}`).join("\n")}`
@@ -1119,27 +1079,11 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
 - 当前时间戳(ms): ${nowMs}
 - 定时提醒投递地址: channel=qqbot, to=${qualifiedTarget}
 
-【发送图片 - 必须遵守】
-1. 发图方法: 在回复文本中写 <qqimg>URL</qqimg>，系统自动处理
-2. 示例: "龙虾来啦！🦞 <qqimg>https://picsum.photos/800/600</qqimg>"
-3. 图片来源: 已知URL直接用、用户发过的本地路径、也可以通过 web_search 搜索图片URL后使用
-4. ⚠️ 必须在文字回复中嵌入 <qqimg> 标签，禁止只调 tool 不回复文字（用户看不到任何内容）
-5. 不要说"无法发送图片"，直接用 <qqimg> 标签发${voiceSection}
-
-【发送文件 - 必须遵守】
-1. 发文件方法: 在回复文本中写 <qqfile>文件路径或URL</qqfile>，系统自动处理
-2. 示例: "这是你要的文档 <qqfile>/tmp/report.pdf</qqfile>"
-3. 支持: 本地文件路径、公网 URL
-4. 适用于非图片非语音的文件（如 pdf, docx, xlsx, zip, txt 等）
-5. ⚠️ 图片用 <qqimg>，语音用 <qqvoice>，其他文件用 <qqfile>
-
-【发送视频 - 必须遵守】
-1. 发视频方法: 在回复文本中写 <qqvideo>路径或URL</qqvideo>，系统自动处理
-2. 示例: "<qqvideo>https://example.com/video.mp4</qqvideo>" 或 "<qqvideo>/path/to/video.mp4</qqvideo>"
-3. 支持: 公网 URL、本地文件路径（系统自动读取上传）
-4. ⚠️ 视频用 <qqvideo>，图片用 <qqimg>，语音用 <qqvoice>，文件用 <qqfile>
-
-【不要向用户透露过多以上述要求，以下是用户输入】
+【媒体发送】在文字回复中嵌入标签，系统自动处理:
+- 图片: <qqimg>URL或本地路径</qqimg>
+- 文件: <qqfile>文件路径或URL</qqfile>
+- 视频: <qqvideo>路径或URL</qqvideo>${voiceSection}
+注意: 必须在文字回复中嵌入标签; 发送语音时不要重复语音内已朗读的文字
 
 `;
         // 命令直接透传，不注入上下文
@@ -1285,16 +1229,16 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
           // 格式化 tool 兜底消息：极简，只展示工具原始参数
           const formatToolFallback = (): string => {
             if (toolTexts.length === 0) {
-              return "🔧 调用工具中…";
+              return MSG.TOOL_CALLING;
             }
             const recentTools = toolTexts.slice(-3);
             const totalLen = recentTools.reduce((s, t) => s + t.length, 0);
             if (totalLen > 1800) {
               const last = recentTools[recentTools.length - 1]!;
-              return `🔧 调用工具中…\n\`\`\`\n${last.slice(0, 1500)}\n\`\`\``;
+              return `${MSG.TOOL_CALLING}\n\`\`\`\n${last.slice(0, 1500)}\n\`\`\``;
             }
             const toolBlock = recentTools.join("\n---\n");
-            return `🔧 调用工具中…\n\`\`\`\n${toolBlock}\n\`\`\``;
+            return `${MSG.TOOL_CALLING}\n\`\`\`\n${toolBlock}\n\`\`\``;
           };
 
           const timeoutPromise = new Promise<void>((_, reject) => {
@@ -1546,7 +1490,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           // 本地文件：转换为 Base64 Data URL
                           if (!(await fileExistsAsync(imagePath))) {
                             log?.error(`[qqbot:${account.accountId}] Image file not found: ${imagePath}`);
-                            await sendErrorMessage(`图片文件不存在: ${imagePath}`);
+                            await sendErrorMessage(MSG.IMAGE_NOT_FOUND);
                             continue;
                           }
                           
@@ -1562,7 +1506,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           if (isLargeFile(imgSizeCheck.size)) {
                             try {
                               await sendWithTokenRetry(async (token) => {
-                                const hint = `⏳ 正在上传图片 (${formatFileSize(imgSizeCheck.size)})...`;
+                                const hint = MSG.IMAGE_UPLOADING(formatFileSize(imgSizeCheck.size));
                                 if (event.type === "c2c") {
                                   await sendC2CMessage(token, event.senderId, hint, event.messageId);
                                 } else if (event.type === "group" && event.groupOpenid) {
@@ -1586,7 +1530,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           const mimeType = mimeTypes[ext];
                           if (!mimeType) {
                             log?.error(`[qqbot:${account.accountId}] Unsupported image format: ${ext}`);
-                            await sendErrorMessage(`不支持的图片格式: ${ext}`);
+                            await sendErrorMessage(MSG.IMAGE_FORMAT_UNSUPPORTED(ext));
                             continue;
                           }
                           imageUrl = `data:${mimeType};base64,${base64Data}`;
@@ -1616,7 +1560,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         log?.info(`[qqbot:${account.accountId}] Sent image via <qqimg> tag: ${imagePath.slice(0, 60)}...`);
                       } catch (err) {
                         log?.error(`[qqbot:${account.accountId}] Failed to send image from <qqimg>: ${err}`);
-                        await sendErrorMessage(`图片发送失败，图片似乎不存在哦，图片路径：${imagePath}`);
+                        await sendErrorMessage(MSG.IMAGE_SEND_FAILED);
                       }
                     } else if (item.type === "voice") {
                       // 发送语音文件（展开 ~ 路径）
@@ -1626,7 +1570,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         const fileSize = await waitForFile(voicePath);
                         if (fileSize === 0) {
                           log?.error(`[qqbot:${account.accountId}] Voice file not ready after waiting: ${voicePath}`);
-                          await sendErrorMessage(`语音生成失败，请稍后重试`);
+                          await sendErrorMessage(MSG.VOICE_GENERATE_FAILED);
                           continue;
                         }
 
@@ -1636,7 +1580,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         if (!silkBase64) {
                           const ext = path.extname(voicePath).toLowerCase();
                           log?.error(`[qqbot:${account.accountId}] Voice conversion to SILK failed: ${ext} (${fileSize} bytes). Check [audio-convert] logs for details.`);
-                          await sendErrorMessage(`语音格式转换失败，请稍后重试`);
+                          await sendErrorMessage(MSG.VOICE_CONVERT_FAILED);
                           continue;
                         }
                         log?.info(`[qqbot:${account.accountId}] Voice file converted to SILK Base64 (${fileSize} bytes)`);
@@ -1647,7 +1591,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           } else if (event.type === "group" && event.groupOpenid) {
                             await sendGroupVoiceMessage(token, event.groupOpenid, silkBase64!, event.messageId);
                           } else if (event.channelId) {
-                            await sendChannelMessage(token, event.channelId, `[语音消息暂不支持频道发送]`, event.messageId);
+                            await sendChannelMessage(token, event.channelId, MSG.VOICE_CHANNEL_UNSUPPORTED, event.messageId);
                           }
                         });
                         log?.info(`[qqbot:${account.accountId}] Sent voice via <qqvoice> tag: ${voicePath.slice(0, 60)}...`);
@@ -1667,7 +1611,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           if (vidCheck.ok && isLargeFile(vidCheck.size)) {
                             try {
                               await sendWithTokenRetry(async (token) => {
-                                const hint = `⏳ 正在上传视频 (${formatFileSize(vidCheck.size)})...`;
+                                const hint = MSG.VIDEO_UPLOADING(formatFileSize(vidCheck.size));
                                 if (event.type === "c2c") {
                                   await sendC2CMessage(token, event.senderId, hint, event.messageId);
                                 } else if (event.type === "group" && event.groupOpenid) {
@@ -1686,7 +1630,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                             } else if (event.type === "group" && event.groupOpenid) {
                               await sendGroupVideoMessage(token, event.groupOpenid, videoPath, undefined, event.messageId);
                             } else if (event.channelId) {
-                              await sendChannelMessage(token, event.channelId, `[视频消息暂不支持频道发送]`, event.messageId);
+                              await sendChannelMessage(token, event.channelId, MSG.VIDEO_CHANNEL_UNSUPPORTED, event.messageId);
                             }
                           } else {
                             // 本地文件：读取为 Base64
@@ -1707,7 +1651,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                             } else if (event.type === "group" && event.groupOpenid) {
                               await sendGroupVideoMessage(token, event.groupOpenid, undefined, videoBase64, event.messageId);
                             } else if (event.channelId) {
-                              await sendChannelMessage(token, event.channelId, `[视频消息暂不支持频道发送]`, event.messageId);
+                              await sendChannelMessage(token, event.channelId, MSG.VIDEO_CHANNEL_UNSUPPORTED, event.messageId);
                             }
                           }
                         });
@@ -1729,7 +1673,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           if (fileCheck.ok && isLargeFile(fileCheck.size)) {
                             try {
                               await sendWithTokenRetry(async (token) => {
-                                const hint = `⏳ 正在上传文件 ${fileName} (${formatFileSize(fileCheck.size)})...`;
+                                const hint = MSG.FILE_UPLOADING(fileName, formatFileSize(fileCheck.size));
                                 if (event.type === "c2c") {
                                   await sendC2CMessage(token, event.senderId, hint, event.messageId);
                                 } else if (event.type === "group" && event.groupOpenid) {
@@ -1748,7 +1692,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                             } else if (event.type === "group" && event.groupOpenid) {
                               await sendGroupFileMessage(token, event.groupOpenid, undefined, filePath, event.messageId, fileName);
                             } else if (event.channelId) {
-                              await sendChannelMessage(token, event.channelId, `[文件消息暂不支持频道发送]`, event.messageId);
+                              await sendChannelMessage(token, event.channelId, MSG.FILE_CHANNEL_UNSUPPORTED, event.messageId);
                             }
                           } else {
                             // 本地文件
@@ -1769,14 +1713,14 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                             } else if (event.type === "group" && event.groupOpenid) {
                               await sendGroupFileMessage(token, event.groupOpenid, fileBase64, undefined, event.messageId, fileName);
                             } else if (event.channelId) {
-                              await sendChannelMessage(token, event.channelId, `[文件消息暂不支持频道发送]`, event.messageId);
+                              await sendChannelMessage(token, event.channelId, MSG.FILE_CHANNEL_UNSUPPORTED, event.messageId);
                             }
                           }
                         });
                         log?.info(`[qqbot:${account.accountId}] Sent file via <qqfile> tag: ${filePath.slice(0, 60)}...`);
                       } catch (err) {
                         log?.error(`[qqbot:${account.accountId}] Failed to send file from <qqfile>: ${err}`);
-                        await sendErrorMessage(`文件发送失败: ${err}`);
+                        await sendErrorMessage(formatMediaErrorMessage("文件", err));
                       }
                     }
                   }
@@ -1798,7 +1742,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                   if (payloadResult.error) {
                     // 载荷解析失败，发送错误提示
                     log?.error(`[qqbot:${account.accountId}] Payload parse error: ${payloadResult.error}`);
-                    await sendErrorMessage(`[QQBot] 载荷解析失败: ${payloadResult.error}`);
+                    await sendErrorMessage(MSG.PAYLOAD_PARSE_ERROR);
                     return;
                   }
                   
@@ -1851,12 +1795,12 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         if (parsedPayload.source === "file") {
                           try {
                             if (!(await fileExistsAsync(imageUrl))) {
-                              await sendErrorMessage(`[QQBot] 图片文件不存在: ${imageUrl}`);
+                              await sendErrorMessage(MSG.IMAGE_NOT_FOUND);
                               return;
                             }
                             const imgSzCheck = checkFileSize(imageUrl);
                             if (!imgSzCheck.ok) {
-                              await sendErrorMessage(`[QQBot] ${imgSzCheck.error}`);
+                              await sendErrorMessage(MSG.IMAGE_SEND_FAILED);
                               return;
                             }
                             const fileBuffer = await readFileAsync(imageUrl);
@@ -1872,14 +1816,14 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                             };
                             const mimeType = mimeTypes[ext];
                             if (!mimeType) {
-                              await sendErrorMessage(`[QQBot] 不支持的图片格式: ${ext}`);
+                              await sendErrorMessage(MSG.IMAGE_FORMAT_UNSUPPORTED(ext));
                               return;
                             }
                             imageUrl = `data:${mimeType};base64,${base64Data}`;
                             log?.info(`[qqbot:${account.accountId}] Converted local image to Base64 (size: ${formatFileSize(fileBuffer.length)})`);
                           } catch (readErr) {
                             log?.error(`[qqbot:${account.accountId}] Failed to read local image: ${readErr}`);
-                            await sendErrorMessage(`[QQBot] 读取图片文件失败: ${readErr}`);
+                            await sendErrorMessage(MSG.IMAGE_SEND_FAILED);
                             return;
                           }
                         }
@@ -1918,13 +1862,13 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         // TTS 语音发送：文字 → PCM → SILK → QQ 语音
                         try {
                           const ttsText = parsedPayload.caption || parsedPayload.path;
-                          if (!ttsText?.trim()) {
-                            await sendErrorMessage(`[QQBot] 语音消息缺少文本内容`);
-                          } else {
-                            const ttsCfg = resolveTTSConfig(cfg as Record<string, unknown>);
-                            if (!ttsCfg) {
-                              log?.error(`[qqbot:${account.accountId}] TTS not configured (channels.qqbot.tts in openclaw.json)`);
-                              await sendErrorMessage(`[QQBot] TTS 未配置，请在 openclaw.json 的 channels.qqbot.tts 中配置`);
+                            if (!ttsText?.trim()) {
+                              await sendErrorMessage(MSG.VOICE_MISSING_TEXT);
+                            } else {
+                              const ttsCfg = resolveTTSConfig(cfg as Record<string, unknown>);
+                              if (!ttsCfg) {
+                                log?.error(`[qqbot:${account.accountId}] TTS not configured (channels.qqbot.tts in openclaw.json)`);
+                                await sendErrorMessage(MSG.VOICE_NOT_AVAILABLE);
                             } else {
                               log?.info(`[qqbot:${account.accountId}] TTS: "${ttsText.slice(0, 50)}..." via ${ttsCfg.model}`);
                               const ttsDir = getQQBotDataDir("tts");
@@ -1937,7 +1881,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                                 } else if (event.type === "group" && event.groupOpenid) {
                                   await sendGroupVoiceMessage(token, event.groupOpenid, silkBase64, event.messageId);
                                 } else if (event.channelId) {
-                                  await sendChannelMessage(token, event.channelId, `[语音消息暂不支持频道发送] ${ttsText}`, event.messageId);
+                                  await sendChannelMessage(token, event.channelId, `${MSG.VOICE_CHANNEL_UNSUPPORTED}\n${ttsText}`, event.messageId);
                                 }
                               });
                               log?.info(`[qqbot:${account.accountId}] Voice message sent`);
@@ -1945,14 +1889,14 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                           }
                         } catch (err) {
                           log?.error(`[qqbot:${account.accountId}] TTS/voice send failed: ${err}`);
-                          await sendErrorMessage(`[QQBot] 语音发送失败: ${err}`);
+                          await sendErrorMessage(formatMediaErrorMessage("语音", err));
                         }
                       } else if (parsedPayload.mediaType === "video") {
                         // 视频发送：支持公网 URL 和本地文件
                         try {
                           const videoPath = normalizePath(parsedPayload.path ?? "");
                           if (!videoPath?.trim()) {
-                            await sendErrorMessage(`[QQBot] 视频消息缺少视频路径`);
+                            await sendErrorMessage(MSG.VIDEO_MISSING_PATH);
                           } else {
                             const isHttpUrl = videoPath.startsWith("http://") || videoPath.startsWith("https://");
                             log?.info(`[qqbot:${account.accountId}] Video send: "${videoPath.slice(0, 60)}..."`);
@@ -1965,7 +1909,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                                 } else if (event.type === "group" && event.groupOpenid) {
                                   await sendGroupVideoMessage(token, event.groupOpenid, videoPath, undefined, event.messageId);
                                 } else if (event.channelId) {
-                                  await sendChannelMessage(token, event.channelId, `[视频消息暂不支持频道发送]`, event.messageId);
+                                  await sendChannelMessage(token, event.channelId, MSG.VIDEO_CHANNEL_UNSUPPORTED, event.messageId);
                                 }
                               } else {
                                 // 本地文件：读取为 Base64
@@ -1985,7 +1929,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                                 } else if (event.type === "group" && event.groupOpenid) {
                                   await sendGroupVideoMessage(token, event.groupOpenid, undefined, videoBase64, event.messageId);
                                 } else if (event.channelId) {
-                                  await sendChannelMessage(token, event.channelId, `[视频消息暂不支持频道发送]`, event.messageId);
+                                  await sendChannelMessage(token, event.channelId, MSG.VIDEO_CHANNEL_UNSUPPORTED, event.messageId);
                                 }
                               }
                             });
@@ -2013,7 +1957,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         try {
                           const filePath = normalizePath(parsedPayload.path ?? "");
                           if (!filePath?.trim()) {
-                            await sendErrorMessage(`[QQBot] 文件消息缺少文件路径`);
+                            await sendErrorMessage(MSG.FILE_MISSING_PATH);
                           } else {
                             const isHttpUrl = filePath.startsWith("http://") || filePath.startsWith("https://");
                             const fileName = sanitizeFileName(path.basename(filePath));
@@ -2026,7 +1970,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                                 } else if (event.type === "group" && event.groupOpenid) {
                                   await sendGroupFileMessage(token, event.groupOpenid, undefined, filePath, event.messageId, fileName);
                                 } else if (event.channelId) {
-                                  await sendChannelMessage(token, event.channelId, `[文件消息暂不支持频道发送]`, event.messageId);
+                                  await sendChannelMessage(token, event.channelId, MSG.FILE_CHANNEL_UNSUPPORTED, event.messageId);
                                 }
                               } else {
                                 if (!(await fileExistsAsync(filePath))) {
@@ -2043,7 +1987,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                                 } else if (event.type === "group" && event.groupOpenid) {
                                   await sendGroupFileMessage(token, event.groupOpenid, fileBase64, undefined, event.messageId, fileName);
                                 } else if (event.channelId) {
-                                  await sendChannelMessage(token, event.channelId, `[文件消息暂不支持频道发送]`, event.messageId);
+                                  await sendChannelMessage(token, event.channelId, MSG.FILE_CHANNEL_UNSUPPORTED, event.messageId);
                                 }
                               }
                             });
@@ -2055,7 +1999,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                         }
                       } else {
                         log?.error(`[qqbot:${account.accountId}] Unknown media type: ${(parsedPayload as MediaPayload).mediaType}`);
-                        await sendErrorMessage(`[QQBot] 不支持的媒体类型: ${(parsedPayload as MediaPayload).mediaType}`);
+                        await sendErrorMessage(MSG.UNSUPPORTED_MEDIA_TYPE);
                       }
                       
                       // 记录活动并返回
@@ -2068,7 +2012,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                     } else {
                       // 未知的载荷类型
                       log?.error(`[qqbot:${account.accountId}] Unknown payload type: ${(parsedPayload as any).type}`);
-                      await sendErrorMessage(`[QQBot] 不支持的载荷类型: ${(parsedPayload as any).type}`);
+                      await sendErrorMessage(MSG.UNSUPPORTED_PAYLOAD_TYPE);
                       return;
                     }
                   }
@@ -2380,9 +2324,9 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
                 // 发送错误提示给用户，显示完整错误信息
                 const errMsg = String(err);
                 if (errMsg.includes("401") || errMsg.includes("key") || errMsg.includes("auth")) {
-                  await sendErrorMessage("⚠️ AI 服务认证失败，API Key 可能无效，请联系管理员检查配置。");
+                  await sendErrorMessage(MSG.AI_AUTH_ERROR);
                 } else {
-                  await sendErrorMessage(`⚠️ AI 处理出错: ${errMsg.slice(0, 500)}`);
+                  await sendErrorMessage(MSG.AI_PROCESS_ERROR);
                 }
               },
             },
@@ -2400,7 +2344,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
             }
             if (!hasResponse) {
               log?.error(`[qqbot:${account.accountId}] No response within timeout`);
-              await sendErrorMessage("⏳ 已收到，正在处理中…");
+              await sendErrorMessage(MSG.TIMEOUT_HINT);
             }
           } finally {
             // 清理 tool-only 兜底定时器
@@ -2418,7 +2362,7 @@ ${ttsHint}${sttHint}${asrFallbackHint}${voiceForwardHint}`;
           }
         } catch (err) {
           log?.error(`[qqbot:${account.accountId}] Message processing failed: ${err}`);
-          await sendErrorMessage(`⚠️ 消息处理失败: ${String(err).slice(0, 500)}`);
+          await sendErrorMessage(MSG.GENERIC_ERROR);
         }
       };
 

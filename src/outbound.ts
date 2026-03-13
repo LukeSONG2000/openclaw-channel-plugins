@@ -25,6 +25,7 @@ import { isAudioFile, audioFileToSilkBase64, waitForFile } from "./utils/audio-c
 import { normalizeMediaTags } from "./utils/media-tags.js";
 import { checkFileSize, readFileAsync, fileExistsAsync, isLargeFile, formatFileSize } from "./utils/file-utils.js";
 import { isLocalPath as isLocalFilePath, normalizePath, sanitizeFileName } from "./utils/platform.js";
+import { MSG } from "./user-messages.js";
 
 // ============ 消息回复限流器 ============
 // 同一 message_id 1小时内最多回复 4 次，超过 1 小时无法被动回复（需改为主动消息）
@@ -482,9 +483,9 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
             // 发送友好提示给用户
             try {
               if (target.type === "c2c") {
-                await sendC2CMessage(accessToken, target.id, "语音生成失败，请稍后重试", replyToId ?? undefined);
+                await sendC2CMessage(accessToken, target.id, MSG.VOICE_GENERATE_FAILED, replyToId ?? undefined);
               } else if (target.type === "group") {
-                await sendGroupMessage(accessToken, target.id, "语音生成失败，请稍后重试", replyToId ?? undefined);
+                await sendGroupMessage(accessToken, target.id, MSG.VOICE_GENERATE_FAILED, replyToId ?? undefined);
               }
             } catch {}
             continue;
@@ -513,7 +514,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
             const result = await sendGroupVoiceMessage(accessToken, target.id, silkBase64, replyToId ?? undefined);
             lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
           } else {
-            const result = await sendChannelMessage(accessToken, target.id, `[语音消息暂不支持频道发送]`, replyToId ?? undefined);
+            const result = await sendChannelMessage(accessToken, target.id, MSG.VOICE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
             lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
           }
           console.log(`[qqbot] sendText: Sent voice via <qqvoice> tag: ${voicePath.slice(0, 60)}...`);
@@ -531,7 +532,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
               const result = await sendGroupVideoMessage(accessToken, target.id, videoPath, undefined, replyToId ?? undefined);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             } else {
-              const result = await sendChannelMessage(accessToken, target.id, `[视频消息暂不支持频道发送]`, replyToId ?? undefined);
+              const result = await sendChannelMessage(accessToken, target.id, MSG.VIDEO_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             }
           } else {
@@ -548,7 +549,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
             // 大文件进度提示
             if (isLargeFile(videoSizeCheck.size)) {
               try {
-                const hint = `⏳ 正在上传视频 (${formatFileSize(videoSizeCheck.size)})...`;
+                const hint = MSG.VIDEO_UPLOADING(formatFileSize(videoSizeCheck.size));
                 if (target.type === "c2c") {
                   await sendC2CMessage(accessToken, target.id, hint, replyToId ?? undefined);
                 } else if (target.type === "group") {
@@ -567,7 +568,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
               const result = await sendGroupVideoMessage(accessToken, target.id, undefined, videoBase64, replyToId ?? undefined);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             } else {
-              const result = await sendChannelMessage(accessToken, target.id, `[视频消息暂不支持频道发送]`, replyToId ?? undefined);
+              const result = await sendChannelMessage(accessToken, target.id, MSG.VIDEO_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             }
           }
@@ -587,7 +588,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
               const result = await sendGroupFileMessage(accessToken, target.id, undefined, filePath, replyToId ?? undefined, fileName);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             } else {
-              const result = await sendChannelMessage(accessToken, target.id, `[文件消息暂不支持频道发送]`, replyToId ?? undefined);
+              const result = await sendChannelMessage(accessToken, target.id, MSG.FILE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             }
           } else {
@@ -604,7 +605,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
             // 大文件进度提示
             if (isLargeFile(fileSizeCheck.size)) {
               try {
-                const hint = `⏳ 正在上传文件 ${fileName} (${formatFileSize(fileSizeCheck.size)})...`;
+                const hint = MSG.FILE_UPLOADING(fileName, formatFileSize(fileSizeCheck.size));
                 if (target.type === "c2c") {
                   await sendC2CMessage(accessToken, target.id, hint, replyToId ?? undefined);
                 } else if (target.type === "group") {
@@ -623,7 +624,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
               const result = await sendGroupFileMessage(accessToken, target.id, fileBase64, undefined, replyToId ?? undefined, fileName);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             } else {
-              const result = await sendChannelMessage(accessToken, target.id, `[文件消息暂不支持频道发送]`, replyToId ?? undefined);
+              const result = await sendChannelMessage(accessToken, target.id, MSG.FILE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
               lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp };
             }
           }
@@ -951,7 +952,7 @@ async function sendVoiceFile(ctx: MediaOutboundContext): Promise<OutboundResult>
   // 等待文件就绪（TTS 工具异步生成，文件可能还没写完）
   const fileSize = await waitForFile(mediaUrl);
   if (fileSize === 0) {
-    return { channel: "qqbot", error: `语音生成失败，请稍后重试` };
+    return { channel: "qqbot", error: MSG.VOICE_GENERATE_FAILED };
   }
 
   try {
@@ -973,7 +974,7 @@ async function sendVoiceFile(ctx: MediaOutboundContext): Promise<OutboundResult>
       } else if (target.type === "group") {
         result = await sendGroupVoiceMessage(accessToken, target.id, fallbackBase64, replyToId ?? undefined);
       } else {
-        const r = await sendChannelMessage(accessToken, target.id, `[语音消息暂不支持频道发送]`, replyToId ?? undefined);
+        const r = await sendChannelMessage(accessToken, target.id, MSG.VOICE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
         return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
       }
 
@@ -991,7 +992,7 @@ async function sendVoiceFile(ctx: MediaOutboundContext): Promise<OutboundResult>
     } else if (target.type === "group") {
       voiceResult = await sendGroupVoiceMessage(accessToken, target.id, silkBase64, replyToId ?? undefined);
     } else {
-      const r = await sendChannelMessage(accessToken, target.id, `[语音消息暂不支持频道发送]`, replyToId ?? undefined);
+      const r = await sendChannelMessage(accessToken, target.id, MSG.VOICE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     }
 
@@ -1053,7 +1054,7 @@ async function sendVideoUrl(ctx: MediaOutboundContext): Promise<OutboundResult> 
     } else if (target.type === "group") {
       videoResult = await sendGroupVideoMessage(accessToken, target.id, mediaUrl, undefined, replyToId ?? undefined);
     } else {
-      const r = await sendChannelMessage(accessToken, target.id, `[视频消息暂不支持频道发送]`, replyToId ?? undefined);
+      const r = await sendChannelMessage(accessToken, target.id, MSG.VIDEO_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     }
 
@@ -1116,7 +1117,7 @@ async function sendVideoFile(ctx: MediaOutboundContext): Promise<OutboundResult>
     } else if (target.type === "group") {
       videoResult = await sendGroupVideoMessage(accessToken, target.id, undefined, videoBase64, replyToId ?? undefined);
     } else {
-      const r = await sendChannelMessage(accessToken, target.id, `[视频消息暂不支持频道发送]`, replyToId ?? undefined);
+      const r = await sendChannelMessage(accessToken, target.id, MSG.VIDEO_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
       return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
     }
 
@@ -1173,7 +1174,7 @@ async function sendDocumentFile(ctx: MediaOutboundContext): Promise<OutboundResu
       } else if (target.type === "group") {
         fileResult = await sendGroupFileMessage(accessToken, target.id, undefined, mediaUrl, replyToId ?? undefined, fileName);
       } else {
-        const r = await sendChannelMessage(accessToken, target.id, `[文件消息暂不支持频道发送]`, replyToId ?? undefined);
+        const r = await sendChannelMessage(accessToken, target.id, MSG.FILE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
         return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
       }
     } else {
@@ -1201,7 +1202,7 @@ async function sendDocumentFile(ctx: MediaOutboundContext): Promise<OutboundResu
       } else if (target.type === "group") {
         fileResult = await sendGroupFileMessage(accessToken, target.id, fileBase64, undefined, replyToId ?? undefined, fileName);
       } else {
-        const r = await sendChannelMessage(accessToken, target.id, `[文件消息暂不支持频道发送]`, replyToId ?? undefined);
+        const r = await sendChannelMessage(accessToken, target.id, MSG.FILE_CHANNEL_UNSUPPORTED, replyToId ?? undefined);
         return { channel: "qqbot", messageId: r.id, timestamp: r.timestamp };
       }
     }
