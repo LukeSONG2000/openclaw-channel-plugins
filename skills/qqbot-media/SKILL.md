@@ -1,31 +1,44 @@
 ---
 name: qqbot-media
-description: QQBot 图片/语音/视频/文件收发能力。在回复中使用 <qqimg>/<qqvoice>/<qqvideo>/<qqfile> 标签即可发送富媒体，系统自动处理上传。当通过 QQ 通道通信时使用此技能。
+description: QQBot 富媒体收发能力。推荐使用 <qqmedia> 统一标签，系统根据文件扩展名自动识别类型（图片/语音/视频/文件），也兼容 <qqimg>/<qqvoice>/<qqvideo>/<qqfile> 旧标签。
 metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 ---
 
 # QQBot 富媒体收发
 
-## 标签格式
+## 推荐用法（统一标签）
 
-| 类型 | 标签 | 来源 |
-|------|------|------|
-| 图片 | `<qqimg>路径或URL</qqimg>` | 本地绝对路径 / HTTP URL |
-| 语音 | `<qqvoice>音频路径</qqvoice>` | 本地 .silk/.wav/.mp3/.ogg 等 |
-| 视频 | `<qqvideo>路径或URL</qqvideo>` | 本地路径 / HTTP URL |
-| 文件 | `<qqfile>路径或URL</qqfile>` | 本地路径 / HTTP URL |
+```
+<qqmedia>路径或URL</qqmedia>
+```
 
-标签直接写在回复文本中，系统自动解析、上传和发送。标签外的文字作为正文一起投递。
+系统根据文件扩展名自动识别类型并路由：
+- `.jpg/.png/.gif/.webp/.bmp` → 图片
+- `.silk/.wav/.mp3/.ogg/.aac/.flac` 等 → 语音
+- `.mp4/.mov/.avi/.mkv/.webm` 等 → 视频
+- 其他扩展名 → 文件
+- 无扩展名的 URL → 默认按图片处理
+
+## 兼容旧标签
+
+| 类型 | 标签 |
+|------|------|
+| 图片 | `<qqimg>路径或URL</qqimg>` |
+| 语音 | `<qqvoice>音频路径</qqvoice>` |
+| 视频 | `<qqvideo>路径或URL</qqvideo>` |
+| 文件 | `<qqfile>路径或URL</qqfile>` |
+
+旧标签完全兼容，系统按标签名指定的类型处理。
 
 ## 接收媒体
 
-- 用户发来的**图片**自动下载到本地，路径在上下文【附件】中，可直接用 `<qqimg>路径</qqimg>` 回发
-- 用户发来的**语音**路径在上下文中；若有 STT 能力则优先转写，否则用平台 `asr_refer_text` 作参考
+- 用户发来的**图片**自动下载到本地，路径在上下文【附件】中，可直接用 `<qqmedia>路径</qqmedia>` 回发
+- 用户发来的**语音**路径在上下文中；若有 STT 能力则优先转写
 
 ## 规则
 
 1. **路径必须是绝对路径**（以 `/` 或 `http` 开头）
-2. **标签必须闭合**：`<qqimg>...</qqimg>`，不能漏掉开头或结尾
+2. **标签必须闭合**：`<qqmedia>...</qqmedia>`
 3. **文件大小上限 20MB**
 4. **你有能力发送本地图片/文件**——直接用标签包裹路径即可，**不要说"无法发送"**
 5. 发送语音时不要重复语音中已朗读的文字
@@ -36,19 +49,19 @@ metadata: {"openclaw":{"emoji":"📸","requires":{"config":["channels.qqbot"]}}}
 
 ```
 这是你要的图片：
-<qqimg>/Users/xxx/photo.jpg</qqimg>
+<qqmedia>/Users/xxx/photo.jpg</qqmedia>
 ```
 
 ```
-<qqvoice>/tmp/tts/output.mp3</qqvoice>
+<qqmedia>/tmp/tts/output.mp3</qqmedia>
 ```
 
 ```
 视频在这里：
-<qqvideo>https://example.com/video.mp4</qqvideo>
+<qqmedia>https://example.com/video.mp4</qqmedia>
 ```
 
 ```
 文件已准备好：
-<qqfile>/tmp/report.pdf</qqfile>
+<qqmedia>/tmp/report.pdf</qqmedia>
 ```

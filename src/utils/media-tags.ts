@@ -6,8 +6,8 @@
 
 import { expandTilde } from "./platform.js";
 
-// 标准标签名
-const VALID_TAGS = ["qqimg", "qqvoice", "qqvideo", "qqfile"] as const;
+// 标准标签名（qqmedia = 统一标签，系统根据文件扩展名自动路由）
+const VALID_TAGS = ["qqimg", "qqvoice", "qqvideo", "qqfile", "qqmedia"] as const;
 
 // 开头标签别名映射（key 全部小写）
 const TAG_ALIASES: Record<string, typeof VALID_TAGS[number]> = {
@@ -42,6 +42,16 @@ const TAG_ALIASES: Record<string, typeof VALID_TAGS[number]> = {
   "file": "qqfile",
   "doc": "qqfile",
   "document": "qqfile",
+  // ---- qqmedia 变体（统一标签，根据扩展名自动路由） ----
+  "qq_media": "qqmedia",
+  "media": "qqmedia",
+  "attachment": "qqmedia",
+  "attach": "qqmedia",
+  "qqattachment": "qqmedia",
+  "qq_attachment": "qqmedia",
+  "qqsend": "qqmedia",
+  "qq_send": "qqmedia",
+  "send": "qqmedia",
 };
 
 // 构建所有可识别的标签名列表（标准名 + 别名）

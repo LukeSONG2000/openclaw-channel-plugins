@@ -559,26 +559,27 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
   }
 
   // ============ 媒体标签检测与处理 ============
-  // 支持四种标签:
-  //   <qqimg>路径</qqimg> 或 <qqimg>路径</img>  — 图片
-  //   <qqvoice>路径</qqvoice>                   — 语音
-  //   <qqvideo>路径或URL</qqvideo>                — 视频
-  //   <qqfile>路径</qqfile>                     — 文件
+  // 支持五种标签:
+  //   <qqimg>路径</qqimg>      — 图片
+  //   <qqvoice>路径</qqvoice>  — 语音
+  //   <qqvideo>路径或URL</qqvideo> — 视频
+  //   <qqfile>路径</qqfile>    — 文件
+  //   <qqmedia>路径或URL</qqmedia> — 自动识别（根据扩展名路由）
   
   // 预处理：纠正小模型常见的标签拼写错误和格式问题
   text = normalizeMediaTags(text);
   
-  const mediaTagRegex = /<(qqimg|qqvoice|qqvideo|qqfile)>([^<>]+)<\/(?:qqimg|qqvoice|qqvideo|qqfile|img)>/gi;
+  const mediaTagRegex = /<(qqimg|qqvoice|qqvideo|qqfile|qqmedia)>([^<>]+)<\/(?:qqimg|qqvoice|qqvideo|qqfile|qqmedia|img)>/gi;
   const mediaTagMatches = text.match(mediaTagRegex);
   
   if (mediaTagMatches && mediaTagMatches.length > 0) {
     console.log(`[qqbot] sendText: Detected ${mediaTagMatches.length} media tag(s), processing...`);
     
     // 构建发送队列：根据内容在原文中的实际位置顺序发送
-    const sendQueue: Array<{ type: "text" | "image" | "voice" | "video" | "file"; content: string }> = [];
+    const sendQueue: Array<{ type: "text" | "image" | "voice" | "video" | "file" | "media"; content: string }> = [];
     
     let lastIndex = 0;
-    const mediaTagRegexWithIndex = /<(qqimg|qqvoice|qqvideo|qqfile)>([^<>]+)<\/(?:qqimg|qqvoice|qqvideo|qqfile|img)>/gi;
+    const mediaTagRegexWithIndex = /<(qqimg|qqvoice|qqvideo|qqfile|qqmedia)>([^<>]+)<\/(?:qqimg|qqvoice|qqvideo|qqfile|qqmedia|img)>/gi;
     let match;
     
     while ((match = mediaTagRegexWithIndex.exec(text)) !== null) {
@@ -640,7 +641,10 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
       }
 
       if (mediaPath) {
-        if (tagName === "qqvoice") {
+        if (tagName === "qqmedia") {
+          sendQueue.push({ type: "media", content: mediaPath });
+          console.log(`[qqbot] sendText: Found auto-detect media in <qqmedia>: ${mediaPath}`);
+        } else if (tagName === "qqvoice") {
           sendQueue.push({ type: "voice", content: mediaPath });
           console.log(`[qqbot] sendText: Found voice path in <qqvoice>: ${mediaPath}`);
         } else if (tagName === "qqvideo") {
@@ -713,6 +717,12 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
           lastResult = await sendVideoMsg(mediaTarget, item.content);
         } else if (item.type === "file") {
           lastResult = await sendDocument(mediaTarget, item.content);
+        } else if (item.type === "media") {
+          // qqmedia: 自动根据扩展名路由
+          lastResult = await sendMedia({
+            to, text: "", mediaUrl: item.content,
+            accountId: account.accountId, replyToId, account,
+          });
         }
       } catch (err) {
         const errMsg = err instanceof Error ? err.message : String(err);
