@@ -3,11 +3,21 @@
  * [修复版] 已重构为支持多实例并发，消除全局变量冲突
  */
 
+import { createRequire } from "node:module";
+import os from "node:os";
 import { computeFileHash, getCachedFileInfo, setCachedFileInfo } from "./utils/upload-cache.js";
 import { sanitizeFileName } from "./utils/platform.js";
 
 const API_BASE = "https://api.sgroup.qq.com";
 const TOKEN_URL = "https://bots.qq.com/app/getAppAccessToken";
+
+// ============ Plugin User-Agent ============
+// 格式: QQBotPlugin/{version} (Node/{nodeVersion}; {os})
+// 示例: QQBotPlugin/1.6.0 (Node/22.14.0; darwin)
+const _require = createRequire(import.meta.url);
+let _pluginVersion = "unknown";
+try { _pluginVersion = _require("../package.json").version ?? "unknown"; } catch { /* fallback */ }
+export const PLUGIN_USER_AGENT = `QQBotPlugin/${_pluginVersion} (Node/${process.versions.node}; ${os.platform()})`;
 
 // 运行时配置
 let currentMarkdownSupport = false;
@@ -105,7 +115,7 @@ export async function getAccessToken(appId: string, clientSecret: string): Promi
  */
 async function doFetchToken(appId: string, clientSecret: string): Promise<string> {
   const requestBody = { appId, clientSecret };
-  const requestHeaders = { "Content-Type": "application/json" };
+  const requestHeaders = { "Content-Type": "application/json", "User-Agent": PLUGIN_USER_AGENT };
   
   // 打印请求信息（隐藏敏感信息）
   console.log(`[qqbot-api:${appId}] >>> POST ${TOKEN_URL}`);
@@ -217,6 +227,7 @@ export async function apiRequest<T = unknown>(
   const headers: Record<string, string> = {
     Authorization: `QQBot ${accessToken}`,
     "Content-Type": "application/json",
+    "User-Agent": PLUGIN_USER_AGENT,
   };
   
   const isFileUpload = path.includes("/files");

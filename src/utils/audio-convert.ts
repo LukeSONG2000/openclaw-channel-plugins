@@ -521,17 +521,32 @@ export async function audioFileToSilkBase64(filePath: string, directUploadFormat
  * 等待文件就绪（轮询直到文件出现且大小稳定）
  * 用于 TTS 生成后等待文件写入完成
  *
+ * 优化策略：
+ * - 文件出现后如果持续 0 字节超过 emptyGiveUpMs（默认 10s），快速失败
+ * - 文件未出现超过 noFileGiveUpMs（默认 15s），快速失败
+ * - 整体超时 timeoutMs 作为最终兜底
+ *
  * @param filePath 文件路径
- * @param timeoutMs 最大等待时间（默认 2 分钟）
+ * @param timeoutMs 最大等待时间（默认 30 秒）
  * @param pollMs 轮询间隔（默认 500ms）
  * @returns 文件大小（字节），超时或文件始终为空返回 0
  */
-export async function waitForFile(filePath: string, timeoutMs: number = 120000, pollMs: number = 500): Promise<number> {
+export async function waitForFile(
+  filePath: string,
+  timeoutMs: number = 30000,
+  pollMs: number = 500,
+): Promise<number> {
   const start = Date.now();
   let lastSize = -1;
   let stableCount = 0;
   let fileExists = false;
+  let fileAppearedAt = 0; // 文件首次出现时间
   let pollCount = 0;
+
+  // 0 字节文件放弃等待阈值：文件出现后持续空文件超过此时间则快速失败
+  const emptyGiveUpMs = 10000;
+  // 文件始终不出现的放弃阈值
+  const noFileGiveUpMs = 15000;
 
   while (Date.now() - start < timeoutMs) {
     pollCount++;
@@ -539,6 +554,7 @@ export async function waitForFile(filePath: string, timeoutMs: number = 120000, 
       const stat = fs.statSync(filePath);
       if (!fileExists) {
         fileExists = true;
+        fileAppearedAt = Date.now();
         console.log(`[audio-convert] waitForFile: file appeared (${stat.size} bytes, after ${Date.now() - start}ms): ${path.basename(filePath)}`);
       }
       if (stat.size > 0) {
@@ -552,9 +568,19 @@ export async function waitForFile(filePath: string, timeoutMs: number = 120000, 
           stableCount = 0;
         }
         lastSize = stat.size;
+      } else {
+        // 文件存在但 0 字节：检查是否已超过空文件等待阈值
+        if (Date.now() - fileAppearedAt > emptyGiveUpMs) {
+          console.error(`[audio-convert] waitForFile: file still empty after ${emptyGiveUpMs}ms, giving up: ${path.basename(filePath)}`);
+          return 0;
+        }
       }
     } catch {
-      // 文件可能还不存在，继续等
+      // 文件不存在：检查是否已超过无文件等待阈值
+      if (!fileExists && Date.now() - start > noFileGiveUpMs) {
+        console.error(`[audio-convert] waitForFile: file never appeared after ${noFileGiveUpMs}ms, giving up: ${path.basename(filePath)}`);
+        return 0;
+      }
     }
     await new Promise((r) => setTimeout(r, pollMs));
   }

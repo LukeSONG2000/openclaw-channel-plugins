@@ -2,12 +2,12 @@ import WebSocket from "ws";
 import path from "node:path";
 import * as fs from "node:fs";
 import type { ResolvedQQBotAccount, WSPayload, C2CMessageEvent, GuildMessageEvent, GroupMessageEvent } from "./types.js";
-import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, sendC2CImageMessage, sendGroupImageMessage, sendC2CVoiceMessage, sendGroupVoiceMessage, sendC2CVideoMessage, sendGroupVideoMessage, sendC2CFileMessage, sendGroupFileMessage, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent } from "./api.js";
+import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, sendC2CImageMessage, sendGroupImageMessage, sendC2CVoiceMessage, sendGroupVoiceMessage, sendC2CVideoMessage, sendGroupVideoMessage, sendC2CFileMessage, sendGroupFileMessage, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, PLUGIN_USER_AGENT, sendProactiveC2CMessage, sendProactiveGroupMessage } from "./api.js";
 import { loadSession, saveSession, clearSession, type SessionState } from "./session-store.js";
-import { recordKnownUser, flushKnownUsers } from "./known-users.js";
+import { recordKnownUser, flushKnownUsers, listKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
-import { matchSlashCommand, type SlashCommandContext, type QueueSnapshot } from "./slash-commands.js";
+import { matchSlashCommand, getPluginVersion, type SlashCommandContext, type QueueSnapshot } from "./slash-commands.js";
 import { startImageServer, isImageServerRunning, downloadFile, type ImageServerConfig } from "./image-server.js";
 import { getImageSize, formatQQBotMarkdownImage, hasQQBotImageSize, DEFAULT_IMAGE_SIZE } from "./utils/image-size.js";
 import { parseQQBotPayload, encodePayloadForCron, isCronReminderPayload, isMediaPayload, type CronReminderPayload, type MediaPayload } from "./utils/payload.js";
@@ -685,7 +685,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       log?.info(`[qqbot:${account.accountId}] Connecting to ${gatewayUrl}`);
 
-      const ws = new WebSocket(gatewayUrl);
+      const ws = new WebSocket(gatewayUrl, { headers: { "User-Agent": PLUGIN_USER_AGENT } });
       currentWs = ws;
 
       const pluginRuntime = getQQBotRuntime();
@@ -1224,16 +1224,22 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             // 优先发送工具产出的媒体文件（TTS 语音、生成图片等）
             if (toolMediaUrls.length > 0) {
               log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding ${toolMediaUrls.length} media URL(s) from tool deliver(s)`);
+              const mediaTimeout = 45000; // 单个媒体发送超时 45s
               for (const mediaUrl of toolMediaUrls) {
                 try {
-                  const result = await sendMediaAuto({
-                    to: qualifiedTarget,
-                    text: "",
-                    mediaUrl,
-                    accountId: account.accountId,
-                    replyToId: event.messageId,
-                    account,
-                  });
+                  const result = await Promise.race([
+                    sendMediaAuto({
+                      to: qualifiedTarget,
+                      text: "",
+                      mediaUrl,
+                      accountId: account.accountId,
+                      replyToId: event.messageId,
+                      account,
+                    }),
+                    new Promise<{ channel: string; error: string }>((resolve) =>
+                      setTimeout(() => resolve({ channel: "qqbot", error: `Tool fallback media send timeout (${mediaTimeout / 1000}s)` }), mediaTimeout)
+                    ),
+                  ]);
                   if (result.error) {
                     log?.error(`[qqbot:${account.accountId}] Tool fallback sendMedia error: ${result.error}`);
                   }
@@ -1531,10 +1537,22 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     } else if (item.type === "voice") {
                       const uploadFormats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
                       const transcodeEnabled = account.config?.audioFormatPolicy?.transcodeEnabled !== false;
-                      const result = await sendVoice(mediaTarget, item.content, uploadFormats, transcodeEnabled);
-                      if (result.error) {
-                        log?.error(`[qqbot:${account.accountId}] sendVoice error: ${result.error}`);
-                        await sendErrorMessage(formatMediaErrorMessage("语音", new Error(result.error)));
+                      // 语音发送加外层超时保护，避免阻塞后续发送队列
+                      const voiceTimeout = 45000; // 45 秒（waitForFile 30s + 转码/上传 15s）
+                      try {
+                        const result = await Promise.race([
+                          sendVoice(mediaTarget, item.content, uploadFormats, transcodeEnabled),
+                          new Promise<{ channel: string; error: string }>((resolve) =>
+                            setTimeout(() => resolve({ channel: "qqbot", error: "语音发送超时，已跳过" }), voiceTimeout)
+                          ),
+                        ]);
+                        if (result.error) {
+                          log?.error(`[qqbot:${account.accountId}] sendVoice error: ${result.error}`);
+                          await sendErrorMessage(formatMediaErrorMessage("语音", new Error(result.error)));
+                        }
+                      } catch (err) {
+                        log?.error(`[qqbot:${account.accountId}] sendVoice unexpected error: ${err}`);
+                        await sendErrorMessage(formatMediaErrorMessage("语音", err));
                       }
                     } else if (item.type === "video") {
                       const result = await sendVideoMsg(mediaTarget, item.content);
@@ -2329,6 +2347,43 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   appId: account.appId,
                 });
                 onReady?.(d);
+
+                // 启动成功后向已知用户发送上线通知（异步，不阻塞主流程）
+                (async () => {
+                  try {
+                    const greeting = `Haha，我的'灵魂'已上线，随时等你吩咐。`;
+                    const token = await getAccessToken(account.appId, account.clientSecret);
+                    const users = listKnownUsers({ accountId: account.accountId, type: "c2c" });
+                    for (const user of users) {
+                      try {
+                        await sendProactiveC2CMessage(token, user.openid, greeting);
+                        log?.info(`[qqbot:${account.accountId}] Sent startup greeting to c2c:${user.openid}`);
+                      } catch (err) {
+                        log?.debug?.(`[qqbot:${account.accountId}] Failed to send startup greeting to c2c:${user.openid}: ${err}`);
+                      }
+                      // 避免频率限制
+                      await new Promise(r => setTimeout(r, 500));
+                    }
+                    const groups = listKnownUsers({ accountId: account.accountId, type: "group" });
+                    // 群组去重（同一群只发一次）
+                    const sentGroups = new Set<string>();
+                    for (const user of groups) {
+                      const gid = user.groupOpenid;
+                      if (!gid || sentGroups.has(gid)) continue;
+                      sentGroups.add(gid);
+                      try {
+                        await sendProactiveGroupMessage(token, gid, greeting);
+                        log?.info(`[qqbot:${account.accountId}] Sent startup greeting to group:${gid}`);
+                      } catch (err) {
+                        log?.debug?.(`[qqbot:${account.accountId}] Failed to send startup greeting to group:${gid}: ${err}`);
+                      }
+                      await new Promise(r => setTimeout(r, 500));
+                    }
+                    log?.info(`[qqbot:${account.accountId}] Startup greetings sent (${users.length} c2c, ${sentGroups.size} groups)`);
+                  } catch (err) {
+                    log?.error(`[qqbot:${account.accountId}] Failed to send startup greetings: ${err}`);
+                  }
+                })();
               } else if (t === "RESUMED") {
                 log?.info(`[qqbot:${account.accountId}] Session resumed`);
                 // P1-2: 更新 Session 连接时间
