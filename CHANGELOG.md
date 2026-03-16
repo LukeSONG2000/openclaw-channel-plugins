@@ -13,6 +13,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/).
 - **Startup greeting**: Distinguish first install vs. restart with different greeting messages.
 - **Log download**: `/qqbot-logs` packages the last 2000 lines of logs and sends as a file.
 
+### Changed
+
+- **Unified rich media tag**: Replaced `<qqimg>`, `<qqvoice>`, `<qqfile>`, `<qqvideo>` with a single `<qqmedia>` tag — the system auto-detects media type by file extension.
+
 ### Improved
 
 - **Greeting debounce**: Suppress duplicate greetings within 60s during rapid restarts (e.g. upgrades).
