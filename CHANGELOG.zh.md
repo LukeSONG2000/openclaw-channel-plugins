@@ -4,6 +4,17 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.1] - 2026-03-18
+
+### 改进
+
+- **升级脚本自动重启**：`upgrade-via-npm.sh` 升级完成后自动重启网关，使新版本立即生效。
+- **移除主动推送更新通知**：不再在检测到新版本时主动推送通知给管理员，版本信息仅通过 `/qqbot-version` 和 `/qqbot-upgrade` 指令被动查询，减少消息打扰。
+
+### 移除
+
+- 移除 `update-checker.ts` 中的 `onUpdateFound` 回调和 `formatUpdateNotice` 辅助函数（主动推送移除后不再需要）。
+
 ## [1.6.0] - 2026-03-16
 
 ### 新增
