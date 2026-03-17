@@ -253,3 +253,12 @@ elif [ -n "$APPID" ] || [ -n "$SECRET" ]; then
     echo ""
     echo "⚠️  --appid 和 --secret 必须同时提供"
 fi
+
+# [5/5] 重启 gateway 使新版本生效
+echo ""
+echo "[重启] 重启 gateway 使新版本生效..."
+if $CMD gateway restart 2>&1; then
+    echo "  ✅ gateway 已重启"
+else
+    echo "  ⚠️  gateway 重启失败，请手动执行: $CMD gateway restart"
+fi
