@@ -232,7 +232,7 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     deliveryMode: "direct",
     chunker: chunkText,
     chunkerMode: "markdown",
-    textChunkLimit: 2000,
+    textChunkLimit: 20000,
     sendText: async ({ to, text, accountId, replyToId, cfg }) => {
       console.log(`[qqbot:channel] sendText called — accountId=${accountId}, to=${to}, replyToId=${replyToId}, text.length=${text?.length ?? 0}`);
       console.log(`[qqbot:channel] sendText text preview: ${text?.slice(0, 100)}${(text?.length ?? 0) > 100 ? "..." : ""}`);
