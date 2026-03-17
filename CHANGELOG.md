@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.1] - 2026-03-18
+
+### Improved
+
+- **Upgrade script auto-restart**: `upgrade-via-npm.sh` now automatically restarts the gateway after upgrade to apply the new version immediately.
+- **Remove proactive update push**: Removed the auto-push notification to admin when a new version is detected; version info is now only available passively via `/qqbot-version` and `/qqbot-upgrade` commands, reducing noise.
+
+### Removed
+
+- `onUpdateFound` callback and `formatUpdateNotice` helper from `update-checker.ts` — no longer needed after removing proactive push.
+
 ## [1.6.0] - 2026-03-16
 
 ### Added
