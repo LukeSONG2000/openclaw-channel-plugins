@@ -1232,9 +1232,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const staticParts: string[] = [
           `[QQBot] to=${qualifiedTarget}`,
         ];
-        // TTS 能力声明：仅在启用时告知 AI 可以发语音（与 qqbot-media SKILL.md 互补）
+        // TTS 能力声明：仅在启用时告知 AI 可以发语音（媒体标签用法由 qqbot-media SKILL.md 提供）
         // STT 无需声明：转写结果已在动态上下文的 ASR 行中，AI 自然可见
-        if (hasTTS) staticParts.push("语音合成已启用，发送媒体格式：<qqmedia>路径</qqmedia>");
+        if (hasTTS) staticParts.push("语音合成已启用");
         const staticInstruction = staticParts.join(" | ");
 
         // 静态指引作为 systemPrompts 的首项注入
