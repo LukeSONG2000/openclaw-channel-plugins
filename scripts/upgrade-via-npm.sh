@@ -2,19 +2,22 @@
 
 # qqbot 通过 npm 包升级（纯文件操作版本）
 #
-# 重要：此脚本不修改 openclaw.json 配置文件！
-# 配置更新由调用方（TS handler）在脚本完成后统一处理，
-# 避免 gateway config watcher 在安装过程中触发 SIGUSR1 重启导致竞态。
+# 默认只做文件替换，不修改 openclaw.json 配置文件。
+# 但如果提供了 --appid/--secret 参数（首次安装场景），
+# 则在文件安装完成后自动写入通道配置。
 #
 # 用法:
 #   upgrade-via-npm.sh                                    # 升级到 latest（默认）
 #   upgrade-via-npm.sh --version <version>                # 升级到指定版本
 #   upgrade-via-npm.sh --self-version                     # 升级到当前仓库 package.json 版本
+#   upgrade-via-npm.sh --appid <appid> --secret <secret>  # 首次安装时配置 appid/secret
 
 set -eo pipefail
 
 PKG_NAME="@tencent-connect/openclaw-qqbot"
 INSTALL_SRC=""
+APPID=""
+SECRET=""
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -37,6 +40,14 @@ print_usage() {
     else
         echo "  upgrade-via-npm.sh --self-version               # 升级到当前仓库版本"
     fi
+    echo ""
+    echo "  --appid <appid>       QQ机器人 appid（首次安装时必填）"
+    echo "  --secret <secret>     QQ机器人 secret（首次安装时必填）"
+    echo ""
+    echo "也可以通过环境变量设置:"
+    echo "  QQBOT_APPID           QQ机器人 appid"
+    echo "  QQBOT_SECRET          QQ机器人 secret"
+    echo "  QQBOT_TOKEN           QQ机器人 token (appid:secret)"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -56,6 +67,16 @@ while [[ $# -gt 0 ]]; do
             INSTALL_SRC="${PKG_NAME}@${LOCAL_VERSION}"
             shift 1
             ;;
+        --appid)
+            [ -z "$2" ] && echo "❌ --appid 需要参数" && exit 1
+            APPID="$2"
+            shift 2
+            ;;
+        --secret)
+            [ -z "$2" ] && echo "❌ --secret 需要参数" && exit 1
+            SECRET="$2"
+            shift 2
+            ;;
         -h|--help)
             print_usage
             exit 0
@@ -64,6 +85,14 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 INSTALL_SRC="${INSTALL_SRC:-${PKG_NAME}@latest}"
+
+# 环境变量 fallback
+APPID="${APPID:-$QQBOT_APPID}"
+SECRET="${SECRET:-$QQBOT_SECRET}"
+if [ -z "$APPID" ] && [ -z "$SECRET" ] && [ -n "$QQBOT_TOKEN" ]; then
+    APPID="${QQBOT_TOKEN%%:*}"
+    SECRET="${QQBOT_TOKEN#*:}"
+fi
 
 # 检测 CLI（仅用于确定 extensions 目录路径）
 CMD=""
@@ -172,3 +201,55 @@ echo ""
 echo "==========================================="
 echo "  ✅ 文件安装完成"
 echo "==========================================="
+
+# [4/4] 配置 appid/secret（仅在提供了参数时执行）
+if [ -n "$APPID" ] && [ -n "$SECRET" ]; then
+    echo ""
+    echo "[配置] 写入 qqbot 通道配置..."
+    DESIRED_TOKEN="${APPID}:${SECRET}"
+
+    # 读取当前已有的 token
+    CURRENT_TOKEN=""
+    for _app in openclaw clawdbot moltbot; do
+        _cfg="$HOME/.$_app/$_app.json"
+        if [ -f "$_cfg" ]; then
+            CURRENT_TOKEN=$(node -e "
+                const cfg = JSON.parse(require('fs').readFileSync('$_cfg', 'utf8'));
+                const keys = ['qqbot', 'openclaw-qqbot', 'openclaw-qq'];
+                for (const key of keys) {
+                    const ch = cfg.channels && cfg.channels[key];
+                    if (!ch) continue;
+                    if (ch.token) { process.stdout.write(ch.token); process.exit(0); }
+                    if (ch.appId && ch.clientSecret) { process.stdout.write(ch.appId + ':' + ch.clientSecret); process.exit(0); }
+                }
+            " 2>/dev/null || true)
+            [ -n "$CURRENT_TOKEN" ] && break
+        fi
+    done
+
+    if [ "$CURRENT_TOKEN" = "$DESIRED_TOKEN" ]; then
+        echo "  ✅ 当前配置已是目标值，跳过写入"
+    elif $CMD channels add --channel qqbot --token "$DESIRED_TOKEN" 2>&1; then
+        echo "  ✅ 通道配置写入成功"
+    else
+        echo "  ⚠️  $CMD channels add 失败，尝试直接编辑配置文件..."
+        CONFIG_FILE="$HOME/.$CMD/$CMD.json"
+        if [ -f "$CONFIG_FILE" ] && node -e "
+            const fs = require('fs');
+            const cfg = JSON.parse(fs.readFileSync('$CONFIG_FILE', 'utf8'));
+            if (!cfg.channels) cfg.channels = {};
+            if (!cfg.channels.qqbot) cfg.channels.qqbot = {};
+            cfg.channels.qqbot.appId = '$APPID';
+            cfg.channels.qqbot.clientSecret = '$SECRET';
+            fs.writeFileSync('$CONFIG_FILE', JSON.stringify(cfg, null, 4) + '\n');
+        " 2>&1; then
+            echo "  ✅ 通道配置写入成功（直接编辑配置文件）"
+        else
+            echo "  ❌ 配置写入失败，请手动配置:"
+            echo "     $CMD channels add --channel qqbot --token \"${APPID}:${SECRET}\""
+        fi
+    fi
+elif [ -n "$APPID" ] || [ -n "$SECRET" ]; then
+    echo ""
+    echo "⚠️  --appid 和 --secret 必须同时提供"
+fi
