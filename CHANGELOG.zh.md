@@ -4,6 +4,13 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.3] - 2026-03-18
+
+### 变更
+
+- **版本检查改用 HTTPS 原生请求 + 多 registry 兜底**：使用 HTTPS 直接请求 npm registry API 替代 `npm view` CLI 调用；支持 npmjs.org → npmmirror.com 自动降级，解决国内网络环境下版本检查失败的问题。
+- **升级脚本多 registry 兜底**：`upgrade-via-npm.sh` 现在依次尝试 npmjs.org → npmmirror.com → 默认 registry，提升受限网络下的升级可靠性。
+
 ## [1.6.2] - 2026-03-18
 
 ### 变更

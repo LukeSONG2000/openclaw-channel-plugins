@@ -115,7 +115,18 @@ EXTRACT_DIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR_PACK' '$EXTRACT_DIR'" EXIT
 
 cd "$TMPDIR_PACK"
-npm pack "$INSTALL_SRC" --quiet 2>&1 || { echo "❌ npm pack 失败"; exit 1; }
+# 多 registry fallback：npmjs.org → npmmirror（国内镜像）→ 默认 registry
+PACK_OK=false
+for _registry in "https://registry.npmjs.org/" "https://registry.npmmirror.com/" ""; do
+    if [ -n "$_registry" ]; then
+        echo "  尝试 registry: $_registry"
+        npm pack "$INSTALL_SRC" --registry "$_registry" --quiet 2>&1 && PACK_OK=true && break
+    else
+        echo "  尝试默认 registry..."
+        npm pack "$INSTALL_SRC" --quiet 2>&1 && PACK_OK=true && break
+    fi
+done
+$PACK_OK || { echo "❌ npm pack 失败（所有 registry 均不可用）"; exit 1; }
 TGZ_FILE=$(ls -1 *.tgz 2>/dev/null | head -1)
 [ -z "$TGZ_FILE" ] && echo "❌ 未找到下载的 tgz 文件" && exit 1
 echo "  已下载: $TGZ_FILE"

@@ -3,15 +3,23 @@
  *
  * - triggerUpdateCheck(): gateway 启动时调用，后台检查 npm registry 是否有新版本
  * - getUpdateInfo(): 返回上次检查结果（供 /bot-version、/bot-help 指令使用）
- * - formatUpdateNotice(): 格式化更新提示文本
+ *
+ * 使用 HTTPS 直接请求 npm registry API（不依赖 npm CLI），
+ * 支持多 registry fallback：npmjs.org → npmmirror.com，解决国内网络问题。
  */
 
 import { createRequire } from "node:module";
-import { execFile } from "node:child_process";
+import https from "node:https";
 
 const require = createRequire(import.meta.url);
 
 const PKG_NAME = "@tencent-connect/openclaw-qqbot";
+const ENCODED_PKG = encodeURIComponent(PKG_NAME);
+
+const REGISTRIES = [
+  `https://registry.npmjs.org/${ENCODED_PKG}`,
+  `https://registry.npmmirror.com/${ENCODED_PKG}`,
+];
 
 let CURRENT_VERSION = "unknown";
 try {
@@ -38,6 +46,38 @@ let _lastInfo: UpdateInfo = {
 
 let _checking = false;
 
+function fetchJson(url: string, timeoutMs: number): Promise<any> {
+  return new Promise((resolve, reject) => {
+    const req = https.get(url, { timeout: timeoutMs, headers: { Accept: "application/json" } }, (res) => {
+      if (res.statusCode !== 200) {
+        res.resume();
+        reject(new Error(`HTTP ${res.statusCode} from ${url}`));
+        return;
+      }
+      let data = "";
+      res.on("data", (chunk: string) => { data += chunk; });
+      res.on("end", () => {
+        try { resolve(JSON.parse(data)); } catch (e) { reject(e); }
+      });
+    });
+    req.on("error", reject);
+    req.on("timeout", () => { req.destroy(); reject(new Error(`timeout fetching ${url}`)); });
+  });
+}
+
+async function fetchDistTags(log?: { debug?: (msg: string) => void }): Promise<Record<string, string>> {
+  for (const url of REGISTRIES) {
+    try {
+      const json = await fetchJson(url, 10_000);
+      const tags = json["dist-tags"];
+      if (tags && typeof tags === "object") return tags;
+    } catch (e: any) {
+      log?.debug?.(`[qqbot:update-checker] ${url} failed: ${e.message}`);
+    }
+  }
+  throw new Error("all registries failed");
+}
+
 export function triggerUpdateCheck(log?: {
   info: (msg: string) => void;
   error: (msg: string) => void;
@@ -51,38 +91,26 @@ export function triggerUpdateCheck(log?: {
   _checking = true;
   log?.debug?.(`[qqbot:update-checker] checking (current: ${CURRENT_VERSION})...`);
 
-  // 获取 dist-tags，同时比较 latest 和 alpha 通道
-  execFile(
-    "npm",
-    ["view", PKG_NAME, "dist-tags", "--json"],
-    { timeout: 15_000, env: { ...process.env, PATH: process.env.PATH } },
-    (err, stdout, _stderr) => {
-      _checking = false;
-      const now = Date.now();
-      if (err) {
-        log?.debug?.(`[qqbot:update-checker] check failed: ${err.message}`);
-        _lastInfo = { current: CURRENT_VERSION, latest: null, hasUpdate: false, checkedAt: now, error: err.message };
-        return;
-      }
-      try {
-        const tags = JSON.parse(stdout.trim());
-        // 当前是 prerelease → 和 alpha 通道比；正式版 → 和 latest 通道比
-        const currentIsPrerelease = CURRENT_VERSION.includes("-");
-        const compareTarget = currentIsPrerelease
-          ? (tags.alpha || tags.latest || null)
-          : (tags.latest || null);
-        const hasUpdate = typeof compareTarget === "string"
-          && compareTarget !== CURRENT_VERSION
-          && compareVersions(compareTarget, CURRENT_VERSION) > 0;
-        _lastInfo = { current: CURRENT_VERSION, latest: compareTarget, hasUpdate, checkedAt: now };
-        if (hasUpdate) {
-          log?.info?.(`[qqbot:update-checker] new version available: ${compareTarget} (current: ${CURRENT_VERSION})`);
-        }
-      } catch (parseErr) {
-        _lastInfo = { current: CURRENT_VERSION, latest: null, hasUpdate: false, checkedAt: now, error: String(parseErr) };
-      }
-    },
-  );
+  fetchDistTags(log).then((tags) => {
+    const now = Date.now();
+    const currentIsPrerelease = CURRENT_VERSION.includes("-");
+    const compareTarget = currentIsPrerelease
+      ? (tags.alpha || tags.latest || null)
+      : (tags.latest || null);
+    const hasUpdate = typeof compareTarget === "string"
+      && compareTarget !== CURRENT_VERSION
+      && compareVersions(compareTarget, CURRENT_VERSION) > 0;
+    _lastInfo = { current: CURRENT_VERSION, latest: compareTarget, hasUpdate, checkedAt: now };
+    if (hasUpdate) {
+      log?.info?.(`[qqbot:update-checker] new version available: ${compareTarget} (current: ${CURRENT_VERSION})`);
+    }
+  }).catch((err) => {
+    const now = Date.now();
+    log?.debug?.(`[qqbot:update-checker] check failed: ${err.message}`);
+    _lastInfo = { current: CURRENT_VERSION, latest: null, hasUpdate: false, checkedAt: now, error: err.message };
+  }).finally(() => {
+    _checking = false;
+  });
 }
 
 export function getUpdateInfo(): UpdateInfo {

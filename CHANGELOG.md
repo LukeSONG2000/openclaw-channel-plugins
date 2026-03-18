@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.3] - 2026-03-18
+
+### Changed
+
+- **Update checker: HTTPS-native with multi-registry fallback**: Replaced `npm view` CLI call with direct HTTPS requests to npm registry API; supports automatic fallback from npmjs.org to npmmirror.com, solving network issues in mainland China.
+- **Upgrade script multi-registry fallback**: `upgrade-via-npm.sh` now tries npmjs.org → npmmirror.com → default registry in sequence, improving upgrade reliability in restricted networks.
+
 ## [1.6.2] - 2026-03-18
 
 ### Changed
