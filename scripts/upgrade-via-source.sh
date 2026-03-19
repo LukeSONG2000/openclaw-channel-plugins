@@ -259,6 +259,25 @@ else
     echo "✅ 插件安装命令执行完成"
     echo "安装日志已保存到: $INSTALL_LOG"
 
+    # 确保 openclaw.json 中的 source 为 path（从 npm 切回 path）
+    for _app in openclaw clawdbot moltbot; do
+        _cfg="$HOME/.$_app/$_app.json"
+        if [ -f "$_cfg" ]; then
+            node -e "
+              const fs = require('fs');
+              const cfg = JSON.parse(fs.readFileSync('$_cfg', 'utf8'));
+              const inst = cfg.plugins && cfg.plugins.installs && cfg.plugins.installs['openclaw-qqbot'];
+              if (inst && inst.source !== 'path') {
+                inst.source = 'path';
+                inst.sourcePath = '$PROJ_DIR';
+                fs.writeFileSync('$_cfg', JSON.stringify(cfg, null, 4) + '\n');
+                console.log('  已将 plugins.installs.openclaw-qqbot.source 更新为 path');
+              }
+            " 2>/dev/null || true
+            break
+        fi
+    done
+
     # 验证插件目录是否真正创建（防止 "安装成功" 但目录缺失的情况）
     _plugin_dir_ok=0
     for _candidate_name in openclaw-qqbot qqbot openclaw-qq; do

@@ -166,18 +166,26 @@ fi
 rm -rf "$TMPDIR_PACK" "$EXTRACT_DIR"
 cd "$HOME"
 
-# [2/3] 原子替换：先移走旧目录，再把 staging 目录 rename 过去
-# 这样 extensions/openclaw-qqbot 只有极短的不存在时间窗口
+# [2/3] 原子替换：使用 mv -T/rename 确保目录切换尽可能原子
+# 策略：先把 staging 放到 extensions/ 同级的临时名，再做单次 mv 替换
 echo ""
 echo "[2/3] 原子替换插件目录..."
 TARGET_DIR="$EXTENSIONS_DIR/openclaw-qqbot"
 OLD_DIR="$(dirname "$EXTENSIONS_DIR")/.qqbot-upgrade-old"
 
 rm -rf "$OLD_DIR"
+
+# 先把 staging 目录移到 extensions/ 下的临时位置（同文件系统，确保 mv 是 rename 操作）
+STAGING_IN_EXT="$EXTENSIONS_DIR/.openclaw-qqbot-new"
+rm -rf "$STAGING_IN_EXT"
+mv "$STAGING_DIR" "$STAGING_IN_EXT"
+
 if [ -d "$TARGET_DIR" ]; then
-    mv "$TARGET_DIR" "$OLD_DIR"
+    # 使用连续两个 mv 但中间零操作，最小化目录不存在的时间窗口
+    mv "$TARGET_DIR" "$OLD_DIR" && mv "$STAGING_IN_EXT" "$TARGET_DIR"
+else
+    mv "$STAGING_IN_EXT" "$TARGET_DIR"
 fi
-mv "$STAGING_DIR" "$TARGET_DIR"
 rm -rf "$OLD_DIR"
 
 # 清理可能残留的旧版 staging 目录（extensions 内外都清理）
@@ -218,6 +226,18 @@ echo ""
 echo "==========================================="
 echo "  ✅ 文件安装完成"
 echo "==========================================="
+
+# --no-restart 模式（热更新场景）：文件替换完成后立即退出，
+# 让调用方尽快触发 gateway restart，避免 openclaw 配置轮询
+# 在旧进程中检测到插件变更产生 "plugin not found" warning 刷屏。
+# appid/secret 配置在热更新场景下已经存在，无需重新写入。
+if [ "$NO_RESTART" = "true" ]; then
+    echo ""
+    echo "[跳过重启] --no-restart 已指定，脚本立即退出以便调用方触发 gateway restart"
+    exit 0
+fi
+
+# 以下步骤仅在非热更新（手动执行）场景中执行
 
 # [4/4] 配置 appid/secret（仅在提供了参数时执行）
 if [ -n "$APPID" ] && [ -n "$SECRET" ]; then
@@ -271,16 +291,11 @@ elif [ -n "$APPID" ] || [ -n "$SECRET" ]; then
     echo "⚠️  --appid 和 --secret 必须同时提供"
 fi
 
-# [5/5] 重启 gateway 使新版本生效（除非 --no-restart）
-if [ "$NO_RESTART" = "true" ]; then
-    echo ""
-    echo "[跳过重启] --no-restart 已指定，请手动执行: $CMD gateway restart"
+# [5/5] 重启 gateway 使新版本生效
+echo ""
+echo "[重启] 重启 gateway 使新版本生效..."
+if $CMD gateway restart 2>&1; then
+    echo "  ✅ gateway 已重启"
 else
-    echo ""
-    echo "[重启] 重启 gateway 使新版本生效..."
-    if $CMD gateway restart 2>&1; then
-        echo "  ✅ gateway 已重启"
-    else
-        echo "  ⚠️  gateway 重启失败，请手动执行: $CMD gateway restart"
-    fi
+    echo "  ⚠️  gateway 重启失败，请手动执行: $CMD gateway restart"
 fi

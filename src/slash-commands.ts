@@ -16,8 +16,9 @@ import { createRequire } from "node:module";
 import { execFileSync, execFile } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
-import { getUpdateInfo } from "./update-checker.js";
-import { getHomeDir, isWindows } from "./utils/platform.js";
+import { getUpdateInfo, checkVersionExists } from "./update-checker.js";
+import { getHomeDir, getQQBotDataDir, isWindows } from "./utils/platform.js";
+import { saveCredentialBackup } from "./credential-backup.js";
 import { fileURLToPath } from "node:url";
 const require = createRequire(import.meta.url);
 
@@ -80,6 +81,8 @@ export interface SlashCommandContext {
   groupOpenid?: string;
   /** 账号 ID */
   accountId: string;
+  /** Bot App ID */
+  appId: string;
   /** 账号配置（供指令读取可配置项） */
   accountConfig?: QQBotAccountConfig;
   /** 当前用户队列状态快照 */
@@ -114,6 +117,8 @@ interface SlashCommand {
   name: string;
   /** 简要描述 */
   description: string;
+  /** 详细用法说明（支持多行），用于 /指令 ? 查询 */
+  usage?: string;
   /** 处理函数 */
   handler: (ctx: SlashCommandContext) => SlashCommandResult | Promise<SlashCommandResult>;
 }
@@ -134,6 +139,12 @@ function registerCommand(cmd: SlashCommand): void {
 registerCommand({
   name: "bot-ping",
   description: "测试当前 openclaw 与 QQ 连接的网络延迟",
+  usage: [
+    `/bot-ping`,
+    ``,
+    `测试 OpenClaw 主机与 QQ 服务器之间的网络延迟。`,
+    `返回网络传输耗时和插件处理耗时。`,
+  ].join("\n"),
   handler: (ctx) => {
     const now = Date.now();
     const eventTime = new Date(ctx.eventTimestamp).getTime();
@@ -160,13 +171,19 @@ registerCommand({
 registerCommand({
   name: "bot-version",
   description: "查看插件版本号",
-  handler: () => {
+  usage: [
+    `/bot-version`,
+    ``,
+    `查看当前 QQBot 插件版本和 OpenClaw 框架版本。`,
+    `同时检查是否有新版本可用。`,
+  ].join("\n"),
+  handler: async () => {
     const frameworkVersion = getFrameworkVersion();
     const lines = [
       `🦞框架版本：${frameworkVersion}`,
       `🤖QQBot 插件版本：v${PLUGIN_VERSION}`,
     ];
-    const info = getUpdateInfo();
+    const info = await getUpdateInfo();
     if (info.checkedAt === 0) {
       lines.push(`⏳ 版本检查中...`);
     } else if (info.error) {
@@ -185,6 +202,12 @@ registerCommand({
 registerCommand({
   name: "bot-help",
   description: "查看所有指令以及用途",
+  usage: [
+    `/bot-help`,
+    ``,
+    `列出所有可用的 QQBot 插件内置指令及其简要说明。`,
+    `使用 /指令名 ? 可查看某条指令的详细用法。`,
+  ].join("\n"),
   handler: () => {
     const lines = [`### QQBot插件内置调试指令`, ``];
     for (const [name, cmd] of commands) {
@@ -196,6 +219,22 @@ registerCommand({
 });
 
 const DEFAULT_UPGRADE_URL = "https://doc.weixin.qq.com/doc/w3_AKEAGQaeACgCNHrh1CbHzTAKtT2gB?scode=AJEAIQdfAAozxFEnLZAKEAGQaeACg";
+
+function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {
+  const safeAccountId = accountId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safeAppId = appId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filePath = path.join(getQQBotDataDir("data"), `upgrade-greeting-target-${safeAccountId}-${safeAppId}.json`);
+  try {
+    fs.writeFileSync(filePath, JSON.stringify({
+      accountId,
+      appId,
+      openid,
+      savedAt: new Date().toISOString(),
+    }) + "\n");
+  } catch {
+    // ignore
+  }
+}
 
 // ============ 热更新 ============
 
@@ -216,14 +255,34 @@ function findCli(): string | null {
 }
 
 /**
- * 找到升级脚本路径
+ * 找到升级脚本路径（兼容源码运行、dist 运行、已安装扩展目录）
  */
 function getUpgradeScriptPath(): string | null {
   const currentFile = fileURLToPath(import.meta.url);
-  const scriptDir = path.resolve(path.dirname(currentFile), "..", "..", "scripts");
-  const scriptPath = path.join(scriptDir, "upgrade-via-npm.sh");
-  return fs.existsSync(scriptPath) ? scriptPath : null;
+  const currentDir = path.dirname(currentFile);
+
+  const candidates = [
+    path.resolve(currentDir, "..", "..", "scripts", "upgrade-via-npm.sh"),
+    path.resolve(currentDir, "..", "scripts", "upgrade-via-npm.sh"),
+    path.resolve(process.cwd(), "scripts", "upgrade-via-npm.sh"),
+  ];
+
+  const homeDir = getHomeDir();
+  for (const cli of ["openclaw", "clawdbot", "moltbot"]) {
+    candidates.push(path.join(homeDir, `.${cli}`, "extensions", "openclaw-qqbot", "scripts", "upgrade-via-npm.sh"));
+  }
+
+  for (const p of candidates) {
+    if (fs.existsSync(p)) return p;
+  }
+
+  return null;
 }
+
+type HotUpgradeStartResult = {
+  ok: boolean;
+  reason?: "no-script" | "no-cli" | "no-bash";
+};
 
 /**
  * 在 Windows 上查找可用的 bash（Git Bash / WSL 等）
@@ -252,276 +311,507 @@ function findBash(): string | null {
 }
 
 /**
- * 执行热更新：执行脚本(--no-restart) → 触发 gateway restart
+ * 将 openclaw.json 中的 qqbot 插件 source 从 "path" 切换为 "npm"。
+ * 用于热更新场景：从 npm 拉取新版本后，确保 openclaw 不再从本地源码加载。
+ *
+ * 安全保障：写回配置前验证 channels.qqbot 未丢失，防止竞态写入导致凭证消失。
+ */
+function switchPluginSourceToNpm(): void {
+  try {
+    const homeDir = getHomeDir();
+    for (const cli of ["openclaw", "clawdbot", "moltbot"]) {
+      const cfgPath = path.join(homeDir, `.${cli}`, `${cli}.json`);
+      if (!fs.existsSync(cfgPath)) continue;
+
+      // 读取当前配置
+      const raw = fs.readFileSync(cfgPath, "utf8");
+      const cfg = JSON.parse(raw);
+      const inst = cfg?.plugins?.installs?.["openclaw-qqbot"];
+      if (!inst || inst.source === "npm") {
+        break; // 无需修改
+      }
+
+      // 记录修改前的 channels.qqbot 快照，用于写后校验
+      const channelsBefore = JSON.stringify(cfg.channels?.qqbot ?? null);
+
+      inst.source = "npm";
+      delete inst.sourcePath;
+      const newRaw = JSON.stringify(cfg, null, 4) + "\n";
+
+      // 写后校验：重新解析确认 channels.qqbot 未被破坏
+      const verify = JSON.parse(newRaw);
+      const channelsAfter = JSON.stringify(verify.channels?.qqbot ?? null);
+      if (channelsBefore !== channelsAfter) {
+        // channels 数据异常，放弃写入
+        break;
+      }
+
+      fs.writeFileSync(cfgPath, newRaw);
+      break;
+    }
+  } catch {
+    // 非关键操作，静默忽略
+  }
+}
+
+/**
+ * 热更新前保存当前账户的 appId/secret 到暂存文件。
+ * 从 openclaw.json 中直接读取 clientSecret（slash command ctx 中不含 secret）。
+ */
+function preUpgradeCredentialBackup(accountId: string, appId: string): void {
+  try {
+    const homeDir = getHomeDir();
+    for (const cli of ["openclaw", "clawdbot", "moltbot"]) {
+      const cfgPath = path.join(homeDir, `.${cli}`, `${cli}.json`);
+      if (!fs.existsSync(cfgPath)) continue;
+      const cfg = JSON.parse(fs.readFileSync(cfgPath, "utf8"));
+      const qqbot = cfg?.channels?.qqbot;
+      if (!qqbot) break;
+      // 从默认账户或 accounts 子节点中读取 secret
+      let secret = "";
+      if (accountId === "default" && qqbot.clientSecret) {
+        secret = qqbot.clientSecret;
+      } else if (qqbot.accounts?.[accountId]?.clientSecret) {
+        secret = qqbot.accounts[accountId].clientSecret;
+      } else if (qqbot.clientSecret) {
+        secret = qqbot.clientSecret;
+      }
+      if (appId && secret) {
+        saveCredentialBackup(accountId, appId, secret);
+      }
+      break;
+    }
+  } catch {
+    // 非关键操作，静默忽略
+  }
+}
+
+/**
+ * 执行热更新：执行脚本(--no-restart) → 立即触发 gateway restart
  *
  * fire-and-forget 操作：
  * - 异步执行升级脚本（--no-restart，只做文件替换）
- * - 脚本完成后触发 gateway restart（当前进程会被杀掉）
+ * - 脚本完成后**立即**触发 gateway restart（当前进程会被杀掉）
  * - 新进程启动时 getStartupGreeting() 检测到版本变更，自动通知管理员
  *
- * @returns true 表示已启动升级流程，false 表示无法执行（如 Windows 无 bash）
+ * 注意：gateway restart 必须在文件替换完成后尽快执行，
+ * 否则 openclaw 的配置热加载轮询（~1s）会不断检测到插件目录
+ * 已变更但进程未重启，从而产生 "plugin not found" warning 刷屏。
  */
-function fireHotUpgrade(targetVersion?: string): boolean {
+function fireHotUpgrade(targetVersion?: string): HotUpgradeStartResult {
   const scriptPath = getUpgradeScriptPath();
-  if (!scriptPath) return false;
+  if (!scriptPath) return { ok: false, reason: "no-script" };
 
   const cli = findCli();
-  if (!cli) return false;
+  if (!cli) return { ok: false, reason: "no-cli" };
 
   const bash = findBash();
-  if (!bash) return false;
-
-  const args: string[] = ["--no-restart"];
-  if (targetVersion) {
-    args.push("--version", targetVersion);
-  }
+  if (!bash) return { ok: false, reason: "no-bash" };
 
   // 异步执行升级脚本
-  execFile(bash, [scriptPath, ...args], {
+  execFile(bash, [scriptPath, "--no-restart", ...(targetVersion ? ["--version", targetVersion] : [])], {
     timeout: 120_000,
     env: { ...process.env },
     ...(isWindows() ? { windowsHide: true } : {}),
-  }, (error, _stdout, _stderr) => {
+  }, (error, stdout, _stderr) => {
     if (error) {
       return;
     }
 
-    // 文件替换成功，触发 gateway restart
-    execFile(cli, ["gateway", "restart"], { timeout: 30_000 }, () => {});
+    // 从脚本输出中提取版本号，验证文件替换是否成功
+    const versionMatch = stdout.match(/QQBOT_NEW_VERSION=(\S+)/);
+    const newVersion = versionMatch?.[1];
+    if (newVersion === "unknown") {
+      // 文件替换异常，不执行 restart 以保持现有服务
+      return;
+    }
+
+    // 文件替换成功，在 restart 之前把 source 从 path 切换为 npm，
+    // 确保新进程启动时读到的是 npm source，不会被本地源码覆盖。
+    // 必须在 restart 之前同步完成，避免 openclaw 轮询检测到配置变更后
+    // 先于我们的 restart 触发非预期的 reload。
+    switchPluginSourceToNpm();
+
+    // 文件替换成功，立即触发 gateway restart（不再等后续步骤）
+    execFile(cli, ["gateway", "restart"], { timeout: 30_000 }, (restartErr) => {
+      if (restartErr) {
+        // restart 失败，尝试 stop + start 作为 fallback
+        execFile(cli, ["gateway", "stop"], { timeout: 10_000 }, () => {
+          setTimeout(() => {
+            execFile(cli, ["gateway", "start"], { timeout: 30_000 }, () => {});
+          }, 1000);
+        });
+      }
+    });
   });
 
-  return true;
+  return { ok: true };
 }
 
 /**
- * /bot-upgrade — 查看版本更新状态 + 升级指引（根据 upgradeMode 决定行为）
+ * /bot-upgrade — 统一升级入口
+ *
+ * 产品流程：
+ *   /bot-upgrade              — 展示版本信息+确认按钮（不直接升级）
+ *   /bot-upgrade --latest     — 确认升级到最新版本
+ *   /bot-upgrade --version X  — 升级到指定版本
+ *   /bot-upgrade --force      — 强制升级（即使当前已是最新版）
  */
+let _upgrading = false; // 升级锁
+
 registerCommand({
   name: "bot-upgrade",
-  description: "查看版本更新与升级指引",
-  handler: (ctx) => {
+  description: "检查更新并自动热更",
+  usage: [
+    `/bot-upgrade              检查是否有新版本（展示信息+确认按钮）`,
+    `/bot-upgrade --latest     确认升级到最新版本`,
+    `/bot-upgrade --version X  升级到指定版本（如 1.6.4-alpha.7）`,
+    `/bot-upgrade --force      强制重新安装当前版本`,
+    ``,
+    `⚠️ 仅在私聊中可用。升级过程约 30~60 秒，期间服务短暂不可用。`,
+  ].join("\n"),
+  handler: async (ctx) => {
     // 升级相关指令仅在私聊中可用
     if (ctx.type !== "c2c") {
       return `💡 请在私聊中使用此指令`;
     }
 
-    const upgradeMode = ctx.accountConfig?.upgradeMode || "doc";
+    // 升级锁：防止重复触发
+    if (_upgrading) {
+      return `⏳ 正在升级中，请稍候...`;
+    }
+
     const url = ctx.accountConfig?.upgradeUrl || DEFAULT_UPGRADE_URL;
-    const info = getUpdateInfo();
-    const lines: string[] = [];
-
-    lines.push(`📌当前版本：v${PLUGIN_VERSION}`);
-
-    if (info.checkedAt === 0) {
-      lines.push(`⏳ 版本检查中，请稍后再试`);
-      return lines.join("\n");
-    } else if (info.error) {
-      lines.push(`⚠️ 版本检查失败`);
-      lines.push(`⬆️升级指引：[点击查看](${url})`);
-      return lines.join("\n");
-    } else if (info.hasUpdate && info.latest) {
-      lines.push(`🆕最新可用版本：v${info.latest}`);
-    } else {
-      lines.push(`✅ 当前已是最新版本`);
-      return lines.join("\n");
-    }
-
-    // 有新版本：根据 upgradeMode 决定行为
-    if (upgradeMode === "hot-reload") {
-      const started = fireHotUpgrade(info.latest!);
-      if (!started) {
-        lines.push(`⚠️ 当前环境不支持热更新（需要 bash 环境）`);
-        lines.push(`⬆️升级指引：[点击查看](${url})`);
-        return lines.join("\n");
-      }
-      lines.push(``);
-      lines.push(`🔄 正在执行热更新到 v${info.latest}...`);
-      lines.push(`⏳ 升级过程约需 30~60 秒，完成后会自动通知您`);
-      return lines.join("\n");
-    }
-
-    // doc 模式：展示升级文档
-    lines.push(`⬆️升级指引：[点击查看](${url})`);
-    lines.push(`🌟官方 GitHub 仓库：[点击前往](https://github.com/tencent-connect/openclaw-qqbot/)`);
-    lines.push(``, `> 💡 提示：管理员可通过 <qqbot-cmd-input text="/bot-hot-upgrade" show="/bot-hot-upgrade"/> 直接执行热更新`);
-    return lines.join("\n");
-  },
-});
-
-/**
- * /bot-hot-upgrade — 直接执行热更新（无论 upgradeMode 配置如何）
- *
- * 支持参数：
- *   /bot-hot-upgrade           — 升级到 latest
- *   /bot-hot-upgrade 1.6.4     — 升级到指定版本
- *   /bot-hot-upgrade --force   — 强制升级（即使当前已是最新版）
- */
-registerCommand({
-  name: "bot-hot-upgrade",
-  description: "直接执行热更新升级",
-  handler: (ctx) => {
-    // 升级相关指令仅在私聊中可用
-    if (ctx.type !== "c2c") {
-      return `💡 请在私聊中使用此指令`;
-    }
-
-    // 前置检查
-    const scriptPath = getUpgradeScriptPath();
-    if (!scriptPath) {
-      return "❌ 升级脚本不存在，请检查安装是否完整";
-    }
-    const cli = findCli();
-    if (!cli) {
-      return "❌ 未找到 openclaw / clawdbot / moltbot CLI";
-    }
-
     const args = ctx.args.trim();
-    const info = getUpdateInfo();
+    const info = await getUpdateInfo();
 
-    // 解析参数
-    const isForce = args.includes("--force");
-    const versionArg = args.replace("--force", "").trim() || undefined;
+    let isForce = false;
+    let isLatest = false;
+    let versionArg: string | undefined;
+    const tokens = args ? args.split(/\s+/).filter(Boolean) : [];
+    for (let i = 0; i < tokens.length; i += 1) {
+      const t = tokens[i]!;
+      if (t === "--force") {
+        isForce = true;
+        continue;
+      }
+      if (t === "--latest") {
+        isLatest = true;
+        continue;
+      }
+      if (t === "--version") {
+        const next = tokens[i + 1];
+        if (!next || next.startsWith("--")) {
+          return `❌ 参数错误：--version 需要版本号\n\n示例：/bot-upgrade --version 1.6.4-alpha.1`;
+        }
+        versionArg = next.replace(/^v/, "");
+        i += 1;
+        continue;
+      }
+      if (t.startsWith("--version=")) {
+        const v = t.slice("--version=".length).trim();
+        if (!v) {
+          return `❌ 参数错误：--version 需要版本号\n\n示例：/bot-upgrade --version 1.6.4-alpha.1`;
+        }
+        versionArg = v.replace(/^v/, "");
+        continue;
+      }
+      if (!t.startsWith("--") && !versionArg) {
+        versionArg = t.replace(/^v/, "");
+        continue;
+      }
+    }
 
-    // 如果没有指定版本，先检查是否有更新
-    if (!versionArg && !isForce) {
+    const GITHUB_URL = "https://github.com/tencent-connect/openclaw-qqbot/";
+
+    // ── 无参数（也没有 --latest / --version / --force）：只展示信息+确认按钮 ──
+    if (!versionArg && !isLatest && !isForce) {
       if (info.checkedAt === 0) {
         return `⏳ 版本检查中，请稍后再试`;
       }
-      if (!info.hasUpdate && !info.error) {
-        return `✅ 当前版本 v${PLUGIN_VERSION} 已是最新，无需升级\n\n> 💡 使用 /bot-hot-upgrade --force 可强制重新安装`;
+      if (info.error) {
+        return [
+          `❌ 主机网络访问异常，无法检查更新`,
+          ``,
+          `查看手动升级指引：[点击查看](${url})`,
+        ].join("\n");
+      }
+      if (!info.hasUpdate) {
+        return [
+          `✅ 当前已是最新版本 v${PLUGIN_VERSION}`,
+          ``,
+          `项目地址：[GitHub](${GITHUB_URL})`,
+        ].join("\n");
+      }
+
+      // 有新版本：展示信息 + 确认按钮
+      return [
+        `🆕 发现新版本`,
+        ``,
+        `当前版本：**v${PLUGIN_VERSION}**`,
+        `最新版本：**v${info.latest}**`,
+        ``,
+        `升级将重启 Gateway 服务，期间短暂不可用。`,
+        `请确认主机网络可正常访问 npm 仓库。`,
+        ``,
+        `**点击确认升级** <qqbot-cmd-enter text="/bot-upgrade --latest" />`,
+        ``,
+        `手动升级指引：[点击查看](${url})`,
+        `🌟官方 GitHub 仓库：[点击前往](${GITHUB_URL})`,
+      ].join("\n");
+    }
+
+    // ── --version 指定版本：先校验版本号是否存在 ──
+    if (versionArg) {
+      const exists = await checkVersionExists(versionArg);
+      if (!exists) {
+        return `❌ 版本 ${versionArg} 不存在，请检查版本号`;
+      }
+
+      // 检查是否就是当前版本
+      if (versionArg === PLUGIN_VERSION && !isForce) {
+        return `✅ 当前已是 v${PLUGIN_VERSION}，无需升级`;
+      }
+    }
+
+    // ── --latest：检查是否需要升级 ──
+    if (isLatest && !versionArg) {
+      if (info.checkedAt === 0) {
+        return `⏳ 版本检查中，请稍后再试`;
+      }
+      if (info.error) {
+        return [
+          `❌ 主机网络访问异常，无法检查更新`,
+          ``,
+          `查看手动升级指引：[点击查看](${url})`,
+        ].join("\n");
+      }
+      if (!info.hasUpdate && !isForce) {
+        return `✅ 当前已是 v${PLUGIN_VERSION}，无需升级`;
       }
     }
 
     const targetVersion = versionArg || info.latest || undefined;
 
+    // 加锁
+    _upgrading = true;
+
+    // 热更新前保存凭证快照，防止更新过程被打断导致 appId/secret 丢失
+    preUpgradeCredentialBackup(ctx.accountId, ctx.appId);
+
     // 异步执行升级
-    const started = fireHotUpgrade(targetVersion);
-    if (!started) {
-      return `❌ 当前环境不支持热更新（需要 bash 环境）\n\n> Windows 用户请安装 Git for Windows 后重试，或手动执行升级脚本`;
+    const startResult = fireHotUpgrade(targetVersion);
+    if (!startResult.ok) {
+      _upgrading = false;
+      if (startResult.reason === "no-script") {
+        return [
+          `❌ 未找到升级脚本，无法执行热更新`,
+          ``,
+          `查看手动升级指引：[点击查看](${url})`,
+        ].join("\n");
+      }
+      if (startResult.reason === "no-cli") {
+        return [
+          `❌ 未找到 CLI 工具，无法执行热更新`,
+          ``,
+          `查看手动升级指引：[点击查看](${url})`,
+        ].join("\n");
+      }
+      return [
+        `❌ 当前环境不支持热更新（需要 bash）`,
+        ``,
+        `Windows 用户请安装 Git for Windows 后重试`,
+        `查看手动升级指引：[点击查看](${url})`,
+      ].join("\n");
     }
 
-    const lines = [
-      `🔄 开始热更新...`,
-      `📌 当前版本：v${PLUGIN_VERSION}`,
+    saveUpgradeGreetingTarget(ctx.accountId, ctx.appId, ctx.senderId);
+
+    const resultLines = [
+      `🔄 正在升级...`,
+      ``,
+      `当前版本：v${PLUGIN_VERSION}`,
     ];
     if (targetVersion) {
-      lines.push(`🎯 目标版本：v${targetVersion}`);
+      resultLines.push(`目标版本：v${targetVersion}`);
     }
-    lines.push(``);
-    lines.push(`⏳ 升级过程约需 30~60 秒，完成后会自动通知您`);
-    return lines.join("\n");
+    resultLines.push(``);
+    resultLines.push(`预计 30~60 秒完成，届时会自动通知您`);
+    return resultLines.join("\n");
   },
 });
 
 /**
  * /bot-logs — 导出本地日志文件
  *
- * 日志路径检测策略（兼容特殊安装路径和 --profile/--dev 模式）：
- * 1. OPENCLAW_STATE_DIR 环境变量指定的目录
- * 2. 扫描 home 目录下所有 .openclaw-xxx/logs/ 目录，取最近修改的 gateway.log
+ * 日志定位策略（兼容腾讯云/各云厂商不同安装路径）：
+ * 1. 优先使用 *_STATE_DIR 环境变量（OPENCLAW/CLAWDBOT/MOLTBOT）
+ * 2. 扫描常见状态目录：~/.openclaw, ~/.clawdbot, ~/.moltbot 及其 logs 子目录
+ * 3. 扫描 home/cwd/AppData 下名称包含 openclaw/clawdbot/moltbot 的目录
+ * 4. 在候选目录中选取最近更新的日志文件（gateway/openclaw/clawdbot/moltbot）
  */
+function collectCandidateLogDirs(): string[] {
+  const homeDir = getHomeDir();
+  const dirs = new Set<string>();
+
+  const pushDir = (p?: string) => {
+    if (!p) return;
+    const normalized = path.resolve(p);
+    dirs.add(normalized);
+  };
+
+  const pushStateDir = (stateDir?: string) => {
+    if (!stateDir) return;
+    pushDir(stateDir);
+    pushDir(path.join(stateDir, "logs"));
+  };
+
+  for (const [key, value] of Object.entries(process.env)) {
+    if (!value) continue;
+    if (/STATE_DIR$/i.test(key) && /(OPENCLAW|CLAWDBOT|MOLTBOT)/i.test(key)) {
+      pushStateDir(value);
+    }
+  }
+
+  for (const name of [".openclaw", ".clawdbot", ".moltbot", "openclaw", "clawdbot", "moltbot"]) {
+    pushDir(path.join(homeDir, name));
+    pushDir(path.join(homeDir, name, "logs"));
+  }
+
+  const searchRoots = new Set<string>([
+    homeDir,
+    process.cwd(),
+    path.dirname(process.cwd()),
+  ]);
+  if (process.env.APPDATA) searchRoots.add(process.env.APPDATA);
+  if (process.env.LOCALAPPDATA) searchRoots.add(process.env.LOCALAPPDATA);
+
+  for (const root of searchRoots) {
+    try {
+      const entries = fs.readdirSync(root, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isDirectory()) continue;
+        if (!/(openclaw|clawdbot|moltbot)/i.test(entry.name)) continue;
+        const base = path.join(root, entry.name);
+        pushDir(base);
+        pushDir(path.join(base, "logs"));
+      }
+    } catch {
+      // 无权限或不存在，跳过
+    }
+  }
+
+  return Array.from(dirs);
+}
+
+type LogCandidate = {
+  filePath: string;
+  sourceDir: string;
+  mtimeMs: number;
+};
+
+function collectRecentLogFiles(logDirs: string[]): LogCandidate[] {
+  const candidates: LogCandidate[] = [];
+  const dedupe = new Set<string>();
+
+  const pushFile = (filePath: string, sourceDir: string) => {
+    const normalized = path.resolve(filePath);
+    if (dedupe.has(normalized)) return;
+    try {
+      const stat = fs.statSync(normalized);
+      if (!stat.isFile()) return;
+      dedupe.add(normalized);
+      candidates.push({ filePath: normalized, sourceDir, mtimeMs: stat.mtimeMs });
+    } catch {
+      // 文件不存在或无权限
+    }
+  };
+
+  for (const dir of logDirs) {
+    pushFile(path.join(dir, "gateway.log"), dir);
+    pushFile(path.join(dir, "gateway.err.log"), dir);
+    pushFile(path.join(dir, "openclaw.log"), dir);
+    pushFile(path.join(dir, "clawdbot.log"), dir);
+    pushFile(path.join(dir, "moltbot.log"), dir);
+
+    try {
+      const entries = fs.readdirSync(dir, { withFileTypes: true });
+      for (const entry of entries) {
+        if (!entry.isFile()) continue;
+        if (!/\.(log|txt)$/i.test(entry.name)) continue;
+        if (!/(gateway|openclaw|clawdbot|moltbot)/i.test(entry.name)) continue;
+        pushFile(path.join(dir, entry.name), dir);
+      }
+    } catch {
+      // 无权限或不存在，跳过
+    }
+  }
+
+  candidates.sort((a, b) => b.mtimeMs - a.mtimeMs);
+  return candidates;
+}
+
 registerCommand({
   name: "bot-logs",
   description: "导出本地日志文件",
+  usage: [
+    `/bot-logs`,
+    ``,
+    `导出最近的 OpenClaw 日志文件（最多 4 个）。`,
+    `每个文件最多保留最后 1000 行，以文件形式返回。`,
+  ].join("\n"),
   handler: () => {
-    const homeDir = getHomeDir();
+    const logDirs = collectCandidateLogDirs();
+    const recentFiles = collectRecentLogFiles(logDirs).slice(0, 4);
 
-    // 收集所有可能的日志目录
-    const logDirs: string[] = [];
-
-    // 优先：环境变量指定的状态目录
-    const stateDir = process.env.OPENCLAW_STATE_DIR;
-    if (stateDir) {
-      logDirs.push(path.join(stateDir, "logs"));
-    }
-
-    // 扫描搜索根目录列表（兼容 Windows APPDATA 路径）
-    const searchRoots = new Set<string>([homeDir]);
-    const appData = process.env.APPDATA; // Windows: C:\Users\xxx\AppData\Roaming
-    if (appData) searchRoots.add(appData);
-    const localAppData = process.env.LOCALAPPDATA; // Windows: C:\Users\xxx\AppData\Local
-    if (localAppData) searchRoots.add(localAppData);
-
-    for (const root of searchRoots) {
-      try {
-        const entries = fs.readdirSync(root, { withFileTypes: true });
-        for (const entry of entries) {
-          if (entry.isDirectory() && (entry.name.startsWith(".openclaw") || entry.name.startsWith("openclaw"))) {
-            const candidate = path.join(root, entry.name, "logs");
-            if (!logDirs.includes(candidate)) {
-              logDirs.push(candidate);
-            }
-          }
-        }
-      } catch {
-        // 无权限或不存在，跳过
-      }
-    }
-
-    // 兜底：默认路径
-    const defaultLogDir = path.join(homeDir, ".openclaw", "logs");
-    if (!logDirs.includes(defaultLogDir)) {
-      logDirs.push(defaultLogDir);
-    }
-
-    // 从所有候选目录中找到存在且最近修改的 gateway.log
-    let bestLogDir: string | null = null;
-    let bestMtime = 0;
-
-    for (const logDir of logDirs) {
-      const gatewayLog = path.join(logDir, "gateway.log");
-      try {
-        const stat = fs.statSync(gatewayLog);
-        if (stat.mtimeMs > bestMtime) {
-          bestMtime = stat.mtimeMs;
-          bestLogDir = logDir;
-        }
-      } catch {
-        // 不存在或无权限，跳过
-      }
-    }
-
-    if (!bestLogDir) {
+    if (recentFiles.length === 0) {
       const searched = logDirs.map(d => `  - ${d}`).join("\n");
       return `⚠️ 未找到日志文件\n\n已搜索以下路径：\n${searched}`;
     }
 
-    const gatewayLog = path.join(bestLogDir, "gateway.log");
-    const errLog = path.join(bestLogDir, "gateway.err.log");
-
     const lines: string[] = [];
-
-    for (const logFile of [gatewayLog, errLog]) {
-      if (!fs.existsSync(logFile)) continue;
+    let totalIncluded = 0;
+    let totalOriginal = 0;
+    let truncatedCount = 0;
+    const MAX_LINES_PER_FILE = 1000;
+    for (const logFile of recentFiles) {
       try {
-        const content = fs.readFileSync(logFile, "utf8");
+        const content = fs.readFileSync(logFile.filePath, "utf8");
         const allLines = content.split("\n");
-        const tail = allLines.slice(-1000);
+        const totalFileLines = allLines.length;
+        const tail = allLines.slice(-MAX_LINES_PER_FILE);
         if (tail.length > 0) {
-          lines.push(`\n========== ${path.basename(logFile)} (last ${tail.length} lines) ==========\n`);
+          const fileName = path.basename(logFile.filePath);
+          lines.push(`\n========== ${fileName} (last ${tail.length} of ${totalFileLines} lines) ==========`);
+          lines.push(`from: ${logFile.sourceDir}`);
           lines.push(...tail);
+          totalIncluded += tail.length;
+          totalOriginal += totalFileLines;
+          if (totalFileLines > MAX_LINES_PER_FILE) truncatedCount++;
         }
       } catch {
-        lines.push(`[读取 ${path.basename(logFile)} 失败]`);
+        lines.push(`[读取 ${path.basename(logFile.filePath)} 失败]`);
       }
     }
 
     if (lines.length === 0) {
-      return `⚠️ 日志文件为空（路径：${bestLogDir}）`;
+      return `⚠️ 找到日志文件但读取失败，请检查文件权限`;
     }
 
-    // 写入临时文件
-    const tmpDir = path.join(homeDir, ".openclaw", "qqbot", "downloads");
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
+    const tmpDir = getQQBotDataDir("downloads");
     const timestamp = new Date().toISOString().replace(/[:.]/g, "-").slice(0, 19);
     const tmpFile = path.join(tmpDir, `bot-logs-${timestamp}.txt`);
     fs.writeFileSync(tmpFile, lines.join("\n"), "utf8");
 
-    const totalLines = lines.filter(l => !l.startsWith("=")).length;
+    const fileCount = recentFiles.length;
+    const topSources = Array.from(new Set(recentFiles.map(item => item.sourceDir))).slice(0, 3);
+    // 紧凑摘要：N 个日志文件，共 X 行（如有截断则注明）
+    let summaryText = `${fileCount} 个日志文件，共 ${totalIncluded} 行`;
+    if (truncatedCount > 0) {
+      summaryText += `（${truncatedCount} 个文件因过长仅保留最后 ${MAX_LINES_PER_FILE} 行，原始共 ${totalOriginal} 行）`;
+    }
     return {
-      text: `📋 日志已打包（约 ${totalLines} 行），正在发送文件...\n📂 来源：${bestLogDir}`,
+      text: `📋 ${summaryText}\n📂 来源：${topSources.join(" | ")}`,
       filePath: tmpFile,
     };
   },
@@ -545,6 +835,14 @@ export async function matchSlashCommand(ctx: SlashCommandContext): Promise<Slash
 
   const cmd = commands.get(cmdName);
   if (!cmd) return null; // 不是插件级指令，交给框架
+
+  // /指令 ? — 返回用法说明
+  if (args === "?") {
+    if (cmd.usage) {
+      return `📖 /${cmd.name} 用法：\n\n${cmd.usage}`;
+    }
+    return `/${cmd.name} — ${cmd.description}`;
+  }
 
   ctx.args = args;
   const result = await cmd.handler(ctx);

@@ -352,44 +352,83 @@ async function ensureImageServer(log?: GatewayContext["log"], publicBaseUrl?: st
 let isFirstReadyGlobal = true;
 
 const STARTUP_MARKER_FILE = path.join(getQQBotDataDir("data"), "startup-marker.json");
+const STARTUP_GREETING_RETRY_COOLDOWN_MS = 10 * 60 * 1000;
 
-/**
- * 判断是否为首次安装或版本更新，返回对应的问候语。
- * - 首次安装 / 版本变更 → "Haha，我的'灵魂'已上线，随时等你吩咐。"
- * - 普通重启（同版本） → null（不发送）
- */
-function getStartupGreeting(): string | null {
-  const currentVersion = getPluginVersion();
-  let isFirstOrUpdated = true;
+function getStartupGreetingText(version: string): string {
+  return `🎉 QQBot 插件已更新至 v${version}，在线等候你的吩咐。`;
+}
 
+type StartupMarkerData = {
+  version?: string;
+  startedAt?: string;
+  greetedAt?: string;
+  lastFailureAt?: string;
+  lastFailureReason?: string;
+  lastFailureVersion?: string;
+};
+
+function readStartupMarker(): StartupMarkerData {
   try {
     if (fs.existsSync(STARTUP_MARKER_FILE)) {
-      const data = JSON.parse(fs.readFileSync(STARTUP_MARKER_FILE, "utf8"));
-      if (data.version === currentVersion) {
-        isFirstOrUpdated = false;
-      }
+      const data = JSON.parse(fs.readFileSync(STARTUP_MARKER_FILE, "utf8")) as StartupMarkerData;
+      return data || {};
     }
   } catch {
-    // 文件损坏或不存在，视为首次
+    // 文件损坏或不存在，视为无 marker
   }
+  return {};
+}
 
-  // 普通重启（同版本）不发送问候语
-  if (!isFirstOrUpdated) {
-    return null;
-  }
-
-  // 更新 marker 文件
+function writeStartupMarker(data: StartupMarkerData): void {
   try {
-    fs.writeFileSync(STARTUP_MARKER_FILE, JSON.stringify({
-      version: currentVersion,
-      startedAt: new Date().toISOString(),
-      greetedAt: new Date().toISOString(),
-    }) + "\n");
+    fs.writeFileSync(STARTUP_MARKER_FILE, JSON.stringify(data) + "\n");
   } catch {
     // ignore
   }
+}
 
-  return `Haha，我的'灵魂'已上线，随时等你吩咐。`;
+/**
+ * 判断是否需要发送“灵魂上线”问候：
+ * - 首次安装 / 版本变更：可发送
+ * - 同版本：不发送
+ * - 同版本近期失败：冷却期内不重试，减少噪音
+ */
+function getStartupGreetingPlan(): { shouldSend: boolean; greeting?: string; version: string; reason?: string } {
+  const currentVersion = getPluginVersion();
+  const marker = readStartupMarker();
+
+  if (marker.version === currentVersion) {
+    return { shouldSend: false, version: currentVersion, reason: "same-version" };
+  }
+
+  if (marker.lastFailureVersion === currentVersion && marker.lastFailureAt) {
+    const lastFailureAtMs = new Date(marker.lastFailureAt).getTime();
+    if (!Number.isNaN(lastFailureAtMs) && Date.now() - lastFailureAtMs < STARTUP_GREETING_RETRY_COOLDOWN_MS) {
+      return { shouldSend: false, version: currentVersion, reason: "cooldown" };
+    }
+  }
+
+  return { shouldSend: true, greeting: getStartupGreetingText(currentVersion), version: currentVersion };
+}
+
+function markStartupGreetingSent(version: string): void {
+  writeStartupMarker({
+    version,
+    startedAt: new Date().toISOString(),
+    greetedAt: new Date().toISOString(),
+  });
+}
+
+function markStartupGreetingFailed(version: string, reason: string): void {
+  const marker = readStartupMarker();
+  // 同版本已有失败记录时，不覆盖 lastFailureAt，避免冷却期被无限续期
+  const shouldPreserveTimestamp = marker.lastFailureVersion === version && marker.lastFailureAt;
+  writeStartupMarker({
+    ...marker,
+    lastFailureVersion: version,
+    lastFailureAt: shouldPreserveTimestamp ? marker.lastFailureAt! : new Date().toISOString(),
+    lastFailureReason: reason,
+  });
 }
 
 /**
@@ -492,6 +531,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // health-monitor 重连不会重新初始化为 true
 
   const ADMIN_MARKER_FILE = path.join(getQQBotDataDir("data"), `admin-${account.accountId}.json`);
+  const safeAccountId = account.accountId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const safeAppId = account.appId.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const UPGRADE_GREETING_TARGET_FILE = path.join(getQQBotDataDir("data"), `upgrade-greeting-target-${safeAccountId}-${safeAppId}.json`);
 
   /**
    * 读取已持久化的管理员 openid
@@ -504,6 +546,27 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       }
     } catch { /* 文件损坏视为无 */ }
     return undefined;
+  };
+
+  const loadUpgradeGreetingTargetOpenId = (): string | undefined => {
+    try {
+      if (fs.existsSync(UPGRADE_GREETING_TARGET_FILE)) {
+        const data = JSON.parse(fs.readFileSync(UPGRADE_GREETING_TARGET_FILE, "utf8")) as { accountId?: string; appId?: string; openid?: string };
+        if (!data.openid) return undefined;
+        if (data.appId && data.appId !== account.appId) return undefined;
+        if (data.accountId && data.accountId !== account.accountId) return undefined;
+        return data.openid;
+      }
+    } catch { /* 文件损坏视为无 */ }
+    return undefined;
+  };
+
+  const clearUpgradeGreetingTargetOpenId = (): void => {
+    try {
+      if (fs.existsSync(UPGRADE_GREETING_TARGET_FILE)) {
+        fs.unlinkSync(UPGRADE_GREETING_TARGET_FILE);
+      }
+    } catch { /* ignore */ }
   };
 
   /**
@@ -534,27 +597,38 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   /** 异步发送启动问候语（仅发给管理员） */
   const sendStartupGreetings = (trigger: "READY" | "RESUMED") => {
     (async () => {
+      const plan = getStartupGreetingPlan();
+      if (!plan.shouldSend || !plan.greeting) {
+        log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (${plan.reason ?? "debounced"}, trigger=${trigger})`);
+        return;
+      }
+
+      const upgradeTargetOpenId = loadUpgradeGreetingTargetOpenId();
+      const targetOpenId = upgradeTargetOpenId || resolveAdminOpenId();
+      if (!targetOpenId) {
+        markStartupGreetingFailed(plan.version, "no-admin");
+        log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (no admin or known user)`);
+        return;
+      }
+
       try {
-        const greeting = getStartupGreeting();
-        if (!greeting) {
-          log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (debounced, trigger=${trigger})`);
-        } else {
-          const adminId = resolveAdminOpenId();
-          if (!adminId) {
-            log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (no admin or known user)`);
-          } else {
-            log?.info(`[qqbot:${account.accountId}] Sending startup greeting to admin (trigger=${trigger}): "${greeting}"`);
-            const token = await getAccessToken(account.appId, account.clientSecret);
-            const GREETING_TIMEOUT_MS = 10_000;
-            await Promise.race([
-              sendProactiveC2CMessage(token, adminId, greeting),
-              new Promise((_, reject) => setTimeout(() => reject(new Error("Startup greeting send timeout (10s)")), GREETING_TIMEOUT_MS)),
-            ]);
-            log?.info(`[qqbot:${account.accountId}] Sent startup greeting to admin: ${adminId}`);
-          }
+        const receiverType = upgradeTargetOpenId ? "upgrade-requester" : "admin";
+        log?.info(`[qqbot:${account.accountId}] Sending startup greeting to ${receiverType} (trigger=${trigger}): "${plan.greeting}"`);
+        const token = await getAccessToken(account.appId, account.clientSecret);
+        const GREETING_TIMEOUT_MS = 10_000;
+        await Promise.race([
+          sendProactiveC2CMessage(token, targetOpenId, plan.greeting),
+          new Promise((_, reject) => setTimeout(() => reject(new Error("Startup greeting send timeout (10s)")), GREETING_TIMEOUT_MS)),
+        ]);
+        markStartupGreetingSent(plan.version);
+        if (upgradeTargetOpenId) {
+          clearUpgradeGreetingTargetOpenId();
         }
+        log?.info(`[qqbot:${account.accountId}] Sent startup greeting to ${receiverType}: ${targetOpenId}`);
       } catch (err) {
-        log?.error(`[qqbot:${account.accountId}] Failed to send startup greeting: ${err}`);
+        const message = err instanceof Error ? err.message : String(err);
+        markStartupGreetingFailed(plan.version, message);
+        log?.error(`[qqbot:${account.accountId}] Failed to send startup greeting: ${message}`);
       }
     })();
   };
@@ -643,11 +717,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     } finally {
       activeUsers.delete(peerId);
       userQueues.delete(peerId);
-      // 处理完后，检查是否有等待并发槽位的用户
+      // 处理完后，唤醒等待的用户填满并发槽位
       for (const [waitingPeerId, waitingQueue] of userQueues) {
+        if (activeUsers.size >= MAX_CONCURRENT_USERS) break; // 槽位已满
         if (waitingQueue.length > 0 && !activeUsers.has(waitingPeerId)) {
           drainUserQueue(waitingPeerId);
-          break; // 每次只唤醒一个，避免瞬间并发激增
         }
       }
     }
@@ -696,6 +770,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       channelId: msg.channelId,
       groupOpenid: msg.groupOpenid,
       accountId: account.accountId,
+      appId: account.appId,
       accountConfig: account.config,
       queueSnapshot: getQueueSnapshot(peerId),
     };
@@ -865,30 +940,32 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           direction: "inbound",
         });
 
-        // 发送输入状态提示（非关键，失败不影响主流程）
-        // 同时从响应中获取 ref_idx，用于缓存入站消息
-        let inputNotifyRefIdx: string | undefined;
-        try {
-          let token = await getAccessToken(account.appId, account.clientSecret);
+        // 发送输入状态提示（fire-and-forget：不阻塞主流程）
+        // refIdx 通过 Promise 延迟获取，在真正需要时再 await
+        const inputNotifyPromise: Promise<string | undefined> = (async () => {
           try {
-            const notifyResponse = await sendC2CInputNotify(token, event.senderId, event.messageId, 60);
-            inputNotifyRefIdx = notifyResponse.refIdx;
-          } catch (notifyErr) {
-            const errMsg = String(notifyErr);
-            if (errMsg.includes("token") || errMsg.includes("401") || errMsg.includes("11244")) {
-              log?.info(`[qqbot:${account.accountId}] InputNotify token expired, refreshing...`);
-              clearTokenCache(account.appId);
-              token = await getAccessToken(account.appId, account.clientSecret);
+            let token = await getAccessToken(account.appId, account.clientSecret);
+            try {
               const notifyResponse = await sendC2CInputNotify(token, event.senderId, event.messageId, 60);
-              inputNotifyRefIdx = notifyResponse.refIdx;
-            } else {
-              throw notifyErr;
+              log?.info(`[qqbot:${account.accountId}] Sent input notify to ${event.senderId}${notifyResponse.refIdx ? `, got refIdx=${notifyResponse.refIdx}` : ""}`);
+              return notifyResponse.refIdx;
+            } catch (notifyErr) {
+              const errMsg = String(notifyErr);
+              if (errMsg.includes("token") || errMsg.includes("401") || errMsg.includes("11244")) {
+                log?.info(`[qqbot:${account.accountId}] InputNotify token expired, refreshing...`);
+                clearTokenCache(account.appId);
+                token = await getAccessToken(account.appId, account.clientSecret);
+                const notifyResponse = await sendC2CInputNotify(token, event.senderId, event.messageId, 60);
+                return notifyResponse.refIdx;
+              } else {
+                throw notifyErr;
+              }
             }
+          } catch (err) {
+            log?.error(`[qqbot:${account.accountId}] sendC2CInputNotify error: ${err}`);
+            return undefined;
           }
-          log?.info(`[qqbot:${account.accountId}] Sent input notify to ${event.senderId}${inputNotifyRefIdx ? `, got refIdx=${inputNotifyRefIdx}` : ""}`);
-        } catch (err) {
-          log?.error(`[qqbot:${account.accountId}] sendC2CInputNotify error: ${err}`);
-        }
+        })();
 
         const isGroupChat = event.type === "guild" || event.type === "group";
         // peerId 只放纯 ID，类型信息由 peer.kind 表达
@@ -938,24 +1015,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         
         if (event.attachments?.length) {
           const otherAttachments: string[] = [];
-          
-          for (const att of event.attachments) {
-            // 修复 QQ 返回的 // 前缀 URL
-            const attUrl = att.url?.startsWith("//") ? `https:${att.url}` : att.url;
 
-            // 语音附件：优先下载 WAV（voice_wav_url），减少 SILK→WAV 转换
+          // Phase 1: 并行下载所有附件
+          const downloadTasks = event.attachments.map(async (att) => {
+            const attUrl = att.url?.startsWith("//") ? `https:${att.url}` : att.url;
             const isVoice = isVoiceAttachment(att);
-            const asrReferText = typeof att.asr_refer_text === "string" ? att.asr_refer_text.trim() : "";
             const wavUrl = isVoice && att.voice_wav_url
               ? (att.voice_wav_url.startsWith("//") ? `https:${att.voice_wav_url}` : att.voice_wav_url)
               : "";
-            const voiceSourceUrl = wavUrl || attUrl;
-            if (isVoice) {
-              if (voiceSourceUrl) voiceAttachmentUrls.push(voiceSourceUrl);
-              if (asrReferText) voiceAsrReferTexts.push(asrReferText);
-            }
+
             let localPath: string | null = null;
-            let audioPath: string | null = null; // 用于 STT 的音频路径
+            let audioPath: string | null = null;
 
             if (isVoice && wavUrl) {
               const wavLocalPath = await downloadFile(wavUrl, downloadDir);
@@ -968,102 +1038,136 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               }
             }
 
-            // WAV 下载失败或不是语音附件：下载原始文件
             if (!localPath) {
               localPath = await downloadFile(attUrl, downloadDir, att.filename);
             }
 
+            return { att, attUrl, isVoice, localPath, audioPath };
+          });
+
+          const downloadResults = await Promise.all(downloadTasks);
+
+          // Phase 2: 并行处理语音转换+转录（非语音附件同步归类）
+          const processTasks = downloadResults.map(async ({ att, attUrl, isVoice, localPath, audioPath }) => {
+            const asrReferText = typeof att.asr_refer_text === "string" ? att.asr_refer_text.trim() : "";
+            const wavUrl = isVoice && att.voice_wav_url
+              ? (att.voice_wav_url.startsWith("//") ? `https:${att.voice_wav_url}` : att.voice_wav_url)
+              : "";
+            const voiceSourceUrl = wavUrl || attUrl;
+
+            // 收集语音元数据（顺序无关）
+            const meta = {
+              voiceUrl: isVoice && voiceSourceUrl ? voiceSourceUrl : undefined,
+              asrReferText: isVoice && asrReferText ? asrReferText : undefined,
+            };
+
             if (localPath) {
               if (att.content_type?.startsWith("image/")) {
-                imageUrls.push(localPath);
-                imageMediaTypes.push(att.content_type);
+                log?.info(`[qqbot:${account.accountId}] Downloaded attachment to: ${localPath}`);
+                return { localPath, type: "image" as const, contentType: att.content_type, meta };
               } else if (isVoice) {
-                voiceAttachmentPaths.push(localPath);
-                // 语音消息处理：先检查 STT 是否可用，避免无意义的转换开销
+                log?.info(`[qqbot:${account.accountId}] Downloaded attachment to: ${localPath}`);
+                // 语音处理：转换 + 转录
                 const sttCfg = resolveSTTConfig(cfg as Record<string, unknown>);
                 if (!sttCfg) {
                   if (asrReferText) {
                     log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (STT not configured, using asr_refer_text fallback)`);
-                    voiceTranscripts.push(asrReferText);
-                    voiceTranscriptSources.push("asr");
+                    return { localPath, type: "voice" as const, transcript: asrReferText, transcriptSource: "asr" as const, meta };
                   } else {
                     log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (STT not configured, skipping transcription)`);
-                    voiceTranscripts.push("[语音消息 - 语音识别未配置，无法转录]");
-                    voiceTranscriptSources.push("fallback");
+                    return { localPath, type: "voice" as const, transcript: "[语音消息 - 语音识别未配置，无法转录]", transcriptSource: "fallback" as const, meta };
                   }
-                } else {
-                  // 如果还没有 WAV 路径（voice_wav_url 不可用），需要 SILK→WAV 转换
-                  if (!audioPath) {
-                    const sttFormats = account.config?.audioFormatPolicy?.sttDirectFormats;
-                    log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename}, converting SILK→WAV...`);
-                    try {
-                      const wavResult = await convertSilkToWav(localPath, downloadDir);
-                      if (wavResult) {
-                        audioPath = wavResult.wavPath;
-                        log?.info(`[qqbot:${account.accountId}] Voice converted: ${wavResult.wavPath} (${formatDuration(wavResult.duration)})`);
-                      } else {
-                        audioPath = localPath; // 转换失败，尝试用原始文件
-                      }
-                    } catch (convertErr) {
-                      log?.error(`[qqbot:${account.accountId}] Voice conversion failed: ${convertErr}`);
-                      if (asrReferText) {
-                        log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (using asr_refer_text fallback after convert failure)`);
-                        voiceTranscripts.push(asrReferText);
-                        voiceTranscriptSources.push("asr");
-                      } else {
-                        voiceTranscripts.push("[语音消息 - 格式转换失败]");
-                        voiceTranscriptSources.push("fallback");
-                      }
-                      continue;
-                    }
-                  }
+                }
 
-                  // STT 转录
+                // SILK→WAV 转换
+                if (!audioPath) {
+                  log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename}, converting SILK→WAV...`);
                   try {
-                    const transcript = await transcribeAudio(audioPath!, cfg as Record<string, unknown>);
-                    if (transcript) {
-                      log?.info(`[qqbot:${account.accountId}] STT transcript: ${transcript.slice(0, 100)}...`);
-                      voiceTranscripts.push(transcript);
-                      voiceTranscriptSources.push("stt");
-                    } else if (asrReferText) {
-                      log?.info(`[qqbot:${account.accountId}] STT returned empty result, using asr_refer_text fallback`);
-                      voiceTranscripts.push(asrReferText);
-                      voiceTranscriptSources.push("asr");
+                    const wavResult = await convertSilkToWav(localPath, downloadDir);
+                    if (wavResult) {
+                      audioPath = wavResult.wavPath;
+                      log?.info(`[qqbot:${account.accountId}] Voice converted: ${wavResult.wavPath} (${formatDuration(wavResult.duration)})`);
                     } else {
-                      log?.info(`[qqbot:${account.accountId}] STT returned empty result`);
-                      voiceTranscripts.push("[语音消息 - 转录结果为空]");
-                      voiceTranscriptSources.push("fallback");
+                      audioPath = localPath;
                     }
-                  } catch (sttErr) {
-                    log?.error(`[qqbot:${account.accountId}] STT failed: ${sttErr}`);
+                  } catch (convertErr) {
+                    log?.error(`[qqbot:${account.accountId}] Voice conversion failed: ${convertErr}`);
                     if (asrReferText) {
-                      log?.info(`[qqbot:${account.accountId}] Voice attachment: ${att.filename} (using asr_refer_text fallback after STT failure)`);
-                      voiceTranscripts.push(asrReferText);
-                      voiceTranscriptSources.push("asr");
+                      return { localPath, type: "voice" as const, transcript: asrReferText, transcriptSource: "asr" as const, meta };
                     } else {
-                      voiceTranscripts.push("[语音消息 - 转录失败]");
-                      voiceTranscriptSources.push("fallback");
+                      return { localPath, type: "voice" as const, transcript: "[语音消息 - 格式转换失败]", transcriptSource: "fallback" as const, meta };
                     }
                   }
                 }
+
+                // STT 转录
+                try {
+                  const transcript = await transcribeAudio(audioPath!, cfg as Record<string, unknown>);
+                  if (transcript) {
+                    log?.info(`[qqbot:${account.accountId}] STT transcript: ${transcript.slice(0, 100)}...`);
+                    return { localPath, type: "voice" as const, transcript, transcriptSource: "stt" as const, meta };
+                  } else if (asrReferText) {
+                    log?.info(`[qqbot:${account.accountId}] STT returned empty result, using asr_refer_text fallback`);
+                    return { localPath, type: "voice" as const, transcript: asrReferText, transcriptSource: "asr" as const, meta };
+                  } else {
+                    log?.info(`[qqbot:${account.accountId}] STT returned empty result`);
+                    return { localPath, type: "voice" as const, transcript: "[语音消息 - 转录结果为空]", transcriptSource: "fallback" as const, meta };
+                  }
+                } catch (sttErr) {
+                  log?.error(`[qqbot:${account.accountId}] STT failed: ${sttErr}`);
+                  if (asrReferText) {
+                    return { localPath, type: "voice" as const, transcript: asrReferText, transcriptSource: "asr" as const, meta };
+                  } else {
+                    return { localPath, type: "voice" as const, transcript: "[语音消息 - 转录失败]", transcriptSource: "fallback" as const, meta };
+                  }
+                }
               } else {
-                otherAttachments.push(`[附件: ${localPath}]`);
+                log?.info(`[qqbot:${account.accountId}] Downloaded attachment to: ${localPath}`);
+                return { localPath, type: "other" as const, filename: att.filename, meta };
               }
-              log?.info(`[qqbot:${account.accountId}] Downloaded attachment to: ${localPath}`);
-              attachmentLocalPaths.push(localPath);
             } else {
-              // 下载失败，fallback 到原始 URL
               log?.error(`[qqbot:${account.accountId}] Failed to download: ${attUrl}`);
               if (att.content_type?.startsWith("image/")) {
-                imageUrls.push(attUrl);
-                imageMediaTypes.push(att.content_type);
+                return { localPath: null, type: "image-fallback" as const, attUrl, contentType: att.content_type, meta };
               } else if (isVoice && asrReferText) {
                 log?.info(`[qqbot:${account.accountId}] Voice attachment download failed, using asr_refer_text fallback`);
-                voiceTranscripts.push(asrReferText);
-                voiceTranscriptSources.push("asr");
+                return { localPath: null, type: "voice-fallback" as const, transcript: asrReferText, meta };
               } else {
-                otherAttachments.push(`[附件: ${att.filename ?? att.content_type}] (下载失败)`);
+                return { localPath: null, type: "other-fallback" as const, filename: att.filename ?? att.content_type, meta };
               }
+            }
+          });
+
+          const processResults = await Promise.all(processTasks);
+
+          // Phase 3: 按原始顺序归类结果（保持与附件数组一一对应）
+          for (const result of processResults) {
+            // 收集语音元数据
+            if (result.meta.voiceUrl) voiceAttachmentUrls.push(result.meta.voiceUrl);
+            if (result.meta.asrReferText) voiceAsrReferTexts.push(result.meta.asrReferText);
+
+            if (result.type === "image" && result.localPath) {
+              imageUrls.push(result.localPath);
+              imageMediaTypes.push(result.contentType);
+              attachmentLocalPaths.push(result.localPath);
+            } else if (result.type === "voice" && result.localPath) {
+              voiceAttachmentPaths.push(result.localPath);
+              voiceTranscripts.push(result.transcript);
+              voiceTranscriptSources.push(result.transcriptSource);
+              attachmentLocalPaths.push(result.localPath);
+            } else if (result.type === "other" && result.localPath) {
+              otherAttachments.push(`[附件: ${result.localPath}]`);
+              attachmentLocalPaths.push(result.localPath);
+            } else if (result.type === "image-fallback") {
+              imageUrls.push(result.attUrl);
+              imageMediaTypes.push(result.contentType);
+              attachmentLocalPaths.push(null);
+            } else if (result.type === "voice-fallback") {
+              voiceTranscripts.push(result.transcript);
+              voiceTranscriptSources.push("asr");
+              attachmentLocalPaths.push(null);
+            } else if (result.type === "other-fallback") {
+              otherAttachments.push(`[附件: ${result.filename}] (下载失败)`);
               attachmentLocalPaths.push(null);
             }
           }
@@ -1113,6 +1217,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // 2. 缓存当前消息自身的 msgIdx（供将来被引用时查找）
         // 优先使用推送事件中的 msgIdx（来自 message_scene.ext），否则使用 InputNotify 返回的 refIdx
+        // inputNotifyPromise 在这里才 await，此时附件下载等工作已并行完成
+        const inputNotifyRefIdx = await inputNotifyPromise;
         const currentMsgIdx = event.msgIdx ?? inputNotifyRefIdx;
         if (currentMsgIdx) {
           const attSummaries = buildAttachmentSummaries(event.attachments, attachmentLocalPaths);

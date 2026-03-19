@@ -12,6 +12,7 @@ import { sendText, sendMedia } from "./outbound.js";
 import { startGateway } from "./gateway.js";
 import { qqbotOnboardingAdapter } from "./onboarding.js";
 import { getQQBotRuntime } from "./runtime.js";
+import { saveCredentialBackup, loadCredentialBackup } from "./credential-backup.js";
 
 /** QQ Bot 单条消息文本长度上限 */
 export const TEXT_CHUNK_LIMIT = 5000;
@@ -72,7 +73,12 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
         accountId,
         clearBaseFields: ["appId", "clientSecret", "clientSecretFile", "name"],
       }),
-    isConfigured: (account) => Boolean(account?.appId && account?.clientSecret),
+    isConfigured: (account) => {
+      if (account?.appId && account?.clientSecret) return true;
+      // 配置为空但有凭证备份时仍返回 true，让 startAccount 有机会恢复凭证
+      const backup = loadCredentialBackup(account?.accountId);
+      return backup !== null;
+    },
     describeAccount: (account) => ({
       accountId: account?.accountId ?? DEFAULT_ACCOUNT_ID,
       name: account?.name,
@@ -240,7 +246,30 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
   },
   gateway: {
     startAccount: async (ctx) => {
-      const { account, abortSignal, log, cfg } = ctx;
+      let { account } = ctx;
+      const { abortSignal, log, cfg } = ctx;
+
+      // 凭证恢复：如果 appId/secret 为空（热更新打断可能导致配置丢失），尝试从暂存文件恢复
+      if (!account.appId || !account.clientSecret) {
+        const backup = loadCredentialBackup(account.accountId);
+        if (backup) {
+          log?.info(`[qqbot:${account.accountId}] 配置中凭证为空，从暂存文件恢复 (appId=${backup.appId}, savedAt=${backup.savedAt})`);
+          try {
+            const runtime = getQQBotRuntime();
+            const restoredCfg = applyQQBotAccountConfig(cfg, account.accountId, {
+              appId: backup.appId,
+              clientSecret: backup.clientSecret,
+            });
+            const configApi = runtime.config as { writeConfigFile: (cfg: unknown) => Promise<void> };
+            await configApi.writeConfigFile(restoredCfg);
+            // 重新解析 account 以获取恢复后的值
+            account = resolveQQBotAccount(restoredCfg, account.accountId);
+            log?.info(`[qqbot:${account.accountId}] 凭证已恢复`);
+          } catch (e) {
+            log?.error(`[qqbot:${account.accountId}] 凭证恢复失败: ${e}`);
+          }
+        }
+      }
 
       log?.info(`[qqbot:${account.accountId}] Starting gateway — appId=${account.appId}, enabled=${account.enabled}, name=${account.name ?? "unnamed"}`);
       console.log(`[qqbot:channel] startAccount: accountId=${account.accountId}, appId=${account.appId}, secretSource=${account.secretSource}`);
@@ -252,6 +281,8 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
         log,
         onReady: () => {
           log?.info(`[qqbot:${account.accountId}] Gateway ready`);
+          // 启动成功，保存凭证快照供后续恢复使用
+          saveCredentialBackup(account.accountId, account.appId, account.clientSecret);
           ctx.setStatus({
             ...ctx.getStatus(),
             running: true,
