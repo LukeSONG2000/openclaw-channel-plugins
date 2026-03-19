@@ -11,6 +11,7 @@
 #   upgrade-via-npm.sh --version <version>                # 升级到指定版本
 #   upgrade-via-npm.sh --self-version                     # 升级到当前仓库 package.json 版本
 #   upgrade-via-npm.sh --appid <appid> --secret <secret>  # 首次安装时配置 appid/secret
+#   upgrade-via-npm.sh --no-restart                        # 只做文件替换，不重启 gateway（供热更指令使用）
 
 set -eo pipefail
 
@@ -18,6 +19,7 @@ PKG_NAME="@tencent-connect/openclaw-qqbot"
 INSTALL_SRC=""
 APPID=""
 SECRET=""
+NO_RESTART=false
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 
@@ -76,6 +78,10 @@ while [[ $# -gt 0 ]]; do
             [ -z "$2" ] && echo "❌ --secret 需要参数" && exit 1
             SECRET="$2"
             shift 2
+            ;;
+        --no-restart)
+            NO_RESTART=true
+            shift 1
             ;;
         -h|--help)
             print_usage
@@ -265,11 +271,16 @@ elif [ -n "$APPID" ] || [ -n "$SECRET" ]; then
     echo "⚠️  --appid 和 --secret 必须同时提供"
 fi
 
-# [5/5] 重启 gateway 使新版本生效
-echo ""
-echo "[重启] 重启 gateway 使新版本生效..."
-if $CMD gateway restart 2>&1; then
-    echo "  ✅ gateway 已重启"
+# [5/5] 重启 gateway 使新版本生效（除非 --no-restart）
+if [ "$NO_RESTART" = "true" ]; then
+    echo ""
+    echo "[跳过重启] --no-restart 已指定，请手动执行: $CMD gateway restart"
 else
-    echo "  ⚠️  gateway 重启失败，请手动执行: $CMD gateway restart"
+    echo ""
+    echo "[重启] 重启 gateway 使新版本生效..."
+    if $CMD gateway restart 2>&1; then
+        echo "  ✅ gateway 已重启"
+    else
+        echo "  ⚠️  gateway 重启失败，请手动执行: $CMD gateway restart"
+    fi
 fi

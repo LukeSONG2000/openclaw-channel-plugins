@@ -64,6 +64,12 @@ export interface QQBotAccountConfig {
    * 默认: https://doc.weixin.qq.com/doc/w3_AKEAGQaeACgCNHrh1CbHzTAKtT2gB?scode=AJEAIQdfAAozxFEnLZAKEAGQaeACg
    */
   upgradeUrl?: string;
+  /**
+   * /bot-upgrade 指令的行为模式
+   * - "doc"：展示升级文档链接（默认，安全模式）
+   * - "hot-reload"：检测到新版本时直接执行 npm 升级脚本进行热更新
+   */
+  upgradeMode?: "doc" | "hot-reload";
 }
 
 /**

@@ -538,21 +538,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const greeting = getStartupGreeting();
         if (!greeting) {
           log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (debounced, trigger=${trigger})`);
-          return;
+        } else {
+          const adminId = resolveAdminOpenId();
+          if (!adminId) {
+            log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (no admin or known user)`);
+          } else {
+            log?.info(`[qqbot:${account.accountId}] Sending startup greeting to admin (trigger=${trigger}): "${greeting}"`);
+            const token = await getAccessToken(account.appId, account.clientSecret);
+            const GREETING_TIMEOUT_MS = 10_000;
+            await Promise.race([
+              sendProactiveC2CMessage(token, adminId, greeting),
+              new Promise((_, reject) => setTimeout(() => reject(new Error("Startup greeting send timeout (10s)")), GREETING_TIMEOUT_MS)),
+            ]);
+            log?.info(`[qqbot:${account.accountId}] Sent startup greeting to admin: ${adminId}`);
+          }
         }
-        const adminId = resolveAdminOpenId();
-        if (!adminId) {
-          log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (no admin or known user)`);
-          return;
-        }
-        log?.info(`[qqbot:${account.accountId}] Sending startup greeting to admin (trigger=${trigger}): "${greeting}"`);
-        const token = await getAccessToken(account.appId, account.clientSecret);
-        const GREETING_TIMEOUT_MS = 10_000;
-        await Promise.race([
-          sendProactiveC2CMessage(token, adminId, greeting),
-          new Promise((_, reject) => setTimeout(() => reject(new Error("Startup greeting send timeout (10s)")), GREETING_TIMEOUT_MS)),
-        ]);
-        log?.info(`[qqbot:${account.accountId}] Sent startup greeting to admin: ${adminId}`);
       } catch (err) {
         log?.error(`[qqbot:${account.accountId}] Failed to send startup greeting: ${err}`);
       }
