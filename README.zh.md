@@ -9,7 +9,7 @@
 
 **让你的 AI 助手接入 QQ — 私聊、群聊、富媒体，一个插件全搞定。**
 
-### 🚀 当前版本： `v1.6.2`
+### 🚀 当前版本： `v1.6.4`
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
@@ -31,13 +31,13 @@
 
 | 功能 | 说明 |
 |------|------|
-| 🔒 **多场景支持** | C2C 私聊、群聊 @消息、频道消息、频道私信 |
+| 🔒 **多场景支持** | C2C 私聊、群聊 @消息 |
 | 🖼️ **富媒体消息** | 支持图片、语音、视频、文件的收发 |
 | 🎙️ **语音能力 (STT/TTS)** | 语音转文字自动转录 & 文字转语音回复 |
+| 🔥 **一键热更新** | 私聊发送 `/bot-upgrade` 即可完成版本升级，无需登录服务器 |
 | ⏰ **定时推送** | 支持定时任务触发后主动推送消息 |
 | 🔗 **URL 无限制** | 私聊可直接发送 URL |
 | ⌨️ **输入状态** | 实时显示"Bot 正在输入中…"状态 |
-| 🔄 **热更新** | 支持 npm 方式安装和无缝热更新 |
 | 📝 **Markdown** | 完整支持 Markdown 格式消息 |
 | 🛠️ **原生命令** | 支持 OpenClaw 原生命令 |
 | 💬 **引用上下文** | 解析 QQ `REFIDX_*` 引用消息，并将引用内容注入 AI 上下文 |
@@ -172,15 +172,24 @@ AI 可直接发送视频，支持本地文件和公网 URL。
 
 <img width="360" src="docs/images/slash-help.jpg" alt="Help 演示" />
 
-#### `/bot-upgrade` — 升级指引
+#### `/bot-upgrade` — 一键热更新
 
 > **你**：`/bot-upgrade`
 >
-> **QQBot**：📌当前版本 / ✅当前已是最新版本 / ⬆️升级指引 / 🌟官方 GitHub 仓库
+> **QQBot**：📌当前版本 v1.6.4-alpha.12 / ✅发现新版本 v1.6.4 / 点击下方按钮确认升级
 
-显示当前版本、更新状态、升级文档链接及官方仓库入口。
+在私聊中发送即可完成版本升级，全程无需登录服务器。支持的用法：
 
-<img width="360" src="docs/images/slash-upgrade.jpg" alt="Upgrade 演示" /> 
+| 命令 | 说明 |
+|------|------|
+| `/bot-upgrade` | 检查是否有新版本，展示确认按钮 |
+| `/bot-upgrade --latest` | 确认升级到最新版本 |
+| `/bot-upgrade --version 1.6.4` | 升级到指定版本 |
+| `/bot-upgrade --force` | 强制重新安装当前版本 |
+
+升级流程自动备份凭证，升级前校验版本是否存在于 npm，升级失败自动恢复。
+
+<!-- TODO: 补充 /bot-upgrade 截图 -->
 
 #### `/bot-logs` — 日志导出
 
@@ -191,6 +200,14 @@ AI 可直接发送视频，支持本地文件和公网 URL。
 导出最近约 2000 行网关日志为文件，方便快速排查问题。
 
 <img width="360" src="docs/images/slash-logs.jpg" alt="Logs 演示" />
+
+#### 用法查询
+
+所有指令都支持 `?` 后缀查看用法说明：
+
+> **你**：`/bot-upgrade ?`
+>
+> **QQBot**：📖 /bot-upgrade 用法：…
 
 ---
 

@@ -4,6 +4,25 @@
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/)。
 
+## [1.6.4] - 2026-03-20
+
+### 新增
+
+- **一键热更新指令 `/bot-upgrade`**：在私聊中直接完成版本升级，无需登录服务器。支持 `--latest`（升级到最新）、`--version X`（指定版本）、`--force`（强制重装）参数。升级前自动校验版本是否存在于 npm。
+- **频道 API 代理工具 `qqbot_channel_api`**：AI 可直接调用 QQ 开放平台频道 HTTP 接口，自动 Token 鉴权，内置 SSRF 防护。支持频道/子频道管理、成员查询、论坛发帖、公告发布、日程管理等操作。
+- **凭证备份保护**：新增 `credential-backup.ts` 模块，热更新前自动备份 `appId`/`clientSecret` 到独立文件。`isConfigured` 增加备份兜底检查——配置丢失但备份存在时仍可启动并自动恢复凭证。
+- **指令用法查询**：所有斜杠指令支持 `?` 后缀查看详细用法（如 `/bot-upgrade ?`）。
+
+### 变更
+
+- **版本检查改为实时查询**：`getUpdateInfo()` 从同步缓存改为 `async` 实时请求 npm registry，每次调用 `/bot-version` 或 `/bot-upgrade` 都拿最新数据。
+- **`/bot-logs` 支持多日志源聚合**：超长日志自动截断并附带说明。
+
+### 改进
+
+- **`switchPluginSourceToNpm` 写后校验**：写回 `openclaw.json` 前验证 `channels.qqbot` 数据未被破坏，防止竞态写入导致凭证丢失。
+- **升级脚本增加凭证备份逻辑**：`upgrade-via-npm.sh` 和 `upgrade-via-source.sh` 升级前自动保存凭证快照。
+
 ## [1.6.3] - 2026-03-18
 
 ### 变更

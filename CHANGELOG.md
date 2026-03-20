@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.4] - 2026-03-20
+
+### Added
+
+- **One-click hot upgrade `/bot-upgrade`**: Upgrade the plugin directly from private chat — no server login needed. Supports `--latest` (upgrade to latest), `--version X` (specific version), and `--force` (force reinstall). Version existence is verified against npm before proceeding.
+- **Channel API proxy tool `qqbot_channel_api`**: AI can call QQ Open Platform channel HTTP APIs directly with automatic Token authentication and SSRF protection. Supports guild/channel management, member queries, forum threads, announcements, schedules, and more.
+- **Credential backup protection**: New `credential-backup.ts` module auto-saves `appId`/`clientSecret` to a standalone file before hot upgrade. `isConfigured` now falls back to backup check — if config is lost but backup exists, the account still starts and credentials are auto-restored.
+- **Command usage help**: All slash commands support `?` suffix to show detailed usage (e.g. `/bot-upgrade ?`).
+
+### Changed
+
+- **Real-time version check**: `getUpdateInfo()` changed from synchronous cache to `async` live npm registry query — every `/bot-version` or `/bot-upgrade` call fetches the latest data.
+- **`/bot-logs` multi-source aggregation**: Long logs are auto-truncated with explanation.
+
+### Improved
+
+- **`switchPluginSourceToNpm` post-write validation**: Verifies `channels.qqbot` data integrity before writing back to `openclaw.json`, preventing race-condition credential loss.
+- **Upgrade scripts with credential backup**: `upgrade-via-npm.sh` and `upgrade-via-source.sh` now save credential snapshots before upgrading.
+
 ## [1.6.3] - 2026-03-18
 
 ### Changed

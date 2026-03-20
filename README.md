@@ -10,7 +10,7 @@
 
 **Connect your AI assistant to QQ — private chat, group chat, and rich media, all in one plugin.**
 
-### 🚀 Current Version: `v1.6.2`
+### 🚀 Current Version: `v1.6.4`
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)
@@ -36,13 +36,13 @@ Scan to join the QQ group chat
 
 | Feature | Description |
 |---------|-------------|
-| 🔒 **Multi-Scene** | C2C private chat, group @messages, channel messages, channel DMs |
+| 🔒 **Multi-Scene** | C2C private chat, group @messages |
 | 🖼️ **Rich Media** | Send & receive images, voice, video, and files |
 | 🎙️ **Voice (STT/TTS)** | Speech-to-text transcription & text-to-speech replies |
+| 🔥 **One-Click Hot Upgrade** | Send `/bot-upgrade` in private chat to upgrade — no server login needed |
 | ⏰ **Scheduled Push** | Proactive message delivery via scheduled tasks |
 | 🔗 **URL Support** | Direct URL sending in private chat (no restrictions) |
 | ⌨️ **Typing Indicator** | "Bot is typing..." status shown in real-time |
-| 🔄 **Hot Reload** | Install via npm with seamless hot updates |
 | 📝 **Markdown** | Full Markdown formatting support |
 | 🛠️ **Commands** | Native OpenClaw command integration |
 | 💬 **Quoted Context** | Resolve QQ `REFIDX_*` quoted messages and inject quote body into AI context |
@@ -177,15 +177,24 @@ Shows framework version, plugin version, and a direct link to the official repos
 
 <img width="360" src="docs/images/slash-help.jpg" alt="Help Demo" />
 
-#### `/bot-upgrade` — Upgrade Guide
+#### `/bot-upgrade` — One-Click Hot Upgrade
 
 > **You**: `/bot-upgrade`
 >
-> **QQBot**: 📌 Current version / ✅ Up to date / ⬆️ Upgrade guide / 🌟 GitHub repo
+> **QQBot**: 📌 Current: v1.6.4-alpha.12 / ✅ New version v1.6.4 available / Click button below to confirm
 
-Shows current version, update status, upgrade guide link, and official repository.
+Send in private chat to upgrade the plugin without server login. Supported usage:
 
-<img width="360" src="docs/images/slash-upgrade.jpg" alt="Upgrade Demo" /> 
+| Command | Description |
+|---------|-------------|
+| `/bot-upgrade` | Check for updates, show confirmation button |
+| `/bot-upgrade --latest` | Confirm upgrade to the latest version |
+| `/bot-upgrade --version 1.6.4` | Upgrade to a specific version |
+| `/bot-upgrade --force` | Force reinstall current version |
+
+Credentials are automatically backed up before upgrade. Version existence is verified against npm before proceeding. Auto-recovery on failure.
+
+<!-- TODO: add /bot-upgrade screenshot -->
 
 #### `/bot-logs` — Log Export
 
@@ -196,6 +205,14 @@ Shows current version, update status, upgrade guide link, and official repositor
 Exports the last ~2000 lines of gateway logs as a file for quick troubleshooting.
 
 <img width="360" src="docs/images/slash-logs.jpg" alt="Logs Demo" />
+
+#### Usage Help
+
+All commands support a `?` suffix to show usage:
+
+> **You**: `/bot-upgrade ?`
+>
+> **QQBot**: 📖 /bot-upgrade usage: …
 
 ---
 
