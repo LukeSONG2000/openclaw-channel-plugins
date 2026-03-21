@@ -183,18 +183,11 @@ Shows framework version, plugin version, and a direct link to the official repos
 >
 > **QQBot**: 📌 Current: v1.6.3 / ✅ New version v1.6.4 available / Click button below to confirm
 
-Send in private chat to upgrade the plugin without server login. Supported usage:
-
-| Command | Description |
-|---------|-------------|
-| `/bot-upgrade` | Check for updates, show confirmation button |
-| `/bot-upgrade --latest` | Confirm upgrade to the latest version |
-| `/bot-upgrade --version 1.6.4` | Upgrade to a specific version |
-| `/bot-upgrade --force` | Force reinstall current version |
-
 Credentials are automatically backed up before upgrade. Version existence is verified against npm before proceeding. Auto-recovery on failure.
 
-<!-- TODO: add /bot-upgrade screenshot -->
+> ⚠️ Hot upgrade is currently not supported on Windows. Sending `/bot-upgrade` on Windows will return a manual upgrade guide instead.
+
+<img width="360" src="docs/images/hot-update.jpg" alt="Hot Upgrade Demo" />
 
 #### `/bot-logs` — Log Export
 
