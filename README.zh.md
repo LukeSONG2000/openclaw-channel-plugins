@@ -178,18 +178,11 @@ AI 可直接发送视频，支持本地文件和公网 URL。
 >
 > **QQBot**：📌当前版本 v1.6.3 / ✅发现新版本 v1.6.4 / 点击下方按钮确认升级
 
-在私聊中发送即可完成版本升级，全程无需登录服务器。支持的用法：
-
-| 命令 | 说明 |
-|------|------|
-| `/bot-upgrade` | 检查是否有新版本，展示确认按钮 |
-| `/bot-upgrade --latest` | 确认升级到最新版本 |
-| `/bot-upgrade --version 1.6.4` | 升级到指定版本 |
-| `/bot-upgrade --force` | 强制重新安装当前版本 |
-
 升级流程自动备份凭证，升级前校验版本是否存在于 npm，升级失败自动恢复。
 
-<!-- TODO: 补充 /bot-upgrade 截图 -->
+> ⚠️ 热更新指令暂不支持 Windows 系统，在 Windows 上发送 `/bot-upgrade` 会返回手动升级指引。
+
+<img width="360" src="docs/images/hot-update.jpg" alt="一键热更新演示" />
 
 #### `/bot-logs` — 日志导出
 
