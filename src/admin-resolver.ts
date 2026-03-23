@@ -145,37 +145,36 @@ export function resolveAdminOpenId(ctx: Pick<AdminResolverContext, "accountId" |
 /** 异步发送启动问候语（优先发给升级触发者，fallback 发给管理员） */
 export function sendStartupGreetings(ctx: AdminResolverContext, trigger: "READY" | "RESUMED"): void {
   (async () => {
-    const plan = getStartupGreetingPlan();
+    const plan = getStartupGreetingPlan(ctx.accountId, ctx.appId);
     if (!plan.shouldSend || !plan.greeting) {
       ctx.log?.info(`[qqbot:${ctx.accountId}] Skipping startup greeting (${plan.reason ?? "debounced"}, trigger=${trigger})`);
       return;
     }
 
     const upgradeTargetOpenId = loadUpgradeGreetingTargetOpenId(ctx.accountId, ctx.appId, ctx.log);
-    const targetOpenId = upgradeTargetOpenId || resolveAdminOpenId(ctx);
-    if (!targetOpenId) {
-      markStartupGreetingFailed(plan.version, "no-admin");
-      ctx.log?.info(`[qqbot:${ctx.accountId}] Skipping startup greeting (no admin or known user)`);
+
+    // 没有 upgrade-greeting-target 文件 → 不是通过 /bot-upgrade 触发的升级
+    // （console 手动重启、脚本升级等场景），静默更新 marker 不发消息
+    if (!upgradeTargetOpenId) {
+      markStartupGreetingSent(ctx.accountId, ctx.appId, plan.version);
+      ctx.log?.info(`[qqbot:${ctx.accountId}] Version changed but no upgrade-greeting-target, silently updating marker (trigger=${trigger})`);
       return;
     }
 
     try {
-      const receiverType = upgradeTargetOpenId ? "upgrade-requester" : "admin";
-      ctx.log?.info(`[qqbot:${ctx.accountId}] Sending startup greeting to ${receiverType} (trigger=${trigger}): "${plan.greeting}"`);
+      ctx.log?.info(`[qqbot:${ctx.accountId}] Sending startup greeting to upgrade-requester (trigger=${trigger}): "${plan.greeting}"`);
       const token = await getAccessToken(ctx.appId, ctx.clientSecret);
       const GREETING_TIMEOUT_MS = 10_000;
       await Promise.race([
-        sendProactiveC2CMessage(token, targetOpenId, plan.greeting),
+        sendProactiveC2CMessage(token, upgradeTargetOpenId, plan.greeting),
         new Promise((_, reject) => setTimeout(() => reject(new Error("Startup greeting send timeout (10s)")), GREETING_TIMEOUT_MS)),
       ]);
-      markStartupGreetingSent(plan.version);
-      if (upgradeTargetOpenId) {
-        clearUpgradeGreetingTargetOpenId(ctx.accountId, ctx.appId);
-      }
-      ctx.log?.info(`[qqbot:${ctx.accountId}] Sent startup greeting to ${receiverType}: ${targetOpenId}`);
+      markStartupGreetingSent(ctx.accountId, ctx.appId, plan.version);
+      clearUpgradeGreetingTargetOpenId(ctx.accountId, ctx.appId);
+      ctx.log?.info(`[qqbot:${ctx.accountId}] Sent startup greeting to upgrade-requester: ${upgradeTargetOpenId}`);
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      markStartupGreetingFailed(plan.version, message);
+      markStartupGreetingFailed(ctx.accountId, ctx.appId, plan.version, message);
       ctx.log?.error(`[qqbot:${ctx.accountId}] Failed to send startup greeting: ${message}`);
     }
   })();

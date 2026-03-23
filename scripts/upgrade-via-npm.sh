@@ -114,8 +114,8 @@ echo "  qqbot npm 升级: $INSTALL_SRC"
 echo "==========================================="
 echo ""
 
-# [1/3] 下载并安装新版本到临时目录
-echo "[1/3] 下载新版本..."
+# [1/5] 下载并安装新版本到临时目录
+echo "[1/5] 下载新版本..."
 TMPDIR_PACK=$(mktemp -d)
 EXTRACT_DIR=$(mktemp -d)
 trap "rm -rf '$TMPDIR_PACK' '$EXTRACT_DIR'" EXIT
@@ -166,10 +166,108 @@ fi
 rm -rf "$TMPDIR_PACK" "$EXTRACT_DIR"
 cd "$HOME"
 
-# [2/3] 原子替换：使用 mv -T/rename 确保目录切换尽可能原子
+# ── Preflight 检查：在写入 extensions 之前确保新包完整有效 ──
+echo ""
+echo "[2/5] Preflight 检查..."
+PREFLIGHT_OK=true
+
+# (a) package.json 存在且可解析，且包含 version 字段
+STAGING_PKG="$STAGING_DIR/package.json"
+if [ ! -f "$STAGING_PKG" ]; then
+    echo "  ❌ 新包缺少 package.json"
+    PREFLIGHT_OK=false
+else
+    STAGING_VERSION="$(node -e "
+      try {
+        const v = JSON.parse(require('fs').readFileSync('$STAGING_PKG', 'utf8')).version;
+        if (v) process.stdout.write(String(v));
+      } catch {}
+    " 2>/dev/null || true)"
+    if [ -z "$STAGING_VERSION" ]; then
+        echo "  ❌ package.json 无法解析或缺少 version 字段"
+        PREFLIGHT_OK=false
+    else
+        echo "  ✅ 版本号: $STAGING_VERSION"
+    fi
+fi
+
+# (b) 入口文件存在（dist/index.js 或 index.js）
+ENTRY_FILE=""
+for candidate in "dist/index.js" "index.js"; do
+    if [ -f "$STAGING_DIR/$candidate" ]; then
+        ENTRY_FILE="$candidate"
+        break
+    fi
+done
+if [ -z "$ENTRY_FILE" ]; then
+    echo "  ❌ 缺少入口文件（dist/index.js 或 index.js）"
+    PREFLIGHT_OK=false
+else
+    echo "  ✅ 入口文件: $ENTRY_FILE"
+fi
+
+# (c) 核心目录 dist/src 存在
+if [ ! -d "$STAGING_DIR/dist/src" ]; then
+    echo "  ❌ 缺少核心目录 dist/src/"
+    PREFLIGHT_OK=false
+else
+    CORE_JS_COUNT=$(find "$STAGING_DIR/dist/src" -name "*.js" -type f 2>/dev/null | wc -l | tr -d ' ')
+    echo "  ✅ dist/src/ 包含 ${CORE_JS_COUNT} 个 JS 文件"
+    if [ "$CORE_JS_COUNT" -lt 5 ]; then
+        echo "  ❌ JS 文件数量异常偏少（预期 ≥ 5，实际 ${CORE_JS_COUNT}）"
+        PREFLIGHT_OK=false
+    fi
+fi
+
+# (d) 关键模块文件存在
+MISSING_MODULES=""
+for module in "dist/src/gateway.js" "dist/src/api.js" "dist/src/admin-resolver.js"; do
+    if [ ! -f "$STAGING_DIR/$module" ]; then
+        MISSING_MODULES="$MISSING_MODULES $module"
+    fi
+done
+if [ -n "$MISSING_MODULES" ]; then
+    echo "  ❌ 缺少关键模块:$MISSING_MODULES"
+    PREFLIGHT_OK=false
+else
+    echo "  ✅ 关键模块完整"
+fi
+
+# (e) bundled node_modules 健康检查
+if [ -d "$STAGING_DIR/node_modules" ]; then
+    BUNDLED_OK=true
+    for dep in "ws" "undici"; do
+        if [ ! -d "$STAGING_DIR/node_modules/$dep" ]; then
+            echo "  ⚠️  bundled 依赖缺失: $dep"
+            BUNDLED_OK=false
+        fi
+    done
+    if $BUNDLED_OK; then
+        echo "  ✅ 核心 bundled 依赖完整"
+    fi
+fi
+
+# (f) 如果有旧版本，检查新版本是否合理（不允许降级到 0.x 等异常版本）
+if [ -n "$STAGING_VERSION" ]; then
+    STAGING_MAJOR="$(echo "$STAGING_VERSION" | cut -d. -f1)"
+    if [ "$STAGING_MAJOR" = "0" ]; then
+        echo "  ⚠️  新版本主版本号为 0（$STAGING_VERSION），可能不是正式发布版"
+    fi
+fi
+
+# 检查结果
+if [ "$PREFLIGHT_OK" != "true" ]; then
+    echo ""
+    echo "❌ Preflight 检查未通过，中止升级（旧版本未受影响）"
+    rm -rf "$STAGING_DIR"
+    exit 1
+fi
+echo "  ✅ Preflight 检查全部通过"
+
+# [3/5] 原子替换：使用 mv -T/rename 确保目录切换尽可能原子
 # 策略：先把 staging 放到 extensions/ 同级的临时名，再做单次 mv 替换
 echo ""
-echo "[2/3] 原子替换插件目录..."
+echo "[3/5] 原子替换插件目录..."
 TARGET_DIR="$EXTENSIONS_DIR/openclaw-qqbot"
 OLD_DIR="$(dirname "$EXTENSIONS_DIR")/.qqbot-upgrade-old"
 
@@ -199,9 +297,9 @@ for dir_name in qqbot openclaw-qq; do
 done
 echo "  已安装到: $TARGET_DIR"
 
-# [3/3] 输出新版本号和升级报告（供调用方解析）
+# [4/5] 输出新版本号和升级报告（供调用方解析）
 echo ""
-echo "[3/3] 验证安装..."
+echo "[4/5] 验证安装..."
 NEW_VERSION="$(node -e "
   try {
     const fs = require('fs');
@@ -239,7 +337,7 @@ fi
 
 # 以下步骤仅在非热更新（手动执行）场景中执行
 
-# [4/4] 配置 appid/secret（仅在提供了参数时执行）
+# [配置] appid/secret（仅在提供了参数时执行）
 if [ -n "$APPID" ] && [ -n "$SECRET" ]; then
     echo ""
     echo "[配置] 写入 qqbot 通道配置..."
@@ -293,9 +391,25 @@ fi
 
 # [5/5] 重启 gateway 使新版本生效
 echo ""
+
+# 手动升级场景：提前写入 startup-marker，阻止重启后 bot 重复推送升级通知
+# （控制台已打印同款提示语，无需 bot 再发一次）
+if [ -n "$NEW_VERSION" ] && [ "$NEW_VERSION" != "unknown" ]; then
+    MARKER_DIR="$HOME/.openclaw/qqbot/data"
+    mkdir -p "$MARKER_DIR"
+    MARKER_FILE="$MARKER_DIR/startup-marker.json"
+    NOW="$(date -u +%Y-%m-%dT%H:%M:%S.000Z 2>/dev/null || date +%Y-%m-%dT%H:%M:%SZ)"
+    echo "{\"version\":\"$NEW_VERSION\",\"startedAt\":\"$NOW\",\"greetedAt\":\"$NOW\"}" > "$MARKER_FILE"
+fi
+
 echo "[重启] 重启 gateway 使新版本生效..."
 if $CMD gateway restart 2>&1; then
     echo "  ✅ gateway 已重启"
+    # 打印与 bot 通知同款的更新提示语（手动升级场景无需通过 bot 推送）
+    echo ""
+    if [ -n "$NEW_VERSION" ] && [ "$NEW_VERSION" != "unknown" ]; then
+        echo "🎉 QQBot 插件已更新至 v${NEW_VERSION}，在线等候你的吩咐。"
+    fi
 else
     echo "  ⚠️  gateway 重启失败，请手动执行: $CMD gateway restart"
 fi

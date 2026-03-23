@@ -21,6 +21,7 @@ import { sendWithTokenRetry, sendErrorToTarget, handleStructuredPayload, type Re
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
 import { parseAndSendMediaTags, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
+import { runWithRequestContext } from "./request-context.js";
 
 // QQ Bot intents - 按权限级别分组
 const INTENTS = {
@@ -87,9 +88,10 @@ async function ensureImageServer(log?: GatewayContext["log"], publicBaseUrl?: st
   }
 }
 
-// 模块级变量：进程生命周期内只有首次为 true
+// 模块级变量：per-account 首次 READY 跟踪
 // 区分 gateway restart（进程重启）和 health-monitor 断线重连
-let isFirstReadyGlobal = true;
+// 每个 account 首次 READY/RESUMED 时从 Set 中移除，之后不再发送问候语
+const _pendingFirstReady = new Set<string>();
 
 /**
  * 启动 Gateway WebSocket 连接（带自动重连）
@@ -187,8 +189,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   let isConnecting = false; // 防止并发连接
   let reconnectTimer: ReturnType<typeof setTimeout> | null = null; // 重连定时器
   let shouldRefreshToken = false; // 下次连接是否需要刷新 token
-  // 使用模块级 isFirstReadyGlobal，确保只有进程级重启才发送问候语
-  // health-monitor 重连不会重新初始化为 true
+  // 标记此 account 为待发问候（进程重启时 Set 里已有，断线重连不会重新加入）
+  _pendingFirstReady.add(account.accountId);
 
   const adminCtx: AdminResolverContext = { accountId: account.accountId, appId: account.appId, clientSecret: account.clientSecret, log };
 
@@ -622,7 +624,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // ============ 构建 contextInfo（静态/动态分离） ============
         // 设计原则（参考 Telegram/Discord 做法）：
-        //   - 静态指引：每条消息不变的内容（场景锚定、投递地址、能力说明），
+        //   - 静态指引：每条消息不变的能力声明，
         //     注入 systemPrompts 前部，session 中虽重复出现但 AI 会自动降权，
         //     且保证长 session 窗口截断后仍可见。
         //   - 动态标签：每条消息变化的数据（时间、附件、ASR），
@@ -630,17 +632,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // --- 静态指引（仅注入框架信封未覆盖的 QQBot 特有信息） ---
         // 框架 formatInboundEnvelope 已提供：平台标识、发送者、时间戳
-        // 这里只补充 QQBot 独有的：投递地址（cron skill 需要）
-        const staticParts: string[] = [
-          `[QQBot] to=${qualifiedTarget}`,
-        ];
+        // 投递地址通过 AsyncLocalStorage 请求上下文传递给 remind 工具，无需在 agentBody 中暴露
+        const staticParts: string[] = [];
         // TTS 能力声明：仅在启用时告知 AI 可以发语音（媒体标签用法由 qqbot-media SKILL.md 提供）
         // STT 无需声明：转写结果已在动态上下文的 ASR 行中，AI 自然可见
         if (hasTTS) staticParts.push("语音合成已启用");
-        const staticInstruction = staticParts.join(" | ");
 
-        // 静态指引作为 systemPrompts 的首项注入
-        systemPrompts.unshift(staticInstruction);
+        // 仅在有静态指引时注入 systemPrompts
+        if (staticParts.length > 0) {
+          const staticInstruction = staticParts.join(" | ");
+          systemPrompts.unshift(staticInstruction);
+        }
 
         // --- 动态上下文（仅框架信封未覆盖的附件信息） ---
         const dynLines: string[] = [];
@@ -758,6 +760,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 发送错误提示的辅助函数
         const sendErrorMessage = (errorText: string) => sendErrorToTarget(replyCtx, errorText);
 
+        // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码
+        // （包括 AI agent 调用、tool execute）都能安全获取当前会话信息，无并发竞态。
+        await runWithRequestContext({ target: qualifiedTarget }, async () => {
         try {
           const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
 
@@ -1062,6 +1067,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           // 无论成功/失败/超时，都停止输入状态续期
           typing.keepAlive?.stop();
         }
+        }); // end runWithRequestContext
       };
 
       ws.on("open", () => {
@@ -1160,18 +1166,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
                 // 仅 startGateway 后的首次 READY 才发送上线通知
                 // ws 断线重连（resume 失败后重新 Identify）产生的 READY 不发送
-                if (!isFirstReadyGlobal) {
+                if (!_pendingFirstReady.has(account.accountId)) {
                   log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (reconnect READY, not first startup)`);
                 } else {
-                  isFirstReadyGlobal = false;
+                  _pendingFirstReady.delete(account.accountId);
                   sendStartupGreetings(adminCtx, "READY");
                 } // end isFirstReady
               } else if (t === "RESUMED") {
                 log?.info(`[qqbot:${account.accountId}] Session resumed`);
                 onReady?.(d); // 通知框架连接已恢复，避免 health-monitor 误判 disconnected
                 // RESUMED 也属于首次启动（gateway restart 通常走 resume）
-                if (isFirstReadyGlobal) {
-                  isFirstReadyGlobal = false;
+                if (_pendingFirstReady.has(account.accountId)) {
+                  _pendingFirstReady.delete(account.accountId);
                   sendStartupGreetings(adminCtx, "RESUMED");
                 }
                 // P1-2: 更新 Session 连接时间
