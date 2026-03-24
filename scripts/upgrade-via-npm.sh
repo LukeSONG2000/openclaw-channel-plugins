@@ -255,17 +255,10 @@ restore_qqbot_channel
 echo ""
 echo "[2/4] 验证安装..."
 
-NEW_VERSION="$(node -e "
-  try {
-    const fs = require('fs');
-    const path = require('path');
-    const p = path.join('$EXTENSIONS_DIR', '$PLUGIN_ID', 'package.json');
-    if (fs.existsSync(p)) {
-      const v = JSON.parse(fs.readFileSync(p, 'utf8')).version;
-      if (v) { process.stdout.write(v); process.exit(0); }
-    }
-  } catch {}
-" 2>/dev/null || true)"
+PKG_JSON="$EXTENSIONS_DIR/$PLUGIN_ID/package.json"
+if [ -f "$PKG_JSON" ]; then
+  NEW_VERSION="$(node -e "process.stdout.write(JSON.parse(require('fs').readFileSync(process.argv[1],'utf8')).version||'')" "$PKG_JSON" 2>/dev/null || true)"
+fi
 
 # Preflight 检查
 PREFLIGHT_OK=true
