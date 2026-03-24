@@ -117,8 +117,12 @@ done
 
 EXTENSIONS_DIR="$HOME/.$CMD/extensions"
 
+# 检测 openclaw 版本
+OPENCLAW_VERSION="$($CMD --version 2>/dev/null | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 || true)"
+
 echo "==========================================="
 echo "  qqbot 升级: $INSTALL_SRC"
+echo "  openclaw 版本: ${OPENCLAW_VERSION:-unknown}"
 echo "==========================================="
 echo ""
 

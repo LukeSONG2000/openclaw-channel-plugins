@@ -112,6 +112,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     }
   }
 
+  // 预检 openclaw runtime 模块是否可正常解析（兼容性诊断）
+  // openclaw 3.23+ 存在 plugin-sdk/root-alias.cjs 回归 bug，
+  // 内置插件（qwen-portal-auth 等）全部加载失败，导致 AI agent 调用返回
+  // "Unable to resolve plugin runtime module"。提前检测并告警。
+  try {
+    const pluginRuntime = getQQBotRuntime();
+    if (pluginRuntime?.channel?.reply?.dispatchReplyWithBufferedBlockDispatcher) {
+      log?.info(`[qqbot:${account.accountId}] Runtime module preflight: OK`);
+    } else {
+      log?.error(`[qqbot:${account.accountId}] ⚠️ Runtime preflight: dispatchReply API 不可用，AI 消息处理可能失败。请检查 openclaw 版本兼容性`);
+    }
+  } catch (preflightErr) {
+    log?.error(`[qqbot:${account.accountId}] ⚠️ Runtime preflight failed: ${preflightErr}. AI 消息处理可能失败`);
+  }
+
   // 后台版本检查（供 /bot-version、/bot-upgrade 指令被动查询）
   triggerUpdateCheck(log);
 
@@ -1019,8 +1034,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   timeoutId = null;
                 }
                 
-                // 发送错误提示给用户，显示完整错误信息
                 const errMsg = String(err);
+
+                // 兼容 openclaw 3.23+ 的 plugin-sdk/root-alias.cjs 模块解析失败
+                if (errMsg.includes("Unable to resolve plugin runtime module") || errMsg.includes("root-alias.cjs")) {
+                  log?.error(`[qqbot:${account.accountId}] ⚠️ openclaw 框架 runtime 模块解析失败，可能是 openclaw 版本与 plugin-sdk 不兼容。请尝试: npm install -g openclaw@latest && openclaw gateway restart`);
+                  await sendErrorMessage("⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。");
+                  return;
+                }
+
                 if (errMsg.includes("401") || errMsg.includes("key") || errMsg.includes("auth")) {
                   log?.error(`[qqbot:${account.accountId}] AI auth error: ${errMsg}`);
                 } else {
@@ -1062,7 +1084,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             }
           }
         } catch (err) {
+          const errStr = String(err);
           log?.error(`[qqbot:${account.accountId}] Message processing failed: ${err}`);
+          // 兼容 openclaw 3.23+ runtime 模块解析失败：给用户发可操作的提示
+          if (errStr.includes("Unable to resolve plugin runtime module") || errStr.includes("root-alias.cjs")) {
+            try {
+              await sendErrorMessage("⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。");
+            } catch { /* best-effort */ }
+          }
         } finally {
           // 无论成功/失败/超时，都停止输入状态续期
           typing.keepAlive?.stop();
