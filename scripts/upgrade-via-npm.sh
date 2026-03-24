@@ -230,20 +230,40 @@ if [ "$USE_UPDATE" = "true" ]; then
 fi
 
 if [ "$UPGRADE_OK" != "true" ]; then
-    # 清理旧目录（包含当前插件和历史遗留名称）
-    for dir_name in "$PLUGIN_ID" qqbot openclaw-qq; do
-        [ -d "$EXTENSIONS_DIR/$dir_name" ] && rm -rf "$EXTENSIONS_DIR/$dir_name" && echo "  已清理: $EXTENSIONS_DIR/$dir_name"
+    # 备份旧目录（而非直接删除），install 失败时可回滚
+    BACKUP_DIR=""
+    if [ -d "$EXTENSIONS_DIR/$PLUGIN_ID" ]; then
+        BACKUP_DIR="$EXTENSIONS_DIR/.openclaw-qqbot-backup-$$"
+        mv "$EXTENSIONS_DIR/$PLUGIN_ID" "$BACKUP_DIR"
+        echo "  已备份旧目录: $BACKUP_DIR"
+    fi
+
+    # 清理历史遗留名称（这些不需要回滚）
+    for dir_name in qqbot openclaw-qq; do
+        [ -d "$EXTENSIONS_DIR/$dir_name" ] && rm -rf "$EXTENSIONS_DIR/$dir_name" && echo "  已清理历史目录: $EXTENSIONS_DIR/$dir_name"
     done
 
     echo "  执行 install: $INSTALL_SRC"
     if $CMD plugins install "$INSTALL_SRC" --pin 2>&1; then
         UPGRADE_OK=true
         echo "  ✅ install 成功"
+        # install 成功，清理备份
+        if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+            rm -rf "$BACKUP_DIR"
+            echo "  已清理旧版备份"
+        fi
+        # 清理 openclaw CLI install 可能留下的额外 backup 目录
+        find "$EXTENSIONS_DIR" -maxdepth 1 -name ".openclaw-qqbot-backup-*" -exec rm -rf {} + 2>/dev/null || true
     else
-        echo "❌ install 失败"
+        echo "  ❌ install 失败"
+        # 回滚：恢复旧目录
+        if [ -n "$BACKUP_DIR" ] && [ -d "$BACKUP_DIR" ]; then
+            mv "$BACKUP_DIR" "$EXTENSIONS_DIR/$PLUGIN_ID"
+            echo "  ↩️  已回滚到旧版本"
+        fi
         restore_qqbot_channel
         echo "QQBOT_NEW_VERSION=unknown"
-        echo "QQBOT_REPORT=❌ QQBot 安装失败，请检查网络和 npm registry"
+        echo "QQBOT_REPORT=❌ QQBot 安装失败（已回滚到旧版本），请检查网络和 npm registry"
         exit 1
     fi
 fi
@@ -335,6 +355,19 @@ if [ "$PREFLIGHT_OK" != "true" ]; then
     exit 1
 fi
 echo "  ✅ 验证全部通过"
+
+# 确保 openclaw/plugin-sdk 可解析：
+# openclaw plugins install 不会执行 npm lifecycle scripts，
+# 需要手动调用 postinstall-link-sdk.js 创建 node_modules/openclaw → 全局 openclaw 的符号链接
+POSTINSTALL_SCRIPT="$TARGET_DIR/scripts/postinstall-link-sdk.js"
+if [ -f "$POSTINSTALL_SCRIPT" ]; then
+    echo "  执行 postinstall-link-sdk..."
+    if node "$POSTINSTALL_SCRIPT" 2>&1; then
+        echo "  ✅ plugin-sdk 链接就绪"
+    else
+        echo "  ⚠️  postinstall-link-sdk 失败，插件可能无法加载"
+    fi
+fi
 
 # [3/4] 输出结构化信息（供 TS handler 解析）
 echo ""
