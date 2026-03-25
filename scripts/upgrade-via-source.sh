@@ -363,15 +363,6 @@ else
            [ -f "$HOME/.openclaw/extensions/$_candidate_name/package.json" ]; then
             _plugin_dir_ok=1
             echo "  ✅ 插件目录验证通过: ~/.openclaw/extensions/$_candidate_name/"
-
-            # 源码开发模式：将安装副本替换为 symlink → 源码目录
-            # 这样后续 npm run build 的产物直接生效，无需再手动同步
-            _ext_dir="$HOME/.openclaw/extensions/$_candidate_name"
-            if [ ! -L "$_ext_dir" ]; then
-                rm -rf "$_ext_dir"
-                ln -s "$PROJ_DIR" "$_ext_dir"
-                echo "  ✅ 已将安装副本替换为 symlink → $PROJ_DIR"
-            fi
             break
         fi
     done
