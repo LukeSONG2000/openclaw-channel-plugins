@@ -245,7 +245,7 @@ export class StreamingController {
   // ---- 状态机 ----
   private phase: StreamingPhase = "idle";
 
-  // ---- 核心文本状态（仅两个） ----
+  // ---- 核心文本状态 ----
   /**
    * 最后一次收到的完整 normalized 全量文本。
    * - onPartialReply 每次更新（回复边界时会拼接前缀）
@@ -253,6 +253,12 @@ export class StreamingController {
    * - onIdle 校验时用于前缀匹配
    */
   private lastNormalizedFull = "";
+  /**
+   * 最后一次收到的完整原始文本（未经 normalize）。
+   * 仅用于回复边界检测——原始文本在 partial reply 过程中是稳定递增的，
+   * 不会因为 normalizeMediaTags 对未闭合标签的处理差异导致前缀不匹配。
+   */
+  private lastRawFull = "";
   /**
    * 在 lastNormalizedFull 中已经"消费"到的位置。
    * "消费"包括：已通过流式发送并终结的文本段、已处理的媒体标签。
@@ -444,12 +450,11 @@ export class StreamingController {
       return;
     }
 
-    // ★ 回复边界检测：新文本与上次处理的内容前缀不同 → 新回复开始
-    // 比较方式：新文本 normalize 后，检查是否以上次的 lastNormalizedFull 为前缀
-    // 如果不是前缀关系（内容发生了非追加的变化），终结当前 controller，通知调用方创建新的
-    const normalized = normalizeMediaTags(text);
-    if (this.lastNormalizedFull && normalized.length > 0 && !normalized.startsWith(this.lastNormalizedFull)) {
-      this.logInfo(`onPartialReply: reply boundary detected — prefix mismatch (new len=${normalized.length}, prev len=${this.lastNormalizedFull.length}), finalizing current controller`);
+    // ★ 回复边界检测：用原始文本做前缀比较，避免 normalizeMediaTags 对未闭合标签
+    //   的不稳定处理导致误判（normalize 后的文本在 partial reply 的不同阶段可能产生
+    //   完全不同的结果，从而使 startsWith 始终失败，导致 boundary 被反复触发）
+    if (this.lastRawFull && text.length > 0 && !text.startsWith(this.lastRawFull)) {
+      this.logInfo(`onPartialReply: reply boundary detected — raw prefix mismatch (new len=${text.length}, prev len=${this.lastRawFull.length}), finalizing current controller`);
 
       // 终结当前流式会话，处理完当前内容（包括可能的未闭合媒体标签）
       this.dispatchFullyComplete = true;
@@ -465,8 +470,9 @@ export class StreamingController {
       return;
     }
 
-    // 正常增长：使用已 normalize 的文本
-    this.lastNormalizedFull = normalized;
+    // 正常增长：更新原始文本和 normalize 后的文本
+    this.lastRawFull = text;
+    this.lastNormalizedFull = normalizeMediaTags(text);;
 
     // ★ 核心：从 sentIndex 开始，处理增量文本（串行队列保证不会并发进入）
     await this.processMediaTags(this.lastNormalizedFull);
