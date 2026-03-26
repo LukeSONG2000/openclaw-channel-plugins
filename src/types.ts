@@ -26,6 +26,31 @@ export interface ResolvedQQBotAccount {
   config: QQBotAccountConfig;
 }
 
+/** 群消息策略：open=全响应 | allowlist=白名单 | disabled=不响应 */
+export type GroupPolicy = "open" | "allowlist" | "disabled";
+
+/** 工具策略：full=全部 | restricted=限制敏感工具 | none=禁止 */
+export type ToolPolicy = "full" | "restricted" | "none";
+
+/** 单个群的配置 */
+export interface GroupConfig {
+  /** 是否需要 @机器人才响应（默认 true） */
+  requireMention?: boolean;
+  /**
+   * 是否忽略 @了其他用户但没有 @机器人的消息（默认 false）。
+   * 开启后，消息中 @了其他人但未 @bot 时直接丢弃（不记录历史、不触发 AI）。
+   */
+  ignoreOtherMentions?: boolean;
+  /** 群聊中 AI 可使用的工具范围（默认 restricted） */
+  toolPolicy?: ToolPolicy;
+  /** 群名称 */
+  name?: string;
+  /** 群消息行为 PE（未配置时使用内置默认值） */
+  prompt?: string;
+  /** 群历史消息缓存条数（0 禁用，默认 20） */
+  historyLimit?: number;
+}
+
 /**
  * QQ Bot 账户配置
  */
@@ -37,6 +62,12 @@ export interface QQBotAccountConfig {
   clientSecretFile?: string;
   dmPolicy?: "open" | "pairing" | "allowlist";
   allowFrom?: string[];
+  /** 群消息策略（默认 allowlist） */
+  groupPolicy?: GroupPolicy;
+  /** 群白名单（groupPolicy 为 allowlist 时生效） */
+  groupAllowFrom?: string[];
+  /** 群配置映射（按 groupOpenid 索引，"*" 为默认） */
+  groups?: Record<string, GroupConfig>;
   /** 系统提示词，会添加在用户消息前面 */
   systemPrompt?: string;
   /** 图床服务器公网地址，用于发送图片，例如 http://your-ip:18765 */
@@ -199,6 +230,8 @@ export interface GroupMessageEvent {
   author: {
     id: string;
     member_openid: string;
+    username?: string;
+    bot?: boolean;
   };
   content: string;
   id: string;
@@ -210,6 +243,65 @@ export interface GroupMessageEvent {
     ext?: string[];
   };
   attachments?: MessageAttachment[];
+  /** @提及列表 */
+  mentions?: Array<{
+    scope?: "all" | "single";
+    id?: string;
+    user_openid?: string;
+    member_openid?: string;
+    nickname?: string;
+    bot?: boolean;
+    /** 是否 @机器人自身 */
+    is_you?: boolean;
+  }>;
+}
+
+/**
+ * 按钮交互事件（INTERACTION_CREATE）
+ */
+export interface InteractionEvent {
+  /** 事件 ID，用于回应交互（PUT /interactions/{id}） */
+  id: string;
+  /** 事件类型：11=消息按钮 12=单聊快捷菜单 */
+  type: number;
+  /** 场景：c2c / group / guild */
+  scene?: string;
+  /** 场景类型：0=频道 1=群聊 2=单聊 */
+  chat_type?: number;
+  /** 触发时间 RFC3339 */
+  timestamp?: string;
+  /** 频道 openid（仅频道场景） */
+  guild_id?: string;
+  /** 子频道 openid（仅频道场景） */
+  channel_id?: string;
+  /** 单聊用户 openid（仅 c2c 场景） */
+  user_openid?: string;
+  /** 群 openid（仅群聊场景） */
+  group_openid?: string;
+  /** 群内触发用户 openid（仅群聊场景） */
+  group_member_openid?: string;
+  version: number;
+  data: {
+    type: number;
+    resolved: {
+      /** 按钮 action.data 值 */
+      button_data?: string;
+      /** 按钮 id */
+      button_id?: string;
+      /** 操作用户 userid（仅频道场景） */
+      user_id?: string;
+      /** 自定义菜单 id（仅菜单场景） */
+      feature_id?: string;
+      /** 操作的消息 id（仅频道场景） */
+      message_id?: string;
+      /** 配置更新：群消息模式 "mention"=@机器人时激活 "always"=总是激活 */
+      require_mention?: string;
+      /** 配置更新：群消息策略 */
+      group_policy?: GroupPolicy;
+      /** 配置更新：@文本的名称提及BOT名，多个使用,分隔 */
+      mention_patterns?: string;
+    };
+  };
 }
 
 /**

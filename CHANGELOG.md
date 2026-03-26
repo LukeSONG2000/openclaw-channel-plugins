@@ -4,6 +4,25 @@ All notable changes to this project will be documented in this file.
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/).
 
+## [1.6.7] - 2026-03-26
+
+### Added
+
+- **Group message support**: Receive, process, and reply to messages in QQ groups with access control and per-group configuration.
+- **Group history context**: Cache non-@messages per group and inject as conversational context when the bot is @mentioned, with configurable history limit.
+- **Group message gating**: Unified three-layer gate logic for @mention filtering and message blocking.
+- **Group message merging**: Merge queued group messages into a single request with sender prefixes and deduplicated mentions.
+- **@mention detection**: Adapters supporting mentions list, event type, and regex patterns.
+- **Interaction event handling**: API for button interaction events (config query, config update).
+- **Per-group config resolution**: Group-specific → wildcard → default fallback chain for all group settings.
+- **Agent-aware mention patterns**: Per-agent @-detection keywords with priority resolution.
+
+### Changed
+
+- **Message queue**: Refactored from user-only to peer-based keys with separate queue size limits for group and private chat.
+- **Group message sending**: Added message reference support and outbound hooks.
+- **Upgrade script**: Adapted for deferred config restore (openclaw 3.23+ compatibility).
+
 ## [1.6.6] - 2026-03-25
 
 ### Added
