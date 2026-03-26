@@ -41,6 +41,7 @@
 | 📝 **Markdown** | 完整支持 Markdown 格式消息 |
 | 🛠️ **原生命令** | 支持 OpenClaw 原生命令 |
 | 💬 **引用上下文** | 解析 QQ `REFIDX_*` 引用消息，并将引用内容注入 AI 上下文 |
+| 📦 **大文件支持** | 大文件自动分片并行上传，最大支持 100 MB |
 
 ---
 
@@ -205,6 +206,10 @@ AI 可直接发送视频，支持本地文件和公网 URL。
 > **你**：`/bot-upgrade ?`
 >
 > **QQBot**：📖 /bot-upgrade 用法：…
+
+#### `/bot-clear-storage` — 清理通过 QQBot 对话产生的文件以及下载的资源（保存在 OpenClaw 运行环境的主机上）
+
+`/bot-clear-storage` 列出对话产生的文件以及下载的资源目录里的文件，使用`/bot-clear-storage -- force`确定删除。
 
 ---
 
