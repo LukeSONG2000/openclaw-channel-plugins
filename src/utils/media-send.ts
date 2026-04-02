@@ -14,6 +14,8 @@ import {
   sendVideoMsg,
   sendDocument,
   sendMedia as sendMediaAuto,
+  DEFAULT_MEDIA_SEND_ERROR,
+  resolveUserFacingMediaError,
   type MediaTargetContext,
 } from "../outbound.js";
 import type { ResolvedQQBotAccount } from "../types.js";
@@ -70,12 +72,16 @@ export function fixPathEncoding(mediaPath: string, log?: { debug?: (msg: string)
   // 1. 双反斜杠 -> 单反斜杠（Markdown 转义）
   let result = mediaPath.replace(/\\\\/g, "\\");
 
+  // Skip octal escape decoding for Windows local paths (e.g. C:\Users\1\file.txt)
+  // where backslash-digit sequences like \1, \2 ... \7 are directory separators,
+  // not octal escape sequences.
+  const isWinLocal = /^[a-zA-Z]:[\\/]/.test(mediaPath) || mediaPath.startsWith("\\\\");
   // 2. 八进制转义序列 + UTF-8 双重编码修复
   try {
     const hasOctal = /\\[0-7]{1,3}/.test(result);
     const hasNonASCII = /[\u0080-\u00FF]/.test(result);
 
-    if (hasOctal || hasNonASCII) {
+    if (!isWinLocal && (hasOctal || hasNonASCII)) {
       log?.debug?.(`Decoding path with mixed encoding: ${result}`);
 
       // Step 1: 将八进制转义转换为字节
@@ -115,20 +121,56 @@ export function fixPathEncoding(mediaPath: string, log?: { debug?: (msg: string)
   return result;
 }
 
+// ============ 代码块检测 ============
+
+/**
+ * 判断文本中给定位置是否处于围栏代码块内（``` 块）。
+ *
+ * 围栏代码块：行首 ``` 开始，到下一个行首 ``` 结束（或文本末尾）
+ *
+ * @param text 完整文本
+ * @param position 要检测的位置（字符索引）
+ * @returns 如果 position 在围栏代码块内返回 true
+ */
+export function isInsideCodeBlock(text: string, position: number): boolean {
+  const fenceRegex = /^(`{3,})[^\n]*$/gm;
+  let fenceMatch: RegExpExecArray | null;
+  let openFence: { pos: number; ticks: number } | null = null;
+
+  while ((fenceMatch = fenceRegex.exec(text)) !== null) {
+    const ticks = fenceMatch[1]!.length;
+    if (!openFence) {
+      openFence = { pos: fenceMatch.index, ticks };
+    } else if (ticks >= openFence.ticks) {
+      // 闭合围栏
+      if (position >= openFence.pos && position < fenceMatch.index + fenceMatch[0].length) return true;
+      openFence = null;
+    }
+  }
+  // 未闭合的围栏一直延伸到文本末尾
+  if (openFence && position >= openFence.pos) return true;
+
+  return false;
+}
+
 // ============ 媒体标签解析 ============
 
 /**
- * 检测文本是否包含富媒体标签
+ * 检测文本是否包含富媒体标签（忽略代码块内的标签）
  */
 export function hasMediaTags(text: string): boolean {
   const normalized = normalizeMediaTags(text);
   const regex = createMediaTagRegex();
-  return regex.test(normalized);
+  let match: RegExpExecArray | null;
+  while ((match = regex.exec(normalized)) !== null) {
+    if (!isInsideCodeBlock(normalized, match.index)) return true;
+  }
+  return false;
 }
 
 /** findFirstClosedMediaTag 的返回值 */
 export interface FirstClosedMediaTag {
-  /** 标签前的纯文本（已 trim） */
+  /** 标签前的纯文本 */
   textBefore: string;
   /** 标签类型（小写，如 "qqvoice"） */
   tagName: string;
@@ -154,35 +196,44 @@ export function findFirstClosedMediaTag(
   log?: { info?: (msg: string) => void; debug?: (msg: string) => void; error?: (msg: string) => void },
 ): FirstClosedMediaTag | null {
   const regex = createMediaTagRegex();
-  const match = regex.exec(text);
-  if (!match) return null;
+  let match: RegExpExecArray | null;
 
-  const textBefore = text.slice(0, match.index).replace(/\n{3,}/g, "\n\n").trim();
-  const tagName = match[1]!.toLowerCase();
-  let mediaPath = match[2]?.trim() ?? "";
+  while ((match = regex.exec(text)) !== null) {
+    // 跳过代码块内的媒体标签
+    if (isInsideCodeBlock(text, match.index)) {
+      log?.debug?.(`findFirstClosedMediaTag: skipping <${match[1]}> at index ${match.index} (inside code block)`);
+      continue;
+    }
 
-  // 剥离 MEDIA: 前缀
-  if (mediaPath.startsWith("MEDIA:")) {
-    mediaPath = mediaPath.slice("MEDIA:".length);
+    const textBefore = text.slice(0, match.index);
+    const tagName = match[1]!.toLowerCase();
+    let mediaPath = match[2]?.trim() ?? "";
+
+    // 剥离 MEDIA: 前缀
+    if (mediaPath.startsWith("MEDIA:")) {
+      mediaPath = mediaPath.slice("MEDIA:".length);
+    }
+    mediaPath = normalizePath(mediaPath);
+    mediaPath = fixPathEncoding(mediaPath, log);
+
+    const typeMap: Record<string, SendQueueItem["type"]> = {
+      qqimg: "image",
+      qqvoice: "voice",
+      qqvideo: "video",
+      qqfile: "file",
+      qqmedia: "media",
+    };
+
+    return {
+      textBefore,
+      tagName,
+      mediaPath,
+      tagEndIndex: match.index! + match[0].length,
+      itemType: typeMap[tagName] ?? "image",
+    };
   }
-  mediaPath = normalizePath(mediaPath);
-  mediaPath = fixPathEncoding(mediaPath, log);
 
-  const typeMap: Record<string, SendQueueItem["type"]> = {
-    qqimg: "image",
-    qqvoice: "voice",
-    qqvideo: "video",
-    qqfile: "file",
-    qqmedia: "media",
-  };
-
-  return {
-    textBefore,
-    tagName,
-    mediaPath,
-    tagEndIndex: match.index! + match[0].length,
-    itemType: typeMap[tagName] ?? "image",
-  };
+  return null;
 }
 
 /**
@@ -212,7 +263,8 @@ export function splitByMediaTags(
 ): MediaSplitResult {
   const normalized = normalizeMediaTags(text);
   const regex = createMediaTagRegex();
-  const matches = [...normalized.matchAll(regex)];
+  // 过滤掉代码块内的匹配
+  const matches = [...normalized.matchAll(regex)].filter(m => !isInsideCodeBlock(normalized, m.index!));
 
   if (matches.length === 0) {
     return {
@@ -364,7 +416,6 @@ export async function executeSendQueue(
   };
 
   for (const item of queue) {
-    const FALLBACK_MSG = "发送失败，请稍后重试。";
     try {
       if (item.type === "text") {
         if (options.skipInterTagText) {
@@ -385,7 +436,7 @@ export async function executeSendQueue(
         const result = await sendPhoto(mediaTarget, item.content);
         if (result.error) {
           log?.error(`${prefix} sendPhoto error: ${result.error}`);
-          await sendFallbackText(FALLBACK_MSG);
+          await sendFallbackText(resolveUserFacingMediaError(result));
         }
       } else if (item.type === "voice") {
         const uploadFormats =
@@ -406,23 +457,23 @@ export async function executeSendQueue(
           ]);
           if (result.error) {
             log?.error(`${prefix} sendVoice error: ${result.error}`);
-            await sendFallbackText(FALLBACK_MSG);
+            await sendFallbackText(resolveUserFacingMediaError(result));
           }
         } catch (err) {
           log?.error(`${prefix} sendVoice unexpected error: ${err}`);
-          await sendFallbackText(FALLBACK_MSG);
+          await sendFallbackText(DEFAULT_MEDIA_SEND_ERROR);
         }
       } else if (item.type === "video") {
         const result = await sendVideoMsg(mediaTarget, item.content);
         if (result.error) {
           log?.error(`${prefix} sendVideoMsg error: ${result.error}`);
-          await sendFallbackText(FALLBACK_MSG);
+          await sendFallbackText(resolveUserFacingMediaError(result));
         }
       } else if (item.type === "file") {
         const result = await sendDocument(mediaTarget, item.content);
         if (result.error) {
           log?.error(`${prefix} sendDocument error: ${result.error}`);
-          await sendFallbackText(FALLBACK_MSG);
+          await sendFallbackText(resolveUserFacingMediaError(result));
         }
       } else if (item.type === "media") {
         const result = await sendMediaAuto({
@@ -435,12 +486,12 @@ export async function executeSendQueue(
         });
         if (result.error) {
           log?.error(`${prefix} sendMedia(auto) error: ${result.error}`);
-          await sendFallbackText(FALLBACK_MSG);
+          await sendFallbackText(resolveUserFacingMediaError(result));
         }
       }
     } catch (err) {
       log?.error(`${prefix} executeSendQueue: failed to send ${item.type}: ${err}`);
-      await sendFallbackText(FALLBACK_MSG);
+      await sendFallbackText(DEFAULT_MEDIA_SEND_ERROR);
     }
   }
 }

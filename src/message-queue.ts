@@ -1,4 +1,5 @@
 import type { QueueSnapshot } from "./slash-commands.js";
+import type { MsgElement } from "./types.js";
 
 // ── 消息队列默认配置 ──
 const DEFAULT_GLOBAL_QUEUE_SIZE = 1000;
@@ -32,6 +33,10 @@ export interface QueuedMessage {
   mentions?: Array<{ scope?: "all" | "single"; id?: string; user_openid?: string; member_openid?: string; username?: string; bot?: boolean; is_you?: boolean }>;
   /** 消息场景（来源、扩展字段） */
   messageScene?: { source?: string; ext?: string[] };
+  /** 消息元素列表，引用消息时 [0] 为被引用的原始消息 */
+  msgElements?: MsgElement[];
+  /** 消息类型，参见 MSG_TYPE_* */
+  msgType?: number;
   /** 群消息合并标记：记录合并了多少条原始消息 */
   _mergedCount?: number;
   /** 合并前的原始消息列表（用于 gateway 侧逐条格式化信封） */

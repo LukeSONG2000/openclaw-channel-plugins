@@ -1,3 +1,9 @@
+// ── QQ 消息类型常量（message_type 枚举值） ──
+/** 普通文本消息 */
+export const MSG_TYPE_TEXT = 0;
+/** 引用（回复）消息 */
+export const MSG_TYPE_QUOTE = 103;
+
 /**
  * QQ Bot 配置类型
  */
@@ -207,6 +213,10 @@ export interface C2CMessageEvent {
     ext?: string[];
   };
   attachments?: MessageAttachment[];
+  /** 消息类型，参见 MSG_TYPE_* */
+  message_type?: number;
+  /** 消息元素列表，引用消息时 [0] 为被引用的原始消息 */
+  msg_elements?: MsgElement[];
 }
 
 /**
@@ -228,6 +238,20 @@ export interface GuildMessageEvent {
     joined_at?: string;
   };
   attachments?: MessageAttachment[];
+}
+
+/** 消息元素结点，引用消息时 msg_elements[0] 为被引用的原始消息 */
+export interface MsgElement {
+  /** 消息索引标识 */
+  msg_idx?: string;
+  /** 消息类型，参见 MSG_TYPE_* 常量 */
+  message_type?: number;
+  /** 文本内容 */
+  content?: string;
+  /** 附件列表 */
+  attachments?: MessageAttachment[];
+  /** 嵌套消息元素（引用消息场景下可能存在） */
+  msg_elements?: MsgElement[];
 }
 
 /**
@@ -261,6 +285,10 @@ export interface GroupMessageEvent {
     /** 是否 @机器人自身 */
     is_you?: boolean;
   }>;
+  /** 消息类型，参见 MSG_TYPE_* */
+  message_type?: number;
+  /** 消息元素列表，引用消息时 [0] 为被引用的原始消息 */
+  msg_elements?: MsgElement[];
 }
 
 /**
@@ -372,22 +400,4 @@ export interface StreamMessageRequest {
   index: number;
 }
 
-/**
- * 流式消息响应体
- * 对应 StreamRsp proto
- * 
- * 成功时返回：{ id, timestamp, extInfo }（无 code/message）
- * 失败时返回：{ code, message }（code > 0）
- */
-export interface StreamMessageResponse {
-  /** 错误码，仅失败时存在（> 0 表示失败）；成功时不存在 */
-  code?: number;
-  /** 错误信息，仅失败时存在 */
-  message?: string;
-  /** 流式消息 ID */
-  id?: string;
-  /** 时间戳 */
-  timestamp?: string;
-  /** 扩展信息 */
-  extInfo?: Record<string, unknown>;
-}
+
