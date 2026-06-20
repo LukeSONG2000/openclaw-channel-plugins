@@ -40,15 +40,31 @@ The runtime should only depend on a small adapter interface, so future official 
 
 ### `src/custom/runtime.ts`
 
-Owns lifecycle and wires custom modules into the gateway.
+Owns the pure in-memory custom module composition.
 
 Responsibilities:
 
 - create per-account runtime state
-- receive normalized inbound messages
-- return routing decisions, synthetic jobs, or direct replies
-- observe dispatch completion and errors
-- expose hooks for shutdown/flush
+- expose shared scene/auth/unread/proactive/task/poll runtimes
+- provide inspection helpers for unread and proactive config
+- re-export stable custom runtime types used by gateway adapters
+
+### `src/custom/message-flow-state.ts`
+
+Owns the per-account custom runtime lifecycle and persistence boundary.
+
+Current implementation status:
+
+- Creates a `CustomMessageFlowRuntime` for one QQBot account.
+- Restores auth, proactive budget, task sandbox, poll, and unread state from their stores.
+- Exposes small persist callbacks for each state area plus `persistAllState()`.
+- Returns restored auth intents so the gateway can keep the existing authorization logging behavior.
+- Keeps store module imports out of `gateway.ts`, reducing gateway coupling to custom state internals.
+
+Important boundary:
+
+- This module still runs inside the QQBot connector process.
+- It is a step toward a thinner gateway adapter, not yet a full standalone middleware package.
 
 ### `src/custom/types.ts`
 
@@ -475,6 +491,7 @@ Minimal changes in `src/gateway.ts` should be limited to:
 - let runtime provide extra context for dispatch
 - call runtime after dispatch completion/failure
 - let runtime create synthetic messages through a typed interface
+- delegate custom state restore/save to `src/custom/message-flow-state.ts`
 
 Avoid hardcoding custom timers, scene policy, or child processes directly in `gateway.ts`.
 

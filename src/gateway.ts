@@ -46,7 +46,6 @@ import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
-  createCustomMessageFlowRuntime,
   inspectCustomProactiveConfig,
   inspectCustomUnreadConfig,
   type CustomMessageFlowRuntime,
@@ -68,14 +67,10 @@ import {
   handleCustomAuthCommand,
   handleCustomAuthInteraction,
 } from "./custom/auth-gateway-adapter.js";
-import { loadCustomAuthorizationState, saveCustomAuthorizationState } from "./custom/auth-store.js";
-import { loadCustomProactiveBudgetState, saveCustomProactiveBudgetState } from "./custom/proactive-budget-store.js";
+import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { handleCustomPollCommand, handleCustomPollInteraction } from "./custom/poll-gateway-adapter.js";
-import { loadCustomPollState, saveCustomPollState } from "./custom/poll-store.js";
 import { handleCustomTaskCommand } from "./custom/task-gateway-adapter.js";
-import { loadCustomTaskSandboxState, saveCustomTaskSandboxState } from "./custom/task-sandbox-store.js";
 import { appendCustomTaskRequirement, materializeCustomTaskWorkspace, writeCustomTaskStatus } from "./custom/task-workspace.js";
-import { loadCustomUnreadState, saveCustomUnreadState } from "./custom/unread-store.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -698,53 +693,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     log,
     isAborted: () => isAborted,
   });
-  const customMessageFlow = createCustomMessageFlowRuntime();
-  const restoredCustomAuthState = loadCustomAuthorizationState(account.accountId);
-  if (restoredCustomAuthState) {
-    const restoredIntents = customMessageFlow.auth.loadState(restoredCustomAuthState);
-    log?.info(`[qqbot:${account.accountId}] Restored custom auth state: grants=${Object.keys(restoredCustomAuthState.grants).length}, requests=${Object.keys(restoredCustomAuthState.requests).length}`);
-    if (restoredIntents.length) {
-      for (const item of describeCustomAuthorizationIntents(restoredIntents)) {
-        log?.info(`[qqbot:${account.accountId}] custom auth restore: ${item}`);
-      }
-      saveCustomAuthorizationState(account.accountId, customMessageFlow.auth.getState());
-    }
+  const customState = createCustomMessageFlowStateController({
+    accountId: account.accountId,
+    log,
+  });
+  const customMessageFlow = customState.runtime;
+  for (const item of describeCustomAuthorizationIntents(customState.restoredAuthIntents)) {
+    log?.info(`[qqbot:${account.accountId}] custom auth restore: ${item}`);
   }
-  const persistCustomAuthState = (): void => {
-    saveCustomAuthorizationState(account.accountId, customMessageFlow.auth.getState());
-  };
-  const restoredProactiveBudgetState = loadCustomProactiveBudgetState(account.accountId);
-  if (restoredProactiveBudgetState) {
-    customMessageFlow.proactiveBudget.loadState(restoredProactiveBudgetState);
-    log?.info(`[qqbot:${account.accountId}] Restored custom proactive budget state: entries=${Object.keys(restoredProactiveBudgetState.entries).length}`);
-  }
-  const persistCustomProactiveBudgetState = (): void => {
-    saveCustomProactiveBudgetState(account.accountId, customMessageFlow.proactiveBudget.getState());
-  };
-  const restoredTaskState = loadCustomTaskSandboxState(account.accountId);
-  if (restoredTaskState) {
-    customMessageFlow.tasks.loadState(restoredTaskState);
-    log?.info(`[qqbot:${account.accountId}] Restored custom task sandbox state: tasks=${Object.keys(restoredTaskState.tasks).length}`);
-  }
-  const persistCustomTaskState = (): void => {
-    saveCustomTaskSandboxState(account.accountId, customMessageFlow.tasks.getState());
-  };
-  const restoredPollState = loadCustomPollState(account.accountId);
-  if (restoredPollState) {
-    customMessageFlow.polls.loadState(restoredPollState);
-    log?.info(`[qqbot:${account.accountId}] Restored custom poll state: polls=${Object.keys(restoredPollState.polls).length}`);
-  }
-  const persistCustomPollState = (): void => {
-    saveCustomPollState(account.accountId, customMessageFlow.polls.getState());
-  };
-  const restoredUnreadState = loadCustomUnreadState(account.accountId);
-  if (restoredUnreadState) {
-    customMessageFlow.unread.loadState(restoredUnreadState);
-    log?.info(`[qqbot:${account.accountId}] Restored custom unread state: peers=${Object.keys(restoredUnreadState.peers).length}, snapshots=${Object.keys(restoredUnreadState.snapshots).length}`);
-  }
-  const persistCustomUnreadState = (): void => {
-    saveCustomUnreadState(account.accountId, customMessageFlow.unread.getState());
-  };
+  const persistCustomAuthState = customState.persistAuthState;
+  const persistCustomProactiveBudgetState = customState.persistProactiveBudgetState;
+  const persistCustomTaskState = customState.persistTaskState;
+  const persistCustomPollState = customState.persistPollState;
+  const persistCustomUnreadState = customState.persistUnreadState;
   const customUnreadFollowupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const customUnreadSleepDigestTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -1039,16 +1000,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     flushKnownUsers();
     // P1-4: 保存引用索引数据
     flushRefIndex();
-    // 保存自定义授权状态
-    persistCustomAuthState();
-    // 保存自定义主动发送预算
-    persistCustomProactiveBudgetState();
-    // 保存自定义长任务沙箱状态
-    persistCustomTaskState();
-    // 保存自定义投票状态
-    persistCustomPollState();
-    // 保存自定义未读消息流状态
-    persistCustomUnreadState();
+    // 保存自定义消息流状态
+    customState.persistAllState();
     // 停止审批 handler
     void approvalHandler.stop();
     unregisterApprovalHandler(account.accountId);

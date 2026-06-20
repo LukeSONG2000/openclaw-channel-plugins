@@ -234,3 +234,14 @@ Still intentionally open:
 
 - Custom poll cards need validation on the actual deployed bot after installing the custom package.
 - Broader task cards, scene switch cards, deploy confirmation cards, and lightweight games remain future increments.
+
+Started reducing custom gateway coupling:
+
+- Added `src/custom/message-flow-state.ts` as a per-account lifecycle boundary for custom runtime state.
+- The state controller creates the in-memory custom runtime, restores auth/proactive/task/poll/unread state, exposes focused persist callbacks, and supports `persistAllState()` on shutdown.
+- `gateway.ts` no longer imports the individual custom store modules directly.
+- Added `tests/custom-message-flow-state.test.ts` to verify restore and save across all current custom state areas.
+
+Still intentionally open:
+
+- Slash-command handling, interaction handling, unread timers, and dispatch completion hooks are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
