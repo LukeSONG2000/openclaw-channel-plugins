@@ -97,10 +97,13 @@ Wired custom authorization into plugin-level slash command handling:
   - `/bot-auth approve <requestId> timed 10m`
   - `/bot-auth deny <requestId>`
 - `/bot-auth` resolves approval requests against the live per-account `CustomAuthorizationRuntime`, creating once/count/timed temporary grants without entering the AI queue.
+- Added QQ inline keyboard cards for new custom auth requests in C2C/group messages.
+- Custom auth card buttons currently support allow once, allow 3 times, and deny through `custom-auth:<requestId>:...` interaction callbacks.
+- Card handling reuses the same per-account `CustomAuthorizationRuntime` as `/bot-auth`, so button approvals create temporary grants immediately.
 - Added `tests/slash-command-capability.test.ts` and `tests/custom-auth-gateway-adapter.test.ts`.
 
 Still intentionally open:
 
-- QQ inline keyboard approval cards for custom auth requests.
 - Persistent grant/request storage across gateway reconnects/restarts.
 - Authorization for model/tool dispatch beyond plugin-level slash commands.
+- Richer card controls for arbitrary temporary grant count/duration.

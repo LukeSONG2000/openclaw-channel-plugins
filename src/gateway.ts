@@ -4,7 +4,7 @@ import fs from "node:fs";
 import type { ResolvedQQBotAccount, WSPayload, C2CMessageEvent, GuildMessageEvent, GroupMessageEvent, InteractionEvent, MsgElement, TransportMode } from "./types.js";
 import { MSG_TYPE_QUOTE } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
-import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger } from "./api.js";
+import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession, saveSession, clearSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -45,6 +45,7 @@ import { resolveCustomRuntimeConfig } from "./custom/config.js";
 import {
   createCustomMessageFlowRuntime,
   inspectCustomUnreadConfig,
+  type CustomMessageFlowRuntime,
   type ResolvedCustomUnreadConfig,
 } from "./custom/runtime.js";
 import {
@@ -54,10 +55,14 @@ import {
   type CustomUnreadGatewayEffect,
 } from "./custom/unread-gateway-adapter.js";
 import {
+  buildCustomAuthApprovalKeyboard,
+  buildCustomAuthApprovalText,
   checkCustomSlashAuthorization,
   describeCustomAuthorizationIntents,
+  firstCustomAuthApprovalRequest,
   formatCustomAuthorizationDeniedMessage,
   handleCustomAuthCommand,
+  handleCustomAuthInteraction,
 } from "./custom/auth-gateway-adapter.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -74,6 +79,7 @@ async function handleInteractionCreate(params: {
   event: InteractionEvent;
   account: ResolvedQQBotAccount;
   cfg: unknown;
+  customAuth?: CustomMessageFlowRuntime["auth"];
   log?: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void };
 }): Promise<void> {
   const { event, account, cfg, log } = params;
@@ -203,6 +209,35 @@ async function handleInteractionCreate(params: {
     // button_data 格式：approve:<approvalId>:<decision>
     // approvalId 可能是 "exec:uuid" / "plugin:uuid"（带前缀）或纯 "uuid"（无前缀）
     const buttonData = event.data?.resolved?.button_data ?? "";
+    const customAuthResult = params.customAuth ? handleCustomAuthInteraction({
+      cfg: cfg as any,
+      auth: params.customAuth,
+      buttonData,
+      actorId: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
+      now: Date.now(),
+    }) : { handled: false };
+    if (customAuthResult.handled) {
+      if (customAuthResult.intent) {
+        for (const item of describeCustomAuthorizationIntents([customAuthResult.intent])) {
+          log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
+        }
+      }
+      if (customAuthResult.reply) {
+        try {
+          if (event.group_openid) {
+            await sendGroupMessage(token, event.group_openid, customAuthResult.reply);
+          } else if (event.user_openid) {
+            await sendC2CMessage(token, event.user_openid, customAuthResult.reply);
+          } else if (event.channel_id) {
+            await sendChannelMessage(token, event.channel_id, customAuthResult.reply);
+          }
+        } catch (sendErr) {
+          log?.error(`[qqbot:${account.accountId}] Failed to send custom auth interaction reply: ${sendErr}`);
+        }
+      }
+      return;
+    }
+
     const m = buttonData.match(/^approve:((?:(?:exec|plugin):)?[0-9a-f-]+):(allow-once|allow-always|deny)$/i);
     if (m) {
       const approvalId = m[1]!;
@@ -666,6 +701,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }
       };
 
+      const sendSlashAuthApprovalCard = async (
+        decision: ReturnType<typeof checkCustomSlashAuthorization>,
+      ): Promise<boolean> => {
+        const request = decision.result?.intents
+          ? firstCustomAuthApprovalRequest(decision.result.intents)
+          : null;
+        if (!request) return false;
+        if (msg.type !== "c2c" && msg.type !== "group") return false;
+
+        const token = await getAccessToken(account.appId, account.clientSecret);
+        const text = buildCustomAuthApprovalText(request);
+        const keyboard = buildCustomAuthApprovalKeyboard(request.id);
+        if (msg.type === "c2c") {
+          await sendC2CMessageWithInlineKeyboard(token, msg.senderId, text, keyboard, msg.messageId);
+          return true;
+        }
+        if (msg.type === "group" && msg.groupOpenid) {
+          await sendGroupMessageWithInlineKeyboard(token, msg.groupOpenid, text, keyboard, msg.messageId);
+          return true;
+        }
+        return false;
+      };
+
       const customAuthCommand = handleCustomAuthCommand({
         cfg: cfg as any,
         auth: customMessageFlow.auth,
@@ -703,9 +761,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         log?.info(`[qqbot:${account.accountId}] Slash command denied by custom auth: capability=${authDecision.capability} sender=${msg.senderId} content=${content.slice(0, 80)}`);
         const denialText = formatCustomAuthorizationDeniedMessage(authDecision);
         try {
-          await sendSlashTextReply(denialText);
+          const sentCard = await sendSlashAuthApprovalCard(authDecision);
+          if (!sentCard) {
+            await sendSlashTextReply(denialText);
+          }
         } catch (sendErr) {
-          log?.error(`[qqbot:${account.accountId}] Failed to send custom auth denial message: ${sendErr}`);
+          log?.error(`[qqbot:${account.accountId}] Failed to send custom auth approval card, falling back to text: ${sendErr}`);
+          try {
+            await sendSlashTextReply(denialText);
+          } catch (fallbackErr) {
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom auth denial fallback: ${fallbackErr}`);
+          }
         }
         return;
       }
@@ -2194,7 +2260,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const resolved = ev.data?.resolved;
           const sceneDesc = ev.scene ?? (ev.chat_type === 0 ? "guild" : ev.chat_type === 1 ? "group" : "c2c");
           log?.info(`[qqbot:${account.accountId}] Interaction: scene=${sceneDesc}, type=${ev.data?.type}, button_id=${resolved?.button_id}, button_data=${resolved?.button_data}`);
-          handleInteractionCreate({ event: ev, account, cfg, log }).catch((err) => {
+          handleInteractionCreate({ event: ev, account, cfg, customAuth: customMessageFlow.auth, log }).catch((err) => {
             log?.error(`[qqbot:${account.accountId}] Failed to handle interaction ${ev.id}: ${err}`);
           });
         }

@@ -1,9 +1,14 @@
 import assert from "node:assert";
 import { CustomAuthorizationRuntime } from "../src/custom/auth.js";
 import {
+  buildCustomAuthApprovalKeyboard,
+  buildCustomAuthApprovalText,
   checkCustomSlashAuthorization,
+  firstCustomAuthApprovalRequest,
   formatCustomAuthorizationDeniedMessage,
   handleCustomAuthCommand,
+  handleCustomAuthInteraction,
+  parseCustomAuthButtonData,
   parseCustomAuthCommand,
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
@@ -168,5 +173,79 @@ const allowedAdmin = checkCustomSlashAuthorization({
 assert.equal(allowedAdmin.allowed, true);
 assert.equal(allowedAdmin.capability, "deploy.apply");
 assert.equal(allowedAdmin.result?.decision.source, "admin");
+
+const cardAuth = new CustomAuthorizationRuntime();
+const cardDenied = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: cardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 10_000,
+});
+const cardRequest = firstCustomAuthApprovalRequest(cardDenied.result?.intents ?? []);
+assert.equal(cardRequest?.id, "authreq-10000-1");
+if (!cardRequest) throw new Error("expected custom auth request");
+assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
+const keyboard = buildCustomAuthApprovalKeyboard(cardRequest.id);
+assert.equal(keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:allow-once");
+assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-count"), {
+  requestId: "authreq-10000-1",
+  decision: "allow-count",
+});
+assert.equal(parseCustomAuthButtonData("approve:abc:allow-once"), null);
+
+const nonAdminButton = handleCustomAuthInteraction({
+  cfg: authCfg,
+  auth: cardAuth,
+  buttonData: "custom-auth:authreq-10000-1:allow-once",
+  actorId: "MEMBER_OPENID",
+  now: 11_000,
+});
+assert.equal(nonAdminButton.handled, true);
+assert.equal(nonAdminButton.reply?.includes("只有 customRuntime.admins"), true);
+
+const adminButton = handleCustomAuthInteraction({
+  cfg: authCfg,
+  auth: cardAuth,
+  buttonData: "custom-auth:authreq-10000-1:allow-count",
+  actorId: "ADMIN_OPENID",
+  now: 12_000,
+});
+assert.equal(adminButton.handled, true);
+assert.equal(adminButton.intent?.kind, "approval-resolved");
+assert.equal(adminButton.reply?.includes("已批准临时授权"), true);
+
+const cardGrantUseOne = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: cardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 13_000,
+});
+assert.equal(cardGrantUseOne.allowed, true);
+const cardGrantUseTwo = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: cardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 14_000,
+});
+assert.equal(cardGrantUseTwo.allowed, true);
+const cardGrantUseThree = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: cardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 15_000,
+});
+assert.equal(cardGrantUseThree.allowed, true);
+const cardGrantUseFour = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: cardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 16_000,
+});
+assert.equal(cardGrantUseFour.allowed, false);
 
 console.log("custom auth gateway adapter tests passed");

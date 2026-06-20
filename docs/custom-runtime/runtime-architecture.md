@@ -167,6 +167,8 @@ Current implementation status:
 - Calls `CustomAuthorizationRuntime.check()` before plugin command handlers execute.
 - Formats visible denial text for C2C, group, channel, and DM replies.
 - Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
+- Builds QQ inline keyboard approval cards for new unauthorized C2C/group slash-command requests.
+- Handles `custom-auth:<requestId>:allow-once|allow-count|allow-timed|deny` button callbacks through the same per-account auth runtime.
 - Logs approval/grant intents in the gateway for observability.
 
 Initial slash command capability mapping:
@@ -190,10 +192,9 @@ Text approval commands:
 
 Still open:
 
-- QQ inline keyboard approval cards for custom auth requests.
-- Interaction handler for `custom-auth:<requestId>:...`.
 - Persistent grants and requests across gateway reconnects/restarts.
 - Model/tool dispatch authorization outside plugin-level slash commands.
+- Richer custom auth card variants, such as selecting arbitrary grant counts or durations from the card.
 
 ### `src/custom/unread-runtime.ts`
 

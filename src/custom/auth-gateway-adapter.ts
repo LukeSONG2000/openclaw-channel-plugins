@@ -3,7 +3,15 @@ import type { QueuedMessage } from "../message-queue.js";
 import { getSlashCommandCapability } from "../slash-commands.js";
 import { isCustomRuntimeAdmin, type CustomAuthorizationCheckResult, type CustomAuthorizationRuntime } from "./auth.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
-import type { CustomActor, CustomAuthorizationIntent, CustomCapability, CustomGrantUse, CustomPeer } from "./types.js";
+import type {
+  CustomActor,
+  CustomAuthorizationApprovalRequest,
+  CustomAuthorizationIntent,
+  CustomCapability,
+  CustomGrantUse,
+  CustomPeer,
+} from "./types.js";
+import type { InlineKeyboard, KeyboardButton } from "../types.js";
 
 export interface CustomSlashAuthorizationDecision {
   enabled: boolean;
@@ -131,6 +139,19 @@ export interface CustomAuthCommandResult {
   handled: boolean;
   reply?: string;
   intent?: CustomAuthorizationIntent;
+}
+
+export interface CustomAuthInteractionResult {
+  handled: boolean;
+  reply?: string;
+  intent?: CustomAuthorizationIntent;
+}
+
+type CustomAuthButtonDecision = "allow-once" | "allow-count" | "allow-timed" | "deny";
+
+export interface CustomAuthButtonPayload {
+  requestId: string;
+  decision: CustomAuthButtonDecision;
 }
 
 export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandParseResult {
@@ -301,6 +322,109 @@ export function handleCustomAuthCommand(params: {
   };
 }
 
+export function buildCustomAuthApprovalText(request: CustomAuthorizationApprovalRequest): string {
+  const expiresInSec = Math.max(0, Math.round((request.expiresAt - Date.now()) / 1000));
+  const lines = [
+    `🔐 自定义权限申请`,
+    ``,
+    `用户：${request.actor.label || request.actor.id}`,
+    `会话：${request.peer.label || request.peer.id}`,
+    `能力：${request.capability}`,
+    `场景：${request.sceneLabel || request.scene}`,
+    `申请：${request.id}`,
+    ``,
+    `超时：${expiresInSec} 秒`,
+    `也可回复 /bot-auth approve ${request.id} once`,
+  ];
+  return lines.join("\n");
+}
+
+export function buildCustomAuthApprovalKeyboard(requestId: string): InlineKeyboard {
+  const makeBtn = (
+    id: string,
+    label: string,
+    visitedLabel: string,
+    data: string,
+    style: 0 | 1 | 3,
+  ): KeyboardButton => ({
+    id,
+    render_data: { label, visited_label: visitedLabel, style },
+    action: {
+      type: 1,
+      data,
+      permission: { type: 2 },
+      click_limit: 1,
+    },
+    group_id: "custom-auth",
+  });
+  return {
+    content: {
+      rows: [
+        {
+          buttons: [
+            makeBtn("allow_once", "允许一次", "已允许一次", `custom-auth:${requestId}:allow-once`, 1),
+            makeBtn("allow_count", "允许3次", "已允许3次", `custom-auth:${requestId}:allow-count`, 1),
+            makeBtn("deny", "拒绝", "已拒绝", `custom-auth:${requestId}:deny`, 3),
+          ],
+        },
+      ],
+    },
+  };
+}
+
+export function parseCustomAuthButtonData(buttonData: string): CustomAuthButtonPayload | null {
+  const m = buttonData.match(/^custom-auth:([^:]+):(allow-once|allow-count|allow-timed|deny)$/i);
+  if (!m) return null;
+  return {
+    requestId: m[1]!,
+    decision: m[2]!.toLowerCase() as CustomAuthButtonDecision,
+  };
+}
+
+export function handleCustomAuthInteraction(params: {
+  cfg: OpenClawConfig;
+  auth: CustomAuthorizationRuntime;
+  buttonData: string;
+  actorId: string;
+  actorLabel?: string;
+  now?: number;
+}): CustomAuthInteractionResult {
+  const payload = parseCustomAuthButtonData(params.buttonData);
+  if (!payload) return { handled: false };
+
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  if (!runtime.enabled) {
+    return { handled: true, reply: `ℹ️ customRuntime 未启用，无法处理授权按钮。` };
+  }
+
+  const actor: CustomActor = { id: params.actorId, label: params.actorLabel };
+  if (!isCustomRuntimeAdmin(runtime, actor)) {
+    return {
+      handled: true,
+      reply: [
+        `⛔ 只有 customRuntime.admins 中的管理员可以处理授权按钮。`,
+        ``,
+        `当前用户：${actor.label || actor.id}`,
+      ].join("\n"),
+    };
+  }
+
+  const command: CustomAuthCommand = payload.decision === "deny"
+    ? { kind: "resolve", requestId: payload.requestId, approved: false }
+    : payload.decision === "allow-count"
+      ? { kind: "resolve", requestId: payload.requestId, approved: true, grantUse: "count", grantCount: 3 }
+      : payload.decision === "allow-timed"
+        ? { kind: "resolve", requestId: payload.requestId, approved: true, grantUse: "timed", grantTtlMs: 10 * 60_000 }
+        : { kind: "resolve", requestId: payload.requestId, approved: true, grantUse: "once" };
+
+  return resolveCustomAuthRequest({
+    auth: params.auth,
+    actor,
+    command,
+    now: params.now,
+  });
+}
+
 export function describeCustomAuthorizationIntents(intents: CustomAuthorizationIntent[]): string[] {
   return intents.map((intent) => {
     if (intent.kind === "request-approval") {
@@ -314,6 +438,13 @@ export function describeCustomAuthorizationIntents(intents: CustomAuthorizationI
     }
     return `grant-expired id=${intent.grantId}`;
   });
+}
+
+export function firstCustomAuthApprovalRequest(intents: CustomAuthorizationIntent[]): CustomAuthorizationApprovalRequest | null {
+  for (const intent of intents) {
+    if (intent.kind === "request-approval" && !intent.deduped) return intent.request;
+  }
+  return null;
 }
 
 function formatCustomAuthHelp(error?: string): string {
@@ -386,6 +517,44 @@ function formatApprovalResolution(intent: Extract<CustomAuthorizationIntent, { k
     `能力：${request.capability}`,
     grantDesc,
   ].join("\n");
+}
+
+function resolveCustomAuthRequest(params: {
+  auth: CustomAuthorizationRuntime;
+  actor: CustomActor;
+  command: Extract<CustomAuthCommand, { kind: "resolve" }>;
+  now?: number;
+}): CustomAuthCommandResult {
+  const state = params.auth.getState();
+  const requestId = findPendingRequestId(Object.keys(state.requests), params.command.requestId);
+  if (!requestId) {
+    return {
+      handled: true,
+      reply: `⚠️ 未找到待处理授权申请：${params.command.requestId}`,
+    };
+  }
+
+  const intent = params.auth.resolveApproval({
+    requestId,
+    approved: params.command.approved,
+    resolvedBy: params.actor.id,
+    now: params.now,
+    grantUse: params.command.grantUse,
+    grantCount: params.command.grantCount,
+    grantTtlMs: params.command.grantTtlMs,
+  });
+  if (!intent || intent.kind !== "approval-resolved") {
+    return {
+      handled: true,
+      reply: `⚠️ 授权申请已不存在或不再是 pending：${requestId}`,
+    };
+  }
+
+  return {
+    handled: true,
+    intent,
+    reply: formatApprovalResolution(intent),
+  };
 }
 
 function findPendingRequestId(requestIds: string[], input: string): string | null {
