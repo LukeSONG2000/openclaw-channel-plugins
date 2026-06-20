@@ -289,6 +289,14 @@ Expanded unread context adapter ownership:
 - `gateway.ts` no longer imports or calls `recordPendingHistoryEntry`, `buildPendingHistoryContext`, `clearPendingHistory`, `formatAttachmentTags`, or `toAttachmentSummaries` directly.
 - Expanded `tests/custom-unread-context.test.ts` to cover legacy record, envelope-body construction, attachment tags, and cleanup.
 
+Added custom auth dispatch gate:
+
+- `src/custom/auth-gateway-adapter.ts` now checks ordinary messages before OpenClaw/model dispatch, not only plugin-level slash commands.
+- Dispatch capability resolution defaults to `chat.send`, uses `codex.run` for slash-like framework commands, and uses `codex.run` in codex-only scenes that do not grant `chat.send`.
+- `gateway.ts` blocks unauthorized dispatches before model/tool execution, persists auth intents, and sends C2C/group approval cards when a bound admin can approve the request.
+- Expanded `tests/custom-auth-gateway-adapter.test.ts` for dispatch denial, temporary grant consumption, and codex-only capability selection.
+
 Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.
+- Fine-grained tool-level authorization inside model runs remains pending until the OpenClaw tool execution contract is confirmed.

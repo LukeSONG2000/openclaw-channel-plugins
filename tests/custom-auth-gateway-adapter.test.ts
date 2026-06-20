@@ -3,13 +3,16 @@ import { CustomAuthorizationRuntime } from "../src/custom/auth.js";
 import {
   buildCustomAuthApprovalKeyboard,
   buildCustomAuthApprovalText,
+  checkCustomDispatchAuthorization,
   checkCustomSlashAuthorization,
   firstCustomAuthApprovalRequest,
+  formatCustomDispatchAuthorizationDeniedMessage,
   formatCustomAuthorizationDeniedMessage,
   handleCustomAuthCommand,
   handleCustomAuthInteraction,
   parseCustomAuthButtonData,
   parseCustomAuthCommand,
+  resolveCustomDispatchCapability,
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
 } from "../src/custom/auth-gateway-adapter.js";
@@ -153,6 +156,88 @@ const secondUseAfterOnceGrant = checkCustomSlashAuthorization({
   now: 5_000,
 });
 assert.equal(secondUseAfterOnceGrant.allowed, false);
+
+const dispatchAuth = new CustomAuthorizationRuntime();
+const dispatchDenied = checkCustomDispatchAuthorization({
+  cfg: authCfg,
+  auth: dispatchAuth,
+  message: {
+    ...memberGroupMessage,
+    content: "/new",
+  },
+  rawContent: "/new",
+  now: 5_500,
+});
+assert.equal(dispatchDenied.enabled, true);
+assert.equal(dispatchDenied.allowed, false);
+assert.equal(dispatchDenied.capability, "codex.run");
+assert.equal(dispatchDenied.result?.decision.requestId, "authreq-5500-1");
+assert.equal(formatCustomDispatchAuthorizationDeniedMessage(dispatchDenied).includes("需要能力：codex.run"), true);
+
+const dispatchRequest = firstCustomAuthApprovalRequest(dispatchDenied.result?.intents ?? []);
+if (!dispatchRequest) throw new Error("expected dispatch auth request");
+const dispatchApproved = dispatchAuth.resolveApproval({
+  requestId: dispatchRequest.id,
+  approved: true,
+  resolvedBy: "ADMIN_OPENID",
+  grantUse: "once",
+  now: 5_600,
+});
+assert.equal(dispatchApproved?.kind, "approval-resolved");
+const dispatchAllowedByGrant = checkCustomDispatchAuthorization({
+  cfg: authCfg,
+  auth: dispatchAuth,
+  message: {
+    ...memberGroupMessage,
+    content: "/new",
+  },
+  rawContent: "/new",
+  now: 5_700,
+});
+assert.equal(dispatchAllowedByGrant.allowed, true);
+assert.equal(dispatchAllowedByGrant.result?.decision.source, "temporary-grant");
+const dispatchSecondUse = checkCustomDispatchAuthorization({
+  cfg: authCfg,
+  auth: dispatchAuth,
+  message: {
+    ...memberGroupMessage,
+    content: "/new",
+  },
+  rawContent: "/new",
+  now: 5_800,
+});
+assert.equal(dispatchSecondUse.allowed, false);
+
+const codexOnlyCfg = {
+  channels: {
+    qqbot: {
+      customRuntime: {
+        enabled: true,
+        scenes: {
+          "qqbot:group:GROUP_OPENID": {
+            scene: "codex-only",
+          },
+        },
+      },
+    },
+  },
+} as any;
+assert.equal(resolveCustomDispatchCapability({
+  cfg: codexOnlyCfg,
+  message: {
+    ...memberGroupMessage,
+    content: "帮我看一下这个 repo",
+  },
+  rawContent: "帮我看一下这个 repo",
+}), "codex.run");
+assert.equal(resolveCustomDispatchCapability({
+  cfg: authCfg,
+  message: {
+    ...memberGroupMessage,
+    content: "闲聊一下",
+  },
+  rawContent: "闲聊一下",
+}), "chat.send");
 
 const allowedAdmin = checkCustomSlashAuthorization({
   cfg: {

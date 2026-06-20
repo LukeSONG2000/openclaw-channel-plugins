@@ -58,7 +58,12 @@ import {
 import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
+  buildCustomAuthApprovalKeyboard,
+  buildCustomAuthApprovalText,
+  checkCustomDispatchAuthorization,
   describeCustomAuthorizationIntents,
+  firstCustomAuthApprovalRequest,
+  formatCustomDispatchAuthorizationDeniedMessage,
 } from "./custom/auth-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
@@ -1678,6 +1683,56 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // 发送错误提示的辅助函数
         const sendErrorMessage = (errorText: string) => sendErrorToTarget(replyCtx, errorText);
+
+        const dispatchAuth = checkCustomDispatchAuthorization({
+          cfg: cfg as any,
+          auth: customMessageFlow.auth,
+          message: event,
+          rawContent: userContent,
+        });
+        if (dispatchAuth.enabled && dispatchAuth.result?.intents.length) {
+          for (const item of describeCustomAuthorizationIntents(dispatchAuth.result.intents)) {
+            log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
+          }
+          persistCustomAuthState();
+        }
+        if (dispatchAuth.enabled && dispatchAuth.reason === "denied") {
+          log?.info(`[qqbot:${account.accountId}] Message dispatch denied by custom auth: capability=${dispatchAuth.capability} sender=${event.senderId}`);
+          const request = dispatchAuth.result?.intents
+            ? firstCustomAuthApprovalRequest(dispatchAuth.result.intents)
+            : null;
+          const denialText = formatCustomDispatchAuthorizationDeniedMessage(dispatchAuth);
+          if (request && (event.type === "c2c" || event.type === "group")) {
+            const token = await getAccessToken(account.appId, account.clientSecret);
+            try {
+              if (event.type === "c2c") {
+                await sendC2CMessageWithInlineKeyboard(
+                  token,
+                  event.senderId,
+                  buildCustomAuthApprovalText(request),
+                  buildCustomAuthApprovalKeyboard(request.id),
+                  event.messageId,
+                );
+              } else if (event.groupOpenid) {
+                await sendGroupMessageWithInlineKeyboard(
+                  token,
+                  event.groupOpenid,
+                  buildCustomAuthApprovalText(request),
+                  buildCustomAuthApprovalKeyboard(request.id),
+                  event.messageId,
+                );
+              }
+            } catch (sendErr) {
+              log?.error(`[qqbot:${account.accountId}] Failed to send dispatch auth approval card, falling back to text: ${sendErr}`);
+              await sendErrorMessage(denialText);
+            }
+          } else {
+            await sendErrorMessage(denialText);
+          }
+          typing.keepAlive?.stop();
+          return;
+        }
+
         const deliverEvent: DeliverEventContext = {
           type: event.type,
           senderId: event.senderId,

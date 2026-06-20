@@ -216,7 +216,9 @@ Current implementation status:
 - Can import/export `CustomAuthorizationRuntimeState` so the gateway can persist temporary grants and approval requests.
 - `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks.
 - `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.
+- `gateway.ts` also checks ordinary messages before OpenClaw/model dispatch. Normal chat requests require `chat.send`; slash-like framework commands that are not plugin commands require `codex.run`; codex-only scenes route ordinary dispatch checks to `codex.run`.
 - Unauthorized slash commands receive a visible denial message and create an in-memory approval request intent when bound admins exist.
+- Unauthorized ordinary dispatch requests receive a visible denial message and can create the same approval-card request in C2C/group.
 - QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
 - Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
 
@@ -271,6 +273,10 @@ Current implementation status:
 - Converts `QueuedMessage` into `CustomPeer` and `CustomActor`.
 - Uses slash-command metadata from `src/slash-commands.ts` to map plugin commands to concrete capabilities.
 - Calls `CustomAuthorizationRuntime.check()` before plugin command handlers execute.
+- Resolves ordinary message dispatch capabilities for non-plugin messages:
+  - normal chat: `chat.send`
+  - slash-like framework commands: `codex.run`
+  - codex-only scenes without `chat.send`: `codex.run`
 - Formats visible denial text for C2C, group, channel, and DM replies.
 - Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
 - Builds QQ inline keyboard approval cards for new unauthorized C2C/group slash-command requests.
@@ -300,7 +306,7 @@ Text approval commands:
 
 Still open:
 
-- Model/tool dispatch authorization outside plugin-level slash commands.
+- Fine-grained tool-level authorization inside a model run, once the OpenClaw tool execution contract is confirmed.
 - Richer custom auth card variants, such as selecting arbitrary grant counts or durations from the card.
 - Optional encryption/redaction for the auth state file if future grants include sensitive notes.
 
