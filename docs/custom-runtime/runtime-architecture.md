@@ -397,6 +397,27 @@ Current implementation status:
 - Builds synthetic catch-up messages with `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
 - `gateway.ts` now reads `_customUnreadSnapshot` and mention-time custom unread history when injecting pending group history context.
 
+### `src/custom/unread-scheduler.ts`
+
+Gateway-side scheduler for unread runtime effects.
+
+Current implementation status:
+
+- Owns follow-up and sleep-digest timer handles outside `gateway.ts`.
+- Applies unread gateway effects:
+  - set/clear timers
+  - enqueue synthetic catch-up messages through a provided callback
+  - log policy-gated autonomous decisions
+  - persist unread state after effectful changes
+- Restores scheduled follow-up and sleep-digest timers from `CustomUnreadRuntimeState`.
+- Fires due timers by calling `CustomUnreadRuntime.fireScheduledFollowup()` or `fireSleepDigest()`, then recursively applies generated effects.
+- Exposes `dispose()` so gateway cleanup can clear timers without knowing scheduler internals.
+
+Important boundary:
+
+- The scheduler does not inspect QQ events or send QQ messages.
+- It depends on small callbacks for enqueue, persist, config resolution, and logging, so timer behavior can be tested without the gateway.
+
 Current gateway wiring:
 
 - Active only when `channels.qqbot.customRuntime.enabled` is true.
@@ -409,7 +430,7 @@ Current gateway wiring:
 - Synthetic catch-up sends are treated as proactive/unanchored outbound messages because they do not have a real QQ `msg_id`.
 - Snapshots are consumed only after a real model block output is produced. If dispatch fails, times out, or returns `NO_REPLY` / `[SKIP]`, the unread snapshot is kept.
 - Runtime state is persisted under `~/.openclaw/qqbot/data/custom-unread/unread-<accountId>.json`.
-- Gateway restores pending unread history, snapshots, follow-up timers, and sleep-digest timers on startup.
+- The state controller restores pending unread history and snapshots; `CustomUnreadScheduler` restores follow-up and sleep-digest timers on startup.
 
 ### `src/custom/task-sandbox.ts`
 

@@ -55,8 +55,8 @@ import {
   effectsFromCustomUnreadIntents,
   historyEntriesFromCustomUnread,
   toCustomInboundGroupMessage,
-  type CustomUnreadGatewayEffect,
 } from "./custom/unread-gateway-adapter.js";
+import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
   describeCustomAuthorizationIntents,
 } from "./custom/auth-gateway-adapter.js";
@@ -680,8 +680,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomTaskState = customState.persistTaskState;
   const persistCustomPollState = customState.persistPollState;
   const persistCustomUnreadState = customState.persistUnreadState;
-  const customUnreadFollowupTimers = new Map<string, ReturnType<typeof setTimeout>>();
-  const customUnreadSleepDigestTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  let customUnreadScheduler: CustomUnreadScheduler | null = null;
 
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
   // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
@@ -898,10 +897,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   });
 
   const cleanup = () => {
-    for (const timer of customUnreadFollowupTimers.values()) clearTimeout(timer);
-    for (const timer of customUnreadSleepDigestTimers.values()) clearTimeout(timer);
-    customUnreadFollowupTimers.clear();
-    customUnreadSleepDigestTimers.clear();
+    customUnreadScheduler?.dispose();
+    customUnreadScheduler = null;
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
@@ -987,63 +984,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         return unreadCfg.enabled ? unreadCfg : null;
       };
 
-      const applyCustomUnreadEffects = (
-        effects: CustomUnreadGatewayEffect[],
-        unreadCfg: ResolvedCustomUnreadConfig,
-      ): void => {
-        let changed = false;
-        for (const effect of effects) {
-          if (effect.kind === "clear-timer") {
-            const timers = effect.timer === "followup" ? customUnreadFollowupTimers : customUnreadSleepDigestTimers;
-            const timer = timers.get(effect.peerId);
-            if (timer) clearTimeout(timer);
-            timers.delete(effect.peerId);
-            changed = true;
-            continue;
-          }
-          if (effect.kind === "set-timer") {
-            const timers = effect.timer === "followup" ? customUnreadFollowupTimers : customUnreadSleepDigestTimers;
-            const oldTimer = timers.get(effect.peerId);
-            if (oldTimer) clearTimeout(oldTimer);
-            const delay = Math.max(1_000, effect.dueAt - Date.now());
-            const timer = setTimeout(() => {
-              timers.delete(effect.peerId);
-              const intents = effect.timer === "followup"
-                ? customMessageFlow.unread.fireScheduledFollowup({ peerId: effect.peerId, cfg: unreadCfg })
-                : customMessageFlow.unread.fireSleepDigest({ peerId: effect.peerId, cfg: unreadCfg });
-              const peer: CustomPeer = { kind: "group", id: effect.peerId };
-              applyCustomUnreadEffects(
-                effectsFromCustomUnreadIntents({ accountId: account.accountId, peer, intents }),
-                unreadCfg,
-              );
-              persistCustomUnreadState();
-            }, delay);
-            timers.set(effect.peerId, timer);
-            log?.info(`[qqbot:${account.accountId}] Custom unread ${effect.timer} timer set for ${effect.peerId} in ${delay}ms`);
-            changed = true;
-            continue;
-          }
-          if (effect.kind === "enqueue") {
-            void trySlashCommandOrEnqueue(effect.message).catch((err) => {
-              log?.error(`[qqbot:${account.accountId}] Custom unread enqueue failed for ${effect.message.groupOpenid}: ${err}`);
-            });
-            changed = true;
-            continue;
-          }
-          if (effect.kind === "policy-gated") {
-            log?.debug?.(`[qqbot:${account.accountId}] Custom unread ${effect.source ?? "unknown"} gated for ${effect.peerId}: ${effect.reason ?? "policy"}`);
-            changed = true;
-          }
-        }
-        if (changed) {
-          persistCustomUnreadState();
-        }
-      };
-
-      const restoreCustomUnreadTimers = (): void => {
-        const state = customMessageFlow.unread.getState();
-        for (const [peerId, peerState] of Object.entries(state.peers)) {
-          const unreadCfg = resolveCustomUnreadForEvent({
+      const resolveCustomUnreadForPeer = (peerId: string): ResolvedCustomUnreadConfig | null =>
+        resolveCustomUnreadForEvent({
             type: "group",
             senderId: CUSTOM_UNREAD_ACTOR_ID,
             senderIsBot: true,
@@ -1052,34 +994,20 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             timestamp: new Date().toISOString(),
             groupOpenid: peerId,
           });
-          if (!unreadCfg) continue;
-          const peer: CustomPeer = { kind: "group", id: peerId };
-          const intents = [];
-          if (peerState.scheduledFollowupDueAt !== undefined) {
-            intents.push({
-              kind: "schedule-followup" as const,
-              peerId,
-              dueAt: peerState.scheduledFollowupDueAt,
-              source: "followup" as const,
-            });
-          }
-          if (peerState.scheduledSleepDigestDueAt !== undefined) {
-            intents.push({
-              kind: "schedule-sleep-digest" as const,
-              peerId,
-              dueAt: peerState.scheduledSleepDigestDueAt,
-              source: "sleep-timer" as const,
-            });
-          }
-          if (intents.length > 0) {
-            applyCustomUnreadEffects(
-              effectsFromCustomUnreadIntents({ accountId: account.accountId, peer, intents }),
-              unreadCfg,
-            );
-          }
-        }
-      };
-      restoreCustomUnreadTimers();
+
+      customUnreadScheduler = new CustomUnreadScheduler({
+        accountId: account.accountId,
+        unread: customMessageFlow.unread,
+        enqueue: (message) => trySlashCommandOrEnqueue(message),
+        persist: persistCustomUnreadState,
+        resolveConfigForPeer: resolveCustomUnreadForPeer,
+        log: {
+          info: (msg) => log?.info(`[qqbot:${account.accountId}] ${msg}`),
+          debug: (msg) => log?.debug?.(`[qqbot:${account.accountId}] ${msg}`),
+          error: (msg) => log?.error(`[qqbot:${account.accountId}] ${msg}`),
+        },
+      });
+      customUnreadScheduler.restore(customMessageFlow.unread.getState());
 
       const recordCustomUnreadNonMention = (event: QueuedMessage, userContent: string, mentionedBot: boolean, implicitMention?: boolean): number | null => {
         const unreadCfg = resolveCustomUnreadForEvent(event);
@@ -1098,7 +1026,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           attachments: event.attachments,
         });
         const result = customMessageFlow.unread.recordNonMention({ message, cfg: unreadCfg });
-        applyCustomUnreadEffects(
+        customUnreadScheduler?.apply(
           effectsFromCustomUnreadIntents({ accountId: account.accountId, peer: message.peer, intents: result.intents }),
           unreadCfg,
         );
@@ -1564,7 +1492,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               customUnreadHistoryForEvent = mentionResult.history.length > 0
                 ? historyEntriesFromCustomUnread(mentionResult.history)
                 : undefined;
-              applyCustomUnreadEffects(
+              customUnreadScheduler?.apply(
                 effectsFromCustomUnreadIntents({ accountId: account.accountId, peer: message.peer, intents: mentionResult.intents }),
                 customUnreadCfgForEvent,
               );
@@ -2328,7 +2256,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: custom unread catch-up completed, consumed=${consumed.consumed}, remaining=${consumed.remaining}`);
                   persistCustomUnreadState();
                   if (customUnreadCfgForEvent) {
-                    applyCustomUnreadEffects(
+                    customUnreadScheduler?.apply(
                       effectsFromCustomUnreadIntents({
                         accountId: account.accountId,
                         peer: { kind: "group", id: event.groupOpenid },
@@ -2341,7 +2269,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: custom unread catch-up produced no model output; snapshot kept (${customUnreadSnapshotId})`);
                 }
               } else if (hasModelBlockOutput && shouldCatchUpUnreadAfterReply && customUnreadCfgForEvent) {
-                applyCustomUnreadEffects(
+                customUnreadScheduler?.apply(
                   effectsFromCustomUnreadIntents({
                     accountId: account.accountId,
                     peer: { kind: "group", id: event.groupOpenid },
@@ -2354,7 +2282,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   customUnreadCfgForEvent,
                 );
               } else if (hasModelBlockOutput && wasMentioned && customUnreadCfgForEvent) {
-                applyCustomUnreadEffects(
+                customUnreadScheduler?.apply(
                   effectsFromCustomUnreadIntents({
                     accountId: account.accountId,
                     peer: { kind: "group", id: event.groupOpenid },

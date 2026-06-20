@@ -256,6 +256,13 @@ Extracted custom button interaction orchestration:
 - `gateway.ts` now keeps platform ACK, target selection, QQ send APIs, config interactions, and legacy official approval buttons.
 - Added `tests/custom-interaction-gateway-adapter.test.ts` for auth button, poll vote, and unknown legacy button paths.
 
+Extracted custom unread effect scheduling:
+
+- Added `src/custom/unread-scheduler.ts` to own follow-up/sleep-digest timer handles and unread gateway effect application.
+- The scheduler receives enqueue/persist/config/log callbacks and does not inspect QQ events or send QQ messages directly.
+- `gateway.ts` now delegates set/clear timer effects, synthetic catch-up enqueue effects, policy-gated logs, timer restore, and timer cleanup to the scheduler.
+- Added `tests/custom-unread-scheduler.test.ts` for set/clear timer effects, timer firing into synthetic catch-up enqueue, restore, and dispose.
+
 Still intentionally open:
 
-- Unread timers and dispatch completion hooks are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Dispatch completion hooks for snapshot consumption, mention follow-up, and output-complete scheduling are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
