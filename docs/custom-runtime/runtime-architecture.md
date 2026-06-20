@@ -98,6 +98,19 @@ Scene config must live under a custom namespace, not arbitrary keys inside offic
 
 Authorization is evaluated before tool dispatch and before config mutation.
 
+Current implementation status:
+
+- Exists as a pure runtime with no QQ API, timer, filesystem, or OpenClaw SDK dependency.
+- Evaluates admins, scene capabilities, wildcard capabilities, and disabled runtime state.
+- Maintains in-memory temporary grants:
+  - once
+  - count-limited
+  - timed
+  - task-scoped
+- Emits typed intents for approval requests, approval resolution, grant consumption, and grant expiry.
+- Deduplicates pending approval requests by peer, actor, capability, and task id.
+- Does not yet send QQ approval cards or block gateway dispatch by itself; gateway integration will translate intents to text/card approvals later.
+
 Policy inputs:
 
 - channel: `qqbot`
@@ -122,6 +135,7 @@ Suggested capabilities:
 - `deploy.apply`
 - `proactive.send`
 - `game.interact`
+- `*` is allowed only in scene/grant policy as a wildcard; runtime checks request concrete capabilities.
 
 Default stance:
 

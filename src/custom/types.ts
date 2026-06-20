@@ -8,6 +8,7 @@ export type CustomSceneKind =
   | "default-dm";
 
 export type CustomCapability =
+  | "*"
   | "chat.send"
   | "codex.run"
   | "codex.longTask"
@@ -83,7 +84,53 @@ export interface CustomUnreadConfig {
 export interface CustomAuthorizationDecision {
   allowed: boolean;
   reason: "allowed" | "missing_capability" | "unauthorized" | "scene_disabled";
-  capability: CustomCapability;
+  capability: Exclude<CustomCapability, "*">;
   actorId: string;
   peerId: string;
+  source?: "admin" | "scene" | "temporary-grant";
+  grantId?: string;
+  requestId?: string;
+}
+
+export type CustomGrantUse = "once" | "count" | "timed" | "task";
+
+export interface CustomAuthorizationGrant {
+  id: string;
+  peerId: string;
+  actorId: string;
+  capability: CustomCapability;
+  grantedBy: string;
+  createdAt: number;
+  expiresAt?: number;
+  remainingUses?: number;
+  taskId?: string;
+  note?: string;
+}
+
+export interface CustomAuthorizationApprovalRequest {
+  id: string;
+  peer: CustomPeer;
+  actor: CustomActor;
+  capability: Exclude<CustomCapability, "*">;
+  scene: CustomSceneKind;
+  sceneLabel?: string;
+  reason: "missing_capability" | "unauthorized" | "scene_disabled";
+  requestedAt: number;
+  expiresAt: number;
+  admins: string[];
+  taskId?: string;
+  status: "pending" | "approved" | "denied" | "expired";
+  resolvedBy?: string;
+  resolvedAt?: number;
+}
+
+export type CustomAuthorizationIntent =
+  | { kind: "request-approval"; request: CustomAuthorizationApprovalRequest; deduped: boolean }
+  | { kind: "approval-resolved"; request: CustomAuthorizationApprovalRequest; approved: boolean; grant?: CustomAuthorizationGrant }
+  | { kind: "grant-consumed"; grantId: string; remainingUses?: number }
+  | { kind: "grant-expired"; grantId: string };
+
+export interface CustomAuthorizationRuntimeState {
+  grants: Record<string, CustomAuthorizationGrant>;
+  requests: Record<string, CustomAuthorizationApprovalRequest>;
 }

@@ -72,3 +72,19 @@ Still intentionally open:
 
 - Proactive group send budget/rate-limit enforcement.
 - Durable persistence for pending unread state across gateway reconnects/restarts.
+
+Expanded authorization runtime baseline:
+
+- `src/custom/auth.ts` now includes `CustomAuthorizationRuntime`.
+- The auth runtime evaluates admins, scene capabilities, wildcard scene/grant capabilities, and disabled custom runtime state.
+- Added in-memory temporary grants for once, count-limited, timed, and task-scoped access.
+- Unauthorized checks can emit deduplicated approval request intents for bound admins.
+- Approval resolution can create temporary grants and emits typed resolution intents.
+- Grant consumption and expiry emit typed intents for future gateway/card adapters.
+- Added `tests/custom-auth-runtime.test.ts`.
+
+Still intentionally not wired:
+
+- Gateway command/tool blocking based on custom auth decisions.
+- QQ approval card/text delivery for `request-approval` intents.
+- Persistent grant/request storage across gateway reconnects/restarts.

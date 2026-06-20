@@ -1,6 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import { evaluateCustomAuthorization } from "./auth.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
+import { CustomAuthorizationRuntime, evaluateCustomAuthorization } from "./auth.js";
 import { CustomUnreadRuntime, resolveCustomUnreadConfig, type ResolvedCustomUnreadConfig } from "./unread-runtime.js";
 import type { CustomAuthorizationDecision, CustomCapability, CustomInboundMessage, CustomSceneConfig } from "./types.js";
 
@@ -13,7 +13,7 @@ export interface CustomRuntimeDecision {
 export function inspectCustomRuntimeMessage(params: {
   cfg: OpenClawConfig;
   message: CustomInboundMessage;
-  capability?: CustomCapability;
+  capability?: Exclude<CustomCapability, "*">;
 }): CustomRuntimeDecision {
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
@@ -36,11 +36,13 @@ export function inspectCustomRuntimeMessage(params: {
 }
 
 export interface CustomMessageFlowRuntime {
+  auth: CustomAuthorizationRuntime;
   unread: CustomUnreadRuntime;
 }
 
 export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
   return {
+    auth: new CustomAuthorizationRuntime(),
     unread: new CustomUnreadRuntime(),
   };
 }
@@ -54,7 +56,14 @@ export function inspectCustomUnreadConfig(params: {
   return resolveCustomUnreadConfig({ runtime, scene });
 }
 
+export {
+  CustomAuthorizationRuntime,
+  defaultSceneCapabilities,
+  evaluateCustomAuthorization,
+  isCustomRuntimeAdmin,
+} from "./auth.js";
 export { CustomUnreadRuntime, resolveCustomUnreadConfig } from "./unread-runtime.js";
+export type { CustomAuthorizationCheckResult } from "./auth.js";
 export type {
   CustomUnreadCatchupSnapshot,
   CustomUnreadCatchupSource,

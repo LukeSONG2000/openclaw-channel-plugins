@@ -46,7 +46,7 @@ Out of scope for the first custom runtime:
 
 ## Current Implementation Modules
 
-- `src/custom/auth.ts`: scene/capability authorization baseline.
+- `src/custom/auth.ts`: scene/capability authorization runtime, temporary grants, and approval request intents.
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
 - `src/custom/runtime.ts`: composition helpers and exported custom runtime modules.
 - `src/custom/unread-runtime.ts`: pure unread/follow-up/sleep-digest state machine.
