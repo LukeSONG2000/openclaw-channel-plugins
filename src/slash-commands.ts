@@ -23,6 +23,7 @@ import { fileURLToPath } from "node:url";
 import { getPackageVersion } from "./utils/pkg-version.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { isApprovalFeatureAvailable } from "./approval-handler.js";
+import type { CustomCapability } from "./custom/types.js";
 const require = createRequire(import.meta.url);
 
 let PLUGIN_VERSION = getPackageVersion(import.meta.url);
@@ -239,6 +240,16 @@ export interface SlashCommandDelegateResult {
 }
 
 /** 斜杠指令定义 */
+export interface SlashCommandRequest {
+  /** 指令名（不含 /） */
+  name: string;
+  /** 指令参数（去掉指令名后的部分） */
+  args: string;
+}
+
+type SlashCommandCapability = Exclude<CustomCapability, "*">;
+type SlashCommandCapabilityResolver = SlashCommandCapability | ((request: SlashCommandRequest) => SlashCommandCapability | null);
+
 interface SlashCommand {
   /** 指令名（不含 /） */
   name: string;
@@ -246,6 +257,8 @@ interface SlashCommand {
   description: string;
   /** 详细用法说明（支持多行），用于 /指令 ? 查询 */
   usage?: string;
+  /** 自定义运行时鉴权所需能力；未设置则不由插件级权限拦截 */
+  capability?: SlashCommandCapabilityResolver;
   /** 处理函数 */
   handler: (ctx: SlashCommandContext) => SlashCommandResult | Promise<SlashCommandResult>;
 }
@@ -266,6 +279,7 @@ function registerCommand(cmd: SlashCommand): void {
 registerCommand({
   name: "bot-ping",
   description: "测试当前 openclaw 与 QQ 连接的网络延迟",
+  capability: "system.status",
   usage: [
     `/bot-ping`,
     ``,
@@ -298,6 +312,7 @@ registerCommand({
 registerCommand({
   name: "bot-version",
   description: "查看插件版本号",
+  capability: "deploy.check",
   usage: [
     `/bot-version`,
     ``,
@@ -1189,6 +1204,7 @@ let _upgrading = false; // 升级锁
 registerCommand({
   name: "bot-upgrade",
   description: "检查更新并查看升级指引",
+  capability: (request) => slashUpgradeCapability(request.args),
   usage: [
     `/bot-upgrade              检查是否有新版本`,
     `/bot-upgrade --latest     确认升级到最新版本（需 upgradeMode=hot-reload）`,
@@ -1662,6 +1678,7 @@ function collectRecentLogFiles(logDirs: string[]): LogCandidate[] {
 registerCommand({
   name: "bot-logs",
   description: "导出本地日志文件",
+  capability: "config.read",
   usage: [
     `/bot-logs`,
     ``,
@@ -1800,6 +1817,7 @@ function formatBytes(bytes: number): string {
 registerCommand({
   name: "bot-clear-storage",
   description: "清理通过QQBot对话产生的文件以及下载的资源（保存在 OpenClaw 运行环境的主机上）",
+  capability: (request) => hasSlashFlag(request.args, "--force") ? "config.write" : "config.read",
   usage: [
     `/bot-clear-storage`,
     ``,
@@ -1950,6 +1968,7 @@ function removeEmptyDirs(dirPath: string): void {
 registerCommand({
   name: "bot-streaming",
   description: "一键开关流式消息",
+  capability: (request) => commandArgsMutateConfig(request.args, new Set(["on", "off"])) ? "config.write" : "config.read",
   usage: [
     `/bot-streaming on     开启流式消息`,
     `/bot-streaming off    关闭流式消息`,
@@ -2064,6 +2083,10 @@ registerCommand({
 registerCommand({
   name: "bot-approve",
   description: "管理命令执行审批配置",
+  capability: (request) => {
+    const arg = request.args.trim().toLowerCase();
+    return !arg || arg === "status" ? "config.read" : "auth.grant";
+  },
   usage: [
     `/bot-approve            查看操作指引`,
     `/bot-approve on         开启审批（白名单模式，推荐）`,
@@ -2313,6 +2336,7 @@ registerCommand({
 registerCommand({
   name: "bot-group-allways",
   description: "修改群消息默认响应模式",
+  capability: (request) => commandArgsMutateConfig(request.args, new Set(["on", "off"])) ? "config.write" : "config.read",
   usage: [
     `/bot-group-allways on   AI 自主判断何时发言（无需 @）`,
     `/bot-group-allways off  仅在被 @ 时回复`,
@@ -2421,32 +2445,51 @@ registerCommand({
 
 // ============ 匹配入口 ============
 
+export function parseSlashCommandRequest(rawContent: string): SlashCommandRequest | null {
+  const content = rawContent.trim();
+  if (!content.startsWith("/")) return null;
+
+  const spaceIdx = content.indexOf(" ");
+  return {
+    name: (spaceIdx === -1 ? content.slice(1) : content.slice(1, spaceIdx)).toLowerCase(),
+    args: spaceIdx === -1 ? "" : content.slice(spaceIdx + 1).trim(),
+  };
+}
+
+export function getSlashCommandCapability(rawContent: string): SlashCommandCapability | null {
+  const request = parseSlashCommandRequest(rawContent);
+  if (!request) return null;
+
+  const cmd = commands.get(request.name);
+  if (!cmd) return null;
+  if (request.args === "?") return null;
+
+  if (!cmd.capability) return null;
+  if (typeof cmd.capability === "function") return cmd.capability(request);
+  return cmd.capability;
+}
+
 /**
  * 尝试匹配并执行插件级斜杠指令
  *
  * @returns 回复文本（匹配成功），null（不匹配，应入队正常处理）
  */
 export async function matchSlashCommand(ctx: SlashCommandContext): Promise<SlashCommandResult> {
-  const content = ctx.rawContent.trim();
-  if (!content.startsWith("/")) return null;
+  const request = parseSlashCommandRequest(ctx.rawContent);
+  if (!request) return null;
 
-  // 解析指令名和参数
-  const spaceIdx = content.indexOf(" ");
-  const cmdName = (spaceIdx === -1 ? content.slice(1) : content.slice(1, spaceIdx)).toLowerCase();
-  const args = spaceIdx === -1 ? "" : content.slice(spaceIdx + 1).trim();
-
-  const cmd = commands.get(cmdName);
+  const cmd = commands.get(request.name);
   if (!cmd) return null; // 不是插件级指令，交给框架
 
   // /指令 ? — 返回用法说明
-  if (args === "?") {
+  if (request.args === "?") {
     if (cmd.usage) {
       return `📖 /${cmd.name} 用法：\n\n${cmd.usage}`;
     }
     return `/${cmd.name} — ${cmd.description}`;
   }
 
-  ctx.args = args;
+  ctx.args = request.args;
   const result = await cmd.handler(ctx);
   return result;
 }
@@ -2454,4 +2497,41 @@ export async function matchSlashCommand(ctx: SlashCommandContext): Promise<Slash
 /** 获取插件版本号（供外部使用） */
 export function getPluginVersion(): string {
   return PLUGIN_VERSION;
+}
+
+function commandArgsMutateConfig(args: string, mutatingArgs: Set<string>): boolean {
+  const first = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  return first ? mutatingArgs.has(first) : false;
+}
+
+function hasSlashFlag(args: string, flag: string): boolean {
+  const normalizedFlag = flag.toLowerCase();
+  return args
+    .split(/\s+/)
+    .filter(Boolean)
+    .some((token) => token.toLowerCase() === normalizedFlag);
+}
+
+function slashUpgradeCapability(args: string): SlashCommandCapability {
+  const tokens = args ? args.split(/\s+/).filter(Boolean) : [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]!;
+    if (token === "--latest" || token === "--force" || token === "--local") {
+      return "deploy.apply";
+    }
+    if (token === "--version" || token.startsWith("--version=")) {
+      return "deploy.apply";
+    }
+    if (token === "--pkg") {
+      i += 1;
+      continue;
+    }
+    if (token.startsWith("--pkg=")) {
+      continue;
+    }
+    if (!token.startsWith("--")) {
+      return "deploy.apply";
+    }
+  }
+  return "deploy.check";
 }

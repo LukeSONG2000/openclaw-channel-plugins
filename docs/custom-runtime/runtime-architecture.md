@@ -109,7 +109,10 @@ Current implementation status:
   - task-scoped
 - Emits typed intents for approval requests, approval resolution, grant consumption, and grant expiry.
 - Deduplicates pending approval requests by peer, actor, capability, and task id.
-- Does not yet send QQ approval cards or block gateway dispatch by itself; gateway integration will translate intents to text/card approvals later.
+- `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks.
+- `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.
+- Unauthorized slash commands receive a visible denial message and create an in-memory approval request intent when bound admins exist.
+- Does not yet send QQ approval cards or persist grants/requests; gateway integration currently logs approval intents and returns a text denial to the requester.
 
 Policy inputs:
 
@@ -152,6 +155,36 @@ Temporary grants:
 - task-scoped grant for a long-running sandbox task
 
 When unauthorized use is detected, generate an approval request to bound admins. Prefer an inline keyboard if available; otherwise send a text approval command.
+
+### `src/custom/auth-gateway-adapter.ts`
+
+Gateway-side translation layer for authorization runtime.
+
+Current implementation status:
+
+- Converts `QueuedMessage` into `CustomPeer` and `CustomActor`.
+- Uses slash-command metadata from `src/slash-commands.ts` to map plugin commands to concrete capabilities.
+- Calls `CustomAuthorizationRuntime.check()` before plugin command handlers execute.
+- Formats visible denial text for C2C, group, channel, and DM replies.
+- Logs approval/grant intents in the gateway for observability.
+
+Initial slash command capability mapping:
+
+- `/bot-ping`: `system.status`
+- `/bot-version`: `deploy.check`
+- `/bot-upgrade`: `deploy.check`; `--latest`, `--version`, `--force`, `--local`, or a bare version require `deploy.apply`
+- `/bot-logs`: `config.read`
+- `/bot-clear-storage`: `config.read`; `--force` requires `config.write`
+- `/bot-streaming`: `config.read`; `on`/`off` require `config.write`
+- `/bot-approve`: `config.read`; mutation commands require `auth.grant`
+- `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
+
+Still open:
+
+- QQ inline keyboard approval cards for custom auth requests.
+- Admin-side approval command or interaction handler for `custom-auth:<requestId>:...`.
+- Persistent grants and requests across gateway reconnects/restarts.
+- Model/tool dispatch authorization outside plugin-level slash commands.
 
 ### `src/custom/unread-runtime.ts`
 
