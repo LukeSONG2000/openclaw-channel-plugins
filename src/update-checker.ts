@@ -8,23 +8,17 @@
  * 支持多 registry fallback：npmjs.org → npmmirror.com，解决国内网络问题。
  */
 
-import { createRequire } from "node:module";
 import https from "node:https";
-import { getPackageVersion } from "./utils/pkg-version.js";
+import { getPackageInfo } from "./utils/pkg-version.js";
+import type { QQBotAccountConfig } from "./types.js";
 
-const require = createRequire(import.meta.url);
-
-const PKG_NAME = "@tencent-connect/openclaw-qqbot";
-const ENCODED_PKG = encodeURIComponent(PKG_NAME);
-
-const REGISTRIES = [
-  `https://registry.npmjs.org/${ENCODED_PKG}`,
-  `https://registry.npmmirror.com/${ENCODED_PKG}`,
-];
-
-let CURRENT_VERSION = getPackageVersion(import.meta.url);
+const DEFAULT_OFFICIAL_PKG_NAME = "@tencent-connect/openclaw-qqbot";
+const packageInfo = getPackageInfo(import.meta.url);
+let CURRENT_VERSION = packageInfo.version;
+let CURRENT_PKG_NAME = packageInfo.name || DEFAULT_OFFICIAL_PKG_NAME;
 
 export interface UpdateInfo {
+  packageName: string;
   current: string;
   /** 最佳升级目标（prerelease 用户优先 alpha，稳定版用户取 latest） */
   latest: string | null;
@@ -38,6 +32,7 @@ export interface UpdateInfo {
 }
 
 let _log: { info: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void } | undefined;
+let _configuredPackageName: string | null = null;
 
 function fetchJson(url: string, timeoutMs: number): Promise<any> {
   return new Promise((resolve, reject) => {
@@ -58,8 +53,8 @@ function fetchJson(url: string, timeoutMs: number): Promise<any> {
   });
 }
 
-async function fetchDistTags(): Promise<Record<string, string>> {
-  for (const url of REGISTRIES) {
+async function fetchDistTags(pkgName = getUpdatePackageName()): Promise<Record<string, string>> {
+  for (const url of buildRegistries(pkgName)) {
     try {
       const json = await fetchJson(url, 10_000);
       const tags = json["dist-tags"];
@@ -71,19 +66,20 @@ async function fetchDistTags(): Promise<Record<string, string>> {
   throw new Error("all registries failed");
 }
 
-function buildUpdateInfo(tags: Record<string, string>): UpdateInfo {
+function buildUpdateInfo(tags: Record<string, string>, pkgName = getUpdatePackageName()): UpdateInfo {
   const currentIsPrerelease = CURRENT_VERSION.includes("-");
   const stableTag = tags.latest || null;
   const alphaTag = tags.alpha || null;
 
-  // 严格隔离：alpha 只跟 alpha 比，正式版只跟正式版比，不交叉
-  const compareTarget = currentIsPrerelease ? alphaTag : stableTag;
+  // alpha 用户优先跟 alpha；普通二开后缀（如 luke.1）如果没有 alpha tag，仍跟 latest。
+  const compareTarget = currentIsPrerelease && alphaTag ? alphaTag : stableTag;
 
   const hasUpdate = typeof compareTarget === "string"
     && compareTarget !== CURRENT_VERSION
     && compareVersions(compareTarget, CURRENT_VERSION) > 0;
 
   return {
+    packageName: pkgName,
     current: CURRENT_VERSION,
     latest: compareTarget,
     stable: stableTag,
@@ -93,29 +89,45 @@ function buildUpdateInfo(tags: Record<string, string>): UpdateInfo {
   };
 }
 
-/** gateway 启动时调用，保存 log 引用 */
+export function normalizeNpmPackageName(pkgName?: string | null): string | null {
+  const trimmed = String(pkgName ?? "").trim();
+  if (!trimmed) return null;
+  return trimmed.startsWith("@") ? trimmed : `@${trimmed}`;
+}
+
+export function getUpdatePackageName(): string {
+  return _configuredPackageName || CURRENT_PKG_NAME || DEFAULT_OFFICIAL_PKG_NAME;
+}
+
+export function resolveConfiguredUpgradePackage(accountConfig?: QQBotAccountConfig | null): string {
+  return normalizeNpmPackageName(accountConfig?.upgradePkg) || CURRENT_PKG_NAME || DEFAULT_OFFICIAL_PKG_NAME;
+}
+
+/** gateway 启动时调用，保存 log 引用并设置当前实例的检查包名 */
 export function triggerUpdateCheck(log?: {
   info: (msg: string) => void;
   error: (msg: string) => void;
   debug?: (msg: string) => void;
-}): void {
+}, accountConfig?: QQBotAccountConfig | null): void {
   if (log) _log = log;
+  _configuredPackageName = resolveConfiguredUpgradePackage(accountConfig);
   // 预热：fire-and-forget
   getUpdateInfo().then((info) => {
     if (info.hasUpdate) {
-      _log?.info?.(`[qqbot:update-checker] new version available: ${info.latest} (current: ${CURRENT_VERSION})`);
+      _log?.info?.(`[qqbot:update-checker] new ${info.packageName} version available: ${info.latest} (current: ${CURRENT_VERSION})`);
     }
   }).catch(() => {});
 }
 
 /** 每次实时查询 npm registry */
-export async function getUpdateInfo(): Promise<UpdateInfo> {
+export async function getUpdateInfo(pkgName?: string | null): Promise<UpdateInfo> {
+  const resolvedPkgName = normalizeNpmPackageName(pkgName) || getUpdatePackageName();
   try {
-    const tags = await fetchDistTags();
-    return buildUpdateInfo(tags);
+    const tags = await fetchDistTags(resolvedPkgName);
+    return buildUpdateInfo(tags, resolvedPkgName);
   } catch (err: any) {
     _log?.debug?.(`[qqbot:update-checker] check failed: ${err.message}`);
-    return { current: CURRENT_VERSION, latest: null, stable: null, alpha: null, hasUpdate: false, checkedAt: Date.now(), error: err.message };
+    return { packageName: resolvedPkgName, current: CURRENT_VERSION, latest: null, stable: null, alpha: null, hasUpdate: false, checkedAt: Date.now(), error: err.message };
   }
 }
 
@@ -126,7 +138,7 @@ export async function getUpdateInfo(): Promise<UpdateInfo> {
  * @param pkgName 可选的包名（如 "@ryantest/openclaw-qqbot"），默认使用内置包名
  */
 export async function checkVersionExists(version: string, pkgName?: string): Promise<boolean> {
-  const registries = pkgName ? buildRegistries(pkgName) : REGISTRIES;
+  const registries = buildRegistries(normalizeNpmPackageName(pkgName) || getUpdatePackageName());
   for (const baseUrl of registries) {
     try {
       const url = `${baseUrl}/${version}`;

@@ -47,6 +47,10 @@ read_pkg_version() {
     node -e "try{process.stdout.write(JSON.parse(require('fs').readFileSync('$1','utf8')).version||'')}catch{}" 2>/dev/null || true
 }
 
+read_pkg_name() {
+    node -e "try{process.stdout.write(JSON.parse(require('fs').readFileSync('$1','utf8')).name||'')}catch{}" 2>/dev/null || true
+}
+
 version_gte() {
     [ "$(printf '%s\n' "$1" "$2" | sort -V | head -1)" = "$2" ]
 }
@@ -516,7 +520,8 @@ find "${OPENCLAW_HOME:-/dev/null}" -maxdepth 1 -name ".qqbot-temp-config-*" -mmi
 # ============================================================================
 #  参数解析
 # ============================================================================
-PKG_NAME="@tencent-connect/openclaw-qqbot"
+LOCAL_PKG_NAME="$(read_pkg_name "$PROJECT_DIR/package.json")"
+PKG_NAME="${LOCAL_PKG_NAME:-@tencent-connect/openclaw-qqbot}"
 PLUGIN_ID="openclaw-qqbot"
 TARGET_VERSION=""
 APPID=""

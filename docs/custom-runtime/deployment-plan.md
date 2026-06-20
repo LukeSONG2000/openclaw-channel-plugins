@@ -17,14 +17,39 @@ Do not run both the official QQBot plugin and the custom QQBot plugin against th
 Preferred first step:
 
 - Keep channel id `qqbot`.
-- Keep plugin id compatible only during migration if OpenClaw expects `openclaw-qqbot`.
-- Change package name/version to clearly identify custom build before publishing/installing:
-  - package name candidate: `@lukesong/openclaw-qqbot`
-  - version candidate: `1.7.2-luke.1`
+- Keep plugin id `openclaw-qqbot` during migration so OpenClaw channel loading, config keys, and existing state paths stay stable.
+- Publish/install the custom build under a personal npm package name:
+  - package name: `@lukesong/openclaw-qqbot`
+  - version line: `1.7.2-luke.N`, then bump `N` for each custom release.
+- Treat the npm package name as the update source. The OpenClaw plugin id remains the runtime slot.
 
 Open item:
 
 - Verify whether OpenClaw plugin loader keys the installed plugin by `package.json openclaw.id`, `openclaw.plugin.json id`, package name, or config `plugins.entries`. Do not rename plugin id until loader behavior is confirmed.
+
+## Instance Update Mode
+
+The deployed OpenClaw instance should check only the custom package by default.
+
+Recommended config:
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "upgradePkg": "lukesong/openclaw-qqbot",
+      "upgradeMode": "doc"
+    }
+  }
+}
+```
+
+Behavior:
+
+- `/bot-version` shows the current plugin version and the npm package used for update checks.
+- `/bot-upgrade` checks `@lukesong/openclaw-qqbot` and returns guidance by default.
+- Hot reload is available only if `upgradeMode` is explicitly set to `hot-reload`; even then, install starts only after the admin sends `/bot-upgrade --latest` or `/bot-upgrade --version X`.
+- The server must never auto-install the official `@tencent-connect/openclaw-qqbot` package unless an admin explicitly overrides `--pkg`.
 
 ## Server Backup Before First Deploy
 
@@ -52,8 +77,8 @@ Option A, npm tarball from local branch:
 npm install
 npm run build
 npm pack
-scp ./tencent-connect-openclaw-qqbot-*.tgz laptop-home:/tmp/
-ssh laptop-home 'cd ~/.openclaw/extensions && npm install /tmp/tencent-connect-openclaw-qqbot-*.tgz'
+scp ./lukesong-openclaw-qqbot-*.tgz laptop-home:/tmp/
+ssh laptop-home 'cd ~/.openclaw/extensions && npm install /tmp/lukesong-openclaw-qqbot-*.tgz'
 ```
 
 Option B, GitHub release tarball:
@@ -139,15 +164,46 @@ Keep rollback backups until the custom runtime has survived at least one day of 
 
 Official upstream updates:
 
-- Fetch upstream.
-- Read changelog and diff.
-- Decide whether to merge/cherry-pick.
-- Run tests.
-- Publish new custom version only after validation.
+1. Fetch upstream locally:
+
+```bash
+git fetch upstream
+git log --oneline --decorate custom-runtime..upstream/main
+git diff --stat custom-runtime..upstream/main
+```
+
+2. Read changelog/diff and decide whether the official change is worth adopting.
+3. Merge or cherry-pick into the personal branch:
+
+```bash
+git checkout custom-runtime
+git merge upstream/main
+```
+
+4. Resolve conflicts in favor of keeping `src/custom/*`, personal package identity, and the custom update policy.
+5. Run build/tests.
+6. Publish a new `@lukesong/openclaw-qqbot` version only after validation.
 
 Custom runtime updates:
 
-- OpenClaw instance checks only custom releases or custom manifest.
-- Notify admin of available custom update.
+- The OpenClaw instance checks only `@lukesong/openclaw-qqbot` unless overridden.
+- The bot notifies/admin-displays available custom updates through `/bot-version` and `/bot-upgrade`.
 - Admin explicitly approves install.
 - Server backs up current plugin before update.
+
+## Release Checklist
+
+For each custom release:
+
+1. Bump `package.json` version, for example `1.7.2-luke.2`.
+2. Run:
+
+```bash
+npm run build
+npx tsx tests/custom-runtime.test.ts
+npx tsx tests/update-checker.test.ts
+```
+
+3. Commit and push `custom-runtime`.
+4. Publish or pack the personal package.
+5. On the server, check `/bot-version`; it should show `📦更新检查源：@lukesong/openclaw-qqbot`.

@@ -119,14 +119,15 @@ export interface QQBotAccountConfig {
   /**
    * /bot-upgrade 指令的行为模式
    * - "doc"：展示升级文档链接（安全模式）
-   * - "hot-reload"：检测到新版本时直接执行 npm 升级脚本进行热更新（默认）
+   * - "hot-reload"：管理员确认后执行 npm 升级脚本进行热更新
+   * 默认: "doc"
    */
   upgradeMode?: "doc" | "hot-reload";
   /**
-   * /bot-upgrade 热更新时使用的 npm 包名
+   * /bot-upgrade 检查和热更新时使用的 npm 包名
    * 支持 "scope/name"（自动补 @）或 "@scope/name" 格式
-   * 默认: "@tencent-connect/openclaw-qqbot"
-   * 示例: "ryantest/openclaw-qqbot"
+   * 默认: 当前安装包的 package.json name
+   * 示例: "lukesong/openclaw-qqbot"
    */
   upgradePkg?: string;
   /**
@@ -498,5 +499,4 @@ export interface StreamMessageRequest {
   /** 同一条流式会话内的发送索引，从 0 开始，每次发送前递增；新流式会话重新从 0 开始 */
   index: number;
 }
-
 

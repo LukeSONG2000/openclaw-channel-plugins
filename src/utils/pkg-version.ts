@@ -1,5 +1,5 @@
 /**
- * 从 import.meta.url 向上遍历目录树查找 package.json 并读取 version。
+ * 从 import.meta.url 向上遍历目录树查找 package.json 并读取包信息。
  * 不依赖硬编码的 "../" 层级，无论编译输出结构如何变化都能可靠找到。
  */
 
@@ -11,14 +11,28 @@ import fs from "node:fs";
 /** 已定位到的 package.json 路径，避免重复遍历目录树 */
 let _resolvedPkgPath: string | null = null;
 
-export function getPackageVersion(metaUrl?: string): string {
+export interface PackageInfo {
+  name: string;
+  version: string;
+  path?: string;
+}
+
+function normalizePackageInfo(pkg: unknown, pkgPath?: string): PackageInfo | null {
+  if (!pkg || typeof pkg !== "object") return null;
+  const record = pkg as { name?: unknown; version?: unknown };
+  const name = typeof record.name === "string" ? record.name : "";
+  const version = typeof record.version === "string" ? record.version : "";
+  if (!version) return null;
+  return { name, version, path: pkgPath };
+}
+
+export function getPackageInfo(metaUrl?: string): PackageInfo {
   // 如果之前已定位到 package.json 路径，直接重新读取（快速路径）
   if (_resolvedPkgPath) {
     try {
       const pkg = JSON.parse(fs.readFileSync(_resolvedPkgPath, "utf8"));
-      if (pkg.name === "@tencent-connect/openclaw-qqbot" && pkg.version) {
-        return pkg.version as string;
-      }
+      const info = normalizePackageInfo(pkg, _resolvedPkgPath);
+      if (info) return info;
     } catch {
       // 文件可能已被删除（升级过程中），清除路径缓存，走完整查找
       _resolvedPkgPath = null;
@@ -35,10 +49,10 @@ export function getPackageVersion(metaUrl?: string): string {
     try {
       if (fs.existsSync(candidate)) {
         const pkg = JSON.parse(fs.readFileSync(candidate, "utf8"));
-        // 确认是我们自己的包（避免找到其他 package.json）
-        if (pkg.name === "@tencent-connect/openclaw-qqbot" && pkg.version) {
+        const info = normalizePackageInfo(pkg, candidate);
+        if (info) {
           _resolvedPkgPath = candidate;
-          return pkg.version as string;
+          return info;
         }
       }
     } catch {
@@ -53,12 +67,19 @@ export function getPackageVersion(metaUrl?: string): string {
     for (const rel of ["../../package.json", "../package.json", "./package.json"]) {
       try {
         const pkg = require(rel);
-        if (pkg?.version) {
-          return pkg.version as string;
-        }
+        const info = normalizePackageInfo(pkg);
+        if (info) return info;
       } catch { /* next */ }
     }
   } catch { /* fallback */ }
 
-  return "unknown";
+  return { name: "", version: "unknown" };
+}
+
+export function getPackageVersion(metaUrl?: string): string {
+  return getPackageInfo(metaUrl).version;
+}
+
+export function getPackageName(metaUrl?: string): string {
+  return getPackageInfo(metaUrl).name;
 }

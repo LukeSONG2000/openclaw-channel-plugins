@@ -26,22 +26,23 @@ $PKG_NAME = "@tencent-connect/openclaw-qqbot"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $PROJECT_DIR = Split-Path -Parent $SCRIPT_DIR
 
+# Read local package metadata
+$LOCAL_VERSION = ""
+try {
+    $pkgPath = Join-Path $PROJECT_DIR "package.json"
+    if (Test-Path $pkgPath) {
+        $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
+        if ($pkg.name) { $PKG_NAME = $pkg.name }
+        $LOCAL_VERSION = $pkg.version
+    }
+} catch {}
+
 # -Pkg 覆盖包名（支持 "scope/name" 自动补 @）
 if ($Pkg) {
     $Pkg = $Pkg.Trim()
     if (-not $Pkg.StartsWith("@")) { $Pkg = "@$Pkg" }
     $PKG_NAME = $Pkg
 }
-
-# Read local version
-$LOCAL_VERSION = ""
-try {
-    $pkgPath = Join-Path $PROJECT_DIR "package.json"
-    if (Test-Path $pkgPath) {
-        $pkg = Get-Content $pkgPath -Raw | ConvertFrom-Json
-        $LOCAL_VERSION = $pkg.version
-    }
-} catch {}
 
 if ($Help) {
     Write-Host "Usage:"

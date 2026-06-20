@@ -213,6 +213,14 @@ Desired behavior:
 - require explicit approval before installing
 - backup current server plugin before update
 
+Current update guardrails:
+
+- The deployed package derives its default update source from `package.json.name`.
+- Custom builds use `@lukesong/openclaw-qqbot` while keeping OpenClaw plugin id `openclaw-qqbot`.
+- `channels.qqbot.upgradePkg` can override the npm package checked by `/bot-version` and `/bot-upgrade`.
+- `channels.qqbot.upgradeMode` defaults to `doc`, so the instance reports available custom updates without installing them.
+- Hot reload remains available only after explicit config opt-in and an admin `/bot-upgrade --latest` or `/bot-upgrade --version X`.
+
 ## Gateway Integration Points
 
 Minimal changes in `src/gateway.ts` should be limited to:

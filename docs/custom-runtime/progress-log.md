@@ -31,3 +31,12 @@ Still intentionally not ported:
 - Group session auto-reset.
 
 These need to be extracted into `src/custom` instead of being re-woven into `gateway.ts`.
+
+Added custom release/update guardrails:
+
+- Changed package identity to `@lukesong/openclaw-qqbot@1.7.2-luke.1` while keeping OpenClaw plugin id `openclaw-qqbot`.
+- Made the update checker derive its default npm package from the installed package name instead of hardcoding the official package.
+- `/bot-version` and `/bot-upgrade` now display/check the configured custom update source.
+- `/bot-upgrade` defaults to `upgradeMode: "doc"`; hot reload requires explicit opt-in and admin confirmation.
+- Upgrade scripts now default to the local package name, with `--pkg` still available as an explicit override.
+- Added `tests/update-checker.test.ts` for package source normalization.

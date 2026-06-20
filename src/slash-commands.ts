@@ -16,7 +16,7 @@ import { createRequire } from "node:module";
 import { execFileSync, execFile, spawn } from "node:child_process";
 import path from "node:path";
 import fs from "node:fs";
-import { getUpdateInfo, checkVersionExists } from "./update-checker.js";
+import { checkVersionExists, getUpdateInfo, resolveConfiguredUpgradePackage } from "./update-checker.js";
 import { getHomeDir, getQQBotDataDir, isWindows } from "./utils/platform.js";
 import { saveCredentialBackup } from "./credential-backup.js";
 import { fileURLToPath } from "node:url";
@@ -304,13 +304,14 @@ registerCommand({
     `查看当前 QQBot 插件版本和 OpenClaw 框架版本。`,
     `同时检查是否有新版本可用。`,
   ].join("\n"),
-  handler: async () => {
+  handler: async (ctx) => {
     const frameworkVersion = getFrameworkVersion();
+    const info = await getUpdateInfo(resolveConfiguredUpgradePackage(ctx.accountConfig));
     const lines = [
       `🦞框架版本：${frameworkVersion}`,
       `🤖QQBot 插件版本：v${PLUGIN_VERSION}`,
+      `📦更新检查源：${info.packageName}`,
     ];
-    const info = await getUpdateInfo();
     if (info.checkedAt === 0) {
       lines.push(`⏳ 版本检查中...`);
     } else if (info.error) {
@@ -318,7 +319,7 @@ registerCommand({
     } else if (info.hasUpdate && info.latest) {
       lines.push(`🆕最新可用版本：v${info.latest}，点击 <qqbot-cmd-input text="/bot-upgrade" show="/bot-upgrade"/> 查看升级指引`);
     } 
-    lines.push(`🌟官方 GitHub 仓库：[点击前往](https://github.com/tencent-connect/openclaw-qqbot/)`);
+    lines.push(`🌟上游官方仓库：[点击前往](https://github.com/tencent-connect/openclaw-qqbot/)`);
     return lines.join("\n");
   },
 });
@@ -1175,7 +1176,7 @@ echo "[qqbot-upgrade] Done."
  *
  * upgradeMode 开关：
  *   - "doc"（默认）：只展示升级指引文档，不执行热更新
- *   - "hot-reload"：执行 npm 升级脚本进行热更新
+ *   - "hot-reload"：管理员确认后执行 npm 升级脚本进行热更新
  *
  * 热更新模式下的产品流程：
  *   /bot-upgrade              — 展示版本信息+确认按钮（不直接升级）
@@ -1198,9 +1199,33 @@ registerCommand({
   ].join("\n"),
   handler: async (ctx) => {
     const url = ctx.accountConfig?.upgradeUrl || DEFAULT_UPGRADE_URL;
-    const upgradeMode = ctx.accountConfig?.upgradeMode || "hot-reload";
+    const upgradeMode = ctx.accountConfig?.upgradeMode || "doc";
     const args = ctx.args.trim();
-    const info = await getUpdateInfo();
+    let requestedPkg: string | undefined;
+    const tokens = args ? args.split(/\s+/).filter(Boolean) : [];
+    for (let i = 0; i < tokens.length; i += 1) {
+      const t = tokens[i]!;
+      if (t === "--pkg") {
+        const next = tokens[i + 1];
+        if (!next || next.startsWith("--")) {
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
+        }
+        requestedPkg = next;
+        i += 1;
+        continue;
+      }
+      if (t.startsWith("--pkg=")) {
+        const v = t.slice("--pkg=".length).trim();
+        if (!v) {
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
+        }
+        requestedPkg = v;
+        continue;
+      }
+    }
+    const configuredPkg = resolveConfiguredUpgradePackage(ctx.accountConfig);
+    const checkPkg = requestedPkg || configuredPkg;
+    const info = await getUpdateInfo(checkPkg);
 
     const GITHUB_URL = "https://github.com/tencent-connect/openclaw-qqbot/";
 
@@ -1212,6 +1237,7 @@ registerCommand({
       if (info.error) {
         return [
           `❌ 主机网络访问异常，无法检查更新`,
+          `检查源：${info.packageName}`,
           ``,
           `查看升级指引：[点击查看](${url})`,
         ].join("\n");
@@ -1219,19 +1245,21 @@ registerCommand({
       if (!info.hasUpdate) {
         return [
           `✅ 当前已是最新版本 v${PLUGIN_VERSION}`,
+          `检查源：${info.packageName}`,
           ``,
-          `项目地址：[GitHub](${GITHUB_URL})`,
+          `上游官方仓库：[GitHub](${GITHUB_URL})`,
         ].join("\n");
       }
 
       return [
         `🆕 发现新版本`,
         ``,
+        `检查源：**${info.packageName}**`,
         `当前版本：**v${PLUGIN_VERSION}**`,
         `最新版本：**v${info.latest}**`,
         ``,
         `📖 升级指引：[点击查看](${url})`,
-        `🌟 官方 GitHub 仓库：[点击前往](${GITHUB_URL})`,
+        `🌟 上游官方仓库：[点击前往](${GITHUB_URL})`,
       ].join("\n");
     }
 
@@ -1251,8 +1279,7 @@ registerCommand({
     let isLatest = false;
     let isLocal = false;
     let versionArg: string | undefined;
-    let pkgArg: string | undefined;
-    const tokens = args ? args.split(/\s+/).filter(Boolean) : [];
+    let pkgArg: string | undefined = requestedPkg;
     for (let i = 0; i < tokens.length; i += 1) {
       const t = tokens[i]!;
       if (t === "--force") {
@@ -1270,7 +1297,7 @@ registerCommand({
       if (t === "--pkg") {
         const next = tokens[i + 1];
         if (!next || next.startsWith("--")) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg ryantest/openclaw-qqbot`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
         }
         pkgArg = next;
         i += 1;
@@ -1279,7 +1306,7 @@ registerCommand({
       if (t.startsWith("--pkg=")) {
         const v = t.slice("--pkg=".length).trim();
         if (!v) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg ryantest/openclaw-qqbot`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
         }
         pkgArg = v;
         continue;
@@ -1315,6 +1342,7 @@ registerCommand({
       if (info.error) {
         return [
           `❌ 主机网络访问异常，无法检查更新`,
+          `检查源：${info.packageName}`,
           ``,
           `查看手动升级指引：[点击查看](${url})`,
         ].join("\n");
@@ -1322,8 +1350,9 @@ registerCommand({
       if (!info.hasUpdate) {
         const lines = [
           `✅ 当前已是最新版本 v${PLUGIN_VERSION}`,
+          `检查源：${info.packageName}`,
           ``,
-          `项目地址：[GitHub](${GITHUB_URL})`,
+          `上游官方仓库：[GitHub](${GITHUB_URL})`,
         ];
         return lines.join("\n");
       }
@@ -1332,6 +1361,7 @@ registerCommand({
       return [
         `🆕 发现新版本`,
         ``,
+        `检查源：**${info.packageName}**`,
         `当前版本：**v${PLUGIN_VERSION}**`,
         `最新版本：**v${info.latest}**`,
         ``,
@@ -1341,17 +1371,13 @@ registerCommand({
         `**点击确认升级** <qqbot-cmd-enter text="/bot-upgrade --latest" />`,
         ``,
         `手动升级指引：[点击查看](${url})`,
-        `🌟官方 GitHub 仓库：[点击前往](${GITHUB_URL})`,
+        `🌟上游官方仓库：[点击前往](${GITHUB_URL})`,
       ].join("\n");
     }
 
     // 解析 npm 包名：--pkg 参数 > 配置项 upgradePkg > 默认
     // 支持 "scope/name"（自动补 @）和 "@scope/name" 两种格式
-    let upgradePkg = pkgArg || ctx.accountConfig?.upgradePkg;
-    if (upgradePkg) {
-      upgradePkg = upgradePkg.trim();
-      if (!upgradePkg.startsWith("@")) upgradePkg = `@${upgradePkg}`;
-    }
+    const upgradePkg = pkgArg ? resolveConfiguredUpgradePackage({ upgradePkg: pkgArg }) : configuredPkg;
 
     // ── --version 指定版本：先校验版本号是否存在 ──
     if (versionArg) {

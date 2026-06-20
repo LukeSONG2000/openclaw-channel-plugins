@@ -458,7 +458,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   }
 
   // 后台版本检查（供 /bot-version、/bot-upgrade 指令被动查询）
-  triggerUpdateCheck(log);
+  triggerUpdateCheck(log, account.config);
 
   // 初始化 API 配置（markdown 支持）
   // 将框架 log 注入 api 模块，统一日志输出
