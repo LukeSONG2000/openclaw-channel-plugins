@@ -164,3 +164,32 @@ export interface CustomProactiveBudgetRuntimeState {
   entries: Record<string, CustomProactiveBudgetEntry>;
   acceptance: Record<string, CustomProactiveAcceptanceEntry>;
 }
+
+export type CustomTaskStatus = "queued" | "running" | "completed" | "failed" | "cancelled";
+
+export interface CustomTaskRequirement {
+  id: string;
+  actor: CustomActor;
+  content: string;
+  createdAt: number;
+}
+
+export interface CustomSandboxTask {
+  id: string;
+  accountId: string;
+  peer: CustomPeer;
+  owner: CustomActor;
+  title: string;
+  prompt: string;
+  status: CustomTaskStatus;
+  workspace: string;
+  createdAt: number;
+  updatedAt: number;
+  requirements: CustomTaskRequirement[];
+  result?: string;
+  error?: string;
+}
+
+export interface CustomTaskSandboxRuntimeState {
+  tasks: Record<string, CustomSandboxTask>;
+}

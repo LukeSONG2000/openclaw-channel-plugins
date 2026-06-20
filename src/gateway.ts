@@ -68,6 +68,8 @@ import {
 } from "./custom/auth-gateway-adapter.js";
 import { loadCustomAuthorizationState, saveCustomAuthorizationState } from "./custom/auth-store.js";
 import { loadCustomProactiveBudgetState, saveCustomProactiveBudgetState } from "./custom/proactive-budget-store.js";
+import { handleCustomTaskCommand } from "./custom/task-gateway-adapter.js";
+import { loadCustomTaskSandboxState, saveCustomTaskSandboxState } from "./custom/task-sandbox-store.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -671,6 +673,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomProactiveBudgetState = (): void => {
     saveCustomProactiveBudgetState(account.accountId, customMessageFlow.proactiveBudget.getState());
   };
+  const restoredTaskState = loadCustomTaskSandboxState(account.accountId);
+  if (restoredTaskState) {
+    customMessageFlow.tasks.loadState(restoredTaskState);
+    log?.info(`[qqbot:${account.accountId}] Restored custom task sandbox state: tasks=${Object.keys(restoredTaskState.tasks).length}`);
+  }
+  const persistCustomTaskState = (): void => {
+    saveCustomTaskSandboxState(account.accountId, customMessageFlow.tasks.getState());
+  };
   const customUnreadFollowupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const customUnreadSleepDigestTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -816,6 +826,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         return;
       }
 
+      const customTaskCommand = handleCustomTaskCommand({
+        accountId: account.accountId,
+        tasks: customMessageFlow.tasks,
+        message: msg,
+        rawContent: content,
+      });
+      if (customTaskCommand.handled) {
+        if (customTaskCommand.changed) {
+          persistCustomTaskState();
+        }
+        if (customTaskCommand.reply) {
+          try {
+            await sendSlashTextReply(customTaskCommand.reply);
+          } catch (sendErr) {
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom task command reply: ${sendErr}`);
+          }
+        }
+        return;
+      }
+
       const reply = await matchSlashCommand(cmdCtx);
       if (reply === null) {
         // 不是插件级指令，正常入队交给框架
@@ -895,6 +925,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     persistCustomAuthState();
     // 保存自定义主动发送预算
     persistCustomProactiveBudgetState();
+    // 保存自定义长任务沙箱状态
+    persistCustomTaskState();
     // 停止审批 handler
     void approvalHandler.stop();
     unregisterApprovalHandler(account.accountId);

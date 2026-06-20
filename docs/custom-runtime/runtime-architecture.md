@@ -271,6 +271,7 @@ Initial slash command capability mapping:
 - `/bot-streaming`: `config.read`; `on`/`off` require `config.write`
 - `/bot-approve`: `config.read`; mutation commands require `auth.grant`
 - `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
+- `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
 
 Text approval commands:
 
@@ -360,19 +361,32 @@ Still open:
 
 Long task isolation.
 
-Responsibilities:
+Current implementation status:
 
-- create workspace per task
-- start subagent/job
-- maintain status store
-- allow authorized members to query/cancel/add requirements
-- push final result back to originating peer
+- Exists as a pure task metadata runtime with no QQ API, OpenClaw SDK, child process, timer, or filesystem dependency.
+- Creates durable task records with id, peer, owner, title, prompt, status, workspace path, timestamps, and appended requirements.
+- Defaults to at most 3 active tasks per account/peer.
+- Default workspace root is `~/.openclaw/qqbot/tasks`.
+- Task ids use `qqbot-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
+- Supports create, list, status, add requirement, and cancel operations.
+- Exports/imports `CustomTaskSandboxRuntimeState` so the gateway can restore task metadata after restart.
+- Persists state under `~/.openclaw/qqbot/data/custom-tasks/tasks-<accountId>.json`.
+- `src/custom/task-gateway-adapter.ts` handles `/bot-task` before the normal AI queue:
+  - `/bot-task create <任务描述>`
+  - `/bot-task list`
+  - `/bot-task status <taskId>`
+  - `/bot-task add <taskId> <追加需求>`
+  - `/bot-task cancel <taskId>`
+- Slash-command capability metadata gates task mutations through custom auth:
+  - query/help/list/status use `system.status`
+  - create/add/cancel use `codex.longTask`
 
-Suggested task ids:
+Important boundary:
 
-```text
-qqbot-{scene}-{groupOrUserOpenid}-{shortTime}-{nonce}
-```
+- This first layer does not start a real subagent/job yet.
+- It intentionally only creates isolated task state and user-visible status replies, so group long-task commands do not block the main conversation queue or guess at private OpenClaw execution APIs.
+
+Next integration:
 
 OpenClaw integration should use available runtime APIs where possible. Avoid shelling out until the framework contract is confirmed.
 

@@ -3,6 +3,7 @@ import { resolveCustomRuntimeConfig, resolveCustomSceneConfig, resolveCustomScen
 import { CustomAuthorizationRuntime, evaluateCustomAuthorization } from "./auth.js";
 import { CustomUnreadRuntime, resolveCustomUnreadConfig, type ResolvedCustomUnreadConfig } from "./unread-runtime.js";
 import { CustomProactiveBudgetRuntime, resolveCustomProactiveConfig, type ResolvedCustomProactiveConfig } from "./proactive-budget.js";
+import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
 import type { CustomAuthorizationDecision, CustomCapability, CustomInboundMessage, CustomSceneConfig } from "./types.js";
 import { buildCustomSceneSystemPrompt, type ResolvedCustomScene } from "./scenes.js";
 
@@ -47,6 +48,7 @@ export interface CustomMessageFlowRuntime {
   auth: CustomAuthorizationRuntime;
   unread: CustomUnreadRuntime;
   proactiveBudget: CustomProactiveBudgetRuntime;
+  tasks: CustomTaskSandboxRuntime;
 }
 
 export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
@@ -54,6 +56,7 @@ export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
     auth: new CustomAuthorizationRuntime(),
     unread: new CustomUnreadRuntime(),
     proactiveBudget: new CustomProactiveBudgetRuntime(),
+    tasks: new CustomTaskSandboxRuntime(),
   };
 }
 
@@ -94,6 +97,7 @@ export {
   CustomProactiveBudgetRuntime,
   resolveCustomProactiveConfig,
 } from "./proactive-budget.js";
+export { CustomTaskSandboxRuntime } from "./task-sandbox.js";
 export type { CustomAuthorizationCheckResult } from "./auth.js";
 export type { CustomSceneProfile, ResolvedCustomScene } from "./scenes.js";
 export type {

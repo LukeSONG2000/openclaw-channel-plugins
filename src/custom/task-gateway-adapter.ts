@@ -1,0 +1,191 @@
+import type { QueuedMessage } from "../message-queue.js";
+import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
+import type { CustomSandboxTask, CustomTaskSandboxRuntimeState } from "./types.js";
+import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
+
+export type CustomTaskCommand =
+  | { kind: "help" }
+  | { kind: "create"; prompt: string }
+  | { kind: "list" }
+  | { kind: "status"; taskId: string }
+  | { kind: "add"; taskId: string; content: string }
+  | { kind: "cancel"; taskId: string };
+
+export type CustomTaskCommandParseResult =
+  | { matched: false }
+  | { matched: true; command?: CustomTaskCommand; error?: string };
+
+export interface CustomTaskCommandResult {
+  handled: boolean;
+  reply?: string;
+  changed?: boolean;
+}
+
+export function parseCustomTaskCommand(rawContent: string): CustomTaskCommandParseResult {
+  const content = rawContent.trim();
+  if (!content.startsWith("/")) return { matched: false };
+  const [rawName = "", ...tokens] = content.slice(1).split(/\s+/).filter(Boolean);
+  if (rawName.toLowerCase() !== "bot-task") return { matched: false };
+
+  const action = (tokens.shift() ?? "help").toLowerCase();
+  if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
+  if (action === "create" || action === "new" || action === "start") {
+    const prompt = tokens.join(" ").trim();
+    if (!prompt) return { matched: true, error: "缺少任务描述" };
+    return { matched: true, command: { kind: "create", prompt } };
+  }
+  if (action === "list" || action === "ls") return { matched: true, command: { kind: "list" } };
+  if (action === "status" || action === "show") {
+    const taskId = tokens.shift();
+    if (!taskId) return { matched: true, error: "缺少 taskId" };
+    return { matched: true, command: { kind: "status", taskId } };
+  }
+  if (action === "add" || action === "append") {
+    const taskId = tokens.shift();
+    const text = tokens.join(" ").trim();
+    if (!taskId) return { matched: true, error: "缺少 taskId" };
+    if (!text) return { matched: true, error: "缺少追加需求内容" };
+    return { matched: true, command: { kind: "add", taskId, content: text } };
+  }
+  if (action === "cancel" || action === "stop") {
+    const taskId = tokens.shift();
+    if (!taskId) return { matched: true, error: "缺少 taskId" };
+    return { matched: true, command: { kind: "cancel", taskId } };
+  }
+
+  return { matched: true, error: `未知子命令：${action}` };
+}
+
+export function handleCustomTaskCommand(params: {
+  accountId: string;
+  tasks: CustomTaskSandboxRuntime;
+  message: QueuedMessage;
+  rawContent: string;
+  now?: number;
+}): CustomTaskCommandResult {
+  const parsed = parseCustomTaskCommand(params.rawContent);
+  if (!parsed.matched) return { handled: false };
+  if (parsed.error) return { handled: true, reply: formatCustomTaskHelp(parsed.error) };
+  const command = parsed.command ?? { kind: "help" as const };
+  const peer = toCustomPeerFromQueuedMessage(params.message);
+  const actor = toCustomActorFromQueuedMessage(params.message);
+
+  if (command.kind === "help") return { handled: true, reply: formatCustomTaskHelp() };
+  if (command.kind === "create") {
+    const result = params.tasks.createTask({
+      accountId: params.accountId,
+      peer,
+      actor,
+      prompt: command.prompt,
+      now: params.now,
+    });
+    if (!result.allowed || !result.task) {
+      return { handled: true, reply: formatTaskDecision(result.reason), changed: false };
+    }
+    return { handled: true, reply: formatTaskCreated(result.task), changed: true };
+  }
+  if (command.kind === "list") {
+    const tasks = params.tasks.listTasks({ accountId: params.accountId, peer, limit: 8 });
+    return { handled: true, reply: formatTaskList(tasks) };
+  }
+  if (command.kind === "status") {
+    const task = resolveTask(params.tasks.getState(), command.taskId);
+    return { handled: true, reply: task ? formatTaskStatus(task) : `⚠️ 未找到任务：${command.taskId}` };
+  }
+  if (command.kind === "add") {
+    const task = resolveTask(params.tasks.getState(), command.taskId);
+    if (!task) return { handled: true, reply: `⚠️ 未找到任务：${command.taskId}` };
+    const result = params.tasks.addRequirement({ taskId: task.id, actor, content: command.content, now: params.now });
+    return {
+      handled: true,
+      reply: result.allowed && result.task ? formatTaskRequirementAdded(result.task) : formatTaskDecision(result.reason),
+      changed: result.allowed,
+    };
+  }
+  if (command.kind === "cancel") {
+    const task = resolveTask(params.tasks.getState(), command.taskId);
+    if (!task) return { handled: true, reply: `⚠️ 未找到任务：${command.taskId}` };
+    const result = params.tasks.cancelTask({ taskId: task.id, actor, now: params.now });
+    return {
+      handled: true,
+      reply: result.allowed && result.task ? formatTaskCancelled(result.task) : formatTaskDecision(result.reason),
+      changed: result.allowed,
+    };
+  }
+
+  return { handled: true, reply: formatCustomTaskHelp() };
+}
+
+function formatCustomTaskHelp(error?: string): string {
+  const lines = [];
+  if (error) lines.push(`❌ ${error}`, ``);
+  lines.push(
+    `🧪 自定义长任务命令`,
+    ``,
+    `/bot-task create <任务描述>`,
+    `/bot-task list`,
+    `/bot-task status <taskId>`,
+    `/bot-task add <taskId> <追加需求>`,
+    `/bot-task cancel <taskId>`,
+  );
+  return lines.join("\n");
+}
+
+function formatTaskCreated(task: CustomSandboxTask): string {
+  return [
+    `🧪 长任务已创建`,
+    ``,
+    `任务：${task.id}`,
+    `状态：${task.status}`,
+    `标题：${task.title}`,
+    `工作区：${task.workspace}`,
+    ``,
+    `当前版本只创建独立任务状态，不会阻塞主对话；子 agent 执行器将在下一步接入。`,
+  ].join("\n");
+}
+
+function formatTaskList(tasks: CustomSandboxTask[]): string {
+  if (tasks.length === 0) return `🧪 当前会话暂无长任务。`;
+  const lines = [`🧪 当前会话长任务`, ``];
+  for (const task of tasks) {
+    lines.push(`- ${task.id} [${task.status}] ${task.title}`);
+  }
+  return lines.join("\n");
+}
+
+function formatTaskStatus(task: CustomSandboxTask): string {
+  const lines = [
+    `🧪 长任务状态`,
+    ``,
+    `任务：${task.id}`,
+    `状态：${task.status}`,
+    `标题：${task.title}`,
+    `发起人：${task.owner.label || task.owner.id}`,
+    `工作区：${task.workspace}`,
+    `追加需求：${task.requirements.length}`,
+  ];
+  if (task.result) lines.push(`结果：${task.result}`);
+  if (task.error) lines.push(`错误：${task.error}`);
+  return lines.join("\n");
+}
+
+function formatTaskRequirementAdded(task: CustomSandboxTask): string {
+  return `✅ 已追加需求到 ${task.id}，当前追加需求数：${task.requirements.length}`;
+}
+
+function formatTaskCancelled(task: CustomSandboxTask): string {
+  return `✅ 已取消长任务：${task.id}`;
+}
+
+function formatTaskDecision(reason: string): string {
+  if (reason === "too_many_active_tasks") return `⚠️ 当前会话活跃长任务过多，请先完成或取消一部分。`;
+  if (reason === "empty_prompt") return `⚠️ 任务内容不能为空。`;
+  if (reason === "not_active") return `⚠️ 任务已不处于活跃状态。`;
+  return `⚠️ 操作失败：${reason}`;
+}
+
+function resolveTask(state: CustomTaskSandboxRuntimeState, input: string): CustomSandboxTask | null {
+  if (state.tasks[input]) return state.tasks[input];
+  const matches = Object.values(state.tasks).filter((task) => task.id.startsWith(input) || task.id.endsWith(input));
+  return matches.length === 1 ? matches[0]! : null;
+}

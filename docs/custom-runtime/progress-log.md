@@ -171,3 +171,19 @@ Still intentionally open:
 
 - Media proactive sends routed through generic media auto-routing need the same guard.
 - Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.
+
+Added custom long-task sandbox state skeleton:
+
+- Added `src/custom/task-sandbox.ts` as a pure task metadata runtime with create/list/status/add/cancel operations.
+- Added `src/custom/task-sandbox-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-tasks/tasks-<accountId>.json`.
+- Added `src/custom/task-gateway-adapter.ts` to parse and handle `/bot-task` commands before they enter the main AI queue.
+- Gateway restores task sandbox state on startup and persists it after task changes and gateway abort/stop.
+- Added slash-command capability metadata for `/bot-task`:
+  - help/list/status require `system.status`
+  - create/add/cancel require `codex.longTask`
+- Added tests for task runtime, task store, task gateway adapter, and slash capability mapping.
+
+Still intentionally open:
+
+- The task sandbox does not start a real subagent/job yet.
+- Result pushback, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the OpenClaw execution contract is confirmed.

@@ -22,5 +22,11 @@ assert.equal(getSlashCommandCapability("/bot-streaming on"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-approve status"), "config.read");
 assert.equal(getSlashCommandCapability("/bot-approve on"), "auth.grant");
 assert.equal(getSlashCommandCapability("/bot-group-allways off"), "config.write");
+assert.equal(getSlashCommandCapability("/bot-task"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-task list"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-task status qqbot-default-group-GROUP_OPENID-1000-1"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-task create Build sandbox"), "codex.longTask");
+assert.equal(getSlashCommandCapability("/bot-task add qqbot-default-group-GROUP_OPENID-1000-1 more requirements"), "codex.longTask");
+assert.equal(getSlashCommandCapability("/bot-task cancel qqbot-default-group-GROUP_OPENID-1000-1"), "codex.longTask");
 
 console.log("slash command capability tests passed");

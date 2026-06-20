@@ -366,6 +366,29 @@ registerCommand({
   },
 });
 
+/**
+ * /bot-task — custom runtime long-task sandbox command.
+ *
+ * The gateway handles this command against the live per-account custom runtime
+ * before normal slash command matching. This registry entry only provides help
+ * text and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-task",
+  description: "管理自定义长任务沙箱",
+  capability: (request) => slashTaskCapability(request.args),
+  usage: [
+    `/bot-task create <任务描述>`,
+    `/bot-task list`,
+    `/bot-task status <taskId>`,
+    `/bot-task add <taskId> <追加需求>`,
+    `/bot-task cancel <taskId>`,
+    ``,
+    `创建、查询、追加或取消二开运行时维护的长任务状态。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
 const DEFAULT_UPGRADE_URL = "https://docs.qq.com/doc/DSGxOZk1oVnVKVkpq";
 
 function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {
@@ -2534,4 +2557,15 @@ function slashUpgradeCapability(args: string): SlashCommandCapability {
     }
   }
   return "deploy.check";
+}
+
+function slashTaskCapability(args: string): SlashCommandCapability {
+  const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+    return "system.status";
+  }
+  if (action === "create" || action === "new" || action === "start" || action === "add" || action === "append" || action === "cancel" || action === "stop") {
+    return "codex.longTask";
+  }
+  return "codex.longTask";
 }
