@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { getSlashCommandCapability, parseSlashCommandRequest } from "../src/slash-commands.js";
+import { getSlashCommandCapability, matchSlashCommand, parseSlashCommandRequest } from "../src/slash-commands.js";
 
 assert.deepEqual(parseSlashCommandRequest("/bot-upgrade --latest"), {
   name: "bot-upgrade",
@@ -11,7 +11,7 @@ assert.equal(getSlashCommandCapability("/bot-help"), null);
 assert.equal(getSlashCommandCapability("/unknown"), null);
 assert.equal(getSlashCommandCapability("/bot-version"), "deploy.check");
 assert.equal(getSlashCommandCapability("/bot-upgrade"), "deploy.check");
-assert.equal(getSlashCommandCapability("/bot-upgrade --pkg lukesong/openclaw-qqbot"), "deploy.check");
+assert.equal(getSlashCommandCapability("/bot-upgrade --pkg lukesong/openclaw-qqbot"), "deploy.apply");
 assert.equal(getSlashCommandCapability("/bot-upgrade --latest"), "deploy.apply");
 assert.equal(getSlashCommandCapability("/bot-upgrade --version 1.7.2-luke.2"), "deploy.apply");
 assert.equal(getSlashCommandCapability("/bot-upgrade 1.7.2-luke.2"), "deploy.apply");
@@ -28,5 +28,26 @@ assert.equal(getSlashCommandCapability("/bot-task status qqbot-default-group-GRO
 assert.equal(getSlashCommandCapability("/bot-task create Build sandbox"), "codex.longTask");
 assert.equal(getSlashCommandCapability("/bot-task add qqbot-default-group-GROUP_OPENID-1000-1 more requirements"), "codex.longTask");
 assert.equal(getSlashCommandCapability("/bot-task cancel qqbot-default-group-GROUP_OPENID-1000-1"), "codex.longTask");
+
+const blockedPkgOverride = await matchSlashCommand({
+  type: "c2c",
+  senderId: "USER_OPENID",
+  messageId: "MSG_ID",
+  eventTimestamp: new Date(0).toISOString(),
+  receivedAt: 0,
+  rawContent: "/bot-upgrade --pkg tencent-connect/openclaw-qqbot",
+  args: "",
+  accountId: "default",
+  appId: "APP_ID",
+  accountConfig: {},
+  queueSnapshot: {
+    totalPending: 0,
+    activeUsers: 0,
+    maxConcurrentUsers: 1,
+    senderPending: 0,
+  },
+});
+assert.equal(typeof blockedPkgOverride, "string");
+assert.match(blockedPkgOverride as string, /已锁定二开更新源/);
 
 console.log("slash command capability tests passed");

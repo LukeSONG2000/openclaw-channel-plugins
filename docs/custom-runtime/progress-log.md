@@ -38,7 +38,8 @@ Added custom release/update guardrails:
 - Made the update checker derive its default npm package from the installed package name instead of hardcoding the official package.
 - `/bot-version` and `/bot-upgrade` now display/check the configured custom update source.
 - `/bot-upgrade` defaults to `upgradeMode: "doc"`; hot reload requires explicit opt-in and admin confirmation.
-- Upgrade scripts now default to the local package name, with `--pkg` still available as an explicit override.
+- Upgrade scripts now default to the local package name. `/bot-upgrade --pkg` is blocked by default and requires `allowUpgradePkgOverride=true`.
+- Hot reload now downloads the upgrade script from the personal `custom-runtime` branch by default, with `QQBOT_UPGRADE_SCRIPT_URL` kept as an emergency override.
 - Added `tests/update-checker.test.ts` for package source normalization.
 
 Extracted unread/follow-up message flow into pure runtime:

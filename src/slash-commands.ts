@@ -732,8 +732,12 @@ function copyScriptToTemp(scriptPath: string): string | null {
   }
 }
 
-const REMOTE_UPGRADE_SCRIPT_URL = "https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh";
-const REMOTE_UPGRADE_SCRIPT_URL_WIN = "https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.ps1";
+const REMOTE_UPGRADE_SCRIPT_URL =
+  process.env.QQBOT_UPGRADE_SCRIPT_URL
+  || "https://raw.githubusercontent.com/LukeSONG2000/openclaw-qqbot/custom-runtime/scripts/upgrade-via-npm.sh";
+const REMOTE_UPGRADE_SCRIPT_URL_WIN =
+  process.env.QQBOT_UPGRADE_SCRIPT_URL_WIN
+  || "https://raw.githubusercontent.com/LukeSONG2000/openclaw-qqbot/custom-runtime/scripts/upgrade-via-npm.ps1";
 
 /**
  * 从远端下载升级脚本到临时目录，返回临时脚本路径，失败返回 null。
@@ -1232,7 +1236,7 @@ registerCommand({
     `/bot-upgrade              检查是否有新版本`,
     `/bot-upgrade --latest     确认升级到最新版本（需 upgradeMode=hot-reload）`,
     `/bot-upgrade --version X  升级到指定版本（需 upgradeMode=hot-reload）`,
-    `/bot-upgrade --pkg scope/name  指定 npm 包（如 ryantest/openclaw-qqbot）`,
+    `/bot-upgrade --pkg scope/name  指定 npm 包（需 allowUpgradePkgOverride=true）`,
     `/bot-upgrade --force      强制重新安装当前版本（需 upgradeMode=hot-reload）`,
     `/bot-upgrade --local      使用本地升级脚本（跳过远端下载）`,
   ].join("\n"),
@@ -1262,6 +1266,15 @@ registerCommand({
         continue;
       }
     }
+    if (requestedPkg && ctx.accountConfig?.allowUpgradePkgOverride !== true) {
+      return [
+        `🚫 当前实例已锁定二开更新源，不能通过 --pkg 临时切换包名。`,
+        ``,
+        `当前更新源：${resolveConfiguredUpgradePackage(ctx.accountConfig)}`,
+        `如确实需要覆盖，请先在配置中显式设置 allowUpgradePkgOverride=true。`,
+      ].join("\n");
+    }
+
     const configuredPkg = resolveConfiguredUpgradePackage(ctx.accountConfig);
     const checkPkg = requestedPkg || configuredPkg;
     const info = await getUpdateInfo(checkPkg);
@@ -1414,7 +1427,7 @@ registerCommand({
       ].join("\n");
     }
 
-    // 解析 npm 包名：--pkg 参数 > 配置项 upgradePkg > 默认
+    // 解析 npm 包名：配置项 upgradePkg > 默认；只有显式允许时 --pkg 才能覆盖。
     // 支持 "scope/name"（自动补 @）和 "@scope/name" 两种格式
     const upgradePkg = pkgArg ? resolveConfiguredUpgradePackage({ upgradePkg: pkgArg }) : configuredPkg;
 
@@ -2546,11 +2559,10 @@ function slashUpgradeCapability(args: string): SlashCommandCapability {
       return "deploy.apply";
     }
     if (token === "--pkg") {
-      i += 1;
-      continue;
+      return "deploy.apply";
     }
     if (token.startsWith("--pkg=")) {
-      continue;
+      return "deploy.apply";
     }
     if (!token.startsWith("--")) {
       return "deploy.apply";

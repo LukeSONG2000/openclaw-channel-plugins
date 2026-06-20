@@ -38,7 +38,8 @@ Recommended config:
   "channels": {
     "qqbot": {
       "upgradePkg": "lukesong/openclaw-qqbot",
-      "upgradeMode": "doc"
+      "upgradeMode": "doc",
+      "allowUpgradePkgOverride": false
     }
   }
 }
@@ -49,7 +50,8 @@ Behavior:
 - `/bot-version` shows the current plugin version and the npm package used for update checks.
 - `/bot-upgrade` checks `@lukesong/openclaw-qqbot` and returns guidance by default.
 - Hot reload is available only if `upgradeMode` is explicitly set to `hot-reload`; even then, install starts only after the admin sends `/bot-upgrade --latest` or `/bot-upgrade --version X`.
-- The server must never auto-install the official `@tencent-connect/openclaw-qqbot` package unless an admin explicitly overrides `--pkg`.
+- `--pkg` is rejected unless `allowUpgradePkgOverride=true`; keep it disabled on the production instance so the bot cannot be accidentally switched back to the official `@tencent-connect/openclaw-qqbot` package.
+- Hot reload downloads the upgrade script from the personal `custom-runtime` branch by default. Override `QQBOT_UPGRADE_SCRIPT_URL` only for manual emergency maintenance.
 
 ## Server Backup Before First Deploy
 

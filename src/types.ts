@@ -131,6 +131,11 @@ export interface QQBotAccountConfig {
    */
   upgradePkg?: string;
   /**
+   * 是否允许 /bot-upgrade --pkg 临时覆盖检查/升级包名
+   * 默认 false，避免二开实例被误切回官方包或其他包。
+   */
+  allowUpgradePkgOverride?: boolean;
+  /**
    * 群消息是否默认需要 @机器人才响应（默认 true）
    * 优先级低于 groups.{groupId}.requireMention 和 groups."*".requireMention
    * 设为 false 时，所有群默认无需 @ 即触发回复（仍可被群级配置覆盖）
@@ -499,4 +504,3 @@ export interface StreamMessageRequest {
   /** 同一条流式会话内的发送索引，从 0 开始，每次发送前递增；新流式会话重新从 0 开始 */
   index: number;
 }
-
