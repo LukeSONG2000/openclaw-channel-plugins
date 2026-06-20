@@ -242,6 +242,13 @@ Started reducing custom gateway coupling:
 - `gateway.ts` no longer imports the individual custom store modules directly.
 - Added `tests/custom-message-flow-state.test.ts` to verify restore and save across all current custom state areas.
 
+Extracted custom slash command orchestration:
+
+- Added `src/custom/slash-gateway-adapter.ts` to handle `/bot-auth`, custom slash authorization, `/bot-task`, and `/bot-poll` through one gateway-facing adapter.
+- The adapter returns typed reply/persist/log descriptions and does not call QQ send APIs directly.
+- `gateway.ts` now keeps the platform send/fallback responsibility while delegating custom command decisions to the adapter.
+- Added `tests/custom-slash-gateway-adapter.test.ts` for no-match, auth-denial approval card, task command, and poll keyboard paths.
+
 Still intentionally open:
 
-- Slash-command handling, interaction handling, unread timers, and dispatch completion hooks are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Interaction handling, unread timers, and dispatch completion hooks are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.

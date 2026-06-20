@@ -64,13 +64,11 @@ import {
   describeCustomAuthorizationIntents,
   firstCustomAuthApprovalRequest,
   formatCustomAuthorizationDeniedMessage,
-  handleCustomAuthCommand,
   handleCustomAuthInteraction,
 } from "./custom/auth-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
-import { handleCustomPollCommand, handleCustomPollInteraction } from "./custom/poll-gateway-adapter.js";
-import { handleCustomTaskCommand } from "./custom/task-gateway-adapter.js";
-import { appendCustomTaskRequirement, materializeCustomTaskWorkspace, writeCustomTaskStatus } from "./custom/task-workspace.js";
+import { handleCustomPollInteraction } from "./custom/poll-gateway-adapter.js";
+import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -774,29 +772,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }
       };
 
-      const sendSlashAuthApprovalCard = async (
-        decision: ReturnType<typeof checkCustomSlashAuthorization>,
-      ): Promise<boolean> => {
-        const request = decision.result?.intents
-          ? firstCustomAuthApprovalRequest(decision.result.intents)
-          : null;
-        if (!request) return false;
-        if (msg.type !== "c2c" && msg.type !== "group") return false;
-
-        const token = await getAccessToken(account.appId, account.clientSecret);
-        const text = buildCustomAuthApprovalText(request);
-        const keyboard = buildCustomAuthApprovalKeyboard(request.id);
-        if (msg.type === "c2c") {
-          await sendC2CMessageWithInlineKeyboard(token, msg.senderId, text, keyboard, msg.messageId);
-          return true;
-        }
-        if (msg.type === "group" && msg.groupOpenid) {
-          await sendGroupMessageWithInlineKeyboard(token, msg.groupOpenid, text, keyboard, msg.messageId);
-          return true;
-        }
-        return false;
-      };
-
       const sendSlashKeyboardReply = async (text: string, keyboard?: import("./types.js").InlineKeyboard): Promise<void> => {
         if (!keyboard) {
           await sendSlashTextReply(text);
@@ -812,114 +787,53 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }
       };
 
-      const customAuthCommand = handleCustomAuthCommand({
-        cfg: cfg as any,
-        auth: customMessageFlow.auth,
-        message: msg,
-        rawContent: content,
-      });
-      if (customAuthCommand.handled) {
-        if (customAuthCommand.intent) {
-          for (const item of describeCustomAuthorizationIntents([customAuthCommand.intent])) {
-            log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
-          }
-          persistCustomAuthState();
+      const sendCustomSlashReply = async (reply: CustomSlashGatewayReply): Promise<void> => {
+        if (reply.kind === "text") {
+          await sendSlashTextReply(reply.text);
+          return;
         }
-        if (customAuthCommand.reply) {
+        if (reply.kind === "keyboard") {
           try {
-            await sendSlashTextReply(customAuthCommand.reply);
+            await sendSlashKeyboardReply(reply.text, reply.keyboard);
           } catch (sendErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom auth command reply: ${sendErr}`);
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom slash keyboard reply, falling back to text: ${sendErr}`);
+            await sendSlashTextReply(reply.text);
           }
+          return;
         }
-        return;
-      }
-
-      const authDecision = checkCustomSlashAuthorization({
-        cfg: cfg as any,
-        auth: customMessageFlow.auth,
-        message: msg,
-        rawContent: content,
-      });
-      if (authDecision.enabled && authDecision.result?.intents.length) {
-        for (const item of describeCustomAuthorizationIntents(authDecision.result.intents)) {
-          log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
-        }
-        persistCustomAuthState();
-      }
-      if (authDecision.enabled && authDecision.reason === "denied") {
-        log?.info(`[qqbot:${account.accountId}] Slash command denied by custom auth: capability=${authDecision.capability} sender=${msg.senderId} content=${content.slice(0, 80)}`);
-        const denialText = formatCustomAuthorizationDeniedMessage(authDecision);
-        try {
-          const sentCard = await sendSlashAuthApprovalCard(authDecision);
-          if (!sentCard) {
-            await sendSlashTextReply(denialText);
-          }
-        } catch (sendErr) {
-          log?.error(`[qqbot:${account.accountId}] Failed to send custom auth approval card, falling back to text: ${sendErr}`);
+        if (reply.approvalText && reply.keyboard) {
           try {
-            await sendSlashTextReply(denialText);
-          } catch (fallbackErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom auth denial fallback: ${fallbackErr}`);
-          }
-        }
-        return;
-      }
-
-      const customTaskCommand = handleCustomTaskCommand({
-        accountId: account.accountId,
-        tasks: customMessageFlow.tasks,
-        message: msg,
-        rawContent: content,
-      });
-      if (customTaskCommand.handled) {
-        if (customTaskCommand.changed) {
-          persistCustomTaskState();
-          try {
-            if (customTaskCommand.change === "created" && customTaskCommand.task) {
-              materializeCustomTaskWorkspace(customTaskCommand.task);
-            } else if (customTaskCommand.change === "requirement-added" && customTaskCommand.task && customTaskCommand.requirement) {
-              appendCustomTaskRequirement(customTaskCommand.task, customTaskCommand.requirement);
-            } else if (customTaskCommand.task) {
-              writeCustomTaskStatus(customTaskCommand.task);
-            }
-          } catch (workspaceErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to update custom task workspace: ${workspaceErr}`);
-          }
-        }
-        if (customTaskCommand.reply) {
-          try {
-            await sendSlashTextReply(customTaskCommand.reply);
+            await sendSlashKeyboardReply(reply.approvalText, reply.keyboard);
+            return;
           } catch (sendErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom task command reply: ${sendErr}`);
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom auth approval card, falling back to text: ${sendErr}`);
           }
         }
-        return;
-      }
+        await sendSlashTextReply(reply.denialText);
+      };
 
-      const customPollCommand = handleCustomPollCommand({
+      const customSlashCommand = handleCustomSlashGatewayCommand({
         cfg: cfg as any,
         accountId: account.accountId,
-        polls: customMessageFlow.polls,
+        runtime: customMessageFlow,
         message: msg,
         rawContent: content,
       });
-      if (customPollCommand.handled) {
-        if (customPollCommand.changed) {
-          persistCustomPollState();
+      if (customSlashCommand.handled) {
+        if (customSlashCommand.logs) {
+          for (const item of customSlashCommand.logs) {
+            if (item.level === "error") log?.error(`[qqbot:${account.accountId}] ${item.message}`);
+            else log?.info(`[qqbot:${account.accountId}] ${item.message}`);
+          }
         }
-        if (customPollCommand.reply) {
+        if (customSlashCommand.persist?.auth) persistCustomAuthState();
+        if (customSlashCommand.persist?.tasks) persistCustomTaskState();
+        if (customSlashCommand.persist?.polls) persistCustomPollState();
+        if (customSlashCommand.reply) {
           try {
-            await sendSlashKeyboardReply(customPollCommand.reply, customPollCommand.keyboard);
+            await sendCustomSlashReply(customSlashCommand.reply);
           } catch (sendErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom poll command reply: ${sendErr}`);
-            if (customPollCommand.keyboard) {
-              try {
-                await sendSlashTextReply(customPollCommand.reply);
-              } catch (fallbackErr) {
-                log?.error(`[qqbot:${account.accountId}] Failed to send custom poll fallback reply: ${fallbackErr}`);
-              }
-            }
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom slash command reply: ${sendErr}`);
           }
         }
         return;

@@ -304,6 +304,28 @@ Still open:
 - Richer custom auth card variants, such as selecting arbitrary grant counts or durations from the card.
 - Optional encryption/redaction for the auth state file if future grants include sensitive notes.
 
+### `src/custom/slash-gateway-adapter.ts`
+
+Gateway-side custom slash command orchestration layer.
+
+Current implementation status:
+
+- Runs before official plugin slash command matching.
+- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-task`, and `/bot-poll` through one adapter entry point.
+- Returns typed side-effect descriptions instead of sending QQ messages directly:
+  - text reply
+  - keyboard reply
+  - auth approval card with denial fallback
+  - state areas that need persistence
+  - info/error log lines
+- Applies task workspace file effects for task create/add/cancel while keeping QQ send APIs out of the custom command decision layer.
+- Leaves `gateway.ts` responsible for platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
+
+Important boundary:
+
+- This is not a full command framework replacement.
+- Official/plugin slash commands still live in `src/slash-commands.ts`; the custom adapter only handles custom runtime gates and commands that need live per-account runtime state.
+
 ### `src/custom/unread-runtime.ts`
 
 Owns non-mentioned group history and autonomous speaking decisions.

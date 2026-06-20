@@ -1,0 +1,193 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { QueuedMessage } from "../message-queue.js";
+import type { InlineKeyboard } from "../types.js";
+import {
+  buildCustomAuthApprovalKeyboard,
+  buildCustomAuthApprovalText,
+  checkCustomSlashAuthorization,
+  describeCustomAuthorizationIntents,
+  firstCustomAuthApprovalRequest,
+  formatCustomAuthorizationDeniedMessage,
+  handleCustomAuthCommand,
+} from "./auth-gateway-adapter.js";
+import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
+import type { CustomMessageFlowRuntime } from "./runtime.js";
+import { handleCustomTaskCommand } from "./task-gateway-adapter.js";
+import {
+  appendCustomTaskRequirement,
+  materializeCustomTaskWorkspace,
+  writeCustomTaskStatus,
+} from "./task-workspace.js";
+
+export type CustomSlashGatewayReply =
+  | { kind: "text"; text: string }
+  | { kind: "keyboard"; text: string; keyboard: InlineKeyboard }
+  | { kind: "auth-approval"; denialText: string; approvalText?: string; keyboard?: InlineKeyboard };
+
+export interface CustomSlashGatewayPersist {
+  auth?: boolean;
+  tasks?: boolean;
+  polls?: boolean;
+}
+
+export interface CustomSlashGatewayLog {
+  level: "info" | "error";
+  message: string;
+}
+
+export type CustomSlashGatewayResult =
+  | { handled: false }
+  | {
+      handled: true;
+      reply?: CustomSlashGatewayReply;
+      persist?: CustomSlashGatewayPersist;
+      logs?: CustomSlashGatewayLog[];
+    };
+
+export function handleCustomSlashGatewayCommand(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  runtime: CustomMessageFlowRuntime;
+  message: QueuedMessage;
+  rawContent: string;
+  now?: number;
+  applyTaskWorkspaceEffects?: boolean;
+}): CustomSlashGatewayResult {
+  const logs: CustomSlashGatewayLog[] = [];
+  const persist: CustomSlashGatewayPersist = {};
+  const applyTaskWorkspaceEffects = params.applyTaskWorkspaceEffects !== false;
+
+  const customAuthCommand = handleCustomAuthCommand({
+    cfg: params.cfg,
+    auth: params.runtime.auth,
+    message: params.message,
+    rawContent: params.rawContent,
+    now: params.now,
+  });
+  if (customAuthCommand.handled) {
+    if (customAuthCommand.intent) {
+      logs.push(...logAuthIntents([customAuthCommand.intent]));
+      persist.auth = true;
+    }
+    return handled({
+      reply: customAuthCommand.reply ? { kind: "text", text: customAuthCommand.reply } : undefined,
+      persist,
+      logs,
+    });
+  }
+
+  const authDecision = checkCustomSlashAuthorization({
+    cfg: params.cfg,
+    auth: params.runtime.auth,
+    message: params.message,
+    rawContent: params.rawContent,
+    now: params.now,
+  });
+  if (authDecision.enabled && authDecision.result?.intents.length) {
+    logs.push(...logAuthIntents(authDecision.result.intents));
+    persist.auth = true;
+  }
+  if (authDecision.enabled && authDecision.reason === "denied") {
+    logs.push({
+      level: "info",
+      message: `Slash command denied by custom auth: capability=${authDecision.capability} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
+    });
+    const request = authDecision.result?.intents
+      ? firstCustomAuthApprovalRequest(authDecision.result.intents)
+      : null;
+    return handled({
+      reply: {
+        kind: "auth-approval",
+        denialText: formatCustomAuthorizationDeniedMessage(authDecision),
+        ...(request && (params.message.type === "c2c" || params.message.type === "group")
+          ? {
+              approvalText: buildCustomAuthApprovalText(request),
+              keyboard: buildCustomAuthApprovalKeyboard(request.id),
+            }
+          : {}),
+      },
+      persist,
+      logs,
+    });
+  }
+
+  const customTaskCommand = handleCustomTaskCommand({
+    accountId: params.accountId,
+    tasks: params.runtime.tasks,
+    message: params.message,
+    rawContent: params.rawContent,
+    now: params.now,
+  });
+  if (customTaskCommand.handled) {
+    if (customTaskCommand.changed) {
+      persist.tasks = true;
+      if (applyTaskWorkspaceEffects) {
+        try {
+          if (customTaskCommand.change === "created" && customTaskCommand.task) {
+            materializeCustomTaskWorkspace(customTaskCommand.task);
+          } else if (customTaskCommand.change === "requirement-added" && customTaskCommand.task && customTaskCommand.requirement) {
+            appendCustomTaskRequirement(customTaskCommand.task, customTaskCommand.requirement);
+          } else if (customTaskCommand.task) {
+            writeCustomTaskStatus(customTaskCommand.task);
+          }
+        } catch (err) {
+          logs.push({ level: "error", message: `Failed to update custom task workspace: ${err}` });
+        }
+      }
+    }
+    return handled({
+      reply: customTaskCommand.reply ? { kind: "text", text: customTaskCommand.reply } : undefined,
+      persist,
+      logs,
+    });
+  }
+
+  const customPollCommand = handleCustomPollCommand({
+    cfg: params.cfg,
+    accountId: params.accountId,
+    polls: params.runtime.polls,
+    message: params.message,
+    rawContent: params.rawContent,
+    now: params.now,
+  });
+  if (customPollCommand.handled) {
+    if (customPollCommand.changed) {
+      persist.polls = true;
+    }
+    return handled({
+      reply: customPollCommand.reply
+        ? customPollCommand.keyboard
+          ? { kind: "keyboard", text: customPollCommand.reply, keyboard: customPollCommand.keyboard }
+          : { kind: "text", text: customPollCommand.reply }
+        : undefined,
+      persist,
+      logs,
+    });
+  }
+
+  return { handled: false };
+}
+
+function logAuthIntents(intents: Parameters<typeof describeCustomAuthorizationIntents>[0]): CustomSlashGatewayLog[] {
+  return describeCustomAuthorizationIntents(intents).map((message) => ({
+    level: "info" as const,
+    message: `custom auth: ${message}`,
+  }));
+}
+
+function handled(params: {
+  reply?: CustomSlashGatewayReply;
+  persist?: CustomSlashGatewayPersist;
+  logs?: CustomSlashGatewayLog[];
+}): CustomSlashGatewayResult {
+  return {
+    handled: true,
+    ...(params.reply ? { reply: params.reply } : {}),
+    ...(hasPersist(params.persist) ? { persist: params.persist } : {}),
+    ...(params.logs?.length ? { logs: params.logs } : {}),
+  };
+}
+
+function hasPersist(persist?: CustomSlashGatewayPersist): boolean {
+  return Boolean(persist?.auth || persist?.tasks || persist?.polls);
+}
