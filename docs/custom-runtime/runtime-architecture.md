@@ -417,7 +417,7 @@ Important boundary:
 
 ### `src/custom/unread-context.ts`
 
-Gateway-side history context selector for custom unread flow.
+Gateway-side history context adapter for custom unread and legacy group history.
 
 Current implementation status:
 
@@ -426,12 +426,15 @@ Current implementation status:
   - mention-time custom unread history
   - legacy group history map
 - Gives synthetic snapshot history priority over mention-time history, and mention-time history priority over legacy history.
-- Returns a `HistoryEntry[]` map compatible with `buildPendingHistoryContext()`.
+- Builds the pending-history context body through a gateway-provided envelope formatter callback.
+- Records legacy non-mentioned group history when custom unread is disabled for the peer.
+- Clears legacy group history after a handled reply falls back to the old history path.
+- Owns attachment-tag appending for pending history entries so gateway no longer needs to know that detail.
 
 Important boundary:
 
-- This module does not format envelope text or agent prompts.
-- It does not clear legacy history after dispatch; cleanup still happens in the gateway completion path.
+- This module does not choose group policy, mention gating, command authorization, or scene routing.
+- It does not know QQBot envelope syntax; gateway still provides the final envelope formatter callback.
 
 ### `src/custom/unread-scheduler.ts`
 

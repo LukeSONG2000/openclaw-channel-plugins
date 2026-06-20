@@ -283,6 +283,12 @@ Extracted custom unread context selection:
 - `gateway.ts` now delegates custom unread history precedence to the selector while still owning the final envelope formatting.
 - Added `tests/custom-unread-context.test.ts` for snapshot priority, mention fallback, empty snapshot fallback, and legacy fallback.
 
+Expanded unread context adapter ownership:
+
+- `src/custom/unread-context.ts` now also records legacy non-mentioned group history, clears legacy group history after fallback completion, appends attachment tags, and builds the pending-history context body through a gateway-provided envelope formatter.
+- `gateway.ts` no longer imports or calls `recordPendingHistoryEntry`, `buildPendingHistoryContext`, `clearPendingHistory`, `formatAttachmentTags`, or `toAttachmentSummaries` directly.
+- Expanded `tests/custom-unread-context.test.ts` to cover legacy record, envelope-body construction, attachment tags, and cleanup.
+
 Still intentionally open:
 
-- Legacy group history cleanup and final pending-history envelope formatting still live in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.

@@ -12,13 +12,8 @@ import { isGroupAllowed, resolveGroupName, resolveGroupPrompt, resolveHistoryLim
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { QQBotApprovalHandler, registerApprovalHandler, unregisterApprovalHandler, getApprovalHandler } from "./approval-handler.js";
 import {
-  recordPendingHistoryEntry,
-  buildPendingHistoryContext,
   buildMergedMessageContext,
-  clearPendingHistory,
-  formatAttachmentTags,
   formatMessageContent,
-  toAttachmentSummaries,
   type HistoryEntry,
 } from "./group-history.js";
 
@@ -55,7 +50,11 @@ import {
   recordCustomUnreadNonMentionBeforeDispatch,
   resolveCustomUnreadForQueuedGroupMessage,
 } from "./custom/unread-ingress.js";
-import { selectCustomUnreadHistoryContext } from "./custom/unread-context.js";
+import {
+  buildCustomUnreadHistoryContextBody,
+  clearLegacyGroupHistoryAfterDispatch,
+  recordLegacyGroupHistoryBeforeDispatch,
+} from "./custom/unread-context.js";
 import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
@@ -1015,28 +1014,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       };
 
       const recordLegacyGroupHistory = (event: QueuedMessage, userContent: string): { pendingCount: number; attachmentCount: number } => {
-        if (event.type !== "group" || !event.groupOpenid) return { pendingCount: 0, attachmentCount: 0 };
-        const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-        const senderForHistory = event.senderName
-          ? `${event.senderName} (${event.senderId})`
-          : event.senderId;
-        const historyAttachments = toAttachmentSummaries(event.attachments);
-        recordPendingHistoryEntry({
-          historyMap: groupHistories,
-          historyKey: event.groupOpenid,
-          limit: historyLimit,
-          entry: {
-            sender: senderForHistory,
-            body: userContent,
-            timestamp: new Date(event.timestamp).getTime(),
-            messageId: event.messageId,
-            attachments: historyAttachments,
-          },
+        return recordLegacyGroupHistoryBeforeDispatch({
+          event,
+          groupHistories,
+          historyLimit: event.groupOpenid
+            ? resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId)
+            : 0,
+          content: userContent,
         });
-        return {
-          pendingCount: (groupHistories.get(event.groupOpenid) ?? []).length,
-          attachmentCount: historyAttachments?.length ?? 0,
-        };
       };
 
       // 处理收到的消息
@@ -1573,32 +1558,24 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (event.type === "group" && event.groupOpenid) {
           const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
           const envelopeOpts = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
-          const historyContext = selectCustomUnreadHistoryContext({
+          const contextBody = buildCustomUnreadHistoryContextBody({
             event,
             groupHistories,
             mentionHistory: customUnreadHistoryForEvent,
-          });
-          agentBody = buildPendingHistoryContext({
-            historyMap: historyContext.historyMap,
-            historyKey: event.groupOpenid,
-            limit: historyLimit,
+            historyLimit,
             currentMessage: agentBody,
-            formatEntry: (entry) => {
-              // 将附件描述追加到消息 body 末尾，确保富媒体上下文不丢失
-              const attachmentDesc = formatAttachmentTags(entry.attachments);
-              const bodyWithAttachments = attachmentDesc
-                ? `${entry.body} ${attachmentDesc}`
-                : entry.body;
+            formatEnvelope: (entry) => {
               return pluginRuntime.channel.reply.formatInboundEnvelope({
                 channel: "qqbot",
                 from: entry.sender,
                 timestamp: entry.timestamp,
-                body: bodyWithAttachments,
+                body: entry.body,
                 chatType: "group",
                 envelope: envelopeOpts,
               });
             },
           });
+          agentBody = contextBody.body;
         }
 
         log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
@@ -2240,10 +2217,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 customUnreadScheduler?.apply(customUnreadCompletion.effects, customUnreadCfgForEvent ?? undefined);
               } else {
                 const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-                clearPendingHistory({
-                  historyMap: groupHistories,
-                  historyKey: event.groupOpenid,
-                  limit: historyLimit,
+                clearLegacyGroupHistoryAfterDispatch({
+                  groupHistories,
+                  groupOpenid: event.groupOpenid,
+                  historyLimit,
                 });
               }
             }
