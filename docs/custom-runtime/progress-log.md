@@ -263,6 +263,13 @@ Extracted custom unread effect scheduling:
 - `gateway.ts` now delegates set/clear timer effects, synthetic catch-up enqueue effects, policy-gated logs, timer restore, and timer cleanup to the scheduler.
 - Added `tests/custom-unread-scheduler.test.ts` for set/clear timer effects, timer firing into synthetic catch-up enqueue, restore, and dispose.
 
+Extracted custom unread dispatch completion:
+
+- Added `src/custom/unread-completion.ts` to handle post-dispatch unread decisions after model output is known.
+- The adapter consumes completed synthetic catch-up snapshots, keeps no-output snapshots for retry, creates mention-follow-up catch-ups, and schedules output-complete follow-up effects.
+- `gateway.ts` now delegates these decisions to the adapter and only applies returned logs, persistence, and scheduler effects.
+- Added `tests/custom-unread-completion.test.ts` for snapshot consume/keep, mention-follow-up catch-up, output-complete follow-up, and ignored no-output paths.
+
 Still intentionally open:
 
-- Dispatch completion hooks for snapshot consumption, mention follow-up, and output-complete scheduling are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Custom unread record/observe entry points and legacy history cleanup interop still live in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.

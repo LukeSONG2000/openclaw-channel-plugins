@@ -56,6 +56,7 @@ import {
   historyEntriesFromCustomUnread,
   toCustomInboundGroupMessage,
 } from "./custom/unread-gateway-adapter.js";
+import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
   describeCustomAuthorizationIntents,
@@ -2249,47 +2250,24 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
             // 回复完成后处理群历史/自定义未读 runtime
             if (event.type === "group" && event.groupOpenid) {
-              const customUnreadSnapshotId = event._customUnreadSnapshotId;
-              if (customUnreadSnapshotId) {
-                if (hasModelBlockOutput) {
-                  const consumed = customMessageFlow.unread.consumeSnapshot(customUnreadSnapshotId);
-                  log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: custom unread catch-up completed, consumed=${consumed.consumed}, remaining=${consumed.remaining}`);
-                  persistCustomUnreadState();
-                  if (customUnreadCfgForEvent) {
-                    customUnreadScheduler?.apply(
-                      effectsFromCustomUnreadIntents({
-                        accountId: account.accountId,
-                        peer: { kind: "group", id: event.groupOpenid },
-                        intents: customMessageFlow.unread.markOutputComplete({ peerId: event.groupOpenid, cfg: customUnreadCfgForEvent }),
-                      }),
-                      customUnreadCfgForEvent,
-                    );
-                  }
-                } else {
-                  log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: custom unread catch-up produced no model output; snapshot kept (${customUnreadSnapshotId})`);
+              const customUnreadCompletion = completeCustomUnreadAfterDispatch({
+                accountId: account.accountId,
+                unread: customMessageFlow.unread,
+                groupOpenid: event.groupOpenid,
+                cfg: customUnreadCfgForEvent,
+                snapshotId: event._customUnreadSnapshotId,
+                hasModelBlockOutput,
+                shouldCatchUpAfterReply: shouldCatchUpUnreadAfterReply,
+                wasMentioned,
+              });
+              if (customUnreadCompletion.handled) {
+                for (const item of customUnreadCompletion.logs) {
+                  log?.info(`[qqbot:${account.accountId}] ${item.message}`);
                 }
-              } else if (hasModelBlockOutput && shouldCatchUpUnreadAfterReply && customUnreadCfgForEvent) {
-                customUnreadScheduler?.apply(
-                  effectsFromCustomUnreadIntents({
-                    accountId: account.accountId,
-                    peer: { kind: "group", id: event.groupOpenid },
-                    intents: customMessageFlow.unread.createCatchup({
-                      peerId: event.groupOpenid,
-                      cfg: customUnreadCfgForEvent,
-                      source: "mention-followup",
-                    }),
-                  }),
-                  customUnreadCfgForEvent,
-                );
-              } else if (hasModelBlockOutput && wasMentioned && customUnreadCfgForEvent) {
-                customUnreadScheduler?.apply(
-                  effectsFromCustomUnreadIntents({
-                    accountId: account.accountId,
-                    peer: { kind: "group", id: event.groupOpenid },
-                    intents: customMessageFlow.unread.markOutputComplete({ peerId: event.groupOpenid, cfg: customUnreadCfgForEvent }),
-                  }),
-                  customUnreadCfgForEvent,
-                );
+                if (customUnreadCompletion.persist) {
+                  persistCustomUnreadState();
+                }
+                customUnreadScheduler?.apply(customUnreadCompletion.effects, customUnreadCfgForEvent ?? undefined);
               } else {
                 const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
                 clearPendingHistory({

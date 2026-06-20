@@ -418,6 +418,24 @@ Important boundary:
 - The scheduler does not inspect QQ events or send QQ messages.
 - It depends on small callbacks for enqueue, persist, config resolution, and logging, so timer behavior can be tested without the gateway.
 
+### `src/custom/unread-completion.ts`
+
+Gateway-side dispatch completion adapter for custom unread flow.
+
+Current implementation status:
+
+- Handles post-dispatch unread decisions after the OpenClaw/model path has either produced or failed to produce a visible block output.
+- Consumes completed synthetic catch-up snapshots only when a real model block output exists.
+- Keeps snapshots when a synthetic catch-up times out, fails, or returns no visible block output, allowing a later retry.
+- Converts mention-follow-up and output-complete decisions into unread gateway effects that `CustomUnreadScheduler` can apply.
+- Returns typed log/persist/effect descriptions instead of logging, saving, sending, or managing timers directly.
+
+Important boundary:
+
+- This module does not send QQ messages.
+- It does not own follow-up or sleep-digest timers; `src/custom/unread-scheduler.ts` applies the returned effects.
+- It does not clean up legacy group history; when it does not handle an event, `gateway.ts` still performs the existing legacy history cleanup path.
+
 Current gateway wiring:
 
 - Active only when `channels.qqbot.customRuntime.enabled` is true.
