@@ -228,14 +228,27 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
       await processOne(cmd, peerId, "Command processor");
     }
 
-    // 普通消息合并后处理
-    if (normal.length > 0) {
-      const merged = mergeGroupMessages(normal);
-      if (normal.length > 1) {
-        log?.info(`[qqbot:${accountId}] Merged ${normal.length} queued group messages for ${peerId} into one`);
+    const processMergeableBatch = async (batch: QueuedMessage[]): Promise<void> => {
+      if (batch.length === 0) return;
+      const merged = mergeGroupMessages(batch);
+      if (batch.length > 1) {
+        log?.info(`[qqbot:${accountId}] Merged ${batch.length} queued group messages for ${peerId} into one`);
       }
-      await processOne(merged, peerId, `Message processor (merged batch of ${normal.length})`);
+      await processOne(merged, peerId, `Message processor (merged batch of ${batch.length})`);
+    };
+
+    // 普通消息按 _noMerge 边界分段合并；合成 catch-up 消息必须保留快照字段。
+    let mergeableBatch: QueuedMessage[] = [];
+    for (const msg of normal) {
+      if (msg._noMerge) {
+        await processMergeableBatch(mergeableBatch);
+        mergeableBatch = [];
+        await processOne(msg, peerId, "Message processor (no-merge)");
+        continue;
+      }
+      mergeableBatch.push(msg);
     }
+    await processMergeableBatch(mergeableBatch);
   };
 
   /** 处理指定 peer 队列中的消息（串行） */

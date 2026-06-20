@@ -59,6 +59,18 @@ assert.deepEqual(timerEffects[0], {
   dueAt: 11_000,
 });
 
+const clearEffects = effectsFromCustomUnreadIntents({
+  accountId: "default",
+  peer,
+  intents: runtime.observeMention({ message: { ...inbound, mentionedBot: true, messageId: "mention-1" }, cfg }).intents,
+  now: 2_000,
+});
+assert.deepEqual(clearEffects, [{
+  kind: "clear-timer",
+  timer: "sleep-digest",
+  peerId: "GROUP_OPENID",
+}]);
+
 const catchupIntent = runtime.fireSleepDigest({
   peerId: "GROUP_OPENID",
   cfg,

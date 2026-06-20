@@ -14,6 +14,8 @@ export const CUSTOM_UNREAD_ACTOR_ID = "__qqbot_digest__";
 export type CustomUnreadIntentKind =
   | "schedule-followup"
   | "schedule-sleep-digest"
+  | "clear-followup"
+  | "clear-sleep-digest"
   | "enqueue-catchup"
   | "policy-gated";
 
@@ -60,6 +62,7 @@ export interface CustomUnreadRecordResult {
 export interface CustomUnreadMentionResult {
   pendingCount: number;
   shouldCatchUpAfterReply: boolean;
+  history: CustomUnreadHistoryEntry[];
   intents: CustomUnreadIntent[];
 }
 
@@ -169,19 +172,31 @@ export class CustomUnreadRuntime {
     cfg: ResolvedCustomUnreadConfig;
   }): CustomUnreadMentionResult {
     if (!params.cfg.enabled || params.message.peer.kind !== "group") {
-      return { pendingCount: 0, shouldCatchUpAfterReply: false, intents: [] };
+      return { pendingCount: 0, shouldCatchUpAfterReply: false, history: [], intents: [] };
     }
     if (params.message.actor.id === CUSTOM_UNREAD_ACTOR_ID) {
-      return { pendingCount: this.getPendingCount(params.message.peer.id), shouldCatchUpAfterReply: false, intents: [] };
+      return {
+        pendingCount: this.getPendingCount(params.message.peer.id),
+        shouldCatchUpAfterReply: false,
+        history: [],
+        intents: [],
+      };
     }
 
     const peer = this.getPeer(params.message.peer.id);
     const pendingCount = peer.history.length;
+    const history = peer.history.slice();
+    const hadFollowup = peer.scheduledFollowupDueAt !== undefined;
+    const hadSleepDigest = peer.scheduledSleepDigestDueAt !== undefined;
     this.cancelWindows(peer);
+    const intents: CustomUnreadIntent[] = [];
+    if (hadFollowup) intents.push({ kind: "clear-followup", peerId: params.message.peer.id });
+    if (hadSleepDigest) intents.push({ kind: "clear-sleep-digest", peerId: params.message.peer.id });
     return {
       pendingCount,
       shouldCatchUpAfterReply: pendingCount > 0,
-      intents: [],
+      history,
+      intents,
     };
   }
 

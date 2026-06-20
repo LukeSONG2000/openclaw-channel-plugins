@@ -69,6 +69,10 @@ export function historySnapshotFromCustomUnread(snapshot?: CustomUnreadCatchupSn
   return snapshot.entries.map(historyEntryFromCustomUnread);
 }
 
+export function historyEntriesFromCustomUnread(entries: CustomUnreadHistoryEntry[]): HistoryEntry[] {
+  return entries.map(historyEntryFromCustomUnread);
+}
+
 export function buildCustomUnreadCatchupMessage(params: {
   accountId: string;
   peer: CustomPeer;
@@ -109,6 +113,14 @@ export function effectsFromCustomUnreadIntents(params: {
     }
     if (intent.kind === "schedule-sleep-digest" && intent.dueAt) {
       effects.push({ kind: "set-timer", timer: "sleep-digest", peerId: intent.peerId, dueAt: intent.dueAt });
+      continue;
+    }
+    if (intent.kind === "clear-followup") {
+      effects.push({ kind: "clear-timer", timer: "followup", peerId: intent.peerId });
+      continue;
+    }
+    if (intent.kind === "clear-sleep-digest") {
+      effects.push({ kind: "clear-timer", timer: "sleep-digest", peerId: intent.peerId });
       continue;
     }
     if (intent.kind === "enqueue-catchup" && intent.snapshot) {

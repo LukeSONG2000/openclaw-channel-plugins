@@ -141,10 +141,12 @@ Mapping method:
 2. DM normal text reply.
 3. Group mention reply in `Master Luke的图书馆`.
 4. Group non-mention message is recorded but does not immediately reply.
-5. Unauthorized member attempts config/rule change and is blocked.
-6. Admin approval request is sent.
-7. Timeout simulation releases queue and urgent `/new` or `/compact` still works.
-8. Rollback test path is documented and executable.
+5. With `channels.qqbot.customRuntime.enabled=true`, a later group mention receives the recorded unread history in context.
+6. If autonomous/proactive policy is enabled for the scene, a synthetic catch-up is sent without a fake passive `msg_id`.
+7. Unauthorized member attempts config/rule change and is blocked.
+8. Admin approval request is sent.
+9. Timeout simulation releases queue and urgent `/new` or `/compact` still works.
+10. Rollback test path is documented and executable.
 
 ## Rollback
 

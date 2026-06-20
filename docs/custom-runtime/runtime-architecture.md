@@ -170,7 +170,7 @@ Rules:
 Primary adapter methods:
 
 - `recordNonMention`: store non-trigger group messages and request a sleep digest timer if needed.
-- `observeMention`: cancel pending autonomous windows and report whether catch-up should run after the mention reply.
+- `observeMention`: cancel pending autonomous windows, return pending history for current context, and report whether catch-up should run after the mention reply.
 - `markOutputComplete`: request a follow-up timer after a normal bot output.
 - `fireScheduledFollowup`: convert a due follow-up timer into a catch-up or no-op.
 - `fireSleepDigest`: convert a due sleep timer into a catch-up or policy-gated decision.
@@ -187,16 +187,28 @@ Current implementation status:
 - Converts runtime intents into side-effect descriptions:
   - set follow-up timer
   - set sleep-digest timer
+  - clear follow-up or sleep-digest timer
   - enqueue synthetic catch-up `QueuedMessage`
   - report policy-gated autonomous reply
 - Builds synthetic catch-up messages with `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
-- `gateway.ts` now reads `_customUnreadSnapshot` when injecting pending group history context.
+- `gateway.ts` now reads `_customUnreadSnapshot` and mention-time custom unread history when injecting pending group history context.
 
-Still not wired:
+Current gateway wiring:
 
-- Actual `setTimeout` management from adapter effects.
-- Actual enqueue of synthetic catch-up messages.
-- Snapshot consumption after synthetic catch-up completion.
+- Active only when `channels.qqbot.customRuntime.enabled` is true.
+- If custom runtime is disabled, or `customRuntime.unread.enabled` is false for a scene, legacy group history behavior remains in use.
+- Non-mentioned group messages are recorded through the custom unread runtime and can schedule sleep-digest timers.
+- Mentioned group messages receive pending unread history in the same reply context and clear pending autonomous timers.
+- Completed mention replies can enqueue a synthetic catch-up when unread history was present.
+- Completed normal outputs schedule a follow-up timer.
+- Synthetic catch-up messages bypass mention gating, preserve `_customUnreadSnapshot`, and are protected from queue merging by `_noMerge`.
+- Synthetic catch-up sends are treated as proactive/unanchored outbound messages because they do not have a real QQ `msg_id`.
+- Snapshots are consumed only after a real model block output is produced. If dispatch fails, times out, or returns `NO_REPLY` / `[SKIP]`, the unread snapshot is kept.
+
+Still open:
+
+- Proactive group send budget/rate-limit enforcement.
+- Durable persistence for pending unread state across gateway reconnects/restarts.
 
 ### `src/custom/task-sandbox.ts`
 

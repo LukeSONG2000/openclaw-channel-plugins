@@ -10,6 +10,8 @@ import type { ResolvedQQBotAccount } from "./types.js";
 import {
   sendC2CMessage,
   sendGroupMessage,
+  sendProactiveC2CMessage,
+  sendProactiveGroupMessage,
   sendChannelMessage,
   sendC2CImageMessage,
   sendGroupImageMessage,
@@ -34,6 +36,7 @@ export interface DeliverEventContext {
   type: "c2c" | "guild" | "dm" | "group";
   senderId: string;
   messageId: string;
+  replyToId?: string;
   channelId?: string;
   groupOpenid?: string;
   msgIdx?: string;
@@ -86,7 +89,7 @@ export async function parseAndSendMediaTags(
     targetType: event.type === "c2c" ? "c2c" : event.type === "group" ? "group" : "channel",
     targetId: event.type === "c2c" ? event.senderId : event.type === "group" ? event.groupOpenid! : event.channelId!,
     account,
-    replyToId: event.messageId,
+    replyToId: event.replyToId,
     logPrefix: prefix,
   };
 
@@ -94,7 +97,7 @@ export async function parseAndSendMediaTags(
     mediaTarget,
     qualifiedTarget: actx.qualifiedTarget,
     account,
-    replyToId: event.messageId,
+    replyToId: event.replyToId,
     log,
   };
 
@@ -225,7 +228,7 @@ export async function sendPlainReply(
       try {
         const result = await sendMediaAuto({
           to: qualifiedTarget, text: "", mediaUrl: mediaPath,
-          accountId: account.accountId, replyToId: event.messageId, account,
+          accountId: account.accountId, replyToId: event.replyToId, account,
         });
         if (result.error) {
           log?.error(`${prefix} sendMedia(auto) error for ${mediaPath}: ${result.error}`);
@@ -253,7 +256,7 @@ export async function sendPlainReply(
         try {
           const result = await sendMediaAuto({
             to: qualifiedTarget, text: "", mediaUrl,
-            accountId: account.accountId, replyToId: event.messageId, account,
+            accountId: account.accountId, replyToId: event.replyToId, account,
           });
           if (result.error) {
             log?.error(`${prefix} Tool media forward error: ${result.error}`);
@@ -290,11 +293,15 @@ async function sendTextChunks(
       await sendWithRetry(async (token) => {
         const ref = consumeQuoteRef();
         if (event.type === "c2c") {
-          return await sendC2CMessage(token, event.senderId, chunk, event.messageId, ref);
+          return event.replyToId
+            ? await sendC2CMessage(token, event.senderId, chunk, event.replyToId, ref)
+            : await sendProactiveC2CMessage(token, event.senderId, chunk);
         } else if (event.type === "group" && event.groupOpenid) {
-          return await sendGroupMessage(token, event.groupOpenid, chunk, event.messageId);
+          return event.replyToId
+            ? await sendGroupMessage(token, event.groupOpenid, chunk, event.replyToId)
+            : await sendProactiveGroupMessage(token, event.groupOpenid, chunk);
         } else if (event.channelId) {
-          return await sendChannelMessage(token, event.channelId, chunk, event.messageId);
+          return await sendChannelMessage(token, event.channelId, chunk, event.replyToId);
         }
       });
       log?.info(`${prefix} Sent text chunk (${chunk.length}/${text.length} chars): ${chunk.slice(0, 50)}...`);
@@ -334,9 +341,9 @@ async function sendMarkdownReply(
       try {
         await sendWithRetry(async (token) => {
           if (event.type === "c2c") {
-            await sendC2CImageMessage(token, event.senderId, imageUrl, event.messageId);
+            await sendC2CImageMessage(token, event.senderId, imageUrl, event.replyToId);
           } else if (event.type === "group" && event.groupOpenid) {
-            await sendGroupImageMessage(token, event.groupOpenid, imageUrl, event.messageId);
+            await sendGroupImageMessage(token, event.groupOpenid, imageUrl, event.replyToId);
           } else if (event.channelId) {
             log?.info(`${prefix} Channel does not support rich media, skipping Base64 image`);
           }
@@ -402,11 +409,15 @@ async function sendMarkdownReply(
         await sendWithRetry(async (token) => {
           const ref = consumeQuoteRef();
           if (event.type === "c2c") {
-            return await sendC2CMessage(token, event.senderId, chunk, event.messageId, ref);
+            return event.replyToId
+              ? await sendC2CMessage(token, event.senderId, chunk, event.replyToId, ref)
+              : await sendProactiveC2CMessage(token, event.senderId, chunk);
           } else if (event.type === "group" && event.groupOpenid) {
-            return await sendGroupMessage(token, event.groupOpenid, chunk, event.messageId);
+            return event.replyToId
+              ? await sendGroupMessage(token, event.groupOpenid, chunk, event.replyToId)
+              : await sendProactiveGroupMessage(token, event.groupOpenid, chunk);
           } else if (event.channelId) {
-            return await sendChannelMessage(token, event.channelId, chunk, event.messageId);
+            return await sendChannelMessage(token, event.channelId, chunk, event.replyToId);
           }
         });
         log?.info(`${prefix} Sent markdown chunk (${chunk.length}/${result.length} chars) with ${httpImageUrls.length} HTTP images (${event.type})`);
@@ -435,7 +446,7 @@ async function sendPlainTextReply(
     targetType: event.type === "c2c" ? "c2c" : event.type === "group" ? "group" : "channel",
     targetId: event.type === "c2c" ? event.senderId : event.type === "group" ? event.groupOpenid! : event.channelId!,
     account,
-    replyToId: event.messageId,
+    replyToId: event.replyToId,
     logPrefix: prefix,
   };
 
@@ -470,11 +481,15 @@ async function sendPlainTextReply(
         await sendWithRetry(async (token) => {
           const ref = consumeQuoteRef();
           if (event.type === "c2c") {
-            return await sendC2CMessage(token, event.senderId, chunk, event.messageId, ref);
+            return event.replyToId
+              ? await sendC2CMessage(token, event.senderId, chunk, event.replyToId, ref)
+              : await sendProactiveC2CMessage(token, event.senderId, chunk);
           } else if (event.type === "group" && event.groupOpenid) {
-            return await sendGroupMessage(token, event.groupOpenid, chunk, event.messageId);
+            return event.replyToId
+              ? await sendGroupMessage(token, event.groupOpenid, chunk, event.replyToId)
+              : await sendProactiveGroupMessage(token, event.groupOpenid, chunk);
           } else if (event.channelId) {
-            return await sendChannelMessage(token, event.channelId, chunk, event.messageId);
+            return await sendChannelMessage(token, event.channelId, chunk, event.replyToId);
           }
         });
         log?.info(`${prefix} Sent text chunk (${chunk.length}/${result.length} chars) (${event.type})`);

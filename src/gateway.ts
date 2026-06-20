@@ -41,6 +41,19 @@ import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounc
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveGroupMessageGate } from "./message-gating.js";
+import { resolveCustomRuntimeConfig } from "./custom/config.js";
+import {
+  createCustomMessageFlowRuntime,
+  inspectCustomUnreadConfig,
+  type ResolvedCustomUnreadConfig,
+} from "./custom/runtime.js";
+import {
+  effectsFromCustomUnreadIntents,
+  historyEntriesFromCustomUnread,
+  toCustomInboundGroupMessage,
+  type CustomUnreadGatewayEffect,
+} from "./custom/unread-gateway-adapter.js";
+import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
 
@@ -578,6 +591,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     log,
     isAborted: () => isAborted,
   });
+  const customMessageFlow = createCustomMessageFlowRuntime();
+  const customUnreadFollowupTimers = new Map<string, ReturnType<typeof setTimeout>>();
+  const customUnreadSleepDigestTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
   // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
@@ -712,6 +728,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   });
 
   const cleanup = () => {
+    for (const timer of customUnreadFollowupTimers.values()) clearTimeout(timer);
+    for (const timer of customUnreadSleepDigestTimers.values()) clearTimeout(timer);
+    customUnreadFollowupTimers.clear();
+    customUnreadSleepDigestTimers.clear();
+    customMessageFlow.unread.clear();
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
@@ -773,6 +794,122 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       // 群历史消息缓存：非@消息写入此 Map，被@时一次性注入上下文后清空
       const groupHistories = new Map<string, HistoryEntry[]>();
+
+      const isCustomRuntimeEnabled = (): boolean =>
+        resolveCustomRuntimeConfig(cfg as any).enabled === true;
+
+      const resolveCustomUnreadForEvent = (event: QueuedMessage): ResolvedCustomUnreadConfig | null => {
+        if (!isCustomRuntimeEnabled() || event.type !== "group" || !event.groupOpenid) return null;
+        const unreadCfg = inspectCustomUnreadConfig({
+          cfg: cfg as any,
+          message: toCustomInboundGroupMessage({
+            accountId: account.accountId,
+            groupOpenid: event.groupOpenid,
+            senderId: event.senderId,
+            senderName: event.senderName,
+            senderIsBot: event.senderIsBot,
+            content: event.content,
+            messageId: event.messageId,
+            timestamp: event.timestamp,
+            mentionedBot: false,
+            attachments: event.attachments,
+          }),
+        });
+        return unreadCfg.enabled ? unreadCfg : null;
+      };
+
+      const applyCustomUnreadEffects = (
+        effects: CustomUnreadGatewayEffect[],
+        unreadCfg: ResolvedCustomUnreadConfig,
+      ): void => {
+        for (const effect of effects) {
+          if (effect.kind === "clear-timer") {
+            const timers = effect.timer === "followup" ? customUnreadFollowupTimers : customUnreadSleepDigestTimers;
+            const timer = timers.get(effect.peerId);
+            if (timer) clearTimeout(timer);
+            timers.delete(effect.peerId);
+            continue;
+          }
+          if (effect.kind === "set-timer") {
+            const timers = effect.timer === "followup" ? customUnreadFollowupTimers : customUnreadSleepDigestTimers;
+            const oldTimer = timers.get(effect.peerId);
+            if (oldTimer) clearTimeout(oldTimer);
+            const delay = Math.max(1_000, effect.dueAt - Date.now());
+            const timer = setTimeout(() => {
+              timers.delete(effect.peerId);
+              const intents = effect.timer === "followup"
+                ? customMessageFlow.unread.fireScheduledFollowup({ peerId: effect.peerId, cfg: unreadCfg })
+                : customMessageFlow.unread.fireSleepDigest({ peerId: effect.peerId, cfg: unreadCfg });
+              const peer: CustomPeer = { kind: "group", id: effect.peerId };
+              applyCustomUnreadEffects(
+                effectsFromCustomUnreadIntents({ accountId: account.accountId, peer, intents }),
+                unreadCfg,
+              );
+            }, delay);
+            timers.set(effect.peerId, timer);
+            log?.info(`[qqbot:${account.accountId}] Custom unread ${effect.timer} timer set for ${effect.peerId} in ${delay}ms`);
+            continue;
+          }
+          if (effect.kind === "enqueue") {
+            void trySlashCommandOrEnqueue(effect.message).catch((err) => {
+              log?.error(`[qqbot:${account.accountId}] Custom unread enqueue failed for ${effect.message.groupOpenid}: ${err}`);
+            });
+            continue;
+          }
+          if (effect.kind === "policy-gated") {
+            log?.debug?.(`[qqbot:${account.accountId}] Custom unread ${effect.source ?? "unknown"} gated for ${effect.peerId}: ${effect.reason ?? "policy"}`);
+          }
+        }
+      };
+
+      const recordCustomUnreadNonMention = (event: QueuedMessage, userContent: string, mentionedBot: boolean, implicitMention?: boolean): number | null => {
+        const unreadCfg = resolveCustomUnreadForEvent(event);
+        if (!unreadCfg || event.type !== "group" || !event.groupOpenid) return null;
+        const message = toCustomInboundGroupMessage({
+          accountId: account.accountId,
+          groupOpenid: event.groupOpenid,
+          senderId: event.senderId,
+          senderName: event.senderName,
+          senderIsBot: event.senderIsBot,
+          content: userContent,
+          messageId: event.messageId,
+          timestamp: event.timestamp,
+          mentionedBot,
+          implicitMention,
+          attachments: event.attachments,
+        });
+        const result = customMessageFlow.unread.recordNonMention({ message, cfg: unreadCfg });
+        applyCustomUnreadEffects(
+          effectsFromCustomUnreadIntents({ accountId: account.accountId, peer: message.peer, intents: result.intents }),
+          unreadCfg,
+        );
+        return result.pendingCount;
+      };
+
+      const recordLegacyGroupHistory = (event: QueuedMessage, userContent: string): { pendingCount: number; attachmentCount: number } => {
+        if (event.type !== "group" || !event.groupOpenid) return { pendingCount: 0, attachmentCount: 0 };
+        const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
+        const senderForHistory = event.senderName
+          ? `${event.senderName} (${event.senderId})`
+          : event.senderId;
+        const historyAttachments = toAttachmentSummaries(event.attachments);
+        recordPendingHistoryEntry({
+          historyMap: groupHistories,
+          historyKey: event.groupOpenid,
+          limit: historyLimit,
+          entry: {
+            sender: senderForHistory,
+            body: userContent,
+            timestamp: new Date(event.timestamp).getTime(),
+            messageId: event.messageId,
+            attachments: historyAttachments,
+          },
+        });
+        return {
+          pendingCount: (groupHistories.get(event.groupOpenid) ?? []).length,
+          attachmentCount: historyAttachments?.length ?? 0,
+        };
+      };
 
       // 处理收到的消息
       const handleMessage = async (event: QueuedMessage) => {
@@ -1062,8 +1199,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         let wasMentioned = false;
         let groupSubject = "";
         let senderLabel = "";
+        let shouldCatchUpUnreadAfterReply = false;
+        let customUnreadCfgForEvent: ResolvedCustomUnreadConfig | null = event._customUnreadSnapshotId
+          ? resolveCustomUnreadForEvent(event)
+          : null;
+        let customUnreadHistoryForEvent: HistoryEntry[] | undefined;
 
         if (event.type === "group" && event.groupOpenid) {
+          const isCustomUnreadSynthetic = Boolean(event._customUnreadSnapshotId);
           // 1. 群策略检查（直接用 config 工具函数，与 Discord 的 allow-list.ts 同理）
           if (!isGroupAllowed(cfg as any, event.groupOpenid, account.accountId)) {
             log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid} not allowed by groupPolicy, skipping`);
@@ -1078,6 +1221,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             content: event.content,
             mentionPatterns: mentionPatternsForDetect,
           });
+          if (isCustomUnreadSynthetic) {
+            wasMentioned = true;
+          }
 
           // 3. requireMention 门控
           // 优先级：session store 中的 /activation 命令 > 配置文件 requireMention > 默认值
@@ -1107,37 +1253,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const contentForCommand = event.content?.trim() ?? "";
           const allowTextCommands = shouldHandleTextCommands(cfg as Record<string, unknown>);
           const gate = resolveGroupMessageGate({
-            ignoreOtherMentions: resolveIgnoreOtherMentions(cfg as any, event.groupOpenid, account.accountId),
+            ignoreOtherMentions: isCustomUnreadSynthetic ? false : resolveIgnoreOtherMentions(cfg as any, event.groupOpenid, account.accountId),
             hasAnyMention: hasAnyMention({ mentions: event.mentions, content: event.content }),
             wasMentioned,
             implicitMention,
             allowTextCommands,
             isControlCommand: hasControlCommand(contentForCommand),
             commandAuthorized,
-            requireMention,
+            requireMention: isCustomUnreadSynthetic ? false : requireMention,
             canDetectMention: true,
           });
 
           if (gate.action === "drop_other_mention") {
             // @了其他人但未 @bot：记录历史后丢弃
-            const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-            const senderForHistory = event.senderName
-              ? `${event.senderName} (${event.senderId})`
-              : event.senderId;
-            const historyAttachments = toAttachmentSummaries(event.attachments);
-            recordPendingHistoryEntry({
-              historyMap: groupHistories,
-              historyKey: event.groupOpenid,
-              limit: historyLimit,
-              entry: {
-                sender: senderForHistory,
-                body: userContent,
-                timestamp: new Date(event.timestamp).getTime(),
-                messageId: event.messageId,
-                attachments: historyAttachments,
-              },
-            });
-            log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: drop message (ignoreOtherMentions=true, other user mentioned, bot not mentioned)`);
+            const customPending = recordCustomUnreadNonMention(event, userContent, wasMentioned, implicitMention);
+            if (customPending !== null) {
+              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: drop other mention, recorded by custom unread runtime (cached=${customPending})`);
+            } else {
+              const legacy = recordLegacyGroupHistory(event, userContent);
+              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: drop other mention, recorded to legacy history (cached=${legacy.pendingCount}${legacy.attachmentCount ? `, attachments=${legacy.attachmentCount}` : ""})`);
+            }
             return;
           }
 
@@ -1149,29 +1284,49 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
           if (gate.action === "skip_no_mention") {
             // 非 @bot 消息：记录到群历史缓存后跳过 AI
-            const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-            const senderForHistory = event.senderName
-              ? `${event.senderName} (${event.senderId})`
-              : event.senderId;
-            const historyAttachments = toAttachmentSummaries(event.attachments);
-            recordPendingHistoryEntry({
-              historyMap: groupHistories,
-              historyKey: event.groupOpenid,
-              limit: historyLimit,
-              entry: {
-                sender: senderForHistory,
-                body: userContent,
-                timestamp: new Date(event.timestamp).getTime(),
-                messageId: event.messageId,
-                attachments: historyAttachments,
-              },
-            });
-            log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: activation=${activation} (configRequireMention=${configRequireMention}) not mentioned, recorded to history (limit=${historyLimit}, cached=${(groupHistories.get(event.groupOpenid) ?? []).length}${historyAttachments ? `, attachments=${historyAttachments.length}` : ""})`);
+            const customPending = recordCustomUnreadNonMention(event, userContent, wasMentioned, implicitMention);
+            if (customPending !== null) {
+              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: activation=${activation} not mentioned, recorded by custom unread runtime (cached=${customPending})`);
+            } else {
+              const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
+              const legacy = recordLegacyGroupHistory(event, userContent);
+              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: activation=${activation} (configRequireMention=${configRequireMention}) not mentioned, recorded to history (limit=${historyLimit}, cached=${legacy.pendingCount}${legacy.attachmentCount ? `, attachments=${legacy.attachmentCount}` : ""})`);
+            }
             return;
           }
 
           // gate.action === "pass" — 更新 wasMentioned 为 effectiveWasMentioned（含 implicit + bypass）
           wasMentioned = gate.effectiveWasMentioned;
+          if (wasMentioned) {
+            customUnreadCfgForEvent = resolveCustomUnreadForEvent(event);
+            if (customUnreadCfgForEvent) {
+              const message = toCustomInboundGroupMessage({
+                accountId: account.accountId,
+                groupOpenid: event.groupOpenid,
+                senderId: event.senderId,
+                senderName: event.senderName,
+                senderIsBot: event.senderIsBot,
+                content: userContent,
+                messageId: event.messageId,
+                timestamp: event.timestamp,
+                mentionedBot: wasMentioned,
+                implicitMention,
+                attachments: event.attachments,
+              });
+              const mentionResult = customMessageFlow.unread.observeMention({ message, cfg: customUnreadCfgForEvent });
+              shouldCatchUpUnreadAfterReply = mentionResult.shouldCatchUpAfterReply;
+              customUnreadHistoryForEvent = mentionResult.history.length > 0
+                ? historyEntriesFromCustomUnread(mentionResult.history)
+                : undefined;
+              applyCustomUnreadEffects(
+                effectsFromCustomUnreadIntents({ accountId: account.accountId, peer: message.peer, intents: mentionResult.intents }),
+                customUnreadCfgForEvent,
+              );
+              if (shouldCatchUpUnreadAfterReply) {
+                log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: mention with ${mentionResult.pendingCount} custom unread message(s); will catch up after reply`);
+              }
+            }
+          }
 
           // 5. 发送者标签
           senderLabel = event.senderName
@@ -1273,9 +1428,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (event.type === "group" && event.groupOpenid) {
           const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
           const envelopeOpts = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
-          const customUnreadSnapshot = event._customUnreadSnapshot;
-          const historyMapForContext = customUnreadSnapshot
-            ? new Map<string, HistoryEntry[]>([[event.groupOpenid, customUnreadSnapshot]])
+          const customUnreadHistory = event._customUnreadSnapshot ?? customUnreadHistoryForEvent;
+          const historyMapForContext = customUnreadHistory
+            ? new Map<string, HistoryEntry[]>([[event.groupOpenid, customUnreadHistory]])
             : groupHistories;
           agentBody = buildPendingHistoryContext({
             historyMap: historyMapForContext,
@@ -1384,10 +1539,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         });
 
         // 构建回复上下文
+        const replyAnchorId = event._customUnreadSnapshotId ? undefined : event.messageId;
         const replyTarget: MessageTarget = {
           type: event.type,
           senderId: event.senderId,
-          messageId: event.messageId,
+          messageId: replyAnchorId ?? "",
           channelId: event.channelId,
           groupOpenid: event.groupOpenid,
         };
@@ -1409,6 +1565,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           // 追踪是否有响应
           let hasResponse = false;
           let hasBlockResponse = false; // 是否收到了面向用户的 block 回复
+          let hasModelBlockOutput = false; // 是否收到模型真正要发送的 block 输出（不含 NO_REPLY/[SKIP]）
           let dispatchTimedOut = false; // 超时后给用户可见提示，并忽略迟到 deliver
           let toolDeliverCount = 0; // tool deliver 计数
           const toolTexts: string[] = []; // 收集所有 tool deliver 文本
@@ -1440,7 +1597,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                       text: "",
                       mediaUrl,
                       accountId: account.accountId,
-                      replyToId: event.messageId,
+                      replyToId: replyAnchorId,
                       account,
                     }),
                     new Promise<{ channel: string; error: string }>((resolve) =>
@@ -1485,12 +1642,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           log?.info(`[qqbot:${account.accountId}] Streaming ${useStreaming ? "enabled" : "disabled"} for ${targetType} message from ${event.senderId}`);
           let streamingController: StreamingController | null = null;
 
-          if (useStreaming) {
+          if (useStreaming && replyAnchorId) {
             log?.info(`[qqbot:${account.accountId}] Streaming mode enabled for ${targetType} target`);
             streamingController = new StreamingController({
               account,
               userId: event.senderId,
-              replyToMsgId: event.messageId,
+              replyToMsgId: replyAnchorId,
               eventId: event.messageId,
               logPrefix: `[qqbot:${account.accountId}:streaming]`,
               log,
@@ -1559,7 +1716,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                           text: "",
                           mediaUrl,
                           accountId: account.accountId,
-                          replyToId: event.messageId,
+                          replyToId: replyAnchorId,
                           account,
                         });
                         if (result.error) {
@@ -1606,8 +1763,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   return;
                 }
 
+                const blockReplyText = (payload.text ?? "").trim();
+                if (event.type === "group" && (blockReplyText === "NO_REPLY" || blockReplyText === "[SKIP]")) {
+                  log?.info(`[qqbot:${account.accountId}] Model decided to skip group message (token=${blockReplyText}) from ${event.senderId}: ${event.content?.slice(0, 50)}`);
+                  return;
+                }
+
                 // 收到 block 回复，清除所有超时定时器
                 hasBlockResponse = true;
+                hasModelBlockOutput = true;
                 // 收到真正回复，立即停止输入状态续期（让 "输入中" 尽快消失）
                 typing.keepAlive?.stop();
                 if (timeoutId) {
@@ -1636,16 +1800,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     // StreamingController 内部已有重试，这里只打日志
                     log?.error(`[qqbot:${account.accountId}] Streaming deliver error: ${err}`);
                   }
-
-                let replyText = payload.text ?? "";
-                
-                // 群消息：模型回复 NO_REPLY 表示无需回复，跳过发送
-                // 注意：核心框架的 reply-delivery 已会拦截 NO_REPLY，此处为双重保险
-                const trimmedReply = replyText.trim();
-                if (event.type === "group" && (trimmedReply === "NO_REPLY" || trimmedReply === "[SKIP]")) {
-                  log?.info(`[qqbot:${account.accountId}] Model decided to skip group message (token=${trimmedReply}) from ${event.senderId}: ${event.content?.slice(0, 50)}`);
-                  return;
-                }
 
                   // 检查是否因流式 API 不可用而需要降级（ensureStreamingStarted 全部失败）
                   // 如果需要降级，不 return，让本次 deliver 的 payload.text（全量文本）继续走普通发送逻辑
@@ -1683,6 +1837,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     type: event.type,
                     senderId: event.senderId,
                     messageId: event.messageId,
+                    replyToId: replyAnchorId,
                     channelId: event.channelId,
                     groupOpenid: event.groupOpenid,
                     msgIdx: event.msgIdx,
@@ -1868,14 +2023,56 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               log?.debug?.(`[qqbot:${account.accountId}] Streaming was degraded to static mode (no chunk sent successfully)`);
             }
 
-            // 回复完成后清空群历史缓存（每次回复后重新累积）
+            // 回复完成后处理群历史/自定义未读 runtime
             if (event.type === "group" && event.groupOpenid) {
-              const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-              clearPendingHistory({
-                historyMap: groupHistories,
-                historyKey: event.groupOpenid,
-                limit: historyLimit,
-              });
+              const customUnreadSnapshotId = event._customUnreadSnapshotId;
+              if (customUnreadSnapshotId) {
+                if (hasModelBlockOutput) {
+                  const consumed = customMessageFlow.unread.consumeSnapshot(customUnreadSnapshotId);
+                  log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: custom unread catch-up completed, consumed=${consumed.consumed}, remaining=${consumed.remaining}`);
+                  if (customUnreadCfgForEvent) {
+                    applyCustomUnreadEffects(
+                      effectsFromCustomUnreadIntents({
+                        accountId: account.accountId,
+                        peer: { kind: "group", id: event.groupOpenid },
+                        intents: customMessageFlow.unread.markOutputComplete({ peerId: event.groupOpenid, cfg: customUnreadCfgForEvent }),
+                      }),
+                      customUnreadCfgForEvent,
+                    );
+                  }
+                } else {
+                  log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: custom unread catch-up produced no model output; snapshot kept (${customUnreadSnapshotId})`);
+                }
+              } else if (hasModelBlockOutput && shouldCatchUpUnreadAfterReply && customUnreadCfgForEvent) {
+                applyCustomUnreadEffects(
+                  effectsFromCustomUnreadIntents({
+                    accountId: account.accountId,
+                    peer: { kind: "group", id: event.groupOpenid },
+                    intents: customMessageFlow.unread.createCatchup({
+                      peerId: event.groupOpenid,
+                      cfg: customUnreadCfgForEvent,
+                      source: "mention-followup",
+                    }),
+                  }),
+                  customUnreadCfgForEvent,
+                );
+              } else if (hasModelBlockOutput && wasMentioned && customUnreadCfgForEvent) {
+                applyCustomUnreadEffects(
+                  effectsFromCustomUnreadIntents({
+                    accountId: account.accountId,
+                    peer: { kind: "group", id: event.groupOpenid },
+                    intents: customMessageFlow.unread.markOutputComplete({ peerId: event.groupOpenid, cfg: customUnreadCfgForEvent }),
+                  }),
+                  customUnreadCfgForEvent,
+                );
+              } else {
+                const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
+                clearPendingHistory({
+                  historyMap: groupHistories,
+                  historyKey: event.groupOpenid,
+                  limit: historyLimit,
+                });
+              }
             }
           }
         } catch (err) {

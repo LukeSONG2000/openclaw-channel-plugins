@@ -57,9 +57,18 @@ Added gateway adapter bridge for unread runtime:
 - Changed `gateway.ts` message handling to use `QueuedMessage` as the internal event type.
 - `gateway.ts` now honors `_customUnreadSnapshot` when building pending group history context for synthetic catch-up messages.
 
-Still intentionally not wired into active gateway behavior:
+Wired unread runtime into active gateway behavior behind `channels.qqbot.customRuntime.enabled`:
 
-- Gateway timer management from adapter effects.
-- Synthetic catch-up enqueue from adapter effects.
-- Snapshot consumption after synthetic catch-up completion.
+- Non-mentioned group messages record into custom unread runtime instead of legacy history when the custom runtime and unread feature are enabled.
+- Mentioned group messages inject custom unread history into the current agent context, clear autonomous timers, and can schedule catch-up after the direct reply.
+- Gateway timer effects now manage follow-up and sleep-digest `setTimeout` handles.
+- Adapter enqueue effects now enqueue synthetic catch-up messages.
+- Snapshot consumption now happens after a synthetic catch-up produces a real model block output; failed, timed-out, `NO_REPLY`, or `[SKIP]` catch-ups keep their snapshot.
+- Synthetic catch-up messages bypass mention gating and use unanchored/proactive outbound sends instead of fake `msg_id` passive replies.
+- `_noMerge` is now honored by the message queue so synthetic snapshots are not merged away.
+- Added `tests/message-queue.test.ts` for the no-merge queue boundary.
+
+Still intentionally open:
+
 - Proactive group send budget/rate-limit enforcement.
+- Durable persistence for pending unread state across gateway reconnects/restarts.

@@ -79,6 +79,8 @@ assert.deepEqual(runtime.getState().peers.GROUP_OPENID!.history.map((entry) => e
 const mention = runtime.observeMention({ message: msg({ mentionedBot: true, messageId: "mention-1" }), cfg });
 assert.equal(mention.pendingCount, 3);
 assert.equal(mention.shouldCatchUpAfterReply, true);
+assert.equal(mention.intents.length, 1);
+assert.equal(mention.intents[0]!.kind, "clear-sleep-digest");
 assert.equal(runtime.getState().peers.GROUP_OPENID!.scheduledSleepDigestDueAt, undefined);
 
 const mentionFollowup = runtime.createCatchup({
