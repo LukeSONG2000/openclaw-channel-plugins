@@ -397,6 +397,24 @@ Current implementation status:
 - Builds synthetic catch-up messages with `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
 - `gateway.ts` now reads `_customUnreadSnapshot` and mention-time custom unread history when injecting pending group history context.
 
+### `src/custom/unread-ingress.ts`
+
+Gateway-side pre-dispatch adapter for custom unread flow.
+
+Current implementation status:
+
+- Resolves custom unread config for queued group messages by combining runtime and scene policy.
+- Records non-mentioned group messages through `CustomUnreadRuntime.recordNonMention()`.
+- Observes mentioned group messages through `CustomUnreadRuntime.observeMention()`.
+- Converts mention-time custom unread history into `HistoryEntry[]` so the existing inbound envelope formatter can inject it into the agent context.
+- Returns typed effect/persist descriptions instead of applying timers or saving state directly.
+
+Important boundary:
+
+- This module does not perform group allow-list, mention-gating, or command-authorization decisions; those still belong to the gateway policy path.
+- It does not format final agent prompts. It only returns history entries that gateway formatting can consume.
+- It does not send QQ messages or own timers; `src/custom/unread-scheduler.ts` applies the returned effects.
+
 ### `src/custom/unread-scheduler.ts`
 
 Gateway-side scheduler for unread runtime effects.

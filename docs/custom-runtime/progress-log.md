@@ -270,6 +270,13 @@ Extracted custom unread dispatch completion:
 - `gateway.ts` now delegates these decisions to the adapter and only applies returned logs, persistence, and scheduler effects.
 - Added `tests/custom-unread-completion.test.ts` for snapshot consume/keep, mention-follow-up catch-up, output-complete follow-up, and ignored no-output paths.
 
+Extracted custom unread pre-dispatch ingress:
+
+- Added `src/custom/unread-ingress.ts` to resolve per-event unread config, record non-mentioned group messages, and observe mentioned group messages before agent dispatch.
+- The adapter returns custom unread history as `HistoryEntry[]` plus typed scheduler effects and persistence flags, keeping timer ownership and QQ sends outside the module.
+- `gateway.ts` now delegates custom unread record/observe decisions to the adapter while keeping group allow-list, mention gating, command authorization, and final prompt formatting in the gateway path.
+- Added `tests/custom-unread-ingress.test.ts` for disabled runtime fallback, disabled scene unread fallback, non-mention record scheduling, and mention-time history injection effects.
+
 Still intentionally open:
 
-- Custom unread record/observe entry points and legacy history cleanup interop still live in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Legacy group history cleanup and pending-history context formatting still live in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.

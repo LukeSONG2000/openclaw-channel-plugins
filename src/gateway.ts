@@ -47,15 +47,14 @@ import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer
 import {
   CUSTOM_UNREAD_ACTOR_ID,
   inspectCustomProactiveConfig,
-  inspectCustomUnreadConfig,
   type CustomMessageFlowRuntime,
   type ResolvedCustomUnreadConfig,
 } from "./custom/runtime.js";
 import {
-  effectsFromCustomUnreadIntents,
-  historyEntriesFromCustomUnread,
-  toCustomInboundGroupMessage,
-} from "./custom/unread-gateway-adapter.js";
+  observeCustomUnreadMentionBeforeDispatch,
+  recordCustomUnreadNonMentionBeforeDispatch,
+  resolveCustomUnreadForQueuedGroupMessage,
+} from "./custom/unread-ingress.js";
 import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
@@ -966,23 +965,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         resolveCustomRuntimeConfig(cfg as any).enabled === true;
 
       const resolveCustomUnreadForEvent = (event: QueuedMessage): ResolvedCustomUnreadConfig | null => {
-        if (!isCustomRuntimeEnabled() || event.type !== "group" || !event.groupOpenid) return null;
-        const unreadCfg = inspectCustomUnreadConfig({
+        return resolveCustomUnreadForQueuedGroupMessage({
           cfg: cfg as any,
-          message: toCustomInboundGroupMessage({
-            accountId: account.accountId,
-            groupOpenid: event.groupOpenid,
-            senderId: event.senderId,
-            senderName: event.senderName,
-            senderIsBot: event.senderIsBot,
-            content: event.content,
-            messageId: event.messageId,
-            timestamp: event.timestamp,
-            mentionedBot: false,
-            attachments: event.attachments,
-          }),
+          accountId: account.accountId,
+          event,
         });
-        return unreadCfg.enabled ? unreadCfg : null;
       };
 
       const resolveCustomUnreadForPeer = (peerId: string): ResolvedCustomUnreadConfig | null =>
@@ -1011,27 +998,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       customUnreadScheduler.restore(customMessageFlow.unread.getState());
 
       const recordCustomUnreadNonMention = (event: QueuedMessage, userContent: string, mentionedBot: boolean, implicitMention?: boolean): number | null => {
-        const unreadCfg = resolveCustomUnreadForEvent(event);
-        if (!unreadCfg || event.type !== "group" || !event.groupOpenid) return null;
-        const message = toCustomInboundGroupMessage({
+        const result = recordCustomUnreadNonMentionBeforeDispatch({
+          cfg: cfg as any,
           accountId: account.accountId,
-          groupOpenid: event.groupOpenid,
-          senderId: event.senderId,
-          senderName: event.senderName,
-          senderIsBot: event.senderIsBot,
+          unread: customMessageFlow.unread,
+          event,
           content: userContent,
-          messageId: event.messageId,
-          timestamp: event.timestamp,
           mentionedBot,
           implicitMention,
-          attachments: event.attachments,
         });
-        const result = customMessageFlow.unread.recordNonMention({ message, cfg: unreadCfg });
-        customUnreadScheduler?.apply(
-          effectsFromCustomUnreadIntents({ accountId: account.accountId, peer: message.peer, intents: result.intents }),
-          unreadCfg,
-        );
-        if (result.recorded) persistCustomUnreadState();
+        if (!result.handled) return null;
+        customUnreadScheduler?.apply(result.effects, result.cfg);
+        if (result.persist) persistCustomUnreadState();
         return result.pendingCount;
       };
 
@@ -1473,31 +1451,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           // gate.action === "pass" — 更新 wasMentioned 为 effectiveWasMentioned（含 implicit + bypass）
           wasMentioned = gate.effectiveWasMentioned;
           if (wasMentioned) {
-            customUnreadCfgForEvent = resolveCustomUnreadForEvent(event);
-            if (customUnreadCfgForEvent) {
-              const message = toCustomInboundGroupMessage({
-                accountId: account.accountId,
-                groupOpenid: event.groupOpenid,
-                senderId: event.senderId,
-                senderName: event.senderName,
-                senderIsBot: event.senderIsBot,
-                content: userContent,
-                messageId: event.messageId,
-                timestamp: event.timestamp,
-                mentionedBot: wasMentioned,
-                implicitMention,
-                attachments: event.attachments,
-              });
-              const mentionResult = customMessageFlow.unread.observeMention({ message, cfg: customUnreadCfgForEvent });
+            const mentionResult = observeCustomUnreadMentionBeforeDispatch({
+              cfg: cfg as any,
+              accountId: account.accountId,
+              unread: customMessageFlow.unread,
+              event,
+              content: userContent,
+              mentionedBot: wasMentioned,
+              implicitMention,
+            });
+            if (mentionResult.handled) {
+              customUnreadCfgForEvent = mentionResult.cfg ?? null;
               shouldCatchUpUnreadAfterReply = mentionResult.shouldCatchUpAfterReply;
-              customUnreadHistoryForEvent = mentionResult.history.length > 0
-                ? historyEntriesFromCustomUnread(mentionResult.history)
-                : undefined;
-              customUnreadScheduler?.apply(
-                effectsFromCustomUnreadIntents({ accountId: account.accountId, peer: message.peer, intents: mentionResult.intents }),
-                customUnreadCfgForEvent,
-              );
-              persistCustomUnreadState();
+              customUnreadHistoryForEvent = mentionResult.history;
+              customUnreadScheduler?.apply(mentionResult.effects, mentionResult.cfg);
+              if (mentionResult.persist) persistCustomUnreadState();
               if (shouldCatchUpUnreadAfterReply) {
                 log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: mention with ${mentionResult.pendingCount} custom unread message(s); will catch up after reply`);
               }
