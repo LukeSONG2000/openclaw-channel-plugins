@@ -57,6 +57,7 @@ import {
   checkCustomSlashAuthorization,
   describeCustomAuthorizationIntents,
   formatCustomAuthorizationDeniedMessage,
+  handleCustomAuthCommand,
 } from "./custom/auth-gateway-adapter.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -652,6 +653,41 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     };
 
     try {
+      const sendSlashTextReply = async (text: string): Promise<void> => {
+        const token = await getAccessToken(account.appId, account.clientSecret);
+        if (msg.type === "c2c") {
+          await sendC2CMessage(token, msg.senderId, text, msg.messageId);
+        } else if (msg.type === "group" && msg.groupOpenid) {
+          await sendGroupMessage(token, msg.groupOpenid, text, msg.messageId);
+        } else if (msg.channelId) {
+          await sendChannelMessage(token, msg.channelId, text, msg.messageId);
+        } else if (msg.type === "dm") {
+          await sendC2CMessage(token, msg.senderId, text, msg.messageId);
+        }
+      };
+
+      const customAuthCommand = handleCustomAuthCommand({
+        cfg: cfg as any,
+        auth: customMessageFlow.auth,
+        message: msg,
+        rawContent: content,
+      });
+      if (customAuthCommand.handled) {
+        if (customAuthCommand.intent) {
+          for (const item of describeCustomAuthorizationIntents([customAuthCommand.intent])) {
+            log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
+          }
+        }
+        if (customAuthCommand.reply) {
+          try {
+            await sendSlashTextReply(customAuthCommand.reply);
+          } catch (sendErr) {
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom auth command reply: ${sendErr}`);
+          }
+        }
+        return;
+      }
+
       const authDecision = checkCustomSlashAuthorization({
         cfg: cfg as any,
         auth: customMessageFlow.auth,
@@ -667,16 +703,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         log?.info(`[qqbot:${account.accountId}] Slash command denied by custom auth: capability=${authDecision.capability} sender=${msg.senderId} content=${content.slice(0, 80)}`);
         const denialText = formatCustomAuthorizationDeniedMessage(authDecision);
         try {
-          const token = await getAccessToken(account.appId, account.clientSecret);
-          if (msg.type === "c2c") {
-            await sendC2CMessage(token, msg.senderId, denialText, msg.messageId);
-          } else if (msg.type === "group" && msg.groupOpenid) {
-            await sendGroupMessage(token, msg.groupOpenid, denialText, msg.messageId);
-          } else if (msg.channelId) {
-            await sendChannelMessage(token, msg.channelId, denialText, msg.messageId);
-          } else if (msg.type === "dm") {
-            await sendC2CMessage(token, msg.senderId, denialText, msg.messageId);
-          }
+          await sendSlashTextReply(denialText);
         } catch (sendErr) {
           log?.error(`[qqbot:${account.accountId}] Failed to send custom auth denial message: ${sendErr}`);
         }

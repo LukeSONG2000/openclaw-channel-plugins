@@ -90,10 +90,17 @@ Wired custom authorization into plugin-level slash command handling:
 - `gateway.ts` now checks custom auth before executing matched plugin slash command handlers when `channels.qqbot.customRuntime.enabled=true`.
 - Config/deploy mutation commands such as `/bot-streaming on`, `/bot-group-allways off`, `/bot-approve on`, `/bot-clear-storage --force`, and `/bot-upgrade --latest` are blocked unless the actor is an admin, the scene grants the capability, or a temporary grant exists.
 - Denied commands receive visible text and emit/log request-approval intents when bound admins exist.
+- Added `/bot-auth` gateway-level admin commands for text approval:
+  - `/bot-auth status`
+  - `/bot-auth approve <requestId> once`
+  - `/bot-auth approve <requestId> count 3`
+  - `/bot-auth approve <requestId> timed 10m`
+  - `/bot-auth deny <requestId>`
+- `/bot-auth` resolves approval requests against the live per-account `CustomAuthorizationRuntime`, creating once/count/timed temporary grants without entering the AI queue.
 - Added `tests/slash-command-capability.test.ts` and `tests/custom-auth-gateway-adapter.test.ts`.
 
 Still intentionally open:
 
-- QQ approval card/text delivery for `request-approval` intents.
+- QQ inline keyboard approval cards for custom auth requests.
 - Persistent grant/request storage across gateway reconnects/restarts.
 - Authorization for model/tool dispatch beyond plugin-level slash commands.

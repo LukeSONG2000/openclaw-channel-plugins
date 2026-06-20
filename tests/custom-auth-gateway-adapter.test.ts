@@ -3,6 +3,8 @@ import { CustomAuthorizationRuntime } from "../src/custom/auth.js";
 import {
   checkCustomSlashAuthorization,
   formatCustomAuthorizationDeniedMessage,
+  handleCustomAuthCommand,
+  parseCustomAuthCommand,
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
 } from "../src/custom/auth-gateway-adapter.js";
@@ -29,6 +31,23 @@ assert.deepEqual(toCustomActorFromQueuedMessage(memberGroupMessage), {
 });
 
 const auth = new CustomAuthorizationRuntime();
+const authCfg = {
+  channels: {
+    qqbot: {
+      customRuntime: {
+        enabled: true,
+        admins: ["ADMIN_OPENID"],
+        scenes: {
+          "qqbot:group:GROUP_OPENID": {
+            scene: "chat",
+            capabilities: ["chat.send"],
+          },
+        },
+      },
+    },
+  },
+} as any;
+
 const disabled = checkCustomSlashAuthorization({
   cfg: { channels: { qqbot: {} } } as any,
   auth,
@@ -40,22 +59,7 @@ assert.equal(disabled.enabled, false);
 assert.equal(disabled.allowed, true);
 
 const denied = checkCustomSlashAuthorization({
-  cfg: {
-    channels: {
-      qqbot: {
-        customRuntime: {
-          enabled: true,
-          admins: ["ADMIN_OPENID"],
-          scenes: {
-            "qqbot:group:GROUP_OPENID": {
-              scene: "chat",
-              capabilities: ["chat.send"],
-            },
-          },
-        },
-      },
-    },
-  } as any,
+  cfg: authCfg,
   auth,
   message: memberGroupMessage,
   rawContent: "/bot-streaming on",
@@ -66,36 +70,85 @@ assert.equal(denied.allowed, false);
 assert.equal(denied.capability, "config.write");
 assert.equal(denied.result?.decision.requestId, "authreq-2000-1");
 assert.equal(formatCustomAuthorizationDeniedMessage(denied).includes("需要能力：config.write"), true);
+assert.deepEqual(parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 3"), {
+  matched: true,
+  command: {
+    kind: "resolve",
+    requestId: "authreq-2000-1",
+    approved: true,
+    grantUse: "count",
+    grantCount: 3,
+    grantTtlMs: undefined,
+  },
+});
+assert.deepEqual(parseCustomAuthCommand("/bot-auth allow-count authreq-2000-1 2"), {
+  matched: true,
+  command: {
+    kind: "resolve",
+    requestId: "authreq-2000-1",
+    approved: true,
+    grantUse: "count",
+    grantCount: 2,
+    grantTtlMs: undefined,
+  },
+});
+assert.deepEqual(parseCustomAuthCommand("/bot-auth allow-timed authreq-2000-1 10m"), {
+  matched: true,
+  command: {
+    kind: "resolve",
+    requestId: "authreq-2000-1",
+    approved: true,
+    grantUse: "timed",
+    grantCount: undefined,
+    grantTtlMs: 600_000,
+  },
+});
 
-const allowedByGrant = checkCustomSlashAuthorization({
-  cfg: {
-    channels: {
-      qqbot: {
-        customRuntime: {
-          enabled: true,
-          admins: ["ADMIN_OPENID"],
-          scenes: {
-            "qqbot:group:GROUP_OPENID": {
-              scene: "chat",
-              capabilities: ["chat.send"],
-            },
-          },
-        },
-      },
-    },
-  } as any,
+const deniedAuthCommand = handleCustomAuthCommand({
+  cfg: authCfg,
   auth,
   message: memberGroupMessage,
-  rawContent: "/bot-streaming on",
-  now: 3_000,
+  rawContent: "/bot-auth approve authreq-2000-1 once",
+  now: 2_500,
 });
-assert.equal(allowedByGrant.allowed, false);
+assert.equal(deniedAuthCommand.handled, true);
+assert.equal(deniedAuthCommand.reply?.includes("只有 customRuntime.admins"), true);
 
 const adminMessage: QueuedMessage = {
   ...memberGroupMessage,
   senderId: "ADMIN_OPENID",
   senderName: "Admin",
 };
+const approved = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth,
+  message: adminMessage,
+  rawContent: "/bot-auth approve authreq-2000-1 once",
+  now: 3_000,
+});
+assert.equal(approved.handled, true);
+assert.equal(approved.intent?.kind, "approval-resolved");
+assert.equal(approved.reply?.includes("已批准临时授权"), true);
+
+const allowedByGrant = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 4_000,
+});
+assert.equal(allowedByGrant.allowed, true);
+assert.equal(allowedByGrant.result?.decision.source, "temporary-grant");
+
+const secondUseAfterOnceGrant = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 5_000,
+});
+assert.equal(secondUseAfterOnceGrant.allowed, false);
+
 const allowedAdmin = checkCustomSlashAuthorization({
   cfg: {
     channels: {

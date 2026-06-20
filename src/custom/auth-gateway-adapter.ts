@@ -1,9 +1,9 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import { getSlashCommandCapability } from "../slash-commands.js";
-import type { CustomAuthorizationCheckResult, CustomAuthorizationRuntime } from "./auth.js";
+import { isCustomRuntimeAdmin, type CustomAuthorizationCheckResult, type CustomAuthorizationRuntime } from "./auth.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
-import type { CustomActor, CustomAuthorizationIntent, CustomCapability, CustomPeer } from "./types.js";
+import type { CustomActor, CustomAuthorizationIntent, CustomCapability, CustomGrantUse, CustomPeer } from "./types.js";
 
 export interface CustomSlashAuthorizationDecision {
   enabled: boolean;
@@ -103,12 +103,202 @@ export function formatCustomAuthorizationDeniedMessage(decision: CustomSlashAuth
 
   if (requestId) {
     lines.push(``, `已创建授权申请：${requestId}`);
-    lines.push(`管理员确认后可临时放行。`);
+    lines.push(`管理员可回复：/bot-auth approve ${requestId} once`);
   } else {
     lines.push(``, `请联系管理员把你加入 customRuntime.admins，或为当前场景授予该能力。`);
   }
 
   return lines.join("\n");
+}
+
+export type CustomAuthCommand =
+  | { kind: "help" }
+  | { kind: "status" }
+  | {
+      kind: "resolve";
+      requestId: string;
+      approved: boolean;
+      grantUse?: CustomGrantUse;
+      grantCount?: number;
+      grantTtlMs?: number;
+    };
+
+export type CustomAuthCommandParseResult =
+  | { matched: false }
+  | { matched: true; command?: CustomAuthCommand; error?: string };
+
+export interface CustomAuthCommandResult {
+  handled: boolean;
+  reply?: string;
+  intent?: CustomAuthorizationIntent;
+}
+
+export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandParseResult {
+  const content = rawContent.trim();
+  if (!content.startsWith("/")) return { matched: false };
+
+  const [rawName = "", ...tokens] = content.slice(1).split(/\s+/).filter(Boolean);
+  const name = rawName.toLowerCase();
+  if (name !== "bot-auth") return { matched: false };
+
+  const action = (tokens.shift() ?? "help").toLowerCase();
+  if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
+  if (action === "status") return { matched: true, command: { kind: "status" } };
+
+  if (action === "approve" || action === "allow" || action === "allow-once" || action === "allow-count" || action === "allow-timed") {
+    const requestId = tokens.shift();
+    if (!requestId) return { matched: true, error: "缺少 requestId" };
+
+    let grantUse: CustomGrantUse = "once";
+    let grantCount: number | undefined;
+    let grantTtlMs: number | undefined;
+
+    if (action === "allow-count") grantUse = "count";
+    if (action === "allow-timed") grantUse = "timed";
+
+    const mode = action === "allow-count" || action === "allow-timed"
+      ? undefined
+      : tokens.shift()?.toLowerCase();
+    if (mode) {
+      if (mode === "once") {
+        grantUse = "once";
+      } else if (mode === "count") {
+        grantUse = "count";
+        const countRaw = tokens.shift();
+        const count = countRaw ? Number.parseInt(countRaw, 10) : NaN;
+        if (!Number.isFinite(count) || count < 1) {
+          return { matched: true, error: "count 需要大于 0 的整数" };
+        }
+        grantCount = count;
+      } else if (mode === "timed") {
+        grantUse = "timed";
+        const durationRaw = tokens.shift();
+        const ttlMs = durationRaw ? parseDurationMs(durationRaw) : null;
+        if (!ttlMs) {
+          return { matched: true, error: "timed 需要时长，例如 10m、1h、30s" };
+        }
+        grantTtlMs = ttlMs;
+      } else {
+        return { matched: true, error: `未知授权方式：${mode}` };
+      }
+    }
+
+    if (action === "allow-count" && grantCount === undefined) {
+      const countRaw = tokens.shift();
+      const count = countRaw ? Number.parseInt(countRaw, 10) : NaN;
+      if (!Number.isFinite(count) || count < 1) {
+        return { matched: true, error: "allow-count 需要次数，例如 /bot-auth allow-count <requestId> 3" };
+      }
+      grantCount = count;
+    }
+    if (action === "allow-timed" && grantTtlMs === undefined) {
+      const durationRaw = tokens.shift();
+      const ttlMs = durationRaw ? parseDurationMs(durationRaw) : null;
+      if (!ttlMs) {
+        return { matched: true, error: "allow-timed 需要时长，例如 /bot-auth allow-timed <requestId> 10m" };
+      }
+      grantTtlMs = ttlMs;
+    }
+
+    return {
+      matched: true,
+      command: {
+        kind: "resolve",
+        requestId,
+        approved: true,
+        grantUse,
+        grantCount,
+        grantTtlMs,
+      },
+    };
+  }
+
+  if (action === "deny" || action === "reject") {
+    const requestId = tokens.shift();
+    if (!requestId) return { matched: true, error: "缺少 requestId" };
+    return { matched: true, command: { kind: "resolve", requestId, approved: false } };
+  }
+
+  return { matched: true, error: `未知子命令：${action}` };
+}
+
+export function handleCustomAuthCommand(params: {
+  cfg: OpenClawConfig;
+  auth: CustomAuthorizationRuntime;
+  message: QueuedMessage;
+  rawContent: string;
+  now?: number;
+}): CustomAuthCommandResult {
+  const parsed = parseCustomAuthCommand(params.rawContent);
+  if (!parsed.matched) return { handled: false };
+
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  if (!runtime.enabled) {
+    return {
+      handled: true,
+      reply: [
+        `ℹ️ customRuntime 未启用`,
+        ``,
+        `请先在 channels.qqbot.customRuntime.enabled=true 后再使用 /bot-auth。`,
+      ].join("\n"),
+    };
+  }
+
+  const actor = toCustomActorFromQueuedMessage(params.message);
+  if (!isCustomRuntimeAdmin(runtime, actor)) {
+    return {
+      handled: true,
+      reply: [
+        `⛔ 只有 customRuntime.admins 中的管理员可以处理授权申请。`,
+        ``,
+        `当前用户：${actor.label || actor.id}`,
+      ].join("\n"),
+    };
+  }
+
+  if (parsed.error) {
+    return { handled: true, reply: formatCustomAuthHelp(parsed.error) };
+  }
+
+  const command = parsed.command ?? { kind: "help" as const };
+  if (command.kind === "help") {
+    return { handled: true, reply: formatCustomAuthHelp() };
+  }
+
+  if (command.kind === "status") {
+    return { handled: true, reply: formatCustomAuthStatus(params.auth) };
+  }
+
+  const state = params.auth.getState();
+  const requestId = findPendingRequestId(Object.keys(state.requests), command.requestId);
+  if (!requestId) {
+    return {
+      handled: true,
+      reply: `⚠️ 未找到待处理授权申请：${command.requestId}`,
+    };
+  }
+
+  const intent = params.auth.resolveApproval({
+    requestId,
+    approved: command.approved,
+    resolvedBy: actor.id,
+    now: params.now,
+    grantUse: command.grantUse,
+    grantCount: command.grantCount,
+    grantTtlMs: command.grantTtlMs,
+  });
+  if (!intent || intent.kind !== "approval-resolved") {
+    return {
+      handled: true,
+      reply: `⚠️ 授权申请已不存在或不再是 pending：${requestId}`,
+    };
+  }
+
+  return {
+    handled: true,
+    intent,
+    reply: formatApprovalResolution(intent),
+  };
 }
 
 export function describeCustomAuthorizationIntents(intents: CustomAuthorizationIntent[]): string[] {
@@ -124,4 +314,96 @@ export function describeCustomAuthorizationIntents(intents: CustomAuthorizationI
     }
     return `grant-expired id=${intent.grantId}`;
   });
+}
+
+function formatCustomAuthHelp(error?: string): string {
+  const lines = [];
+  if (error) lines.push(`❌ ${error}`, ``);
+  lines.push(
+    `🔐 自定义授权命令`,
+    ``,
+    `/bot-auth status`,
+    `/bot-auth approve <requestId> once`,
+    `/bot-auth approve <requestId> count 3`,
+    `/bot-auth approve <requestId> timed 10m`,
+    `/bot-auth deny <requestId>`,
+  );
+  return lines.join("\n");
+}
+
+function formatCustomAuthStatus(auth: CustomAuthorizationRuntime): string {
+  const state = auth.getState();
+  const requests = Object.values(state.requests).filter((request) => request.status === "pending");
+  const grants = Object.values(state.grants);
+  const lines = [
+    `🔐 自定义授权状态`,
+    ``,
+    `待审批：${requests.length}`,
+    `临时授权：${grants.length}`,
+  ];
+
+  for (const request of requests.slice(0, 5)) {
+    lines.push(
+      ``,
+      `- ${request.id}`,
+      `  用户：${request.actor.label || request.actor.id}`,
+      `  能力：${request.capability}`,
+      `  会话：${request.peer.label || request.peer.id}`,
+    );
+  }
+  if (requests.length > 5) {
+    lines.push(``, `还有 ${requests.length - 5} 条待审批未显示。`);
+  }
+
+  return lines.join("\n");
+}
+
+function formatApprovalResolution(intent: Extract<CustomAuthorizationIntent, { kind: "approval-resolved" }>): string {
+  const request = intent.request;
+  if (!intent.approved) {
+    return [
+      `✅ 已拒绝授权申请`,
+      ``,
+      `申请：${request.id}`,
+      `用户：${request.actor.label || request.actor.id}`,
+      `能力：${request.capability}`,
+    ].join("\n");
+  }
+
+  const grant = intent.grant;
+  const grantDesc = grant
+    ? grant.remainingUses !== undefined
+      ? `可用次数：${grant.remainingUses}`
+      : grant.expiresAt
+        ? `有效至：${new Date(grant.expiresAt).toISOString()}`
+        : `授权已生效`
+    : `授权已生效`;
+  return [
+    `✅ 已批准临时授权`,
+    ``,
+    `申请：${request.id}`,
+    `用户：${request.actor.label || request.actor.id}`,
+    `能力：${request.capability}`,
+    grantDesc,
+  ].join("\n");
+}
+
+function findPendingRequestId(requestIds: string[], input: string): string | null {
+  if (requestIds.includes(input)) return input;
+  const matches = requestIds.filter((id) => id.startsWith(input) || id.endsWith(input));
+  return matches.length === 1 ? matches[0]! : null;
+}
+
+function parseDurationMs(value: string): number | null {
+  const m = value.trim().toLowerCase().match(/^(\d+)(ms|s|m|h|d)?$/);
+  if (!m) return null;
+  const amount = Number.parseInt(m[1]!, 10);
+  if (!Number.isFinite(amount) || amount < 1) return null;
+  const unit = m[2] ?? "m";
+  if (unit === "ms") return amount;
+  if (unit === "s") return amount * 1000;
+  if (unit === "m") return amount * 60_000;
+  if (unit === "h") return amount * 60 * 60_000;
+  if (unit === "d") return amount * 24 * 60 * 60_000;
+  return null;
 }

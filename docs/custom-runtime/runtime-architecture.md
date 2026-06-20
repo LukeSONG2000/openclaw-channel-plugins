@@ -166,6 +166,7 @@ Current implementation status:
 - Uses slash-command metadata from `src/slash-commands.ts` to map plugin commands to concrete capabilities.
 - Calls `CustomAuthorizationRuntime.check()` before plugin command handlers execute.
 - Formats visible denial text for C2C, group, channel, and DM replies.
+- Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
 - Logs approval/grant intents in the gateway for observability.
 
 Initial slash command capability mapping:
@@ -179,10 +180,18 @@ Initial slash command capability mapping:
 - `/bot-approve`: `config.read`; mutation commands require `auth.grant`
 - `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
 
+Text approval commands:
+
+- `/bot-auth status`
+- `/bot-auth approve <requestId> once`
+- `/bot-auth approve <requestId> count 3`
+- `/bot-auth approve <requestId> timed 10m`
+- `/bot-auth deny <requestId>`
+
 Still open:
 
 - QQ inline keyboard approval cards for custom auth requests.
-- Admin-side approval command or interaction handler for `custom-auth:<requestId>:...`.
+- Interaction handler for `custom-auth:<requestId>:...`.
 - Persistent grants and requests across gateway reconnects/restarts.
 - Model/tool dispatch authorization outside plugin-level slash commands.
 
