@@ -107,3 +107,20 @@ Still intentionally open:
 - Persistent grant/request storage across gateway reconnects/restarts.
 - Authorization for model/tool dispatch beyond plugin-level slash commands.
 - Richer card controls for arbitrary temporary grant count/duration.
+
+Added scene binding and profile resolver:
+
+- Added `src/custom/scenes.ts` as the single source for custom scene defaults and peer binding resolution.
+- Scene lookup now supports exact peer keys, kind wildcards such as `qqbot:group:*`, global wildcard `*`, and built-in defaults.
+- Built-in scenes now carry default capabilities, labels, descriptions, autonomous-reply defaults, proactive-send defaults, and compact system prompts.
+- Added `enabled:false` scene bindings so specific groups/DMs can be disabled under custom runtime before agent dispatch.
+- `src/custom/config.ts` keeps backward-compatible helpers while delegating to the scene resolver.
+- `src/custom/auth.ts` now uses scene resolver defaults for capability checks, so auth and routing policy share one scene model.
+- `gateway.ts` injects the resolved scene system prompt when `channels.qqbot.customRuntime.enabled=true`, giving the model a clear per-peer behavior boundary.
+- Added `tests/custom-scenes.test.ts` and expanded `tests/custom-runtime.test.ts`.
+
+Still intentionally open:
+
+- Scene `agentId` does not yet override framework route selection.
+- Long-task sandbox/workspace isolation is not implemented yet.
+- Per-scene proactive budget/rate-limit enforcement is not implemented yet.

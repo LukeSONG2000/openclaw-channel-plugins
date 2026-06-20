@@ -11,6 +11,10 @@ import type {
   CustomRuntimeConfig,
   CustomSceneConfig,
 } from "./types.js";
+import {
+  applySceneDefaults,
+  defaultSceneCapabilities,
+} from "./scenes.js";
 
 const DEFAULT_APPROVAL_TTL_MS = 10 * 60_000;
 
@@ -29,21 +33,11 @@ const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
   "game.interact",
 ];
 
-const DEFAULT_SCENE_CAPABILITIES: Record<CustomSceneConfig["scene"], Exclude<CustomCapability, "*">[]> = {
-  "codex-only": ["codex.run", "codex.longTask"],
-  chat: ["chat.send"],
-  "system-admin": ["system.status", "deploy.check"],
-  "dev-lab": ["chat.send", "codex.run", "codex.longTask", "system.status", "deploy.check"],
-  "default-dm": ["chat.send", "codex.run"],
-};
-
 export function isCustomRuntimeAdmin(runtime: CustomRuntimeConfig, actor: CustomActor): boolean {
   return (runtime.admins ?? []).some((admin) => admin === "*" || admin.toUpperCase() === actor.id.toUpperCase());
 }
 
-export function defaultSceneCapabilities(scene: CustomSceneConfig["scene"]): Exclude<CustomCapability, "*">[] {
-  return (DEFAULT_SCENE_CAPABILITIES[scene] ?? []).slice();
-}
+export { defaultSceneCapabilities };
 
 export function evaluateCustomAuthorization(params: {
   runtime: CustomRuntimeConfig;
@@ -58,6 +52,11 @@ export function evaluateCustomAuthorization(params: {
     return { allowed: false, reason: "scene_disabled", capability, actorId: actor.id, peerId: peer.id };
   }
 
+  const resolvedScene = applySceneDefaults(scene);
+  if (!resolvedScene.enabled) {
+    return { allowed: false, reason: "scene_disabled", capability, actorId: actor.id, peerId: peer.id };
+  }
+
   if (isCustomRuntimeAdmin(runtime, actor)) {
     return {
       allowed: true,
@@ -69,7 +68,7 @@ export function evaluateCustomAuthorization(params: {
     };
   }
 
-  const capabilities = scene.capabilities ?? DEFAULT_SCENE_CAPABILITIES[scene.scene] ?? [];
+  const capabilities = resolvedScene.capabilities;
   const allowed = capabilities.includes("*") || capabilities.includes(capability);
 
   return {

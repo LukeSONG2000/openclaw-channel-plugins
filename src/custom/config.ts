@@ -1,5 +1,11 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { CustomPeer, CustomRuntimeConfig, CustomSceneConfig, CustomSceneKind } from "./types.js";
+import type { CustomPeer, CustomRuntimeConfig, CustomSceneConfig } from "./types.js";
+import {
+  formatCustomPeerKey,
+  resolveCustomScene,
+  resolveCustomSceneConfigFromRuntime,
+  type ResolvedCustomScene,
+} from "./scenes.js";
 
 const DEFAULT_RUNTIME_CONFIG: Required<Pick<CustomRuntimeConfig, "enabled" | "defaultScene">> = {
   enabled: false,
@@ -25,18 +31,19 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
   };
 }
 
-export function formatCustomPeerKey(peer: CustomPeer): string {
-  return `qqbot:${peer.kind}:${peer.id}`;
-}
-
 export function resolveCustomSceneConfig(
   cfg: OpenClawConfig,
   peer: CustomPeer,
 ): CustomSceneConfig {
   const runtime = resolveCustomRuntimeConfig(cfg);
-  const key = formatCustomPeerKey(peer);
-  const scene = runtime.scenes?.[key] ?? runtime.scenes?.["*"];
-  if (scene) return scene;
-  const defaultScene: CustomSceneKind = peer.kind === "group" ? "chat" : (runtime.defaultScene ?? "default-dm");
-  return { scene: defaultScene };
+  return resolveCustomSceneConfigFromRuntime(runtime, peer);
 }
+
+export function resolveCustomSceneState(
+  cfg: OpenClawConfig,
+  peer: CustomPeer,
+): ResolvedCustomScene {
+  return resolveCustomScene(resolveCustomRuntimeConfig(cfg), peer);
+}
+
+export { formatCustomPeerKey };

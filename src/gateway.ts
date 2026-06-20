@@ -41,7 +41,8 @@ import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounc
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveGroupMessageGate } from "./message-gating.js";
-import { resolveCustomRuntimeConfig } from "./custom/config.js";
+import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/config.js";
+import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
 import {
   createCustomMessageFlowRuntime,
   inspectCustomUnreadConfig,
@@ -1124,6 +1125,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           },
         });
 
+        const customSceneState = isCustomRuntimeEnabled()
+          ? resolveCustomSceneState(cfg as any, {
+              kind: event.type === "guild" ? "channel" : event.type === "group" ? "group" : event.type === "dm" ? "dm" : "c2c",
+              id: peerId,
+            })
+          : null;
+        if (customSceneState && !customSceneState.enabled) {
+          log?.info(`[qqbot:${account.accountId}] Custom scene disabled for ${customSceneState.key}, skipping message from ${event.senderId}`);
+          return;
+        }
+
         const envelopeOptions = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
 
         // 组装消息体
@@ -1136,6 +1148,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const systemPrompts: string[] = [];
         if (account.systemPrompt) {
           systemPrompts.push(account.systemPrompt);
+        }
+        if (customSceneState) {
+          systemPrompts.push(buildCustomSceneSystemPrompt(customSceneState));
         }
         
         // 处理附件（图片等）- 下载到本地供 openclaw 访问

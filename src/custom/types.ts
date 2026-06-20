@@ -56,7 +56,10 @@ export interface CustomInboundMessage {
 
 export interface CustomSceneConfig {
   scene: CustomSceneKind;
+  enabled?: boolean;
   label?: string;
+  description?: string;
+  systemPrompt?: string;
   agentId?: string;
   allowAutonomousReply?: boolean;
   allowProactiveSend?: boolean;

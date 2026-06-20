@@ -86,6 +86,25 @@ const disabledDecision = inspectCustomRuntimeMessage({
 });
 assert.equal(disabledDecision.enabled, false);
 assert.equal(disabledDecision.scene.scene, "chat");
+assert.equal(disabledDecision.sceneState.source, "default");
+
+const sceneDecision = inspectCustomRuntimeMessage({
+  cfg,
+  message: {
+    accountId: "default",
+    peer: groupPeer,
+    actor: user,
+    content: "hello",
+    messageId: "msg-scene",
+    timestamp: Date.now(),
+    mentionedBot: false,
+  },
+  capability: "codex.run",
+});
+assert.equal(sceneDecision.enabled, true);
+assert.equal(sceneDecision.sceneState.key, "qqbot:group:GROUP_OPENID");
+assert.equal(sceneDecision.sceneSystemPrompt?.includes("dev group"), true);
+assert.equal(sceneDecision.authorization?.allowed, true);
 
 const unreadCfg = inspectCustomUnreadConfig({
   cfg,

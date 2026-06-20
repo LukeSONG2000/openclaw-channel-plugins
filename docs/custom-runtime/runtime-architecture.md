@@ -67,6 +67,20 @@ Stable custom types:
 
 Maps peers to scenes.
 
+Current implementation status:
+
+- Exists as a pure resolver with no QQ API, OpenClaw SDK, timer, or filesystem dependency.
+- Resolves peer bindings in this priority:
+  - exact peer key, for example `qqbot:group:<group_openid>`
+  - kind wildcard, for example `qqbot:group:*`
+  - global wildcard `*`
+  - built-in default (`chat` for groups, `default-dm` for non-groups unless `defaultScene` overrides non-group peers)
+- Applies built-in profiles for default capabilities, autonomous-reply defaults, proactive-send defaults, labels, descriptions, and scene system prompts.
+- Builds a compact scene system prompt that is injected into the gateway message context when `channels.qqbot.customRuntime.enabled=true`.
+- Supports `enabled:false` on a scene binding; gateway skips messages for disabled scenes before agent dispatch.
+- `src/custom/config.ts` keeps the old `resolveCustomSceneConfig()` compatibility helper while delegating to the scene resolver.
+- `src/custom/auth.ts` now reads default capabilities from the scene resolver, so authorization and message-flow policy share the same scene source.
+
 Required scenes:
 
 - `codex-only`: only Codex CLI/task use, no casual chat.
@@ -83,9 +97,16 @@ Scene config must live under a custom namespace, not arbitrary keys inside offic
     "qqbot": {
       "customRuntime": {
         "scenes": {
+          "qqbot:group:*": {
+            "scene": "codex-only",
+            "label": "Default group policy"
+          },
           "qqbot:group:5C1152CA05D191171B05E6997791C3F5": {
-            "scene": "chat",
-            "label": "Master Luke's library"
+            "scene": "dev-lab",
+            "label": "Master Luke's library",
+            "capabilities": ["chat.send", "codex.run", "codex.longTask", "deploy.check"],
+            "allowAutonomousReply": true,
+            "allowProactiveSend": false
           }
         }
       }
@@ -93,6 +114,22 @@ Scene config must live under a custom namespace, not arbitrary keys inside offic
   }
 }
 ```
+
+Built-in default capabilities:
+
+- `codex-only`: `codex.run`, `codex.longTask`
+- `chat`: `chat.send`
+- `system-admin`: `system.status`, `deploy.check`, `config.read`
+- `dev-lab`: `chat.send`, `codex.run`, `codex.longTask`, `system.status`, `deploy.check`, `config.read`
+- `default-dm`: `chat.send`, `codex.run`, `system.status`, `deploy.check`, `config.read`
+
+High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `deploy.apply`, and `proactive.send` are intentionally not granted by default scene profiles. They require admin status, an explicit scene capability, or a temporary grant.
+
+Open items:
+
+- Scene `agentId` is parsed in config but not yet used to override OpenClaw route selection.
+- Per-scene workspace/sandbox routing for `codex.longTask` is still pending.
+- Per-scene proactive budget/rate-limit policy is still pending.
 
 ### `src/custom/auth.ts`
 
