@@ -58,16 +58,10 @@ import {
   type CustomUnreadGatewayEffect,
 } from "./custom/unread-gateway-adapter.js";
 import {
-  buildCustomAuthApprovalKeyboard,
-  buildCustomAuthApprovalText,
-  checkCustomSlashAuthorization,
   describeCustomAuthorizationIntents,
-  firstCustomAuthApprovalRequest,
-  formatCustomAuthorizationDeniedMessage,
-  handleCustomAuthInteraction,
 } from "./custom/auth-gateway-adapter.js";
+import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
-import { handleCustomPollInteraction } from "./custom/poll-gateway-adapter.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -231,57 +225,39 @@ async function handleInteractionCreate(params: {
     // button_data 格式：approve:<approvalId>:<decision>
     // approvalId 可能是 "exec:uuid" / "plugin:uuid"（带前缀）或纯 "uuid"（无前缀）
     const buttonData = event.data?.resolved?.button_data ?? "";
-    const customAuthResult = params.customAuth ? handleCustomAuthInteraction({
+    const customInteraction: CustomInteractionGatewayResult = params.customAuth && params.customPolls ? handleCustomInteractionGatewayButton({
       cfg: cfg as any,
-      auth: params.customAuth,
+      runtime: { auth: params.customAuth, polls: params.customPolls },
       buttonData,
-      actorId: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
+      actor: {
+        id: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
+      },
       now: Date.now(),
     }) : { handled: false };
-    if (customAuthResult.handled) {
-      if (customAuthResult.intent) {
-        for (const item of describeCustomAuthorizationIntents([customAuthResult.intent])) {
-          log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
+    if (customInteraction.handled) {
+      if (customInteraction.logs) {
+        for (const item of customInteraction.logs) {
+          if (item.level === "error") log?.error(`[qqbot:${account.accountId}] ${item.message}`);
+          else log?.info(`[qqbot:${account.accountId}] ${item.message}`);
         }
+      }
+      if (customInteraction.persist?.auth) {
         params.persistCustomAuthState?.();
       }
-      if (customAuthResult.reply) {
-        try {
-          if (event.group_openid) {
-            await sendGroupMessage(token, event.group_openid, customAuthResult.reply);
-          } else if (event.user_openid) {
-            await sendC2CMessage(token, event.user_openid, customAuthResult.reply);
-          } else if (event.channel_id) {
-            await sendChannelMessage(token, event.channel_id, customAuthResult.reply);
-          }
-        } catch (sendErr) {
-          log?.error(`[qqbot:${account.accountId}] Failed to send custom auth interaction reply: ${sendErr}`);
-        }
-      }
-      return;
-    }
-
-    const customPollResult = params.customPolls ? handleCustomPollInteraction({
-      polls: params.customPolls,
-      buttonData,
-      actorId: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
-      now: Date.now(),
-    }) : { handled: false };
-    if (customPollResult.handled) {
-      if (customPollResult.changed) {
+      if (customInteraction.persist?.polls) {
         params.persistCustomPollState?.();
       }
-      if (customPollResult.reply) {
+      if (customInteraction.reply) {
         try {
           if (event.group_openid) {
-            await sendGroupMessage(token, event.group_openid, customPollResult.reply);
+            await sendGroupMessage(token, event.group_openid, customInteraction.reply);
           } else if (event.user_openid) {
-            await sendC2CMessage(token, event.user_openid, customPollResult.reply);
+            await sendC2CMessage(token, event.user_openid, customInteraction.reply);
           } else if (event.channel_id) {
-            await sendChannelMessage(token, event.channel_id, customPollResult.reply);
+            await sendChannelMessage(token, event.channel_id, customInteraction.reply);
           }
         } catch (sendErr) {
-          log?.error(`[qqbot:${account.accountId}] Failed to send custom poll interaction reply: ${sendErr}`);
+          log?.error(`[qqbot:${account.accountId}] Failed to send custom interaction reply: ${sendErr}`);
         }
       }
       return;

@@ -326,6 +326,23 @@ Important boundary:
 - This is not a full command framework replacement.
 - Official/plugin slash commands still live in `src/slash-commands.ts`; the custom adapter only handles custom runtime gates and commands that need live per-account runtime state.
 
+### `src/custom/interaction-gateway-adapter.ts`
+
+Gateway-side custom button interaction orchestration layer.
+
+Current implementation status:
+
+- Handles custom inline keyboard button payloads after QQ interaction ACK.
+- Routes `custom-auth:<requestId>:allow-once|allow-count|allow-timed|deny` to the per-account auth runtime.
+- Routes `custom-poll:<pollId>:vote:<1-4>` to the per-account poll runtime.
+- Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
+- Leaves `gateway.ts` responsible for the platform ACK, reply target selection, QQ send APIs, and legacy official approval buttons.
+
+Important boundary:
+
+- Config query/update interactions still stay in `gateway.ts` because they are part of the official connector protocol.
+- Legacy approval buttons with `approve:<approvalId>:...` still stay in `gateway.ts` because they are tied to the existing `approval-handler`.
+
 ### `src/custom/unread-runtime.ts`
 
 Owns non-mentioned group history and autonomous speaking decisions.

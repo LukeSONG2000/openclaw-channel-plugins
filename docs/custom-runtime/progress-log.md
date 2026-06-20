@@ -249,6 +249,13 @@ Extracted custom slash command orchestration:
 - `gateway.ts` now keeps the platform send/fallback responsibility while delegating custom command decisions to the adapter.
 - Added `tests/custom-slash-gateway-adapter.test.ts` for no-match, auth-denial approval card, task command, and poll keyboard paths.
 
+Extracted custom button interaction orchestration:
+
+- Added `src/custom/interaction-gateway-adapter.ts` to route `custom-auth:` and `custom-poll:` button callbacks through one gateway-facing adapter.
+- The adapter returns typed reply/persist/log descriptions and does not ACK or send QQ messages directly.
+- `gateway.ts` now keeps platform ACK, target selection, QQ send APIs, config interactions, and legacy official approval buttons.
+- Added `tests/custom-interaction-gateway-adapter.test.ts` for auth button, poll vote, and unknown legacy button paths.
+
 Still intentionally open:
 
-- Interaction handling, unread timers, and dispatch completion hooks are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Unread timers and dispatch completion hooks are still partly embedded in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
