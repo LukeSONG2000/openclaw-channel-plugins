@@ -339,6 +339,25 @@ export class CustomUnreadRuntime {
     return { peers, snapshots };
   }
 
+  loadState(state: CustomUnreadRuntimeState): void {
+    this.clear();
+    for (const [peerId, peer] of Object.entries(state.peers ?? {})) {
+      this.peers.set(peerId, {
+        history: (peer.history ?? []).map(cloneHistoryEntry),
+        followupActive: peer.followupActive === true,
+        catchupAnchor: peer.catchupAnchor,
+        scheduledFollowupDueAt: peer.scheduledFollowupDueAt,
+        scheduledSleepDigestDueAt: peer.scheduledSleepDigestDueAt,
+      });
+    }
+    for (const [id, snapshot] of Object.entries(state.snapshots ?? {})) {
+      this.snapshots.set(id, {
+        ...snapshot,
+        entries: (snapshot.entries ?? []).map(cloneHistoryEntry),
+      });
+    }
+  }
+
   clear(peerId?: string): void {
     if (peerId) {
       this.peers.delete(peerId);
@@ -381,6 +400,13 @@ function toHistoryEntry(message: CustomInboundMessage): CustomUnreadHistoryEntry
     timestamp: message.timestamp,
     messageId: message.messageId,
     attachments: message.attachments?.slice(),
+  };
+}
+
+function cloneHistoryEntry(entry: CustomUnreadHistoryEntry): CustomUnreadHistoryEntry {
+  return {
+    ...entry,
+    attachments: entry.attachments?.map((attachment) => ({ ...attachment })),
   };
 }
 

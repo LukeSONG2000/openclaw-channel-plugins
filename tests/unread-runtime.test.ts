@@ -153,4 +153,14 @@ const digestActorMention = gatedRuntime.observeMention({
 });
 assert.equal(digestActorMention.shouldCatchUpAfterReply, false);
 
+const restoredRuntime = new CustomUnreadRuntime();
+const stateBeforeRestore = gatedRuntime.getState();
+restoredRuntime.loadState(stateBeforeRestore);
+assert.equal(restoredRuntime.getPendingCount("GATED_GROUP"), 1);
+assert.equal(Object.keys(restoredRuntime.getState().snapshots).length, Object.keys(stateBeforeRestore.snapshots).length);
+stateBeforeRestore.peers.GATED_GROUP!.history[0]!.body = "mutated outside";
+assert.equal(restoredRuntime.getState().peers.GATED_GROUP!.history[0]!.body, "hello");
+restoredRuntime.clear("GATED_GROUP");
+assert.equal(restoredRuntime.getPendingCount("GATED_GROUP"), 0);
+
 console.log("unread runtime tests passed");

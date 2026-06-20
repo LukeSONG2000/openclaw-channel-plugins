@@ -71,7 +71,17 @@ Wired unread runtime into active gateway behavior behind `channels.qqbot.customR
 Still intentionally open:
 
 - Proactive group send budget/rate-limit enforcement.
-- Durable persistence for pending unread state across gateway reconnects/restarts.
+
+Added durable custom unread state:
+
+- `CustomUnreadRuntime` can now load exported state and restore pending history, scheduled timers, follow-up activity, and catch-up snapshots after restart.
+- Added `src/custom/unread-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-unread/unread-<accountId>.json`.
+- Gateway restores unread state on startup, re-registers pending follow-up/sleep-digest timers, and saves after:
+  - non-mentioned group messages are recorded
+  - mention/follow-up/sleep timer effects update state
+  - catch-up snapshots are created or consumed
+  - gateway abort/stop
+- Added `tests/custom-unread-store.test.ts` and expanded `tests/unread-runtime.test.ts`.
 
 Expanded authorization runtime baseline:
 

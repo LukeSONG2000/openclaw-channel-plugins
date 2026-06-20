@@ -352,10 +352,8 @@ Current gateway wiring:
 - Synthetic catch-up messages bypass mention gating, preserve `_customUnreadSnapshot`, and are protected from queue merging by `_noMerge`.
 - Synthetic catch-up sends are treated as proactive/unanchored outbound messages because they do not have a real QQ `msg_id`.
 - Snapshots are consumed only after a real model block output is produced. If dispatch fails, times out, or returns `NO_REPLY` / `[SKIP]`, the unread snapshot is kept.
-
-Still open:
-
-- Durable persistence for pending unread state across gateway reconnects/restarts.
+- Runtime state is persisted under `~/.openclaw/qqbot/data/custom-unread/unread-<accountId>.json`.
+- Gateway restores pending unread history, snapshots, follow-up timers, and sleep-digest timers on startup.
 
 ### `src/custom/task-sandbox.ts`
 

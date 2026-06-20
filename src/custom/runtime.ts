@@ -92,7 +92,7 @@ export {
   getCustomSceneProfile,
   resolveCustomScene,
 } from "./scenes.js";
-export { CustomUnreadRuntime, resolveCustomUnreadConfig } from "./unread-runtime.js";
+export { CUSTOM_UNREAD_ACTOR_ID, CustomUnreadRuntime, resolveCustomUnreadConfig } from "./unread-runtime.js";
 export {
   CustomProactiveBudgetRuntime,
   resolveCustomProactiveConfig,
