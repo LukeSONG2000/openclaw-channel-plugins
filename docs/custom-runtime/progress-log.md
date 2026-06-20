@@ -128,11 +128,11 @@ Added scene binding and profile resolver:
 - `src/custom/config.ts` keeps backward-compatible helpers while delegating to the scene resolver.
 - `src/custom/auth.ts` now uses scene resolver defaults for capability checks, so auth and routing policy share one scene model.
 - `gateway.ts` injects the resolved scene system prompt when `channels.qqbot.customRuntime.enabled=true`, giving the model a clear per-peer behavior boundary.
+- `src/custom/route.ts` applies scene `agentId` overrides after framework route resolution and rebuilds `sessionKey` through the OpenClaw routing helper.
 - Added `tests/custom-scenes.test.ts` and expanded `tests/custom-runtime.test.ts`.
 
 Still intentionally open:
 
-- Scene `agentId` does not yet override framework route selection.
 - Long-task sandbox/workspace isolation is not implemented yet.
 - Per-scene proactive budget/rate-limit enforcement is not implemented yet.
 

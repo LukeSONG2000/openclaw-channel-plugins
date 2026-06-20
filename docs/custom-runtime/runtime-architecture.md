@@ -127,7 +127,7 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 
 Open items:
 
-- Scene `agentId` is parsed in config but not yet used to override OpenClaw route selection.
+- Scene `agentId` overrides OpenClaw route selection after the base route resolves; the custom layer rebuilds `sessionKey` with the framework routing helper so agent binding and session storage stay aligned.
 - Per-scene workspace/sandbox routing for `codex.longTask` is still pending.
 
 ### `src/custom/proactive-budget.ts`

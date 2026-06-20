@@ -43,6 +43,7 @@ import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveGroupMessageGate } from "./message-gating.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/config.js";
 import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
+import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
   createCustomMessageFlowRuntime,
@@ -115,12 +116,26 @@ async function handleInteractionCreate(params: {
 
     // 通过路由解析 agentId（与消息处理流程一致），用于 agent-aware 的 mentionPatterns
     const interactionAgentId = groupOpenid
-      ? (runtime.channel?.routing?.resolveAgentRoute?.({
+      ? (() => {
+        const peer: CustomRoutePeer = { kind: "group", id: groupOpenid };
+        const route = runtime.channel?.routing?.resolveAgentRoute?.({
           cfg: latestCfg,
           channel: "qqbot",
           accountId: account.accountId,
-          peer: { kind: "group", id: groupOpenid },
-        }) as { agentId?: string } | undefined)?.agentId
+          peer,
+        }) as CustomAgentRoute | undefined;
+        if (!route) return undefined;
+        const scene = resolveCustomRuntimeConfig(latestCfg as any).enabled
+          ? resolveCustomSceneState(latestCfg as any, { kind: "group", id: groupOpenid })
+          : null;
+        return applyCustomSceneAgentRoute({
+          route,
+          scene,
+          routing: runtime.channel?.routing,
+          peer,
+          cfg: latestCfg,
+        }).agentId;
+      })()
       : undefined;
 
     // mention_patterns 协议：逗号分隔的字符串（@文本的名称提及BOT名，多个使用,分隔）
@@ -1252,15 +1267,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                      : event.type === "group" ? (event.groupOpenid ?? "unknown")
                      : event.senderId;
 
-        const route = pluginRuntime.channel.routing.resolveAgentRoute({
+        const routePeer: CustomRoutePeer = {
+          kind: isGroupChat ? "group" : "direct",
+          id: peerId,
+        };
+
+        let route = pluginRuntime.channel.routing.resolveAgentRoute({
           cfg,
           channel: "qqbot",
           accountId: account.accountId,
-          peer: {
-            kind: isGroupChat ? "group" : "direct",
-            id: peerId,
-          },
-        });
+          peer: routePeer,
+        }) as CustomAgentRoute;
 
         const customSceneState = isCustomRuntimeEnabled()
           ? resolveCustomSceneState(cfg as any, {
@@ -1271,6 +1288,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (customSceneState && !customSceneState.enabled) {
           log?.info(`[qqbot:${account.accountId}] Custom scene disabled for ${customSceneState.key}, skipping message from ${event.senderId}`);
           return;
+        }
+        route = applyCustomSceneAgentRoute({
+          route,
+          scene: customSceneState,
+          routing: pluginRuntime.channel.routing,
+          peer: routePeer,
+          cfg: cfg as Record<string, unknown>,
+        });
+        if (customSceneState?.config.agentId) {
+          log?.info(`[qqbot:${account.accountId}] Custom scene route: scene=${customSceneState.key}, agentId=${route.agentId}, sessionKey=${route.sessionKey}`);
         }
 
         const envelopeOptions = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
