@@ -4,14 +4,31 @@ Evidence date: 2026-06-21.
 
 Primary sources:
 
-- Official docs: `https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html`
-- Official docs: `https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html`
-- Local source: `src/types.ts`, `src/gateway.ts`, `src/api.ts`, `src/outbound-deliver.ts`
-- Server state: `laptop-home:/home/PPfavorite/.openclaw/qqbot/data`
+- Official event docs: https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/event.html
+- Official send docs: https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html
+- Official rich-media docs: https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html
+- Official button docs: https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html
+- Local source: `src/types.ts`, `src/gateway.ts`, `src/api.ts`, `src/outbound-deliver.ts`, `src/custom/*`
+- Server evidence: `laptop-home:/home/PPfavorite/.openclaw/qqbot/data`, `laptop-home:/home/PPfavorite/.openclaw/openclaw.json`, `openclaw-gateway.service` status
+
+## Current Server Evidence
+
+Read-only check on `laptop-home` on 2026-06-21:
+
+- Gateway service is running: `openclaw-gateway.service`, active since 2026-06-19 13:05 CST.
+- Current deployed QQBot startup marker reports plugin version `1.7.2` for default account app id `1903501811`.
+- Current configured main group entry uses group openid `5C1152CA05D191171B05E6997791C3F5` and config label `friends-main`.
+- User-provided human alias for that test group is QQ `945739251` / `Master Luke的图书馆`; the runtime routing key must use the group openid, not the raw QQ group number.
+- `known-users.json` records C2C and group users by openid only. It includes group nicknames for observed group members, but C2C entries do not reliably include human-readable nicknames.
+- `known-users.json` and `ref-index.jsonl` show that the server sees group members by `member_openid`, optional nickname, and `groupOpenid`; raw QQ numbers are not present in these local records.
+- `ref-index.jsonl` shows observed attachment content types including `image/jpeg`, `image/png`, `image/gif`, and voice messages stored as `contentType="voice"` with local media files and fallback transcript text when STT is not configured.
+- The current service status output did not expose recent QQ event logs through `journalctl --user`, but persisted QQBot data files were present under `~/.openclaw/qqbot/data`.
+
+Privacy note: server evidence in this document records identifiers and capability facts only. Message text from private chats/groups should not be copied into docs unless needed for a narrow debugging case.
 
 ## Receive Events
 
-The official connector subscribes to:
+The connector subscribes to and handles these events in `src/gateway.ts`:
 
 - `C2C_MESSAGE_CREATE`
 - `GROUP_AT_MESSAGE_CREATE`
@@ -19,7 +36,7 @@ The official connector subscribes to:
 - `AT_MESSAGE_CREATE`
 - `DIRECT_MESSAGE_CREATE`
 - `INTERACTION_CREATE`
-- group management events such as `GROUP_ADD_ROBOT`, `GROUP_DEL_ROBOT`, `GROUP_MSG_REJECT`, `GROUP_MSG_RECEIVE`
+- group management / proactive status events such as `GROUP_ADD_ROBOT`, `GROUP_DEL_ROBOT`, `GROUP_MSG_REJECT`, `GROUP_MSG_RECEIVE`
 
 The gateway uses full intents:
 
@@ -28,64 +45,108 @@ The gateway uses full intents:
 - `GROUP_AND_C2C`
 - `INTERACTION`
 
+Official event docs note that duplicate delivery of the same `msg_id` can happen in extreme cases, and passive reply code should use `msg_seq`/dedupe to avoid duplicate replies. Local `api.ts` generates `msg_seq` for C2C/group sends.
+
 ## C2C Fields
 
-Official and local type `C2CMessageEvent`:
+Official docs and local type `C2CMessageEvent` expose:
 
 - `id`: platform message id, used as `msg_id` for passive replies.
 - `content`: text content.
 - `timestamp`: RFC3339 timestamp.
-- `author.user_openid`: user openid used for DM routing.
-- `author.union_openid`: optional union id.
+- `author.user_openid`: user openid used for C2C routing and authorization.
+- `author.union_openid`: optional union id where provided.
 - `attachments`: images, voice, video, files.
 - `message_scene.ext`: may include `ref_msg_idx` and `msg_idx`.
-- `message_type`: known values include `0` text and `103` quote in local constants.
-- `msg_elements`: quote/reference payloads.
+- `message_type`: known local constants include `0` for text and `103` for quote/reference.
+- `msg_elements`: quote/reference payloads; when `message_type=103`, `msg_elements[0]` may contain referenced content and attachments.
 
-Raw QQ number is not exposed here. Use `user_openid` for authorization and routing.
+Current local behavior:
+
+- Routed to queue as `type="c2c"`, peer key `dm:{user_openid}` internally and custom peer `qqbot:c2c:{user_openid}` for custom runtime policy.
+- C2C supports input typing notification through `sendC2CInputNotify`.
+- C2C supports streaming text only when `accountConfig.streaming=true` and `shouldUseStreaming()` allows it.
+- Raw QQ number is not exposed; use `user_openid` for authorization and routing.
 
 ## Group Fields
 
-Official and local type `GroupMessageEvent`:
+Official docs and local type `GroupMessageEvent` expose:
 
 - `id`: platform message id, used as `msg_id` for passive replies.
 - `content`: text content.
 - `timestamp`: RFC3339 timestamp.
-- `group_openid`: group openid used for group routing and send target.
-- `group_id`: present in local type but not safe to assume as raw QQ group number.
-- `author.member_openid`: member openid within the group.
-- `author.username`: observed/local type nickname-like display name.
+- `group_openid`: stable routing/send target for the group.
+- `group_id`: present in local type but not safe to rely on as raw QQ group number.
+- `author.member_openid`: member openid within that group.
+- `author.username`: observed display name / nickname-like string.
 - `author.bot`: whether sender is a bot.
-- `mentions`: mention list, including `is_you` for bot mention detection where provided.
+- `mentions`: mention list; may include `is_you` for bot mention detection.
 - `attachments`: images, voice, video, files.
 - `message_scene.ext`: may include `ref_msg_idx` and `msg_idx`.
 - `message_type` and `msg_elements`: quote/reference handling.
 
-Raw QQ group number and raw QQ member number are not reliable event fields. Use `group_openid` and `member_openid` for policy. Maintain a local alias mapping for human labels such as `945739251` / `Master Luke的图书馆`.
+Current local behavior:
 
-## Attachment Fields
+- `GROUP_AT_MESSAGE_CREATE` and `GROUP_MESSAGE_CREATE` are both normalized to queue `type="group"`.
+- Group peer id is `group:{group_openid}` in the queue and `qqbot:group:{group_openid}` in custom runtime config.
+- Group policy is controlled by `groupPolicy`, `groupAllowFrom`, `groups.{groupOpenid}.requireMention`, `ignoreOtherMentions`, and group/custom unread history.
+- Non-mentioned group messages can be recorded as unread context instead of triggering immediate AI dispatch.
+- Mentioned or implicitly mentioned group messages can inject pending unread context into the current model prompt.
+- Raw QQ group number and raw QQ member number are not reliable event fields. Use `group_openid` and `member_openid` for policy, and maintain a separate human alias table for names such as `945739251` / `Master Luke的图书馆`.
 
-Official attachment fields:
+## Guild And Channel Fields
 
-- `content_type`: examples include `image/jpeg`, `image/png`, `image/gif`, `file`, `video/mp4`, `voice`.
+Local type `GuildMessageEvent` is used for both `AT_MESSAGE_CREATE` and `DIRECT_MESSAGE_CREATE`:
+
+- `id`: platform message id.
+- `channel_id`: sub-channel id for guild messages.
+- `guild_id`: guild id or DM guild id.
+- `content`, `timestamp`.
+- `author.id`, `author.username`, `author.bot`.
+- `member.nick`, where provided.
+- `attachments`.
+
+Current local behavior:
+
+- `AT_MESSAGE_CREATE` becomes queue `type="guild"` and sends through `sendChannelMessage`.
+- `DIRECT_MESSAGE_CREATE` becomes queue `type="dm"`; local code currently replies through C2C-style send fallback when `msg.type === "dm"` in several paths, while `sendDmMessage` exists for `/dms/{guild_id}/messages`. This should be audited before adding custom DM-specific behavior.
+- Channel proactive sending is not implemented in `src/proactive.ts`; only C2C/group proactive sends are supported there.
+
+## Attachment And Message Types
+
+Official attachment fields represented locally by `MessageAttachment`:
+
+- `content_type`
 - `filename`
-- `height`
-- `width`
-- `size`
+- `height`, `width`, `size`
 - `url`
 - `voice_wav_url`
 - `asr_refer_text`
 
-Current plugin processing:
+Observed server-side stored attachment categories:
+
+- Static images: `image/jpeg`, `image/png`.
+- GIF / animated image payloads: often stored as `image/gif`, sometimes with image file extensions after download.
+- Voice: stored locally with `contentType="voice"`; voice messages may have ASR text from QQ or plugin fallback text if STT is not configured.
+- Multiple images in one message are preserved as multiple attachments in ref-index entries.
+
+Local processing:
 
 - `processAttachments` downloads or summarizes attachments.
-- Voice can use `voice_wav_url` or ASR text.
+- Voice can use `voice_wav_url` or `asr_refer_text` when available.
 - Attachments are summarized into group history and ref-index entries.
 - Outbound media supports image, voice, video, and file upload for C2C/group.
 
+Known local message type constants:
+
+- `MSG_TYPE_TEXT = 0`
+- `MSG_TYPE_QUOTE = 103`
+
+Open item: the current plugin does not explicitly model message recall/delete events as first-class inbound events. If recall state matters, add event capture from official docs and server samples before relying on it.
+
 ## Send Capabilities
 
-The official send docs describe four scenes:
+Official send docs describe four send scenes:
 
 - QQ C2C: `POST /v2/users/{openid}/messages`
 - QQ group: `POST /v2/groups/{group_openid}/messages`
@@ -120,64 +181,78 @@ Local API wrappers currently provide:
 - `sendGroupFileMessage`
 - `sendC2CStreamMessage`
 
-The connector switches text sends to Markdown when `markdownSupport` is true.
+The connector switches text sends to Markdown when `markdownSupport` is true. Inline keyboard sending is currently wrapped for C2C and group messages, and custom auth cards use those paths.
 
 ## Official Limits That Affect Custom Runtime
 
-From the official send docs:
+From official send docs:
 
 - C2C passive replies: valid for 60 minutes, max 5 replies per incoming message.
 - Group passive replies: valid for 5 minutes, max 5 replies per incoming message.
 - C2C proactive messages: 4 messages per user per month.
 - Group proactive messages: 4 messages per group per month.
-- Users/groups can disable receiving proactive messages.
-- C2C wakeup/recall messages are available after user interaction, 1 per period across same day, 1-3 days, 3-7 days, and 7-30 days.
-- Official docs state proactive push capability was adjusted from 2025-04-21 and may return errors.
-- Sub-channel passive replies are valid for 5 minutes; send rate in one sub-channel is max 5 messages/second.
+- Users/groups can disable receiving proactive messages; `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE` events indicate group proactive-message acceptance state changes.
+- C2C wakeup/recall messages are available after user interaction, one per period across same day, 1-3 days, 3-7 days, and 7-30 days.
+- Official docs state proactive push capability was adjusted from 2025-04-21 and API calls may receive errors.
+- Text sub-channel passive replies are valid for 5 minutes; sends in one sub-channel are limited to max 5 messages/second.
+- Official rich-media docs say direct rich-media sends with `srv_send_msg=true` consume proactive message frequency. The recommended path is `srv_send_msg=false`, then use returned `file_info` in the message send API.
 
-Implication:
+Implication for custom runtime:
 
-- The custom runtime must treat group delayed autonomous replies as either a near-term passive reply within the 5-minute window or a scarce proactive send.
+- Group delayed autonomous replies must be either near-term passive replies inside the 5-minute window or scarce proactive sends.
 - Ten-minute sleep catch-up cannot rely on passive group `msg_id`.
-- For delayed group speaking, prefer a policy that asks for confirmation or uses very limited proactive budget.
-- For follow-up after a direct mention, keep the active autonomous window inside 5 minutes for group if using passive replies.
+- Delayed group speaking needs scene policy, budget tracking, and visible logging before it is safe to enable broadly.
+- Follow-up after direct mention should stay inside the group passive-reply window when using passive replies.
+- Synthetic catch-up messages should not pretend to be passive replies if they have no valid QQ `msg_id` anchor.
 
 ## Interaction And Buttons
 
 Local types support `InlineKeyboard` and `INTERACTION_CREATE`:
 
 - Button action types include link, callback, command, and mqqapi.
-- Callback buttons produce `INTERACTION_CREATE`.
+- Callback buttons produce `INTERACTION_CREATE` with `resolved.button_data`.
 - The handler must acknowledge interactions through `PUT /interactions/{id}`.
-- Current server code already uses buttons for approval decisions.
+- Official button docs state that, as of 2026-04-23, C2C/group custom button capability is open without separate template approval; channel buttons still require invite/opening.
+- Local code already uses inline keyboard buttons for official OpenClaw exec/plugin approvals and custom auth approvals.
 
-Potential uses:
+Current custom auth cards:
 
-- Authorization request cards: allow once, allow N times, deny.
+- Button data prefix: `custom-auth:<requestId>:...`.
+- Supported decisions: allow once, allow 3 times, deny.
+- Text fallback: `/bot-auth approve <requestId> once|count N|timed 10m` or `/bot-auth deny <requestId>`.
+
+Potential future uses:
+
 - Scene switch cards for admins.
 - Task status cards: query, cancel, add requirement.
 - Voting and lightweight games, provided callback ACK and state storage are robust.
-
-Open item:
-
-- Some keyboard/card capabilities require platform review/template approval. Validate in the actual bot environment before building UI-heavy flows.
+- Admin-only deployment/update confirmation cards.
 
 ## Current Group/DM Logic
 
 Current official connector behavior:
 
-- C2C messages go through message queue and route to `qqbot:c2c:{user_openid}`.
+- C2C messages go through the message queue and route to C2C openid.
 - Group messages use `groupPolicy`, `groupAllowFrom`, `requireMention`, `ignoreOtherMentions`, and group history.
 - Non-mentioned group messages are recorded to in-memory pending history if allowed, then skipped.
 - Mentioned group messages inject pending history into the agent context.
 - Slash commands are detected before normal dispatch.
-- Urgent commands should bypass blocked queues.
+- Urgent commands bypass blocked queues.
 
-Current server hotfix behavior:
+Current custom runtime behavior:
 
-- Non-mentioned group messages can schedule unread catch-up.
-- Synthetic digest messages are enqueued with `senderId="__qqbot_digest__"`.
-- Synthetic digest sends use proactive group messages.
+- Unread/follow-up/sleep-digest state is extracted into `src/custom/unread-runtime.ts` and wired through `src/custom/unread-gateway-adapter.ts`.
+- Custom runtime defaults off unless `channels.qqbot.customRuntime.enabled=true`.
+- Synthetic digest messages use `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
+- Synthetic digest sends use proactive/unanchored group sends and should therefore be guarded by proactive budget/policy.
 - Mention replies can trigger unread catch-up after the direct reply.
+- Custom auth gates plugin-level slash commands before config mutation/deploy actions.
+- Custom auth supports temporary grants through text commands and C2C/group inline cards.
 
-Target custom behavior should preserve the useful parts while moving them behind a clear runtime module.
+## Open Items
+
+- Validate custom auth inline cards on the actual deployed bot after installing the custom package; local tests only validate payload construction and handler logic.
+- Add durable storage for custom auth grants/requests if temporary permissions should survive gateway restart.
+- Add proactive-send budget/rate-limit tracking before enabling ten-minute autonomous group replies broadly.
+- Audit channel DM send path before adding scene-specific logic for `DIRECT_MESSAGE_CREATE`.
+- Capture official/observed recall-delete event behavior if the custom runtime needs deletion state.
