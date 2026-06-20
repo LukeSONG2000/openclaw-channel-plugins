@@ -520,6 +520,10 @@ Current implementation status:
   - start tasks when an executor accepts them, recording executor id, run id, agent id, and start time
   - forward appended requirements and cancellation requests to the executor when available
   - expose heartbeat, complete, and fail helpers that update runtime state and `status.json`
+- `src/custom/task-notification-adapter.ts` formats task completion/failure/cancellation notification effects:
+  - peer notification for the originating group/DM
+  - owner notification for future direct follow-up
+  - result/error truncation for safe QQ text sends
 - `src/custom/task-gateway-adapter.ts` handles `/bot-task` before the normal AI queue:
   - `/bot-task create <任务描述>`
   - `/bot-task list`
@@ -534,11 +538,12 @@ Important boundary:
 
 - This layer still does not start a real OpenClaw subagent/job by itself.
 - It now has an executor adapter boundary, so a future OpenClaw runner can attach without changing command parsing, task state, or workspace persistence.
+- It returns notification effects instead of sending QQ messages directly; gateway or a future task worker should apply those effects.
 - Without an attached executor, tasks remain queued with durable workspace/status files; group long-task commands still return immediately and do not block the main conversation queue.
 
 Next integration:
 
-Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add result pushback and task-scoped permission enforcement.
+Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, apply notification effects through QQ send APIs, then add task-scoped permission enforcement.
 
 ### `src/custom/poll.ts`
 

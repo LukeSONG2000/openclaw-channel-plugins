@@ -220,10 +220,16 @@ Added custom long-task executor adapter boundary:
 - `src/custom/slash-gateway-adapter.ts` now routes `/bot-task` intents through the executor adapter, so workspace effects and future executor effects share one boundary.
 - Added `tests/custom-task-executor-adapter.test.ts` for queued-without-executor, executor start, requirement forwarding, heartbeat, complete, and fail paths.
 
+Added custom long-task notification effects:
+
+- Added `src/custom/task-notification-adapter.ts` to format completion/failure/cancellation notifications as typed effects instead of directly sending QQ messages.
+- `completeCustomTaskExecution()` and `failCustomTaskExecution()` can now emit peer/owner notification effects with result/error truncation while still updating runtime state and `status.json`.
+- Added `tests/custom-task-notification-adapter.test.ts` and expanded executor adapter tests for notify effects.
+
 Still intentionally open:
 
 - A real OpenClaw subagent/job executor is still pending until the runtime contract is confirmed.
-- Result pushback to QQ, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
+- Applying task notification effects through QQ send APIs, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
 
 Added first custom interactive poll/card feature:
 

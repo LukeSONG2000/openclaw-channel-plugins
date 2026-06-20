@@ -99,10 +99,13 @@ try {
     tasks: runtime,
     taskId,
     result: "Done",
+    notifyAudiences: ["peer"],
+    includeWorkspaceInNotification: true,
     now: 5_000,
   });
   assert.equal(completed.changed, true);
   assert.equal(completed.decision.task?.status, "completed");
+  assert.equal(completed.effects.some((effect) => effect.kind === "notify" && effect.notification?.text.includes("长任务已完成")), true);
   assert.equal(JSON.parse(fs.readFileSync(path.join(created.task!.workspace, "status.json"), "utf8")).status, "completed");
 
   const failRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
@@ -117,11 +120,13 @@ try {
     tasks: failRuntime,
     taskId: failCreated.task!.id,
     error: "No executor",
+    notifyAudiences: ["peer", "owner"],
     now: 6_500,
   });
   assert.equal(failed.changed, true);
   assert.equal(failed.decision.task?.status, "failed");
   assert.equal(failed.effects.some((effect) => effect.kind === "task-failed"), true);
+  assert.equal(failed.effects.filter((effect) => effect.kind === "notify").length, 2);
 } finally {
   fs.rmSync(tmpDir, { recursive: true, force: true });
 }

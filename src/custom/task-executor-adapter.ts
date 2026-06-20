@@ -5,6 +5,11 @@ import {
   materializeCustomTaskWorkspace,
   writeCustomTaskStatus,
 } from "./task-workspace.js";
+import {
+  notificationsForCustomTaskStatus,
+  type CustomTaskNotificationAudience,
+  type CustomTaskNotificationEffect,
+} from "./task-notification-adapter.js";
 
 export interface CustomTaskExecutorStartResult {
   accepted?: boolean;
@@ -41,10 +46,12 @@ export interface CustomTaskExecutionEffect {
     | "task-heartbeat"
     | "task-completed"
     | "task-failed"
+    | "notify"
     | "error";
   taskId?: string;
   runId?: string;
   message?: string;
+  notification?: CustomTaskNotificationEffect;
 }
 
 export interface CustomTaskExecutionApplyResult {
@@ -182,6 +189,9 @@ export function completeCustomTaskExecution(params: {
   taskId: string;
   result: string;
   applyWorkspaceEffects?: boolean;
+  notifyAudiences?: CustomTaskNotificationAudience[];
+  includeWorkspaceInNotification?: boolean;
+  maxNotificationResultChars?: number;
   now?: number;
 }): CustomTaskExecutionStatusResult {
   const decision = params.tasks.completeTask({
@@ -193,6 +203,9 @@ export function completeCustomTaskExecution(params: {
     decision,
     successKind: "task-completed",
     applyWorkspaceEffects: params.applyWorkspaceEffects,
+    notifyAudiences: params.notifyAudiences,
+    includeWorkspaceInNotification: params.includeWorkspaceInNotification,
+    maxNotificationResultChars: params.maxNotificationResultChars,
     now: params.now,
   });
 }
@@ -202,6 +215,9 @@ export function failCustomTaskExecution(params: {
   taskId: string;
   error: string;
   applyWorkspaceEffects?: boolean;
+  notifyAudiences?: CustomTaskNotificationAudience[];
+  includeWorkspaceInNotification?: boolean;
+  maxNotificationResultChars?: number;
   now?: number;
 }): CustomTaskExecutionStatusResult {
   const decision = params.tasks.failTask({
@@ -213,6 +229,9 @@ export function failCustomTaskExecution(params: {
     decision,
     successKind: "task-failed",
     applyWorkspaceEffects: params.applyWorkspaceEffects,
+    notifyAudiences: params.notifyAudiences,
+    includeWorkspaceInNotification: params.includeWorkspaceInNotification,
+    maxNotificationResultChars: params.maxNotificationResultChars,
     now: params.now,
   });
 }
@@ -221,6 +240,9 @@ function applyStatusDecision(params: {
   decision: CustomTaskSandboxDecision;
   successKind: Extract<CustomTaskExecutionEffect["kind"], "task-heartbeat" | "task-completed" | "task-failed">;
   applyWorkspaceEffects?: boolean;
+  notifyAudiences?: CustomTaskNotificationAudience[];
+  includeWorkspaceInNotification?: boolean;
+  maxNotificationResultChars?: number;
   now?: number;
 }): CustomTaskExecutionStatusResult {
   const effects: CustomTaskExecutionEffect[] = [];
@@ -239,5 +261,20 @@ function applyStatusDecision(params: {
     effects.push({ kind: "workspace-status-written", taskId: task.id });
   }
   effects.push({ kind: params.successKind, taskId: task.id });
+  if (params.notifyAudiences?.length) {
+    for (const notification of notificationsForCustomTaskStatus({
+      task,
+      audiences: params.notifyAudiences,
+      includeWorkspace: params.includeWorkspaceInNotification,
+      maxResultChars: params.maxNotificationResultChars,
+    })) {
+      effects.push({
+        kind: "notify",
+        taskId: task.id,
+        message: notification.title,
+        notification,
+      });
+    }
+  }
   return { decision: params.decision, changed: true, effects };
 }
