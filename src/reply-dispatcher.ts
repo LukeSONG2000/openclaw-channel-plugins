@@ -73,6 +73,21 @@ export async function sendTextToTarget(
   }, ctx.log, account.accountId);
 }
 
+function cloneTargetWithoutReplyAnchor(target: ReplyContext["target"]): ReplyContext["target"] {
+  return {
+    ...target,
+    messageId: "",
+  };
+}
+
+function shouldRetryWithoutReplyAnchor(err: unknown): boolean {
+  const errMsg = String(err);
+  return errMsg.includes("msg_id")
+    || errMsg.includes("msgId")
+    || errMsg.includes("请求参数msg_id无效")
+    || errMsg.includes("越权");
+}
+
 /**
  * 发送错误提示给用户
  */
@@ -81,6 +96,14 @@ export async function sendErrorToTarget(ctx: ReplyContext, errorText: string): P
     await sendTextToTarget(ctx, errorText);
   } catch (sendErr) {
     ctx.log?.error(`[qqbot:${ctx.account.accountId}] Failed to send error message: ${sendErr}`);
+    if (shouldRetryWithoutReplyAnchor(sendErr) && ctx.target?.messageId) {
+      try {
+        ctx.log?.info?.(`[qqbot:${ctx.account.accountId}] Retrying error message without reply msg_id anchor`);
+        await sendTextToTarget({ ...ctx, target: cloneTargetWithoutReplyAnchor(ctx.target) }, errorText);
+      } catch (retryErr) {
+        ctx.log?.error(`[qqbot:${ctx.account.accountId}] Failed to send unanchored error message: ${retryErr}`);
+      }
+    }
   }
 }
 

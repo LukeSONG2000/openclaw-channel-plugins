@@ -377,9 +377,6 @@ async function putToPresignedUrl(
         const response = await fetch(presignedUrl, {
           method: "PUT",
           body: new Blob([ab]),
-          headers: {
-            "Content-Length": String(data.length),
-          },
           signal: controller.signal,
         });
 

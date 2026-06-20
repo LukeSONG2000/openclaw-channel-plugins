@@ -581,12 +581,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
   // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
-  // /stop   — 停止当前 agent run，清空队列
-  // /approve — 审批决策，必须在 agent 等待审批时立即执行，否则死锁
-  const URGENT_COMMANDS = ["/stop", "/approve"];
+  // /stop     — 停止当前 agent run，清空队列
+  // /approve  — 审批决策，必须在 agent 等待审批时立即执行，否则死锁
+  // /new 和 /compact — 上下文异常或超长时必须能绕过队列，恢复客户端可操作性
+  const URGENT_COMMANDS = ["/stop", "/approve", "/new", "/compact"];
 
   const trySlashCommandOrEnqueue = async (msg: QueuedMessage): Promise<void> => {
-    const content = (msg.content ?? "").trim();
+    const rawContent = (msg.content ?? "").trim();
+    const content = msg.type === "group" && msg.mentions?.length
+      ? (stripMentionText(rawContent, msg.mentions as any) ?? rawContent).trim()
+      : rawContent;
     if (!content.startsWith("/")) {
       msgQueue.enqueue(msg);
       return;
@@ -1421,13 +1425,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           // 追踪是否有响应
           let hasResponse = false;
           let hasBlockResponse = false; // 是否收到了面向用户的 block 回复
+          let dispatchTimedOut = false; // 超时后给用户可见提示，并忽略迟到 deliver
           let toolDeliverCount = 0; // tool deliver 计数
           const toolTexts: string[] = []; // 收集所有 tool deliver 文本
           const toolMediaUrls: string[] = []; // 收集所有 tool deliver 媒体 URL
           let toolFallbackSent = false; // 兜底消息是否已发送（只发一次）
           const blockDeliveredMediaUrls = new Set<string>(); // block deliver 已处理的 mediaUrl，用于 tool 后到时去重
-          const responseTimeout = 120000; // 120秒超时（2分钟，与 TTS/文件生成超时对齐）
-          const toolOnlyTimeout = 60000; // tool-only 兜底超时：60秒内没有 block 就兜底
+          const responseTimeout = 300000; // 300秒超时（5分钟，覆盖长工具任务，避免过早误报）
+          const toolOnlyTimeout = 90000; // tool-only 兜底超时：90秒内没有 block 就兜底
           const maxToolRenewals = 3; // tool 续期上限：最多续期 3 次（总等待 = 60s × 3 = 180s）
           let toolRenewalCount = 0; // 已续期次数
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -1474,13 +1479,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               await sendErrorMessage(text);
               return;
             }
-            // 既无媒体也无文本，静默处理（仅日志记录）
-            log?.info(`[qqbot:${account.accountId}] Tool fallback: no media or text collected from ${toolDeliverCount} tool deliver(s), silently dropping`);
+            // 既无媒体也无文本，发送可见提示并释放队列
+            log?.info(`[qqbot:${account.accountId}] Tool fallback: no media or text collected from ${toolDeliverCount} tool deliver(s), sending timeout notice`);
+            await sendErrorMessage("工具这轮没产出能发的内容，我先不挡队列，后面的消息会继续处理。");
           };
 
           const timeoutPromise = new Promise<void>((_, reject) => {
             timeoutId = setTimeout(() => {
-              if (!hasResponse) {
+              if (!hasBlockResponse) {
                 reject(new Error("Response timeout"));
               }
             }, responseTimeout);
@@ -1527,6 +1533,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             dispatcherOptions: {
               responsePrefix: messagesConfig.responsePrefix,
               deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
+                if (dispatchTimedOut) {
+                  log?.info(`[qqbot:${account.accountId}] Late deliver ignored after response timeout, kind: ${info.kind}`);
+                  return;
+                }
                 hasResponse = true;
 
                 log?.info(`[qqbot:${account.accountId}] deliver called, kind: ${info.kind}, payload keys: ${Object.keys(payload).join(", ")}`);
@@ -1821,8 +1831,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           } catch (err) {
             if (timeoutId) {
               clearTimeout(timeoutId);
+              timeoutId = null;
             }
+            dispatchTimedOut = String(err).includes("Response timeout");
             log?.error(`[qqbot:${account.accountId}] Dispatch failed: ${err}${!hasResponse ? " (no response received)" : ""}`);
+            if (dispatchTimedOut && !hasBlockResponse && !toolFallbackSent) {
+              try {
+                await sendErrorMessage("这轮处理超时了，我先不挡队列，后面的消息会继续处理。");
+                hasResponse = true;
+              } catch (sendErr) {
+                log?.error(`[qqbot:${account.accountId}] Failed to send response-timeout notice: ${sendErr}`);
+              }
+            }
 
           } finally {
             // 清理 tool-only 兜底定时器
@@ -2269,4 +2289,3 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     abortSignal.addEventListener("abort", () => resolve(), { once: true });
   });
 }
-

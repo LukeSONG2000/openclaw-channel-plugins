@@ -4,6 +4,7 @@
  */
 
 import os from "node:os";
+import https from "node:https";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { computeFileHash, getCachedFileInfo, setCachedFileInfo } from "./utils/upload-cache.js";
 import { sanitizeFileName } from "./utils/platform.js";
@@ -128,6 +129,65 @@ export function isMarkdownSupport(): boolean {
   return currentMarkdownSupport;
 }
 
+type TokenHttpResponse = Pick<Response, "status" | "statusText" | "headers" | "text">;
+
+function describeNetworkError(err: unknown): string {
+  const primary = err instanceof Error ? `${err.name}: ${err.message}` : String(err);
+  const cause = (err as { cause?: unknown })?.cause as { name?: string; code?: string; message?: string } | undefined;
+  if (!cause) return primary;
+  const causeBits = [
+    cause.name ? `name=${cause.name}` : "",
+    cause.code ? `code=${cause.code}` : "",
+    cause.message ? `message=${cause.message}` : "",
+  ].filter(Boolean).join(" ");
+  return causeBits ? `${primary} | cause: ${causeBits}` : primary;
+}
+
+function headersFromIncoming(headers: Record<string, string | string[] | undefined>): Headers {
+  const result = new Headers();
+  for (const [key, value] of Object.entries(headers)) {
+    if (Array.isArray(value)) result.set(key, value.join(", "));
+    else if (value != null) result.set(key, String(value));
+  }
+  return result;
+}
+
+function fetchTokenWithHttps(
+  urlString: string,
+  options: { method: string; headers: Record<string, string>; body: string },
+): Promise<TokenHttpResponse> {
+  return new Promise((resolve, reject) => {
+    const url = new URL(urlString);
+    if (url.protocol !== "https:") {
+      reject(new Error(`node:https fallback only supports https URLs: ${url.protocol}`));
+      return;
+    }
+    const req = https.request({
+      protocol: url.protocol,
+      hostname: url.hostname,
+      port: url.port || 443,
+      path: `${url.pathname}${url.search}`,
+      method: options.method,
+      headers: options.headers,
+    }, (res) => {
+      const chunks: Buffer[] = [];
+      res.on("data", (chunk: Buffer | string) => chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk)));
+      res.on("end", () => {
+        const body = Buffer.concat(chunks).toString("utf8");
+        resolve({
+          status: res.statusCode ?? 0,
+          statusText: res.statusMessage ?? "",
+          headers: headersFromIncoming(res.headers as Record<string, string | string[] | undefined>),
+          text: async () => body,
+        });
+      });
+    });
+    req.setTimeout(15000, () => req.destroy(new Error("Token HTTPS fallback timed out")));
+    req.on("error", reject);
+    req.end(options.body);
+  });
+}
+
 // =========================================================================
 // 🚀 [核心修复] 将全局状态改为 Map，按 appId 隔离，彻底解决多账号串号问题
 // =========================================================================
@@ -186,16 +246,28 @@ async function doFetchToken(appId: string, clientSecret: string): Promise<string
   // 打印请求信息（隐藏敏感信息）
   log.info(`[qqbot-api:${appId}] >>> POST ${TOKEN_URL} [secret: ${clientSecret.slice(0, 6)}...len=${clientSecret.length}]`);
 
-  let response: Response;
+  const serializedBody = JSON.stringify(requestBody);
+  let response: TokenHttpResponse;
   try {
     response = await fetch(TOKEN_URL, {
       method: "POST",
       headers: requestHeaders,
-      body: JSON.stringify(requestBody),
+      body: serializedBody,
     });
   } catch (err) {
-    log.error(`[qqbot-api:${appId}] <<< Network error: ${err}`);
-    throw new Error(`Network error getting access_token: ${err instanceof Error ? err.message : String(err)}`);
+    const detail = describeNetworkError(err);
+    log.error(`[qqbot-api:${appId}] <<< Network error: ${detail}; retrying with node:https fallback`);
+    try {
+      response = await fetchTokenWithHttps(TOKEN_URL, {
+        method: "POST",
+        headers: requestHeaders,
+        body: serializedBody,
+      });
+    } catch (fallbackErr) {
+      const fallbackDetail = describeNetworkError(fallbackErr);
+      log.error(`[qqbot-api:${appId}] <<< HTTPS fallback error: ${fallbackDetail}`);
+      throw new Error(`Network error getting access_token: ${detail}; https fallback: ${fallbackDetail}`);
+    }
   }
 
   // 打印响应头
