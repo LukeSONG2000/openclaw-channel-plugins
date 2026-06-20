@@ -28,6 +28,11 @@ assert.equal(getSlashCommandCapability("/bot-task status qqbot-default-group-GRO
 assert.equal(getSlashCommandCapability("/bot-task create Build sandbox"), "codex.longTask");
 assert.equal(getSlashCommandCapability("/bot-task add qqbot-default-group-GROUP_OPENID-1000-1 more requirements"), "codex.longTask");
 assert.equal(getSlashCommandCapability("/bot-task cancel qqbot-default-group-GROUP_OPENID-1000-1"), "codex.longTask");
+assert.equal(getSlashCommandCapability("/bot-poll"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-poll list"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-poll status poll-default-group-GROUP_OPENID-1000-1"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-poll create Pick one | A | B"), "game.interact");
+assert.equal(getSlashCommandCapability("/bot-poll close poll-default-group-GROUP_OPENID-1000-1"), "game.interact");
 
 const blockedPkgOverride = await matchSlashCommand({
   type: "c2c",

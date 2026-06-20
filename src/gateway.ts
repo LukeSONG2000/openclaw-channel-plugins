@@ -70,6 +70,8 @@ import {
 } from "./custom/auth-gateway-adapter.js";
 import { loadCustomAuthorizationState, saveCustomAuthorizationState } from "./custom/auth-store.js";
 import { loadCustomProactiveBudgetState, saveCustomProactiveBudgetState } from "./custom/proactive-budget-store.js";
+import { handleCustomPollCommand, handleCustomPollInteraction } from "./custom/poll-gateway-adapter.js";
+import { loadCustomPollState, saveCustomPollState } from "./custom/poll-store.js";
 import { handleCustomTaskCommand } from "./custom/task-gateway-adapter.js";
 import { loadCustomTaskSandboxState, saveCustomTaskSandboxState } from "./custom/task-sandbox-store.js";
 import { appendCustomTaskRequirement, materializeCustomTaskWorkspace, writeCustomTaskStatus } from "./custom/task-workspace.js";
@@ -91,6 +93,8 @@ async function handleInteractionCreate(params: {
   cfg: unknown;
   customAuth?: CustomMessageFlowRuntime["auth"];
   persistCustomAuthState?: () => void;
+  customPolls?: CustomMessageFlowRuntime["polls"];
+  persistCustomPollState?: () => void;
   log?: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void };
 }): Promise<void> {
   const { event, account, cfg, log } = params;
@@ -259,6 +263,32 @@ async function handleInteractionCreate(params: {
           }
         } catch (sendErr) {
           log?.error(`[qqbot:${account.accountId}] Failed to send custom auth interaction reply: ${sendErr}`);
+        }
+      }
+      return;
+    }
+
+    const customPollResult = params.customPolls ? handleCustomPollInteraction({
+      polls: params.customPolls,
+      buttonData,
+      actorId: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
+      now: Date.now(),
+    }) : { handled: false };
+    if (customPollResult.handled) {
+      if (customPollResult.changed) {
+        params.persistCustomPollState?.();
+      }
+      if (customPollResult.reply) {
+        try {
+          if (event.group_openid) {
+            await sendGroupMessage(token, event.group_openid, customPollResult.reply);
+          } else if (event.user_openid) {
+            await sendC2CMessage(token, event.user_openid, customPollResult.reply);
+          } else if (event.channel_id) {
+            await sendChannelMessage(token, event.channel_id, customPollResult.reply);
+          }
+        } catch (sendErr) {
+          log?.error(`[qqbot:${account.accountId}] Failed to send custom poll interaction reply: ${sendErr}`);
         }
       }
       return;
@@ -699,6 +729,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomTaskState = (): void => {
     saveCustomTaskSandboxState(account.accountId, customMessageFlow.tasks.getState());
   };
+  const restoredPollState = loadCustomPollState(account.accountId);
+  if (restoredPollState) {
+    customMessageFlow.polls.loadState(restoredPollState);
+    log?.info(`[qqbot:${account.accountId}] Restored custom poll state: polls=${Object.keys(restoredPollState.polls).length}`);
+  }
+  const persistCustomPollState = (): void => {
+    saveCustomPollState(account.accountId, customMessageFlow.polls.getState());
+  };
   const restoredUnreadState = loadCustomUnreadState(account.accountId);
   if (restoredUnreadState) {
     customMessageFlow.unread.loadState(restoredUnreadState);
@@ -798,6 +836,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         return false;
       };
 
+      const sendSlashKeyboardReply = async (text: string, keyboard?: import("./types.js").InlineKeyboard): Promise<void> => {
+        if (!keyboard) {
+          await sendSlashTextReply(text);
+          return;
+        }
+        const token = await getAccessToken(account.appId, account.clientSecret);
+        if (msg.type === "c2c") {
+          await sendC2CMessageWithInlineKeyboard(token, msg.senderId, text, keyboard, msg.messageId);
+        } else if (msg.type === "group" && msg.groupOpenid) {
+          await sendGroupMessageWithInlineKeyboard(token, msg.groupOpenid, text, keyboard, msg.messageId);
+        } else {
+          await sendSlashTextReply(text);
+        }
+      };
+
       const customAuthCommand = handleCustomAuthCommand({
         cfg: cfg as any,
         auth: customMessageFlow.auth,
@@ -878,6 +931,34 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             await sendSlashTextReply(customTaskCommand.reply);
           } catch (sendErr) {
             log?.error(`[qqbot:${account.accountId}] Failed to send custom task command reply: ${sendErr}`);
+          }
+        }
+        return;
+      }
+
+      const customPollCommand = handleCustomPollCommand({
+        cfg: cfg as any,
+        accountId: account.accountId,
+        polls: customMessageFlow.polls,
+        message: msg,
+        rawContent: content,
+      });
+      if (customPollCommand.handled) {
+        if (customPollCommand.changed) {
+          persistCustomPollState();
+        }
+        if (customPollCommand.reply) {
+          try {
+            await sendSlashKeyboardReply(customPollCommand.reply, customPollCommand.keyboard);
+          } catch (sendErr) {
+            log?.error(`[qqbot:${account.accountId}] Failed to send custom poll command reply: ${sendErr}`);
+            if (customPollCommand.keyboard) {
+              try {
+                await sendSlashTextReply(customPollCommand.reply);
+              } catch (fallbackErr) {
+                log?.error(`[qqbot:${account.accountId}] Failed to send custom poll fallback reply: ${fallbackErr}`);
+              }
+            }
           }
         }
         return;
@@ -964,6 +1045,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     persistCustomProactiveBudgetState();
     // 保存自定义长任务沙箱状态
     persistCustomTaskState();
+    // 保存自定义投票状态
+    persistCustomPollState();
     // 保存自定义未读消息流状态
     persistCustomUnreadState();
     // 停止审批 handler
@@ -2518,7 +2601,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const resolved = ev.data?.resolved;
           const sceneDesc = ev.scene ?? (ev.chat_type === 0 ? "guild" : ev.chat_type === 1 ? "group" : "c2c");
           log?.info(`[qqbot:${account.accountId}] Interaction: scene=${sceneDesc}, type=${ev.data?.type}, button_id=${resolved?.button_id}, button_data=${resolved?.button_data}`);
-          handleInteractionCreate({ event: ev, account, cfg, customAuth: customMessageFlow.auth, persistCustomAuthState, log }).catch((err) => {
+          handleInteractionCreate({
+            event: ev,
+            account,
+            cfg,
+            customAuth: customMessageFlow.auth,
+            persistCustomAuthState,
+            customPolls: customMessageFlow.polls,
+            persistCustomPollState,
+            log,
+          }).catch((err) => {
             log?.error(`[qqbot:${account.accountId}] Failed to handle interaction ${ev.id}: ${err}`);
           });
         }

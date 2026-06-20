@@ -389,6 +389,28 @@ registerCommand({
   handler: () => null,
 });
 
+/**
+ * /bot-poll — custom runtime interactive poll command.
+ *
+ * The gateway handles this command against the live per-account custom runtime
+ * before normal slash command matching. This registry entry only provides help
+ * text and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-poll",
+  description: "创建和管理自定义互动投票",
+  capability: (request) => slashPollCapability(request.args),
+  usage: [
+    `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`,
+    `/bot-poll list`,
+    `/bot-poll status <pollId>`,
+    `/bot-poll close <pollId>`,
+    ``,
+    `创建、查询、关闭二开运行时维护的轻量互动投票卡片。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
 const DEFAULT_UPGRADE_URL = "https://docs.qq.com/doc/DSGxOZk1oVnVKVkpq";
 
 function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {
@@ -2580,4 +2602,15 @@ function slashTaskCapability(args: string): SlashCommandCapability {
     return "codex.longTask";
   }
   return "codex.longTask";
+}
+
+function slashPollCapability(args: string): SlashCommandCapability {
+  const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+    return "system.status";
+  }
+  if (action === "create" || action === "new" || action === "close" || action === "end") {
+    return "game.interact";
+  }
+  return "game.interact";
 }

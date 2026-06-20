@@ -221,11 +221,21 @@ Current custom auth cards:
 - Supported decisions: allow once, allow 3 times, deny.
 - Text fallback: `/bot-auth approve <requestId> once|count N|timed 10m` or `/bot-auth deny <requestId>`.
 
+Current custom poll cards:
+
+- `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]` creates a lightweight poll in the per-account custom runtime.
+- C2C/group creation replies use inline keyboard buttons when available; channel/DM paths fall back to text.
+- Button data prefix: `custom-poll:<pollId>:vote:<1-4>`.
+- Button callbacks are acknowledged before local state mutation, then the bot sends a short vote confirmation.
+- One actor has one vote per poll; clicking a different option updates the vote.
+- Poll state persists under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
+- Custom auth gates mutations through `game.interact`; list/status use `system.status`.
+
 Potential future uses:
 
 - Scene switch cards for admins.
 - Task status cards: query, cancel, add requirement.
-- Voting and lightweight games, provided callback ACK and state storage are robust.
+- Additional lightweight games now that callback ACK and state storage have a first poll implementation.
 - Admin-only deployment/update confirmation cards.
 
 ## Current Group/DM Logic
@@ -248,11 +258,11 @@ Current custom runtime behavior:
 - Mention replies can trigger unread catch-up after the direct reply.
 - Custom auth gates plugin-level slash commands before config mutation/deploy actions.
 - Custom auth supports temporary grants through text commands and C2C/group inline cards.
+- Custom poll commands provide the first lightweight interactive-card feature on top of the same C2C/group inline keyboard send paths.
 
 ## Open Items
 
 - Validate custom auth inline cards on the actual deployed bot after installing the custom package; local tests only validate payload construction and handler logic.
-- Add durable storage for custom auth grants/requests if temporary permissions should survive gateway restart.
-- Add proactive-send budget/rate-limit tracking before enabling ten-minute autonomous group replies broadly.
+- Validate custom poll inline cards on the actual deployed bot after installing the custom package; local tests validate payload construction, command handling, interaction handling, and persistence only.
 - Audit channel DM send path before adding scene-specific logic for `DIRECT_MESSAGE_CREATE`.
 - Capture official/observed recall-delete event behavior if the custom runtime needs deletion state.

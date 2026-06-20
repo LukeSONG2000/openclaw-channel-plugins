@@ -207,3 +207,32 @@ export type CustomTaskIntent =
 export interface CustomTaskSandboxRuntimeState {
   tasks: Record<string, CustomSandboxTask>;
 }
+
+export interface CustomPollOption {
+  id: string;
+  label: string;
+}
+
+export interface CustomPollVote {
+  actor: CustomActor;
+  optionId: string;
+  votedAt: number;
+}
+
+export interface CustomPoll {
+  id: string;
+  accountId: string;
+  peer: CustomPeer;
+  creator: CustomActor;
+  question: string;
+  options: CustomPollOption[];
+  votes: Record<string, CustomPollVote>;
+  status: "open" | "closed";
+  createdAt: number;
+  updatedAt: number;
+  closedAt?: number;
+}
+
+export interface CustomPollRuntimeState {
+  polls: Record<string, CustomPoll>;
+}

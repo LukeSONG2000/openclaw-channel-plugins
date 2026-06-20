@@ -272,6 +272,7 @@ Initial slash command capability mapping:
 - `/bot-approve`: `config.read`; mutation commands require `auth.grant`
 - `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
 - `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
+- `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
 
 Text approval commands:
 
@@ -392,6 +393,36 @@ Important boundary:
 Next integration:
 
 OpenClaw integration should use available runtime APIs where possible. Avoid shelling out until the framework contract is confirmed.
+
+### `src/custom/poll.ts`
+
+Lightweight interactive poll/card runtime.
+
+Current implementation status:
+
+- Exists as a pure poll state runtime with no QQ API, OpenClaw SDK, timer, or filesystem dependency.
+- Creates durable poll records with id, account, peer, creator, question, 2-4 options, votes, status, and timestamps.
+- Supports one active vote per actor per poll; clicking another option updates the existing vote.
+- Supports create, list, status, close, and vote operations.
+- Poll ids use `poll-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
+- Exports/imports `CustomPollRuntimeState` so the gateway can restore poll metadata after restart.
+- Persists state under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
+- `src/custom/poll-gateway-adapter.ts` handles `/bot-poll` before the normal AI queue:
+  - `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`
+  - `/bot-poll list`
+  - `/bot-poll status <pollId>`
+  - `/bot-poll close <pollId>`
+- For C2C/group messages, poll creation replies with an inline keyboard when available; channel/DM paths fall back to text.
+- Button callbacks use `custom-poll:<pollId>:vote:<optionId>`.
+- `gateway.ts` acknowledges interactions first, then routes `custom-poll:` callbacks to the per-account poll runtime.
+- Slash-command capability metadata gates poll mutations through custom auth:
+  - help/list/status use `system.status`
+  - create/close use `game.interact`
+
+Important boundary:
+
+- This layer is intentionally only a small interactive-card proving ground.
+- It does not yet implement broader games, task cards, scene-switch cards, or deploy/update confirmation cards.
 
 ### `src/custom/fallbacks.ts`
 

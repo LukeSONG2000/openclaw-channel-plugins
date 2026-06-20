@@ -217,3 +217,20 @@ Still intentionally open:
 
 - The task sandbox does not start a real subagent/job yet; the executor adapter remains pending until the OpenClaw runtime contract is confirmed.
 - Result pushback, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the OpenClaw execution contract is confirmed.
+
+Added first custom interactive poll/card feature:
+
+- Added `src/custom/poll.ts` as a pure local poll runtime with create/list/status/close/vote operations.
+- Added `src/custom/poll-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
+- Added `src/custom/poll-gateway-adapter.ts` to parse `/bot-poll` commands and handle `custom-poll:<pollId>:vote:<1-4>` button callbacks.
+- Gateway restores poll state on startup, persists it after poll changes and gateway abort/stop, and routes poll button interactions after ACK.
+- C2C/group `/bot-poll create ...` replies with inline keyboard buttons when available; channel/DM paths fall back to text.
+- Added slash-command capability metadata for `/bot-poll`:
+  - help/list/status require `system.status`
+  - create/close require `game.interact`
+- Added tests for poll runtime, poll store, poll gateway adapter, and slash capability mapping.
+
+Still intentionally open:
+
+- Custom poll cards need validation on the actual deployed bot after installing the custom package.
+- Broader task cards, scene switch cards, deploy confirmation cards, and lightweight games remain future increments.
