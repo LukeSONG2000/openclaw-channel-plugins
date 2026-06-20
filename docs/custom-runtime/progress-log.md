@@ -277,6 +277,12 @@ Extracted custom unread pre-dispatch ingress:
 - `gateway.ts` now delegates custom unread record/observe decisions to the adapter while keeping group allow-list, mention gating, command authorization, and final prompt formatting in the gateway path.
 - Added `tests/custom-unread-ingress.test.ts` for disabled runtime fallback, disabled scene unread fallback, non-mention record scheduling, and mention-time history injection effects.
 
+Extracted custom unread context selection:
+
+- Added `src/custom/unread-context.ts` to choose between synthetic snapshot history, mention-time custom unread history, and legacy group history before pending-history formatting.
+- `gateway.ts` now delegates custom unread history precedence to the selector while still owning the final envelope formatting.
+- Added `tests/custom-unread-context.test.ts` for snapshot priority, mention fallback, empty snapshot fallback, and legacy fallback.
+
 Still intentionally open:
 
-- Legacy group history cleanup and pending-history context formatting still live in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.
+- Legacy group history cleanup and final pending-history envelope formatting still live in `gateway.ts`; these should be moved behind narrower adapter interfaces in later increments.

@@ -415,6 +415,24 @@ Important boundary:
 - It does not format final agent prompts. It only returns history entries that gateway formatting can consume.
 - It does not send QQ messages or own timers; `src/custom/unread-scheduler.ts` applies the returned effects.
 
+### `src/custom/unread-context.ts`
+
+Gateway-side history context selector for custom unread flow.
+
+Current implementation status:
+
+- Chooses which history source should be injected before the current group message:
+  - synthetic catch-up snapshot history
+  - mention-time custom unread history
+  - legacy group history map
+- Gives synthetic snapshot history priority over mention-time history, and mention-time history priority over legacy history.
+- Returns a `HistoryEntry[]` map compatible with `buildPendingHistoryContext()`.
+
+Important boundary:
+
+- This module does not format envelope text or agent prompts.
+- It does not clear legacy history after dispatch; cleanup still happens in the gateway completion path.
+
 ### `src/custom/unread-scheduler.ts`
 
 Gateway-side scheduler for unread runtime effects.

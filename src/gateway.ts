@@ -55,6 +55,7 @@ import {
   recordCustomUnreadNonMentionBeforeDispatch,
   resolveCustomUnreadForQueuedGroupMessage,
 } from "./custom/unread-ingress.js";
+import { selectCustomUnreadHistoryContext } from "./custom/unread-context.js";
 import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
@@ -1572,12 +1573,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (event.type === "group" && event.groupOpenid) {
           const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
           const envelopeOpts = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
-          const customUnreadHistory = event._customUnreadSnapshot ?? customUnreadHistoryForEvent;
-          const historyMapForContext = customUnreadHistory
-            ? new Map<string, HistoryEntry[]>([[event.groupOpenid, customUnreadHistory]])
-            : groupHistories;
+          const historyContext = selectCustomUnreadHistoryContext({
+            event,
+            groupHistories,
+            mentionHistory: customUnreadHistoryForEvent,
+          });
           agentBody = buildPendingHistoryContext({
-            historyMap: historyMapForContext,
+            historyMap: historyContext.historyMap,
             historyKey: event.groupOpenid,
             limit: historyLimit,
             currentMessage: agentBody,
