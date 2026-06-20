@@ -1,5 +1,6 @@
 import type { QueueSnapshot } from "./slash-commands.js";
 import type { MsgElement } from "./types.js";
+import type { HistoryEntry } from "./group-history.js";
 
 // ── 消息队列默认配置 ──
 const DEFAULT_GLOBAL_QUEUE_SIZE = 1000;
@@ -41,6 +42,12 @@ export interface QueuedMessage {
   _mergedCount?: number;
   /** 合并前的原始消息列表（用于 gateway 侧逐条格式化信封） */
   _mergedMessages?: QueuedMessage[];
+  /** 自定义 unread runtime 使用的历史快照 id */
+  _customUnreadSnapshotId?: string;
+  /** 自定义 unread runtime 使用的历史快照 */
+  _customUnreadSnapshot?: HistoryEntry[];
+  /** 自定义消息流要求跳过群消息合并 */
+  _noMerge?: boolean;
 }
 
 export interface MessageQueueContext {

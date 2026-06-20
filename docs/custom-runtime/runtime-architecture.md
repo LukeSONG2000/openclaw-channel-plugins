@@ -147,7 +147,7 @@ Current implementation status:
 
 - Exists as a pure state machine with no QQ API, OpenClaw SDK, timer, filesystem, or gateway queue dependency.
 - Takes normalized `CustomInboundMessage` inputs and returns typed intents.
-- Does not send messages directly. The gateway adapter must convert intents into timers, synthetic queued messages, and send actions.
+- Does not send messages directly. `src/custom/unread-gateway-adapter.ts` converts intents into gateway effects.
 - Defaults to policy-gated autonomous/proactive behavior unless the scene explicitly allows it.
 
 State:
@@ -175,6 +175,28 @@ Primary adapter methods:
 - `fireScheduledFollowup`: convert a due follow-up timer into a catch-up or no-op.
 - `fireSleepDigest`: convert a due sleep timer into a catch-up or policy-gated decision.
 - `consumeSnapshot`: remove only the history entries used by a completed synthetic catch-up.
+
+### `src/custom/unread-gateway-adapter.ts`
+
+Gateway-side translation layer for unread runtime.
+
+Current implementation status:
+
+- Converts gateway group events into `CustomInboundMessage`.
+- Converts unread history snapshots into `HistoryEntry[]` for existing envelope formatting.
+- Converts runtime intents into side-effect descriptions:
+  - set follow-up timer
+  - set sleep-digest timer
+  - enqueue synthetic catch-up `QueuedMessage`
+  - report policy-gated autonomous reply
+- Builds synthetic catch-up messages with `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
+- `gateway.ts` now reads `_customUnreadSnapshot` when injecting pending group history context.
+
+Still not wired:
+
+- Actual `setTimeout` management from adapter effects.
+- Actual enqueue of synthetic catch-up messages.
+- Snapshot consumption after synthetic catch-up completion.
 
 ### `src/custom/task-sandbox.ts`
 

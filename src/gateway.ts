@@ -775,27 +775,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       const groupHistories = new Map<string, HistoryEntry[]>();
 
       // 处理收到的消息
-      const handleMessage = async (event: {
-        type: "c2c" | "guild" | "dm" | "group";
-        senderId: string;
-        senderName?: string;
-        senderIsBot?: boolean;
-        content: string;
-        messageId: string;
-        timestamp: string;
-        channelId?: string;
-        guildId?: string;
-        groupOpenid?: string;
-        attachments?: Array<{ content_type: string; url: string; filename?: string; voice_wav_url?: string; asr_refer_text?: string }>;
-        refMsgIdx?: string;
-        msgIdx?: string;
-        eventType?: string;
-        mentions?: Array<{ scope?: "all" | "single"; id?: string; user_openid?: string; member_openid?: string; username?: string; bot?: boolean; is_you?: boolean }>;
-        messageScene?: { source?: string; ext?: string[] };
-        msgElements?: MsgElement[];
-        /** 消息类型，参见 MSG_TYPE_* */
-        msgType?: number;
-      }) => {
+      const handleMessage = async (event: QueuedMessage) => {
 
         log?.debug?.(`[qqbot:${account.accountId}] Received message: ${JSON.stringify(event)}`);
         log?.info(`[qqbot:${account.accountId}] Processing message from ${event.senderId}: ${event.content}`);
@@ -1293,8 +1273,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (event.type === "group" && event.groupOpenid) {
           const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
           const envelopeOpts = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
+          const customUnreadSnapshot = event._customUnreadSnapshot;
+          const historyMapForContext = customUnreadSnapshot
+            ? new Map<string, HistoryEntry[]>([[event.groupOpenid, customUnreadSnapshot]])
+            : groupHistories;
           agentBody = buildPendingHistoryContext({
-            historyMap: groupHistories,
+            historyMap: historyMapForContext,
             historyKey: event.groupOpenid,
             limit: historyLimit,
             currentMessage: agentBody,

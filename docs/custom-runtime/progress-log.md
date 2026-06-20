@@ -49,8 +49,17 @@ Extracted unread/follow-up message flow into pure runtime:
 - Added `createCustomMessageFlowRuntime()` and `inspectCustomUnreadConfig()` in `src/custom/runtime.ts`.
 - Added `tests/unread-runtime.test.ts` for non-mention recording, bot-authored ignores, mention follow-up, snapshot consumption, follow-up/sleep firing, and policy gating.
 
-Still intentionally not wired into `src/gateway.ts`:
+Added gateway adapter bridge for unread runtime:
 
-- Gateway timer management and synthetic `QueuedMessage` adapter.
-- History envelope formatting integration.
+- Added `src/custom/unread-gateway-adapter.ts`.
+- Added `tests/unread-gateway-adapter.test.ts`.
+- Added typed custom unread fields on `QueuedMessage`.
+- Changed `gateway.ts` message handling to use `QueuedMessage` as the internal event type.
+- `gateway.ts` now honors `_customUnreadSnapshot` when building pending group history context for synthetic catch-up messages.
+
+Still intentionally not wired into active gateway behavior:
+
+- Gateway timer management from adapter effects.
+- Synthetic catch-up enqueue from adapter effects.
+- Snapshot consumption after synthetic catch-up completion.
 - Proactive group send budget/rate-limit enforcement.
