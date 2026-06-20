@@ -75,6 +75,45 @@ assert.equal(add.allowed, true);
 assert.equal(add.task?.requirements.length, 1);
 assert.equal(add.task?.requirements[0]?.id, `${first.task.id}-req-1`);
 assert.equal(add.task?.requirements[0]?.actor.id, "ADMIN_OPENID");
+assert.equal(add.requirement?.content, "Also include a gateway command adapter");
+assert.equal(add.intents?.[0]?.kind, "requirement-added");
+
+const startSecond = runtime.startTask({
+  taskId: second.task!.id,
+  executorId: "executor-1",
+  runId: "run-1",
+  agentId: "dev-agent",
+  now: 6_500,
+});
+assert.equal(startSecond.allowed, true);
+assert.equal(startSecond.task?.status, "running");
+assert.equal(startSecond.task?.execution?.executorId, "executor-1");
+assert.equal(startSecond.task?.execution?.startedAt, 6_500);
+
+const heartbeatSecond = runtime.heartbeatTask({
+  taskId: second.task!.id,
+  now: 6_750,
+});
+assert.equal(heartbeatSecond.allowed, true);
+assert.equal(heartbeatSecond.task?.execution?.lastHeartbeatAt, 6_750);
+
+const completeSecond = runtime.completeTask({
+  taskId: second.task!.id,
+  result: "Implemented sandbox execution adapter boundary.",
+  now: 6_900,
+});
+assert.equal(completeSecond.allowed, true);
+assert.equal(completeSecond.task?.status, "completed");
+assert.equal(completeSecond.task?.execution?.completedAt, 6_900);
+assert.equal(completeSecond.task?.result, "Implemented sandbox execution adapter boundary.");
+
+const invalidComplete = runtime.completeTask({
+  taskId: second.task!.id,
+  result: "again",
+  now: 6_950,
+});
+assert.equal(invalidComplete.allowed, false);
+assert.equal(invalidComplete.reason, "invalid_transition");
 
 const cancel = runtime.cancelTask({
   taskId: first.task.id,
@@ -95,7 +134,16 @@ assert.equal(addCancelled.allowed, false);
 assert.equal(addCancelled.reason, "not_active");
 
 const active = runtime.listTasks({ accountId: "default", peer, status: "active" });
-assert.deepEqual(active.map((task) => task.id), [second.task?.id]);
+assert.deepEqual(active.map((task) => task.id), []);
+
+const failQueued = runtime.failTask({
+  taskId: otherPeerTask.task!.id,
+  error: "Executor unavailable",
+  now: 8_500,
+});
+assert.equal(failQueued.allowed, true);
+assert.equal(failQueued.task?.status, "failed");
+assert.equal(failQueued.task?.error, "Executor unavailable");
 
 const restored = new CustomTaskSandboxRuntime({ workspaceRoot: "/tmp/openclaw-qqbot-tasks" });
 restored.loadState(runtime.getState());

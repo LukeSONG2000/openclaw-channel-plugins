@@ -3,6 +3,7 @@ import type {
   CustomActor,
   CustomPeer,
   CustomSandboxTask,
+  CustomTaskIntent,
   CustomTaskRequirement,
   CustomTaskSandboxRuntimeState,
   CustomTaskStatus,
@@ -24,8 +25,10 @@ export interface CustomCreateTaskParams {
 
 export interface CustomTaskSandboxDecision {
   allowed: boolean;
-  reason: "allowed" | "empty_prompt" | "too_many_active_tasks" | "not_found" | "not_active";
+  reason: "allowed" | "empty_prompt" | "too_many_active_tasks" | "not_found" | "not_active" | "invalid_transition";
   task?: CustomSandboxTask;
+  requirement?: CustomTaskRequirement;
+  intents?: CustomTaskIntent[];
 }
 
 const DEFAULT_MAX_ACTIVE_TASKS_PER_PEER = 3;
@@ -60,7 +63,12 @@ export class CustomTaskSandboxRuntime {
       requirements: [],
     };
     this.tasks.set(id, task);
-    return { allowed: true, reason: "allowed", task: cloneTask(task) };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "start-requested", task: cloneTask(task) }],
+    };
   }
 
   addRequirement(params: {
@@ -83,7 +91,13 @@ export class CustomTaskSandboxRuntime {
     };
     task.requirements.push(requirement);
     task.updatedAt = now;
-    return { allowed: true, reason: "allowed", task: cloneTask(task) };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      requirement: { ...requirement, actor: { ...requirement.actor } },
+      intents: [{ kind: "requirement-added", task: cloneTask(task), requirement: { ...requirement, actor: { ...requirement.actor } } }],
+    };
   }
 
   cancelTask(params: { taskId: string; actor: CustomActor; now?: number }): CustomTaskSandboxDecision {
@@ -93,7 +107,120 @@ export class CustomTaskSandboxRuntime {
     task.status = "cancelled";
     task.updatedAt = params.now ?? Date.now();
     task.result = `Cancelled by ${params.actor.label || params.actor.id}`;
-    return { allowed: true, reason: "allowed", task: cloneTask(task) };
+    task.execution = {
+      ...task.execution,
+      completedAt: task.updatedAt,
+    };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "cancel-requested", task: cloneTask(task) }],
+    };
+  }
+
+  startTask(params: {
+    taskId: string;
+    executorId: string;
+    runId?: string;
+    agentId?: string;
+    now?: number;
+  }): CustomTaskSandboxDecision {
+    const task = this.tasks.get(params.taskId);
+    if (!task) return { allowed: false, reason: "not_found" };
+    if (task.status !== "queued") return { allowed: false, reason: "invalid_transition", task: cloneTask(task) };
+    const now = params.now ?? Date.now();
+    task.status = "running";
+    task.updatedAt = now;
+    task.execution = {
+      executorId: params.executorId,
+      runId: params.runId,
+      agentId: params.agentId,
+      startedAt: now,
+      lastHeartbeatAt: now,
+    };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "status-updated", task: cloneTask(task) }],
+    };
+  }
+
+  heartbeatTask(params: {
+    taskId: string;
+    now?: number;
+  }): CustomTaskSandboxDecision {
+    const task = this.tasks.get(params.taskId);
+    if (!task) return { allowed: false, reason: "not_found" };
+    if (task.status !== "running") return { allowed: false, reason: "not_active", task: cloneTask(task) };
+    const now = params.now ?? Date.now();
+    task.updatedAt = now;
+    task.execution = {
+      ...task.execution,
+      lastHeartbeatAt: now,
+    };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "status-updated", task: cloneTask(task) }],
+    };
+  }
+
+  completeTask(params: {
+    taskId: string;
+    result: string;
+    now?: number;
+  }): CustomTaskSandboxDecision {
+    const task = this.tasks.get(params.taskId);
+    if (!task) return { allowed: false, reason: "not_found" };
+    if (task.status !== "running") return { allowed: false, reason: "invalid_transition", task: cloneTask(task) };
+    const result = params.result.trim();
+    if (!result) return { allowed: false, reason: "empty_prompt", task: cloneTask(task) };
+    const now = params.now ?? Date.now();
+    task.status = "completed";
+    task.updatedAt = now;
+    task.result = result;
+    task.error = undefined;
+    task.execution = {
+      ...task.execution,
+      completedAt: now,
+      lastHeartbeatAt: now,
+    };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "status-updated", task: cloneTask(task) }],
+    };
+  }
+
+  failTask(params: {
+    taskId: string;
+    error: string;
+    now?: number;
+  }): CustomTaskSandboxDecision {
+    const task = this.tasks.get(params.taskId);
+    if (!task) return { allowed: false, reason: "not_found" };
+    if (task.status !== "running" && task.status !== "queued") return { allowed: false, reason: "invalid_transition", task: cloneTask(task) };
+    const error = params.error.trim();
+    if (!error) return { allowed: false, reason: "empty_prompt", task: cloneTask(task) };
+    const now = params.now ?? Date.now();
+    task.status = "failed";
+    task.updatedAt = now;
+    task.error = error;
+    task.execution = {
+      ...task.execution,
+      completedAt: now,
+      lastHeartbeatAt: task.execution?.lastHeartbeatAt ?? now,
+    };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "status-updated", task: cloneTask(task) }],
+    };
   }
 
   getTask(taskId: string): CustomSandboxTask | null {
@@ -190,5 +317,6 @@ function cloneTask(task: CustomSandboxTask): CustomSandboxTask {
       ...item,
       actor: { ...item.actor },
     })),
+    execution: task.execution ? { ...task.execution } : undefined,
   };
 }

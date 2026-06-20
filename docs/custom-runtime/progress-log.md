@@ -195,7 +195,7 @@ Still intentionally open:
 
 Added custom long-task sandbox state skeleton:
 
-- Added `src/custom/task-sandbox.ts` as a pure task metadata runtime with create/list/status/add/cancel operations.
+- Added `src/custom/task-sandbox.ts` as a pure task state runtime with create/list/status/add/cancel operations.
 - Added `src/custom/task-sandbox-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-tasks/tasks-<accountId>.json`.
 - Added `src/custom/task-gateway-adapter.ts` to parse and handle `/bot-task` commands before they enter the main AI queue.
 - Gateway restores task sandbox state on startup and persists it after task changes and gateway abort/stop.
@@ -204,7 +204,16 @@ Added custom long-task sandbox state skeleton:
   - create/add/cancel require `codex.longTask`
 - Added tests for task runtime, task store, task gateway adapter, and slash capability mapping.
 
+Expanded custom long-task sandbox execution boundary:
+
+- `CustomTaskSandboxRuntime` now supports start, heartbeat, complete, and fail transitions in addition to create/add/cancel.
+- Task records now include optional execution metadata: executor id, run id, agent id, start/completion timestamps, and last heartbeat.
+- Task operations emit typed intents for start requests, requirement additions, cancellation requests, and status updates.
+- Added `src/custom/task-workspace.ts` to materialize isolated task workspaces with `TASK.md`, `status.json`, and `requirements.jsonl`.
+- Gateway updates task workspace files after `/bot-task create`, `/bot-task add`, and `/bot-task cancel` without entering the main AI queue.
+- Added `tests/custom-task-workspace.test.ts` and expanded task runtime/gateway/store tests.
+
 Still intentionally open:
 
-- The task sandbox does not start a real subagent/job yet.
+- The task sandbox does not start a real subagent/job yet; the executor adapter remains pending until the OpenClaw runtime contract is confirmed.
 - Result pushback, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the OpenClaw execution contract is confirmed.

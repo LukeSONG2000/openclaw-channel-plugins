@@ -42,6 +42,8 @@ const create = handleCustomTaskCommand({
 assert.equal(create.handled, true);
 assert.equal(create.changed, true);
 assert.equal(create.reply?.includes("长任务已创建"), true);
+assert.equal(create.change, "created");
+assert.equal(create.intents?.[0]?.kind, "start-requested");
 
 const taskId = Object.keys(tasks.getState().tasks)[0]!;
 assert.equal(taskId, "qqbot-default-group-GROUP_OPENID-1000-1");
@@ -77,6 +79,8 @@ const add = handleCustomTaskCommand({
 assert.equal(add.handled, true);
 assert.equal(add.changed, true);
 assert.equal(add.reply?.includes("当前追加需求数：1"), true);
+assert.equal(add.change, "requirement-added");
+assert.equal(add.requirement?.content, "Also persist it");
 
 const cancel = handleCustomTaskCommand({
   accountId: "default",
@@ -88,6 +92,7 @@ const cancel = handleCustomTaskCommand({
 assert.equal(cancel.handled, true);
 assert.equal(cancel.changed, true);
 assert.equal(cancel.reply?.includes("已取消长任务"), true);
+assert.equal(cancel.change, "cancelled");
 
 const noMatch = handleCustomTaskCommand({
   accountId: "default",

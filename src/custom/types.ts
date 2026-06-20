@@ -186,9 +186,23 @@ export interface CustomSandboxTask {
   createdAt: number;
   updatedAt: number;
   requirements: CustomTaskRequirement[];
+  execution?: {
+    executorId?: string;
+    runId?: string;
+    agentId?: string;
+    startedAt?: number;
+    completedAt?: number;
+    lastHeartbeatAt?: number;
+  };
   result?: string;
   error?: string;
 }
+
+export type CustomTaskIntent =
+  | { kind: "start-requested"; task: CustomSandboxTask }
+  | { kind: "requirement-added"; task: CustomSandboxTask; requirement: CustomTaskRequirement }
+  | { kind: "cancel-requested"; task: CustomSandboxTask }
+  | { kind: "status-updated"; task: CustomSandboxTask };
 
 export interface CustomTaskSandboxRuntimeState {
   tasks: Record<string, CustomSandboxTask>;

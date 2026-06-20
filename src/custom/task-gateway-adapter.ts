@@ -1,6 +1,6 @@
 import type { QueuedMessage } from "../message-queue.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
-import type { CustomSandboxTask, CustomTaskSandboxRuntimeState } from "./types.js";
+import type { CustomSandboxTask, CustomTaskIntent, CustomTaskRequirement, CustomTaskSandboxRuntimeState } from "./types.js";
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
 
 export type CustomTaskCommand =
@@ -19,6 +19,10 @@ export interface CustomTaskCommandResult {
   handled: boolean;
   reply?: string;
   changed?: boolean;
+  task?: CustomSandboxTask;
+  requirement?: CustomTaskRequirement;
+  intents?: CustomTaskIntent[];
+  change?: "created" | "requirement-added" | "cancelled";
 }
 
 export function parseCustomTaskCommand(rawContent: string): CustomTaskCommandParseResult {
@@ -82,7 +86,7 @@ export function handleCustomTaskCommand(params: {
     if (!result.allowed || !result.task) {
       return { handled: true, reply: formatTaskDecision(result.reason), changed: false };
     }
-    return { handled: true, reply: formatTaskCreated(result.task), changed: true };
+    return { handled: true, reply: formatTaskCreated(result.task), changed: true, task: result.task, intents: result.intents, change: "created" };
   }
   if (command.kind === "list") {
     const tasks = params.tasks.listTasks({ accountId: params.accountId, peer, limit: 8 });
@@ -100,6 +104,10 @@ export function handleCustomTaskCommand(params: {
       handled: true,
       reply: result.allowed && result.task ? formatTaskRequirementAdded(result.task) : formatTaskDecision(result.reason),
       changed: result.allowed,
+      task: result.task,
+      requirement: result.requirement,
+      intents: result.intents,
+      change: result.allowed ? "requirement-added" : undefined,
     };
   }
   if (command.kind === "cancel") {
@@ -110,6 +118,9 @@ export function handleCustomTaskCommand(params: {
       handled: true,
       reply: result.allowed && result.task ? formatTaskCancelled(result.task) : formatTaskDecision(result.reason),
       changed: result.allowed,
+      task: result.task,
+      intents: result.intents,
+      change: result.allowed ? "cancelled" : undefined,
     };
   }
 
@@ -140,7 +151,7 @@ function formatTaskCreated(task: CustomSandboxTask): string {
     `标题：${task.title}`,
     `工作区：${task.workspace}`,
     ``,
-    `当前版本只创建独立任务状态，不会阻塞主对话；子 agent 执行器将在下一步接入。`,
+    `已写入独立工作区并进入执行队列；当前版本会保持主对话可用，等待执行器认领。`,
   ].join("\n");
 }
 
@@ -181,6 +192,7 @@ function formatTaskDecision(reason: string): string {
   if (reason === "too_many_active_tasks") return `⚠️ 当前会话活跃长任务过多，请先完成或取消一部分。`;
   if (reason === "empty_prompt") return `⚠️ 任务内容不能为空。`;
   if (reason === "not_active") return `⚠️ 任务已不处于活跃状态。`;
+  if (reason === "invalid_transition") return `⚠️ 任务状态不允许执行该操作。`;
   return `⚠️ 操作失败：${reason}`;
 }
 

@@ -361,14 +361,19 @@ Long task isolation.
 
 Current implementation status:
 
-- Exists as a pure task metadata runtime with no QQ API, OpenClaw SDK, child process, timer, or filesystem dependency.
-- Creates durable task records with id, peer, owner, title, prompt, status, workspace path, timestamps, and appended requirements.
+- Exists as a pure task state runtime with no QQ API, OpenClaw SDK, child process, timer, or filesystem dependency.
+- Creates durable task records with id, peer, owner, title, prompt, status, workspace path, timestamps, execution metadata, and appended requirements.
+- Emits task intents for start requests, requirement additions, cancellation requests, and status updates so a future executor can be plugged in without changing command parsing.
 - Defaults to at most 3 active tasks per account/peer.
 - Default workspace root is `~/.openclaw/qqbot/tasks`.
 - Task ids use `qqbot-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
-- Supports create, list, status, add requirement, and cancel operations.
+- Supports create, list, status, add requirement, cancel, start, heartbeat, complete, and fail operations.
 - Exports/imports `CustomTaskSandboxRuntimeState` so the gateway can restore task metadata after restart.
 - Persists state under `~/.openclaw/qqbot/data/custom-tasks/tasks-<accountId>.json`.
+- `src/custom/task-workspace.ts` materializes each task into an isolated workspace with:
+  - `TASK.md`
+  - `status.json`
+  - `requirements.jsonl`
 - `src/custom/task-gateway-adapter.ts` handles `/bot-task` before the normal AI queue:
   - `/bot-task create <任务描述>`
   - `/bot-task list`
@@ -381,8 +386,8 @@ Current implementation status:
 
 Important boundary:
 
-- This first layer does not start a real subagent/job yet.
-- It intentionally only creates isolated task state and user-visible status replies, so group long-task commands do not block the main conversation queue or guess at private OpenClaw execution APIs.
+- This layer does not start a real subagent/job yet.
+- It intentionally creates isolated task state, workspace files, and user-visible status replies, so group long-task commands do not block the main conversation queue or guess at private OpenClaw execution APIs.
 
 Next integration:
 

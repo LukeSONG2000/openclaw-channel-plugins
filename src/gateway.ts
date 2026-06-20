@@ -72,6 +72,7 @@ import { loadCustomAuthorizationState, saveCustomAuthorizationState } from "./cu
 import { loadCustomProactiveBudgetState, saveCustomProactiveBudgetState } from "./custom/proactive-budget-store.js";
 import { handleCustomTaskCommand } from "./custom/task-gateway-adapter.js";
 import { loadCustomTaskSandboxState, saveCustomTaskSandboxState } from "./custom/task-sandbox-store.js";
+import { appendCustomTaskRequirement, materializeCustomTaskWorkspace, writeCustomTaskStatus } from "./custom/task-workspace.js";
 import { loadCustomUnreadState, saveCustomUnreadState } from "./custom/unread-store.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -860,6 +861,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       if (customTaskCommand.handled) {
         if (customTaskCommand.changed) {
           persistCustomTaskState();
+          try {
+            if (customTaskCommand.change === "created" && customTaskCommand.task) {
+              materializeCustomTaskWorkspace(customTaskCommand.task);
+            } else if (customTaskCommand.change === "requirement-added" && customTaskCommand.task && customTaskCommand.requirement) {
+              appendCustomTaskRequirement(customTaskCommand.task, customTaskCommand.requirement);
+            } else if (customTaskCommand.task) {
+              writeCustomTaskStatus(customTaskCommand.task);
+            }
+          } catch (workspaceErr) {
+            log?.error(`[qqbot:${account.accountId}] Failed to update custom task workspace: ${workspaceErr}`);
+          }
         }
         if (customTaskCommand.reply) {
           try {

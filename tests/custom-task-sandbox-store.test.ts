@@ -25,6 +25,10 @@ try {
         workspace: "/tmp/tasks/qqbot-default-group-GROUP_OPENID-2000-1",
         createdAt: 2_000,
         updatedAt: 2_000,
+        execution: {
+          executorId: "executor-1",
+          runId: "run-1",
+        },
         requirements: [],
       },
     },
