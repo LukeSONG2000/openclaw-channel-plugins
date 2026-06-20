@@ -213,10 +213,17 @@ Expanded custom long-task sandbox execution boundary:
 - Gateway updates task workspace files after `/bot-task create`, `/bot-task add`, and `/bot-task cancel` without entering the main AI queue.
 - Added `tests/custom-task-workspace.test.ts` and expanded task runtime/gateway/store tests.
 
+Added custom long-task executor adapter boundary:
+
+- Added `src/custom/task-executor-adapter.ts` to apply task intents to an optional executor without baking a child process or OpenClaw private API into the gateway.
+- The adapter materializes task workspaces, keeps tasks queued when no executor is attached, starts tasks when an executor accepts them, forwards appended requirements/cancel requests, and exposes heartbeat/complete/fail helpers.
+- `src/custom/slash-gateway-adapter.ts` now routes `/bot-task` intents through the executor adapter, so workspace effects and future executor effects share one boundary.
+- Added `tests/custom-task-executor-adapter.test.ts` for queued-without-executor, executor start, requirement forwarding, heartbeat, complete, and fail paths.
+
 Still intentionally open:
 
-- The task sandbox does not start a real subagent/job yet; the executor adapter remains pending until the OpenClaw runtime contract is confirmed.
-- Result pushback, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the OpenClaw execution contract is confirmed.
+- A real OpenClaw subagent/job executor is still pending until the runtime contract is confirmed.
+- Result pushback to QQ, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
 
 Added first custom interactive poll/card feature:
 

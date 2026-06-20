@@ -14,10 +14,9 @@ import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { handleCustomTaskCommand } from "./task-gateway-adapter.js";
 import {
-  appendCustomTaskRequirement,
-  materializeCustomTaskWorkspace,
-  writeCustomTaskStatus,
-} from "./task-workspace.js";
+  applyCustomTaskExecutionIntents,
+  type CustomTaskExecutor,
+} from "./task-executor-adapter.js";
 
 export type CustomSlashGatewayReply =
   | { kind: "text"; text: string }
@@ -52,6 +51,7 @@ export function handleCustomSlashGatewayCommand(params: {
   rawContent: string;
   now?: number;
   applyTaskWorkspaceEffects?: boolean;
+  taskExecutor?: CustomTaskExecutor;
 }): CustomSlashGatewayResult {
   const logs: CustomSlashGatewayLog[] = [];
   const persist: CustomSlashGatewayPersist = {};
@@ -121,18 +121,21 @@ export function handleCustomSlashGatewayCommand(params: {
   if (customTaskCommand.handled) {
     if (customTaskCommand.changed) {
       persist.tasks = true;
-      if (applyTaskWorkspaceEffects) {
-        try {
-          if (customTaskCommand.change === "created" && customTaskCommand.task) {
-            materializeCustomTaskWorkspace(customTaskCommand.task);
-          } else if (customTaskCommand.change === "requirement-added" && customTaskCommand.task && customTaskCommand.requirement) {
-            appendCustomTaskRequirement(customTaskCommand.task, customTaskCommand.requirement);
-          } else if (customTaskCommand.task) {
-            writeCustomTaskStatus(customTaskCommand.task);
-          }
-        } catch (err) {
-          logs.push({ level: "error", message: `Failed to update custom task workspace: ${err}` });
-        }
+      const execution = applyCustomTaskExecutionIntents({
+        tasks: params.runtime.tasks,
+        intents: customTaskCommand.intents,
+        executor: params.taskExecutor,
+        applyWorkspaceEffects: applyTaskWorkspaceEffects,
+        now: params.now,
+      });
+      if (execution.changed) {
+        persist.tasks = true;
+      }
+      for (const effect of execution.effects) {
+        logs.push({
+          level: effect.kind === "error" ? "error" : "info",
+          message: `custom task execution: kind=${effect.kind}${effect.taskId ? ` task=${effect.taskId}` : ""}${effect.runId ? ` run=${effect.runId}` : ""}${effect.message ? ` message=${effect.message}` : ""}`,
+        });
       }
     }
     return handled({
