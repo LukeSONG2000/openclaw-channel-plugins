@@ -146,10 +146,12 @@ Current implementation status:
   - task-scoped
 - Emits typed intents for approval requests, approval resolution, grant consumption, and grant expiry.
 - Deduplicates pending approval requests by peer, actor, capability, and task id.
+- Can import/export `CustomAuthorizationRuntimeState` so the gateway can persist temporary grants and approval requests.
 - `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks.
 - `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.
 - Unauthorized slash commands receive a visible denial message and create an in-memory approval request intent when bound admins exist.
-- Does not yet send QQ approval cards or persist grants/requests; gateway integration currently logs approval intents and returns a text denial to the requester.
+- QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
+- Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
 
 Policy inputs:
 
@@ -229,9 +231,9 @@ Text approval commands:
 
 Still open:
 
-- Persistent grants and requests across gateway reconnects/restarts.
 - Model/tool dispatch authorization outside plugin-level slash commands.
 - Richer custom auth card variants, such as selecting arbitrary grant counts or durations from the card.
+- Optional encryption/redaction for the auth state file if future grants include sensitive notes.
 
 ### `src/custom/unread-runtime.ts`
 

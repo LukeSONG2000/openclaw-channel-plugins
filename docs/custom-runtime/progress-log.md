@@ -124,3 +124,20 @@ Still intentionally open:
 - Scene `agentId` does not yet override framework route selection.
 - Long-task sandbox/workspace isolation is not implemented yet.
 - Per-scene proactive budget/rate-limit enforcement is not implemented yet.
+
+Added durable custom auth state:
+
+- `CustomAuthorizationRuntime` can now load exported state and continue grant/request sequence numbers after restart.
+- Added `src/custom/auth-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json`.
+- Gateway restores custom auth grants/requests on startup and saves after:
+  - approval request creation
+  - approval resolution through `/bot-auth`
+  - approval resolution through QQ inline keyboard buttons
+  - grant consumption/expiry emitted by auth checks
+  - gateway abort/stop
+- Added `tests/custom-auth-store.test.ts` and expanded `tests/custom-auth-runtime.test.ts`.
+
+Still intentionally open:
+
+- Auth state is plain JSON. It currently stores only openids, capabilities, request metadata, and optional notes; add encryption/redaction before storing sensitive note payloads.
+- Model/tool dispatch authorization beyond plugin-level slash commands is still pending.

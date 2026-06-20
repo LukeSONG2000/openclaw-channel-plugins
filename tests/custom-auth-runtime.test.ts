@@ -181,4 +181,32 @@ const rightTask = authRuntime.check({
 assert.equal(rightTask.decision.allowed, true);
 assert.equal(rightTask.decision.source, "temporary-grant");
 
+const restoredRuntime = new CustomAuthorizationRuntime();
+const loadIntents = restoredRuntime.loadState(authRuntime.getState(), { now: 22_000 });
+assert.equal(loadIntents.length, 0);
+const restoredTask = restoredRuntime.check({
+  runtime: runtimeCfg,
+  scene: chatScene,
+  peer,
+  actor: member,
+  capability: "codex.longTask",
+  taskId: "task-1",
+  now: 23_000,
+  requestApproval: false,
+});
+assert.equal(restoredTask.decision.allowed, true);
+assert.equal(restoredTask.decision.source, "temporary-grant");
+
+const nextDenied = restoredRuntime.check({
+  runtime: runtimeCfg,
+  scene: chatScene,
+  peer,
+  actor: member,
+  capability: "deploy.apply",
+  now: 24_000,
+});
+assert.equal(nextDenied.intents[0]?.kind, "request-approval");
+if (nextDenied.intents[0]?.kind !== "request-approval") throw new Error("expected restored runtime request");
+assert.equal(nextDenied.intents[0].request.id.endsWith("-2"), true);
+
 console.log("custom auth runtime tests passed");

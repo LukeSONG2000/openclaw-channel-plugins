@@ -237,6 +237,20 @@ export class CustomAuthorizationRuntime {
     return { grants, requests };
   }
 
+  loadState(state: CustomAuthorizationRuntimeState, options?: { now?: number; pruneExpired?: boolean }): CustomAuthorizationIntent[] {
+    this.clear();
+    for (const [id, grant] of Object.entries(state.grants ?? {})) {
+      this.grants.set(id, cloneGrant(grant));
+      this.bumpGrantSeq(id);
+    }
+    for (const [id, request] of Object.entries(state.requests ?? {})) {
+      this.requests.set(id, cloneRequest(request));
+      this.bumpRequestSeq(id);
+    }
+    if (options?.pruneExpired === false) return [];
+    return this.pruneExpired(options?.now ?? Date.now());
+  }
+
   clear(): void {
     this.grants.clear();
     this.requests.clear();
@@ -328,6 +342,16 @@ export class CustomAuthorizationRuntime {
     this.requests.set(request.id, request);
     return { request, deduped: false };
   }
+
+  private bumpGrantSeq(id: string): void {
+    const seq = parseTrailingSeq(id);
+    if (seq > this.grantSeq) this.grantSeq = seq;
+  }
+
+  private bumpRequestSeq(id: string): void {
+    const seq = parseTrailingSeq(id);
+    if (seq > this.requestSeq) this.requestSeq = seq;
+  }
 }
 
 function boundAdmins(runtime: CustomRuntimeConfig): string[] {
@@ -366,4 +390,11 @@ function cloneRequest(request: CustomAuthorizationApprovalRequest): CustomAuthor
     actor: { ...request.actor },
     admins: request.admins.slice(),
   };
+}
+
+function parseTrailingSeq(id: string): number {
+  const m = id.match(/-(\d+)$/);
+  if (!m) return 0;
+  const n = Number.parseInt(m[1]!, 10);
+  return Number.isFinite(n) ? n : 0;
 }

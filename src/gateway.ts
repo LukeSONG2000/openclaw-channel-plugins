@@ -65,6 +65,7 @@ import {
   handleCustomAuthCommand,
   handleCustomAuthInteraction,
 } from "./custom/auth-gateway-adapter.js";
+import { loadCustomAuthorizationState, saveCustomAuthorizationState } from "./custom/auth-store.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -81,6 +82,7 @@ async function handleInteractionCreate(params: {
   account: ResolvedQQBotAccount;
   cfg: unknown;
   customAuth?: CustomMessageFlowRuntime["auth"];
+  persistCustomAuthState?: () => void;
   log?: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void };
 }): Promise<void> {
   const { event, account, cfg, log } = params;
@@ -222,6 +224,7 @@ async function handleInteractionCreate(params: {
         for (const item of describeCustomAuthorizationIntents([customAuthResult.intent])) {
           log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
         }
+        params.persistCustomAuthState?.();
       }
       if (customAuthResult.reply) {
         try {
@@ -634,6 +637,20 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     isAborted: () => isAborted,
   });
   const customMessageFlow = createCustomMessageFlowRuntime();
+  const restoredCustomAuthState = loadCustomAuthorizationState(account.accountId);
+  if (restoredCustomAuthState) {
+    const restoredIntents = customMessageFlow.auth.loadState(restoredCustomAuthState);
+    log?.info(`[qqbot:${account.accountId}] Restored custom auth state: grants=${Object.keys(restoredCustomAuthState.grants).length}, requests=${Object.keys(restoredCustomAuthState.requests).length}`);
+    if (restoredIntents.length) {
+      for (const item of describeCustomAuthorizationIntents(restoredIntents)) {
+        log?.info(`[qqbot:${account.accountId}] custom auth restore: ${item}`);
+      }
+      saveCustomAuthorizationState(account.accountId, customMessageFlow.auth.getState());
+    }
+  }
+  const persistCustomAuthState = (): void => {
+    saveCustomAuthorizationState(account.accountId, customMessageFlow.auth.getState());
+  };
   const customUnreadFollowupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const customUnreadSleepDigestTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -736,6 +753,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           for (const item of describeCustomAuthorizationIntents([customAuthCommand.intent])) {
             log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
           }
+          persistCustomAuthState();
         }
         if (customAuthCommand.reply) {
           try {
@@ -757,6 +775,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         for (const item of describeCustomAuthorizationIntents(authDecision.result.intents)) {
           log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
         }
+        persistCustomAuthState();
       }
       if (authDecision.enabled && authDecision.reason === "denied") {
         log?.info(`[qqbot:${account.accountId}] Slash command denied by custom auth: capability=${authDecision.capability} sender=${msg.senderId} content=${content.slice(0, 80)}`);
@@ -852,6 +871,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     flushKnownUsers();
     // P1-4: 保存引用索引数据
     flushRefIndex();
+    // 保存自定义授权状态
+    persistCustomAuthState();
     // 停止审批 handler
     void approvalHandler.stop();
     unregisterApprovalHandler(account.accountId);
@@ -2275,7 +2296,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const resolved = ev.data?.resolved;
           const sceneDesc = ev.scene ?? (ev.chat_type === 0 ? "guild" : ev.chat_type === 1 ? "group" : "c2c");
           log?.info(`[qqbot:${account.accountId}] Interaction: scene=${sceneDesc}, type=${ev.data?.type}, button_id=${resolved?.button_id}, button_data=${resolved?.button_data}`);
-          handleInteractionCreate({ event: ev, account, cfg, customAuth: customMessageFlow.auth, log }).catch((err) => {
+          handleInteractionCreate({ event: ev, account, cfg, customAuth: customMessageFlow.auth, persistCustomAuthState, log }).catch((err) => {
             log?.error(`[qqbot:${account.accountId}] Failed to handle interaction ${ev.id}: ${err}`);
           });
         }
