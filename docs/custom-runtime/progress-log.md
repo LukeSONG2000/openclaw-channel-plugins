@@ -156,7 +156,6 @@ Added custom proactive budget guard:
 
 Still intentionally open:
 
-- Media proactive sends routed through generic media auto-routing need the same guard.
 - Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.
 
 Added proactive acceptance hard block:
@@ -169,7 +168,18 @@ Added proactive acceptance hard block:
 
 Still intentionally open:
 
-- Media proactive sends routed through generic media auto-routing need the same guard.
+- Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.
+
+Expanded proactive guard to media sends:
+
+- `CustomProactiveSendGuard` now carries payload kind and media URL metadata while remaining compatible with text sends.
+- `src/utils/media-send.ts` accepts a small prepare/commit hook so media tag queues can be guarded without importing the custom runtime.
+- `src/outbound-deliver.ts` guards media tag queues, Base64 image sends, plain image sends, local/payload media auto-routing, and tool media forwarding before unanchored proactive sends.
+- Gateway direct tool fallback and post-block tool media forwarding now reuse the same proactive guard and commit only after successful media send.
+- Added `tests/media-send-proactive-guard.test.ts` and expanded `tests/custom-proactive-send-guard.test.ts`.
+
+Still intentionally open:
+
 - Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.
 
 Added custom long-task sandbox state skeleton:

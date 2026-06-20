@@ -145,10 +145,11 @@ Current implementation status:
   - `rateLimitMax=1`
 - Tracks budget by `accountId + peer.kind + peer.id` and UTC month.
 - Persists QQ group proactive acceptance state from `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE`.
-- Blocks group proactive text sends while the latest local acceptance state is rejected.
-- Counts only after a proactive text send succeeds, so token retry or failed sends do not consume budget.
+- Blocks group proactive sends while the latest local acceptance state is rejected.
+- Counts only after a proactive text or media send succeeds, so token retry or failed sends do not consume budget.
 - Persists state under `~/.openclaw/qqbot/data/custom-proactive-budget/budget-<accountId>.json`.
-- Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up text sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
+- Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
+- The same guard now covers media tag queues, Base64 image sends, local/payload media auto-routing, and tool fallback/immediate media forwarding.
 
 Example:
 
@@ -179,7 +180,6 @@ Example:
 
 Open items:
 
-- Media proactive sends routed through generic `sendMediaAuto` still need the same guard.
 - Official docs note proactive push capability may error after the 2025-04-21 adjustment; server validation is still required before enabling autonomous proactive scenes broadly.
 
 ### `src/custom/auth.ts`

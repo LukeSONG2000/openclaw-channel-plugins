@@ -36,7 +36,7 @@ import { parseFaceTags, parseRefIndices, buildAttachmentSummaries } from "./util
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendWithTokenRetry, sendErrorToTarget, handleStructuredPayload, type ReplyContext, type MessageTarget } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
-import { parseAndSendMediaTags, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
+import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
@@ -1774,6 +1774,80 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // 发送错误提示的辅助函数
         const sendErrorMessage = (errorText: string) => sendErrorToTarget(replyCtx, errorText);
+        const deliverEvent: DeliverEventContext = {
+          type: event.type,
+          senderId: event.senderId,
+          messageId: event.messageId,
+          replyToId: replyAnchorId,
+          channelId: event.channelId,
+          groupOpenid: event.groupOpenid,
+          msgIdx: event.msgIdx,
+        };
+        const deliverActx: DeliverAccountContext = {
+          account,
+          qualifiedTarget,
+          log,
+          proactiveGuard: ({ targetType, targetId, text }) => {
+            if (!isCustomRuntimeEnabled()) return { allowed: true };
+            const peer: CustomPeer = { kind: targetType, id: targetId };
+            const proactiveCfg = inspectCustomProactiveConfig({
+              cfg: cfg as any,
+              message: {
+                accountId: account.accountId,
+                peer,
+                actor: { id: event.senderId, label: event.senderName, isBot: event.senderIsBot },
+                content: text,
+                messageId: event.messageId,
+                timestamp: new Date(event.timestamp).getTime(),
+                mentionedBot: false,
+              },
+            });
+            const check = customMessageFlow.proactiveBudget.check({
+              accountId: account.accountId,
+              peer,
+              cfg: proactiveCfg,
+            });
+            if (!check.allowed) {
+              const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
+              return {
+                allowed: false,
+                reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
+              };
+            }
+            return {
+              allowed: true,
+              commit: () => {
+                const recorded = customMessageFlow.proactiveBudget.record({
+                  accountId: account.accountId,
+                  peer,
+                  cfg: proactiveCfg,
+                });
+                log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
+                persistCustomProactiveBudgetState();
+              },
+            };
+          },
+        };
+        const sendGuardedMediaAuto = async (mediaUrl: string, label: string): Promise<{ channel: string; error?: string }> => {
+          const proactiveGuardDecision = prepareProactiveMediaSend(deliverEvent, deliverActx, "media", mediaUrl);
+          if (!proactiveGuardDecision.allowed) {
+            const reason = `${label} blocked by custom proactive guard: ${proactiveGuardDecision.reason}`;
+            log?.error(`[qqbot:${account.accountId}] ${reason}`);
+            return { channel: "qqbot", error: reason };
+          }
+          const result = await sendMediaAuto({
+            to: qualifiedTarget,
+            text: "",
+            mediaUrl,
+            accountId: account.accountId,
+            replyToId: replyAnchorId,
+            account,
+          });
+          if (!result.error) {
+            proactiveGuardDecision.commit?.();
+          }
+          return result;
+        };
 
         // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码
         // （包括 AI agent 调用、tool execute）都能安全获取当前会话信息，无并发竞态。
@@ -1811,14 +1885,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               for (const mediaUrl of toolMediaUrls) {
                 try {
                   const result = await Promise.race([
-                    sendMediaAuto({
-                      to: qualifiedTarget,
-                      text: "",
-                      mediaUrl,
-                      accountId: account.accountId,
-                      replyToId: replyAnchorId,
-                      account,
-                    }),
+                    sendGuardedMediaAuto(mediaUrl, "Tool fallback media"),
                     new Promise<{ channel: string; error: string }>((resolve) =>
                       setTimeout(() => resolve({ channel: "qqbot", error: `Tool fallback media send timeout (${mediaTimeout / 1000}s)` }), mediaTimeout)
                     ),
@@ -1930,14 +1997,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     log?.info(`[qqbot:${account.accountId}] Block already sent, immediately forwarding ${urlsToSend.length} tool media URL(s) (deduped from block deliver)`);
                     for (const mediaUrl of urlsToSend) {
                       try {
-                        const result = await sendMediaAuto({
-                          to: qualifiedTarget,
-                          text: "",
-                          mediaUrl,
-                          accountId: account.accountId,
-                          replyToId: replyAnchorId,
-                          account,
-                        });
+                        const result = await sendGuardedMediaAuto(mediaUrl, "Tool media immediate forward");
                         if (result.error) {
                           log?.error(`[qqbot:${account.accountId}] Tool media immediate forward error: ${result.error}`);
                         } else {
@@ -2052,61 +2112,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   let replyText = deliverPayload.text ?? "";
 
                   // ============ 媒体标签解析 + 发送 ============
-                  const deliverEvent: DeliverEventContext = {
-                    type: event.type,
-                    senderId: event.senderId,
-                    messageId: event.messageId,
-                    replyToId: replyAnchorId,
-                    channelId: event.channelId,
-                    groupOpenid: event.groupOpenid,
-                    msgIdx: event.msgIdx,
-                  };
-                  const deliverActx: DeliverAccountContext = {
-                    account,
-                    qualifiedTarget,
-                    log,
-                    proactiveGuard: ({ targetType, targetId, text }) => {
-                      if (!isCustomRuntimeEnabled()) return { allowed: true };
-                      const peer: CustomPeer = { kind: targetType, id: targetId };
-                      const proactiveCfg = inspectCustomProactiveConfig({
-                        cfg: cfg as any,
-                        message: {
-                          accountId: account.accountId,
-                          peer,
-                          actor: { id: event.senderId, label: event.senderName, isBot: event.senderIsBot },
-                          content: text,
-                          messageId: event.messageId,
-                          timestamp: new Date(event.timestamp).getTime(),
-                          mentionedBot: false,
-                        },
-                      });
-                      const check = customMessageFlow.proactiveBudget.check({
-                        accountId: account.accountId,
-                        peer,
-                        cfg: proactiveCfg,
-                      });
-                      if (!check.allowed) {
-                        const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
-                        return {
-                          allowed: false,
-                          reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
-                        };
-                      }
-                      return {
-                        allowed: true,
-                        commit: () => {
-                          const recorded = customMessageFlow.proactiveBudget.record({
-                            accountId: account.accountId,
-                            peer,
-                            cfg: proactiveCfg,
-                          });
-                          log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
-                          persistCustomProactiveBudgetState();
-                        },
-                      };
-                    },
-                  };
-
                   const mediaResult = await parseAndSendMediaTags(
                     replyText, deliverEvent, deliverActx, sendWithRetry, consumeQuoteRef,
                   );

@@ -33,6 +33,7 @@ import {
   prepareCustomProactiveSend,
   type CustomProactiveSendGuard,
   type CustomProactiveSendGuardDecision,
+  type CustomProactiveSendPayloadKind,
 } from "./custom/proactive-send-guard.js";
 
 // ============ 类型定义 ============
@@ -112,6 +113,9 @@ export async function parseAndSendMediaTags(
     onSendText: async (textContent) => {
       await sendTextChunks(filterInternalMarkers(textContent), event, actx, sendWithRetry, consumeQuoteRef);
     },
+    prepareSend: (item) => item.type === "text"
+      ? { allowed: true }
+      : prepareProactiveMediaSend(event, actx, item.type, item.content),
   });
 
   return { handled: true, normalizedText: replyText };
@@ -232,6 +236,11 @@ export async function sendPlainReply(
     log?.info(`${prefix} Sending ${localMediaToSend.length} local media via sendMedia auto-routing`);
     for (const mediaPath of localMediaToSend) {
       try {
+        const proactiveGuardDecision = prepareProactiveMediaSend(event, actx, "media", mediaPath);
+        if (!proactiveGuardDecision.allowed) {
+          log?.error(`${prefix} Proactive local media blocked: ${proactiveGuardDecision.reason}`);
+          continue;
+        }
         const result = await sendMediaAuto({
           to: qualifiedTarget, text: "", mediaUrl: mediaPath,
           accountId: account.accountId, replyToId: event.replyToId, account,
@@ -240,6 +249,7 @@ export async function sendPlainReply(
           log?.error(`${prefix} sendMedia(auto) error for ${mediaPath}: ${result.error}`);
           await sendTextChunks(resolveUserFacingMediaError(result), event, actx, sendWithRetry, consumeQuoteRef);
         } else {
+          proactiveGuardDecision.commit?.();
           log?.info(`${prefix} Sent local media: ${mediaPath}`);
         }
       } catch (err) {
@@ -260,6 +270,11 @@ export async function sendPlainReply(
       log?.info(`${prefix} Forwarding ${dedupedToolMedia.length} tool-collected media URL(s) after block deliver`);
       for (const mediaUrl of dedupedToolMedia) {
         try {
+          const proactiveGuardDecision = prepareProactiveMediaSend(event, actx, "media", mediaUrl);
+          if (!proactiveGuardDecision.allowed) {
+            log?.error(`${prefix} Proactive tool media blocked: ${proactiveGuardDecision.reason}`);
+            continue;
+          }
           const result = await sendMediaAuto({
             to: qualifiedTarget, text: "", mediaUrl,
             accountId: account.accountId, replyToId: event.replyToId, account,
@@ -268,6 +283,7 @@ export async function sendPlainReply(
             log?.error(`${prefix} Tool media forward error: ${result.error}`);
             await sendTextChunks(resolveUserFacingMediaError(result), event, actx, sendWithRetry, consumeQuoteRef);
           } else {
+            proactiveGuardDecision.commit?.();
             log?.info(`${prefix} Forwarded tool media: ${mediaUrl.slice(0, 80)}...`);
           }
         } catch (err) {
@@ -288,6 +304,24 @@ export function prepareProactiveSend(
   text: string,
 ): CustomProactiveSendGuardDecision {
   return prepareCustomProactiveSend(event, actx, text);
+}
+
+export function prepareProactiveMediaSend(
+  event: DeliverEventContext,
+  actx: DeliverAccountContext,
+  kind: Exclude<CustomProactiveSendPayloadKind, "text">,
+  mediaUrl: string,
+): CustomProactiveSendGuardDecision {
+  return prepareCustomProactiveSend(event, actx, {
+    kind,
+    mediaUrl,
+    text: formatProactiveMediaText(kind, mediaUrl),
+  });
+}
+
+function formatProactiveMediaText(kind: Exclude<CustomProactiveSendPayloadKind, "text">, mediaUrl: string): string {
+  const compactUrl = mediaUrl.length <= 200 ? mediaUrl : `${mediaUrl.slice(0, 200)}...`;
+  return `[${kind}] ${compactUrl}`;
 }
 
 /** 发送文本分块（共用逻辑） */
@@ -358,6 +392,11 @@ async function sendMarkdownReply(
     log?.info(`${prefix} Sending ${base64ImageUrls.length} image(s) via Rich Media API...`);
     for (const imageUrl of base64ImageUrls) {
       try {
+        const proactiveGuardDecision = prepareProactiveMediaSend(event, actx, "image", imageUrl);
+        if (!proactiveGuardDecision.allowed) {
+          log?.error(`${prefix} Proactive Base64 image blocked: ${proactiveGuardDecision.reason}`);
+          continue;
+        }
         await sendWithRetry(async (token) => {
           if (event.type === "c2c") {
             await sendC2CImageMessage(token, event.senderId, imageUrl, event.replyToId);
@@ -367,6 +406,7 @@ async function sendMarkdownReply(
             log?.info(`${prefix} Channel does not support rich media, skipping Base64 image`);
           }
         });
+        proactiveGuardDecision.commit?.();
         log?.info(`${prefix} Sent Base64 image via Rich Media API (size: ${imageUrl.length} chars)`);
       } catch (imgErr) {
         log?.error(`${prefix} Failed to send Base64 image via Rich Media API: ${imgErr}`);
@@ -487,11 +527,17 @@ async function sendPlainTextReply(
   try {
     for (const imageUrl of imageUrls) {
       try {
+        const proactiveGuardDecision = prepareProactiveMediaSend(event, actx, "image", imageUrl);
+        if (!proactiveGuardDecision.allowed) {
+          log?.error(`${prefix} Proactive image blocked: ${proactiveGuardDecision.reason}`);
+          continue;
+        }
         const imgResult = await sendPhoto(imgMediaTarget, imageUrl);
         if (imgResult.error) {
           log?.error(`${prefix} Failed to send image: ${imgResult.error}`);
           await sendTextChunks(resolveUserFacingMediaError(imgResult), event, actx, sendWithRetry, consumeQuoteRef);
         } else {
+          proactiveGuardDecision.commit?.();
           log?.info(`${prefix} Sent image via sendPhoto: ${imageUrl.slice(0, 80)}...`);
         }
       } catch (imgErr) {

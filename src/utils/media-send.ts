@@ -19,6 +19,7 @@ import {
   type MediaTargetContext,
 } from "../outbound.js";
 import type { ResolvedQQBotAccount } from "../types.js";
+import type { OutboundResult } from "../outbound.js";
 
 // ============ 类型定义 ============
 
@@ -26,6 +27,18 @@ import type { ResolvedQQBotAccount } from "../types.js";
 export interface SendQueueItem {
   type: "text" | "image" | "voice" | "video" | "file" | "media";
   content: string;
+}
+
+export type MediaSendPrepareDecision =
+  | { allowed: true; commit?: () => void }
+  | { allowed: false; reason: string };
+
+export interface MediaSendHandlers {
+  sendPhoto: typeof sendPhoto;
+  sendVoice: typeof sendVoice;
+  sendVideoMsg: typeof sendVideoMsg;
+  sendDocument: typeof sendDocument;
+  sendMediaAuto: typeof sendMediaAuto;
 }
 
 /** 统一的媒体标签正则 — 匹配标准化后的 6 种标签 */
@@ -395,12 +408,24 @@ export async function executeSendQueue(
   options: {
     /** 文本发送回调（每种场景的文本发送方式不同） */
     onSendText?: (text: string) => Promise<void>;
+    /** 媒体发送前检查；成功发送后会调用 commit */
+    prepareSend?: (item: SendQueueItem) => MediaSendPrepareDecision;
+    /** 测试注入点；生产调用不传 */
+    handlers?: Partial<MediaSendHandlers>;
     /** 是否跳过 inter-tag 文本（流式模式下通常跳过，由新流式会话处理） */
     skipInterTagText?: boolean;
   } = {},
 ): Promise<void> {
   const { mediaTarget, qualifiedTarget, account, replyToId, log } = ctx;
   const prefix = mediaTarget.logPrefix ?? `[qqbot:${account.accountId}]`;
+  const handlers: MediaSendHandlers = {
+    sendPhoto,
+    sendVoice,
+    sendVideoMsg,
+    sendDocument,
+    sendMediaAuto,
+    ...options.handlers,
+  };
 
   /** 媒体发送失败时的兜底：通过 onSendText 发送错误文本给用户 */
   const sendFallbackText = async (errorMsg: string): Promise<void> => {
@@ -431,12 +456,20 @@ export async function executeSendQueue(
       }
 
       log?.info(`${prefix} executeSendQueue: sending ${item.type}: ${item.content.slice(0, 80)}...`);
+      const sendDecision = options.prepareSend?.(item) ?? { allowed: true as const };
+      if (!sendDecision.allowed) {
+        log?.error(`${prefix} executeSendQueue: ${item.type} blocked before send: ${sendDecision.reason}`);
+        continue;
+      }
+      let sent = false;
 
       if (item.type === "image") {
-        const result = await sendPhoto(mediaTarget, item.content);
+        const result = await handlers.sendPhoto(mediaTarget, item.content);
         if (result.error) {
           log?.error(`${prefix} sendPhoto error: ${result.error}`);
           await sendFallbackText(resolveUserFacingMediaError(result));
+        } else {
+          sent = true;
         }
       } else if (item.type === "voice") {
         const uploadFormats =
@@ -447,8 +480,8 @@ export async function executeSendQueue(
         const voiceTimeout = 45000; // 45s
         try {
           const result = await Promise.race([
-            sendVoice(mediaTarget, item.content, uploadFormats, transcodeEnabled),
-            new Promise<{ channel: string; error: string }>((resolve) =>
+            handlers.sendVoice(mediaTarget, item.content, uploadFormats, transcodeEnabled),
+            new Promise<OutboundResult>((resolve) =>
               setTimeout(
                 () => resolve({ channel: "qqbot", error: "语音发送超时，已跳过" }),
                 voiceTimeout,
@@ -458,25 +491,31 @@ export async function executeSendQueue(
           if (result.error) {
             log?.error(`${prefix} sendVoice error: ${result.error}`);
             await sendFallbackText(resolveUserFacingMediaError(result));
+          } else {
+            sent = true;
           }
         } catch (err) {
           log?.error(`${prefix} sendVoice unexpected error: ${err}`);
           await sendFallbackText(DEFAULT_MEDIA_SEND_ERROR);
         }
       } else if (item.type === "video") {
-        const result = await sendVideoMsg(mediaTarget, item.content);
+        const result = await handlers.sendVideoMsg(mediaTarget, item.content);
         if (result.error) {
           log?.error(`${prefix} sendVideoMsg error: ${result.error}`);
           await sendFallbackText(resolveUserFacingMediaError(result));
+        } else {
+          sent = true;
         }
       } else if (item.type === "file") {
-        const result = await sendDocument(mediaTarget, item.content);
+        const result = await handlers.sendDocument(mediaTarget, item.content);
         if (result.error) {
           log?.error(`${prefix} sendDocument error: ${result.error}`);
           await sendFallbackText(resolveUserFacingMediaError(result));
+        } else {
+          sent = true;
         }
       } else if (item.type === "media") {
-        const result = await sendMediaAuto({
+        const result = await handlers.sendMediaAuto({
           to: qualifiedTarget,
           text: "",
           mediaUrl: item.content,
@@ -487,7 +526,12 @@ export async function executeSendQueue(
         if (result.error) {
           log?.error(`${prefix} sendMedia(auto) error: ${result.error}`);
           await sendFallbackText(resolveUserFacingMediaError(result));
+        } else {
+          sent = true;
         }
+      }
+      if (sent) {
+        sendDecision.commit?.();
       }
     } catch (err) {
       log?.error(`${prefix} executeSendQueue: failed to send ${item.type}: ${err}`);
