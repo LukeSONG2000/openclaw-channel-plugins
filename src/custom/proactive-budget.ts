@@ -1,4 +1,5 @@
 import type {
+  CustomProactiveAcceptanceEntry,
   CustomPeer,
   CustomProactiveBudgetEntry,
   CustomProactiveBudgetRuntimeState,
@@ -20,13 +21,15 @@ export interface ResolvedCustomProactiveConfig {
 
 export interface CustomProactiveBudgetDecision {
   allowed: boolean;
-  reason: "allowed" | "disabled" | "monthly_limit" | "rate_limit";
+  reason: "allowed" | "disabled" | "rejected" | "monthly_limit" | "rate_limit";
   key: string;
   period: string;
   used: number;
   monthlyLimit: number;
   recentCount: number;
   rateLimitMax: number;
+  accepted?: boolean;
+  acceptanceUpdatedAt?: number;
   retryAfterMs?: number;
 }
 
@@ -59,6 +62,7 @@ export function customProactiveBudgetKey(accountId: string, peer: CustomPeer): s
 
 export class CustomProactiveBudgetRuntime {
   private readonly entries = new Map<string, CustomProactiveBudgetEntry>();
+  private readonly acceptance = new Map<string, CustomProactiveAcceptanceEntry>();
 
   check(params: {
     accountId: string;
@@ -71,6 +75,11 @@ export class CustomProactiveBudgetRuntime {
     const key = customProactiveBudgetKey(params.accountId, params.peer);
     if (!params.cfg.enabled) {
       return decision({ allowed: false, reason: "disabled", key, period, entry: emptyEntry(period, now), cfg: params.cfg });
+    }
+
+    const acceptance = this.acceptance.get(key);
+    if (acceptance && acceptance.accepted === false) {
+      return decision({ allowed: false, reason: "rejected", key, period, entry: this.getEntry(key, period, now), cfg: params.cfg, acceptance });
     }
 
     const entry = this.getEntry(key, period, now);
@@ -112,7 +121,11 @@ export class CustomProactiveBudgetRuntime {
     for (const [key, entry] of this.entries) {
       entries[key] = cloneEntry(entry);
     }
-    return { entries };
+    const acceptance: CustomProactiveBudgetRuntimeState["acceptance"] = {};
+    for (const [key, entry] of this.acceptance) {
+      acceptance[key] = { ...entry };
+    }
+    return { entries, acceptance };
   }
 
   loadState(state: CustomProactiveBudgetRuntimeState, options?: { now?: number; pruneOldPeriods?: boolean }): void {
@@ -123,10 +136,31 @@ export class CustomProactiveBudgetRuntime {
       if (options?.pruneOldPeriods !== false && entry.period !== currentPeriod) continue;
       this.entries.set(key, cloneEntry(entry));
     }
+    for (const [key, entry] of Object.entries(state.acceptance ?? {})) {
+      this.acceptance.set(key, { ...entry });
+    }
   }
 
   clear(): void {
     this.entries.clear();
+    this.acceptance.clear();
+  }
+
+  setAcceptance(params: {
+    accountId: string;
+    peer: CustomPeer;
+    accepted: boolean;
+    updatedBy?: string;
+    now?: number;
+  }): CustomProactiveAcceptanceEntry {
+    const key = customProactiveBudgetKey(params.accountId, params.peer);
+    const entry: CustomProactiveAcceptanceEntry = {
+      accepted: params.accepted,
+      updatedAt: params.now ?? Date.now(),
+      updatedBy: params.updatedBy,
+    };
+    this.acceptance.set(key, entry);
+    return { ...entry };
   }
 
   private getEntry(key: string, period: string, now: number): CustomProactiveBudgetEntry {
@@ -146,6 +180,7 @@ function decision(params: {
   entry: CustomProactiveBudgetEntry;
   cfg: ResolvedCustomProactiveConfig;
   retryAfterMs?: number;
+  acceptance?: CustomProactiveAcceptanceEntry;
 }): CustomProactiveBudgetDecision {
   return {
     allowed: params.allowed,
@@ -156,6 +191,8 @@ function decision(params: {
     monthlyLimit: params.cfg.monthlyLimit,
     recentCount: params.entry.recent.length,
     rateLimitMax: params.cfg.rateLimitMax,
+    accepted: params.acceptance?.accepted,
+    acceptanceUpdatedAt: params.acceptance?.updatedAt,
     retryAfterMs: params.retryAfterMs,
   };
 }

@@ -61,6 +61,29 @@ assert.equal(rateBlocked.retryAfterMs, 500);
 const afterWindow = rateBudget.check({ accountId: "default", peer, cfg: rateCfg, now: 6_001 });
 assert.equal(afterWindow.allowed, true);
 
+const rejectedBudget = new CustomProactiveBudgetRuntime();
+rejectedBudget.setAcceptance({
+  accountId: "default",
+  peer,
+  accepted: false,
+  updatedBy: "MEMBER_OPENID",
+  now: 7_000,
+});
+const rejected = rejectedBudget.check({ accountId: "default", peer, cfg: rateCfg, now: 7_100 });
+assert.equal(rejected.allowed, false);
+assert.equal(rejected.reason, "rejected");
+assert.equal(rejected.accepted, false);
+assert.equal(rejected.acceptanceUpdatedAt, 7_000);
+rejectedBudget.setAcceptance({
+  accountId: "default",
+  peer,
+  accepted: true,
+  updatedBy: "MEMBER_OPENID",
+  now: 8_000,
+});
+const acceptedAgain = rejectedBudget.check({ accountId: "default", peer, cfg: rateCfg, now: 8_100 });
+assert.equal(acceptedAgain.allowed, true);
+
 const disabledCfg = resolveCustomProactiveConfig({
   runtime: { enabled: true, proactive: { enabled: false } },
   scene: { scene: "chat" },
@@ -74,5 +97,7 @@ restored.loadState(budget.getState(), { now: Date.UTC(2026, 5, 15) });
 assert.equal(Object.keys(restored.getState().entries).length, 0);
 restored.loadState(budget.getState(), { now: 1_500, pruneOldPeriods: false });
 assert.equal(Object.keys(restored.getState().entries).length, 1);
+rejectedBudget.loadState(rejectedBudget.getState(), { now: 8_500 });
+assert.equal(Object.values(rejectedBudget.getState().acceptance)[0]?.accepted, true);
 
 console.log("custom proactive budget tests passed");

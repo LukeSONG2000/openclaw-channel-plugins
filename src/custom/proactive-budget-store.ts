@@ -76,6 +76,7 @@ export function saveCustomProactiveBudgetState(
 function normalizeBudgetState(state: CustomProactiveBudgetRuntimeState): CustomProactiveBudgetRuntimeState {
   return {
     entries: { ...(state.entries ?? {}) },
+    acceptance: { ...(state.acceptance ?? {}) },
   };
 }
 

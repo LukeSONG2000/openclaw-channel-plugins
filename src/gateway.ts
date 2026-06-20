@@ -260,6 +260,16 @@ async function handleInteractionCreate(params: {
   }
 }
 
+function normalizePlatformTimestampMs(timestamp: unknown): number {
+  const n = typeof timestamp === "number"
+    ? timestamp
+    : typeof timestamp === "string"
+      ? Number(timestamp)
+      : NaN;
+  if (!Number.isFinite(n) || n <= 0) return Date.now();
+  return n < 10_000_000_000 ? n * 1000 : n;
+}
+
 // /activation 命令支持：读取 session store 中的 groupActivation 值
 // plugin-sdk 未导出 loadSessionStore，插件侧内联实现（只读）
 
@@ -2344,9 +2354,25 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         } else if (t === "GROUP_MSG_REJECT") {
           const ev = d as { timestamp: number; group_openid: string; op_member_openid: string };
           log?.info(`[qqbot:${account.accountId}] Group ${ev.group_openid} rejected bot proactive messages (by ${ev.op_member_openid})`);
+          customMessageFlow.proactiveBudget.setAcceptance({
+            accountId: account.accountId,
+            peer: { kind: "group", id: ev.group_openid },
+            accepted: false,
+            updatedBy: ev.op_member_openid,
+            now: normalizePlatformTimestampMs(ev.timestamp),
+          });
+          persistCustomProactiveBudgetState();
         } else if (t === "GROUP_MSG_RECEIVE") {
           const ev = d as { timestamp: number; group_openid: string; op_member_openid: string };
           log?.info(`[qqbot:${account.accountId}] Group ${ev.group_openid} accepted bot proactive messages (by ${ev.op_member_openid})`);
+          customMessageFlow.proactiveBudget.setAcceptance({
+            accountId: account.accountId,
+            peer: { kind: "group", id: ev.group_openid },
+            accepted: true,
+            updatedBy: ev.op_member_openid,
+            now: normalizePlatformTimestampMs(ev.timestamp),
+          });
+          persistCustomProactiveBudgetState();
         } else if (t === "INTERACTION_CREATE") {
           const ev = d as InteractionEvent;
           const resolved = ev.data?.resolved;

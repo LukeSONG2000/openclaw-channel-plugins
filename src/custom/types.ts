@@ -154,6 +154,13 @@ export interface CustomProactiveBudgetEntry {
   updatedAt: number;
 }
 
+export interface CustomProactiveAcceptanceEntry {
+  accepted: boolean;
+  updatedAt: number;
+  updatedBy?: string;
+}
+
 export interface CustomProactiveBudgetRuntimeState {
   entries: Record<string, CustomProactiveBudgetEntry>;
+  acceptance: Record<string, CustomProactiveAcceptanceEntry>;
 }

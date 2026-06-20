@@ -157,5 +157,17 @@ Added custom proactive budget guard:
 Still intentionally open:
 
 - Media proactive sends routed through generic media auto-routing need the same guard.
-- `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE` proactive acceptance events are logged but not yet persisted as hard blocks.
+- Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.
+
+Added proactive acceptance hard block:
+
+- `CustomProactiveBudgetRuntime` now persists per-peer proactive acceptance state alongside monthly/rate budget entries.
+- Gateway handles `GROUP_MSG_REJECT` by marking the group rejected and saving budget state.
+- Gateway handles `GROUP_MSG_RECEIVE` by marking the group accepted and saving budget state.
+- Guard checks reject state before monthly/rate checks, so group proactive text sends are blocked locally while a group has disabled receiving proactive bot messages.
+- Expanded proactive budget/store tests to cover acceptance persistence and reject/receive state transitions.
+
+Still intentionally open:
+
+- Media proactive sends routed through generic media auto-routing need the same guard.
 - Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.

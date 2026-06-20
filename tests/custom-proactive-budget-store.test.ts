@@ -21,6 +21,13 @@ try {
         updatedAt: 2_000,
       },
     },
+    acceptance: {
+      "default:group:GROUP_OPENID": {
+        accepted: false,
+        updatedAt: 3_000,
+        updatedBy: "MEMBER_OPENID",
+      },
+    },
   };
 
   assert.equal(saveCustomProactiveBudgetState(accountId, state, { dir: tmpDir }), true);
