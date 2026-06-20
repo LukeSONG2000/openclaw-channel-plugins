@@ -21,6 +21,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     defaultScene: runtime.defaultScene ?? DEFAULT_RUNTIME_CONFIG.defaultScene,
     scenes: runtime.scenes ?? {},
     admins: runtime.admins ?? [],
+    unread: runtime.unread,
   };
 }
 

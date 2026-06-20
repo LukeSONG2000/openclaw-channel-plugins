@@ -40,3 +40,17 @@ Added custom release/update guardrails:
 - `/bot-upgrade` defaults to `upgradeMode: "doc"`; hot reload requires explicit opt-in and admin confirmation.
 - Upgrade scripts now default to the local package name, with `--pkg` still available as an explicit override.
 - Added `tests/update-checker.test.ts` for package source normalization.
+
+Extracted unread/follow-up message flow into pure runtime:
+
+- Added `src/custom/unread-runtime.ts` with no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.
+- Added typed intents for scheduling follow-up timers, scheduling sleep digest timers, enqueueing catch-up, and policy-gated autonomous replies.
+- Added `CustomUnreadConfig` under the custom runtime namespace and scene-level overrides.
+- Added `createCustomMessageFlowRuntime()` and `inspectCustomUnreadConfig()` in `src/custom/runtime.ts`.
+- Added `tests/unread-runtime.test.ts` for non-mention recording, bot-authored ignores, mention follow-up, snapshot consumption, follow-up/sleep firing, and policy gating.
+
+Still intentionally not wired into `src/gateway.ts`:
+
+- Gateway timer management and synthetic `QueuedMessage` adapter.
+- History envelope formatting integration.
+- Proactive group send budget/rate-limit enforcement.

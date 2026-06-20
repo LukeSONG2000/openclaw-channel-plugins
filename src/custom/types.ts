@@ -59,6 +59,7 @@ export interface CustomSceneConfig {
   agentId?: string;
   allowAutonomousReply?: boolean;
   allowProactiveSend?: boolean;
+  unread?: CustomUnreadConfig;
   capabilities?: CustomCapability[];
 }
 
@@ -67,6 +68,16 @@ export interface CustomRuntimeConfig {
   scenes?: Record<string, CustomSceneConfig>;
   admins?: string[];
   defaultScene?: CustomSceneKind;
+  unread?: CustomUnreadConfig;
+}
+
+export interface CustomUnreadConfig {
+  enabled?: boolean;
+  historyLimit?: number;
+  followupDelayMs?: number;
+  sleepDelayMs?: number;
+  allowAutonomousReply?: boolean;
+  allowProactiveSend?: boolean;
 }
 
 export interface CustomAuthorizationDecision {

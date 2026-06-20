@@ -141,14 +141,21 @@ When unauthorized use is detected, generate an approval request to bound admins.
 
 ### `src/custom/unread-runtime.ts`
 
-Owns non-mentioned group history and autonomous speaking.
+Owns non-mentioned group history and autonomous speaking decisions.
+
+Current implementation status:
+
+- Exists as a pure state machine with no QQ API, OpenClaw SDK, timer, filesystem, or gateway queue dependency.
+- Takes normalized `CustomInboundMessage` inputs and returns typed intents.
+- Does not send messages directly. The gateway adapter must convert intents into timers, synthetic queued messages, and send actions.
+- Defaults to policy-gated autonomous/proactive behavior unless the scene explicitly allows it.
 
 State:
 
 - pending messages by `group_openid`
 - recent bot output anchors
-- follow-up timers
-- proactive budget state
+- planned follow-up due time
+- planned sleep-digest due time
 - consumed synthetic history snapshots
 
 Rules:
@@ -159,6 +166,15 @@ Rules:
 - Group passive replies must stay inside official 5-minute window.
 - Delayed ten-minute speaking must use scarce proactive group send and should be guarded by scene/policy.
 - Synthetic digest messages must be non-mergeable.
+
+Primary adapter methods:
+
+- `recordNonMention`: store non-trigger group messages and request a sleep digest timer if needed.
+- `observeMention`: cancel pending autonomous windows and report whether catch-up should run after the mention reply.
+- `markOutputComplete`: request a follow-up timer after a normal bot output.
+- `fireScheduledFollowup`: convert a due follow-up timer into a catch-up or no-op.
+- `fireSleepDigest`: convert a due sleep timer into a catch-up or policy-gated decision.
+- `consumeSnapshot`: remove only the history entries used by a completed synthetic catch-up.
 
 ### `src/custom/task-sandbox.ts`
 

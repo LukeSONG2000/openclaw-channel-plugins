@@ -1,7 +1,7 @@
 import assert from "node:assert";
 import { evaluateCustomAuthorization, isCustomRuntimeAdmin } from "../src/custom/auth.js";
 import { formatCustomPeerKey, resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "../src/custom/config.js";
-import { inspectCustomRuntimeMessage } from "../src/custom/runtime.js";
+import { createCustomMessageFlowRuntime, inspectCustomRuntimeMessage, inspectCustomUnreadConfig } from "../src/custom/runtime.js";
 import type { CustomActor, CustomPeer } from "../src/custom/types.js";
 
 const groupPeer: CustomPeer = { kind: "group", id: "GROUP_OPENID", label: "test-group" };
@@ -19,8 +19,15 @@ const cfg = {
           [formatCustomPeerKey(groupPeer)]: {
             scene: "dev-lab",
             label: "dev group",
+            unread: {
+              followupDelayMs: 5_000,
+            },
             capabilities: ["chat.send", "codex.run"],
           },
+        },
+        unread: {
+          historyLimit: 20,
+          sleepDelayMs: 60_000,
         },
       },
     },
@@ -79,5 +86,24 @@ const disabledDecision = inspectCustomRuntimeMessage({
 });
 assert.equal(disabledDecision.enabled, false);
 assert.equal(disabledDecision.scene.scene, "chat");
+
+const unreadCfg = inspectCustomUnreadConfig({
+  cfg,
+  message: {
+    accountId: "default",
+    peer: groupPeer,
+    actor: user,
+    content: "hello",
+    messageId: "msg-2",
+    timestamp: Date.now(),
+    mentionedBot: false,
+  },
+});
+assert.equal(unreadCfg.historyLimit, 20);
+assert.equal(unreadCfg.followupDelayMs, 5_000);
+assert.equal(unreadCfg.sleepDelayMs, 60_000);
+
+const flowRuntime = createCustomMessageFlowRuntime();
+assert.equal(flowRuntime.unread.getPendingCount(groupPeer.id), 0);
 
 console.log("custom runtime tests passed");
