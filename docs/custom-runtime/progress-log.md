@@ -141,3 +141,21 @@ Still intentionally open:
 
 - Auth state is plain JSON. It currently stores only openids, capabilities, request metadata, and optional notes; add encryption/redaction before storing sensitive note payloads.
 - Model/tool dispatch authorization beyond plugin-level slash commands is still pending.
+
+Added custom proactive budget guard:
+
+- Added `src/custom/proactive-budget.ts` as a pure local budget/rate-limit runtime for proactive/unanchored text sends.
+- Added `src/custom/proactive-budget-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-proactive-budget/budget-<accountId>.json`.
+- Added `src/custom/proactive-send-guard.ts` so outbound send code can depend on a tiny guard interface instead of importing the custom runtime.
+- `CustomMessageFlowRuntime` now owns `proactiveBudget` next to `auth` and `unread`.
+- `resolveCustomRuntimeConfig()` now reads `customRuntime.proactive`; scene configs can override with `scene.proactive`.
+- Gateway restores proactive budget state on startup and saves it on successful proactive text sends and gateway abort/stop.
+- `src/outbound-deliver.ts` checks the guard before unanchored C2C/group text sends and commits the budget only after the send succeeds.
+- Defaults are conservative: 4 sends per UTC month per account/peer, and 1 send per 60 seconds.
+- Added `tests/custom-proactive-budget.test.ts`, `tests/custom-proactive-budget-store.test.ts`, and `tests/custom-proactive-send-guard.test.ts`.
+
+Still intentionally open:
+
+- Media proactive sends routed through generic media auto-routing need the same guard.
+- `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE` proactive acceptance events are logged but not yet persisted as hard blocks.
+- Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.

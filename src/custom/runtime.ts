@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig, resolveCustomSceneState } from "./config.js";
 import { CustomAuthorizationRuntime, evaluateCustomAuthorization } from "./auth.js";
 import { CustomUnreadRuntime, resolveCustomUnreadConfig, type ResolvedCustomUnreadConfig } from "./unread-runtime.js";
+import { CustomProactiveBudgetRuntime, resolveCustomProactiveConfig, type ResolvedCustomProactiveConfig } from "./proactive-budget.js";
 import type { CustomAuthorizationDecision, CustomCapability, CustomInboundMessage, CustomSceneConfig } from "./types.js";
 import { buildCustomSceneSystemPrompt, type ResolvedCustomScene } from "./scenes.js";
 
@@ -45,12 +46,14 @@ export function inspectCustomRuntimeMessage(params: {
 export interface CustomMessageFlowRuntime {
   auth: CustomAuthorizationRuntime;
   unread: CustomUnreadRuntime;
+  proactiveBudget: CustomProactiveBudgetRuntime;
 }
 
 export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
   return {
     auth: new CustomAuthorizationRuntime(),
     unread: new CustomUnreadRuntime(),
+    proactiveBudget: new CustomProactiveBudgetRuntime(),
   };
 }
 
@@ -61,6 +64,15 @@ export function inspectCustomUnreadConfig(params: {
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
   return resolveCustomUnreadConfig({ runtime, scene });
+}
+
+export function inspectCustomProactiveConfig(params: {
+  cfg: OpenClawConfig;
+  message: CustomInboundMessage;
+}): ResolvedCustomProactiveConfig {
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
+  return resolveCustomProactiveConfig({ runtime, scene });
 }
 
 export {
@@ -78,8 +90,16 @@ export {
   resolveCustomScene,
 } from "./scenes.js";
 export { CustomUnreadRuntime, resolveCustomUnreadConfig } from "./unread-runtime.js";
+export {
+  CustomProactiveBudgetRuntime,
+  resolveCustomProactiveConfig,
+} from "./proactive-budget.js";
 export type { CustomAuthorizationCheckResult } from "./auth.js";
 export type { CustomSceneProfile, ResolvedCustomScene } from "./scenes.js";
+export type {
+  CustomProactiveBudgetDecision,
+  ResolvedCustomProactiveConfig,
+} from "./proactive-budget.js";
 export type {
   CustomUnreadCatchupSnapshot,
   CustomUnreadCatchupSource,

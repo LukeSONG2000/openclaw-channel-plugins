@@ -45,6 +45,7 @@ import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/co
 import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
 import {
   createCustomMessageFlowRuntime,
+  inspectCustomProactiveConfig,
   inspectCustomUnreadConfig,
   type CustomMessageFlowRuntime,
   type ResolvedCustomUnreadConfig,
@@ -66,6 +67,7 @@ import {
   handleCustomAuthInteraction,
 } from "./custom/auth-gateway-adapter.js";
 import { loadCustomAuthorizationState, saveCustomAuthorizationState } from "./custom/auth-store.js";
+import { loadCustomProactiveBudgetState, saveCustomProactiveBudgetState } from "./custom/proactive-budget-store.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -651,6 +653,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomAuthState = (): void => {
     saveCustomAuthorizationState(account.accountId, customMessageFlow.auth.getState());
   };
+  const restoredProactiveBudgetState = loadCustomProactiveBudgetState(account.accountId);
+  if (restoredProactiveBudgetState) {
+    customMessageFlow.proactiveBudget.loadState(restoredProactiveBudgetState);
+    log?.info(`[qqbot:${account.accountId}] Restored custom proactive budget state: entries=${Object.keys(restoredProactiveBudgetState.entries).length}`);
+  }
+  const persistCustomProactiveBudgetState = (): void => {
+    saveCustomProactiveBudgetState(account.accountId, customMessageFlow.proactiveBudget.getState());
+  };
   const customUnreadFollowupTimers = new Map<string, ReturnType<typeof setTimeout>>();
   const customUnreadSleepDigestTimers = new Map<string, ReturnType<typeof setTimeout>>();
 
@@ -873,6 +883,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     flushRefIndex();
     // 保存自定义授权状态
     persistCustomAuthState();
+    // 保存自定义主动发送预算
+    persistCustomProactiveBudgetState();
     // 停止审批 handler
     void approvalHandler.stop();
     unregisterApprovalHandler(account.accountId);
@@ -2007,7 +2019,51 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     groupOpenid: event.groupOpenid,
                     msgIdx: event.msgIdx,
                   };
-                  const deliverActx: DeliverAccountContext = { account, qualifiedTarget, log };
+                  const deliverActx: DeliverAccountContext = {
+                    account,
+                    qualifiedTarget,
+                    log,
+                    proactiveGuard: ({ targetType, targetId, text }) => {
+                      if (!isCustomRuntimeEnabled()) return { allowed: true };
+                      const peer: CustomPeer = { kind: targetType, id: targetId };
+                      const proactiveCfg = inspectCustomProactiveConfig({
+                        cfg: cfg as any,
+                        message: {
+                          accountId: account.accountId,
+                          peer,
+                          actor: { id: event.senderId, label: event.senderName, isBot: event.senderIsBot },
+                          content: text,
+                          messageId: event.messageId,
+                          timestamp: new Date(event.timestamp).getTime(),
+                          mentionedBot: false,
+                        },
+                      });
+                      const check = customMessageFlow.proactiveBudget.check({
+                        accountId: account.accountId,
+                        peer,
+                        cfg: proactiveCfg,
+                      });
+                      if (!check.allowed) {
+                        const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
+                        return {
+                          allowed: false,
+                          reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
+                        };
+                      }
+                      return {
+                        allowed: true,
+                        commit: () => {
+                          const recorded = customMessageFlow.proactiveBudget.record({
+                            accountId: account.accountId,
+                            peer,
+                            cfg: proactiveCfg,
+                          });
+                          log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
+                          persistCustomProactiveBudgetState();
+                        },
+                      };
+                    },
+                  };
 
                   const mediaResult = await parseAndSendMediaTags(
                     replyText, deliverEvent, deliverActx, sendWithRetry, consumeQuoteRef,

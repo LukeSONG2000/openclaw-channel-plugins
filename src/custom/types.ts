@@ -64,6 +64,7 @@ export interface CustomSceneConfig {
   allowAutonomousReply?: boolean;
   allowProactiveSend?: boolean;
   unread?: CustomUnreadConfig;
+  proactive?: CustomProactiveConfig;
   capabilities?: CustomCapability[];
 }
 
@@ -73,6 +74,7 @@ export interface CustomRuntimeConfig {
   admins?: string[];
   defaultScene?: CustomSceneKind;
   unread?: CustomUnreadConfig;
+  proactive?: CustomProactiveConfig;
 }
 
 export interface CustomUnreadConfig {
@@ -82,6 +84,13 @@ export interface CustomUnreadConfig {
   sleepDelayMs?: number;
   allowAutonomousReply?: boolean;
   allowProactiveSend?: boolean;
+}
+
+export interface CustomProactiveConfig {
+  enabled?: boolean;
+  monthlyLimit?: number;
+  rateLimitWindowMs?: number;
+  rateLimitMax?: number;
 }
 
 export interface CustomAuthorizationDecision {
@@ -136,4 +145,15 @@ export type CustomAuthorizationIntent =
 export interface CustomAuthorizationRuntimeState {
   grants: Record<string, CustomAuthorizationGrant>;
   requests: Record<string, CustomAuthorizationApprovalRequest>;
+}
+
+export interface CustomProactiveBudgetEntry {
+  period: string;
+  count: number;
+  recent: number[];
+  updatedAt: number;
+}
+
+export interface CustomProactiveBudgetRuntimeState {
+  entries: Record<string, CustomProactiveBudgetEntry>;
 }

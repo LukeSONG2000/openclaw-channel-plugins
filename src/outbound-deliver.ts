@@ -29,6 +29,11 @@ import { getImageSize, formatQQBotMarkdownImage, hasQQBotImageSize } from "./uti
 import { parseMediaTagsToSendQueue, executeSendQueue, type MediaSendContext } from "./utils/media-send.js";
 import { isLocalPath as isLocalFilePath } from "./utils/platform.js";
 import { filterInternalMarkers } from "./utils/text-parsing.js";
+import {
+  prepareCustomProactiveSend,
+  type CustomProactiveSendGuard,
+  type CustomProactiveSendGuardDecision,
+} from "./custom/proactive-send-guard.js";
 
 // ============ 类型定义 ============
 
@@ -45,6 +50,7 @@ export interface DeliverEventContext {
 export interface DeliverAccountContext {
   account: ResolvedQQBotAccount;
   qualifiedTarget: string;
+  proactiveGuard?: CustomProactiveSendGuard;
   log?: {
     info: (msg: string) => void;
     error: (msg: string) => void;
@@ -276,6 +282,13 @@ export async function sendPlainReply(
 
 // ============ 内部辅助函数 ============
 
+export function prepareProactiveSend(
+  event: DeliverEventContext,
+  actx: DeliverAccountContext,
+  text: string,
+): CustomProactiveSendGuardDecision {
+  return prepareCustomProactiveSend(event, actx, text);
+}
 
 /** 发送文本分块（共用逻辑） */
 async function sendTextChunks(
@@ -289,6 +302,11 @@ async function sendTextChunks(
   const prefix = `[qqbot:${account.accountId}]`;
   const chunks = getQQBotRuntime().channel.text.chunkMarkdownText(text, TEXT_CHUNK_LIMIT);
   for (const chunk of chunks) {
+    const proactiveGuardDecision = prepareProactiveSend(event, actx, chunk);
+    if (!proactiveGuardDecision.allowed) {
+      log?.error(`${prefix} Proactive text chunk blocked: ${proactiveGuardDecision.reason}`);
+      continue;
+    }
     try {
       await sendWithRetry(async (token) => {
         const ref = consumeQuoteRef();
@@ -304,6 +322,7 @@ async function sendTextChunks(
           return await sendChannelMessage(token, event.channelId, chunk, event.replyToId);
         }
       });
+      proactiveGuardDecision.commit?.();
       log?.info(`${prefix} Sent text chunk (${chunk.length}/${text.length} chars): ${chunk.slice(0, 50)}...`);
     } catch (err) {
       log?.error(`${prefix} Failed to send text chunk: ${err}`);
@@ -405,6 +424,11 @@ async function sendMarkdownReply(
   if (result.trim()) {
     const mdChunks = chunkText(result, TEXT_CHUNK_LIMIT);
     for (const chunk of mdChunks) {
+      const proactiveGuardDecision = prepareProactiveSend(event, actx, chunk);
+      if (!proactiveGuardDecision.allowed) {
+        log?.error(`${prefix} Proactive markdown chunk blocked: ${proactiveGuardDecision.reason}`);
+        continue;
+      }
       try {
         await sendWithRetry(async (token) => {
           const ref = consumeQuoteRef();
@@ -420,6 +444,7 @@ async function sendMarkdownReply(
             return await sendChannelMessage(token, event.channelId, chunk, event.replyToId);
           }
         });
+        proactiveGuardDecision.commit?.();
         log?.info(`${prefix} Sent markdown chunk (${chunk.length}/${result.length} chars) with ${httpImageUrls.length} HTTP images (${event.type})`);
       } catch (err) {
         log?.error(`${prefix} Failed to send markdown message chunk: ${err}`);
@@ -478,6 +503,11 @@ async function sendPlainTextReply(
     if (result.trim()) {
       const plainChunks = chunkText(result, TEXT_CHUNK_LIMIT);
       for (const chunk of plainChunks) {
+        const proactiveGuardDecision = prepareProactiveSend(event, actx, chunk);
+        if (!proactiveGuardDecision.allowed) {
+          log?.error(`${prefix} Proactive text chunk blocked: ${proactiveGuardDecision.reason}`);
+          continue;
+        }
         await sendWithRetry(async (token) => {
           const ref = consumeQuoteRef();
           if (event.type === "c2c") {
@@ -492,6 +522,7 @@ async function sendPlainTextReply(
             return await sendChannelMessage(token, event.channelId, chunk, event.replyToId);
           }
         });
+        proactiveGuardDecision.commit?.();
         log?.info(`${prefix} Sent text chunk (${chunk.length}/${result.length} chars) (${event.type})`);
       }
     }

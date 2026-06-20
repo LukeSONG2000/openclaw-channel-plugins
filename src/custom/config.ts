@@ -28,6 +28,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     scenes: runtime.scenes ?? {},
     admins: runtime.admins ?? [],
     unread: runtime.unread,
+    proactive: runtime.proactive,
   };
 }
 

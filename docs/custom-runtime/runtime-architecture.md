@@ -129,7 +129,57 @@ Open items:
 
 - Scene `agentId` is parsed in config but not yet used to override OpenClaw route selection.
 - Per-scene workspace/sandbox routing for `codex.longTask` is still pending.
-- Per-scene proactive budget/rate-limit policy is still pending.
+
+### `src/custom/proactive-budget.ts`
+
+Owns local proactive/unanchored text-send budget for custom runtime paths.
+
+Current implementation status:
+
+- Exists as a pure runtime with no QQ API, OpenClaw SDK, timer, or filesystem dependency.
+- Resolves `customRuntime.proactive` with scene-level overrides through `scene.proactive`.
+- Defaults are conservative:
+  - `enabled=true`
+  - `monthlyLimit=4`
+  - `rateLimitWindowMs=60000`
+  - `rateLimitMax=1`
+- Tracks budget by `accountId + peer.kind + peer.id` and UTC month.
+- Counts only after a proactive text send succeeds, so token retry or failed sends do not consume budget.
+- Persists state under `~/.openclaw/qqbot/data/custom-proactive-budget/budget-<accountId>.json`.
+- Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up text sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
+
+Example:
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "customRuntime": {
+        "proactive": {
+          "monthlyLimit": 4,
+          "rateLimitWindowMs": 60000,
+          "rateLimitMax": 1
+        },
+        "scenes": {
+          "qqbot:group:5C1152CA05D191171B05E6997791C3F5": {
+            "scene": "dev-lab",
+            "allowProactiveSend": true,
+            "proactive": {
+              "monthlyLimit": 2
+            }
+          }
+        }
+      }
+    }
+  }
+}
+```
+
+Open items:
+
+- Media proactive sends routed through generic `sendMediaAuto` still need the same guard.
+- Platform-side `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE` state is logged but not yet stored as a hard local block.
+- Official docs note proactive push capability may error after the 2025-04-21 adjustment; server validation is still required before enabling autonomous proactive scenes broadly.
 
 ### `src/custom/auth.ts`
 
@@ -260,7 +310,7 @@ Rules:
 - When mentioned, inject pending history into context but do not automatically consume it unless policy says so.
 - A short follow-up window may run after bot output.
 - Group passive replies must stay inside official 5-minute window.
-- Delayed ten-minute speaking must use scarce proactive group send and should be guarded by scene/policy.
+- Delayed ten-minute speaking must use scarce proactive group send and is guarded by scene policy plus the custom proactive budget runtime for text sends.
 - Synthetic digest messages must be non-mergeable.
 
 Primary adapter methods:
@@ -303,7 +353,6 @@ Current gateway wiring:
 
 Still open:
 
-- Proactive group send budget/rate-limit enforcement.
 - Durable persistence for pending unread state across gateway reconnects/restarts.
 
 ### `src/custom/task-sandbox.ts`
