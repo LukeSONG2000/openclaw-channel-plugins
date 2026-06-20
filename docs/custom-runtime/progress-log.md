@@ -226,10 +226,16 @@ Added custom long-task notification effects:
 - `completeCustomTaskExecution()` and `failCustomTaskExecution()` can now emit peer/owner notification effects with result/error truncation while still updating runtime state and `status.json`.
 - Added `tests/custom-task-notification-adapter.test.ts` and expanded executor adapter tests for notify effects.
 
+Added custom long-task notification gateway mapping:
+
+- Added `src/custom/task-notification-gateway-adapter.ts` to map task notification effects into gateway send descriptions with `MessageTarget` plus text.
+- Peer notifications map to the original task peer; owner notifications map to owner C2C; duplicate audience/target effects are deduped.
+- Added `tests/custom-task-notification-gateway-adapter.test.ts` for group, owner, C2C, channel, mismatch, and dedupe paths.
+
 Still intentionally open:
 
 - A real OpenClaw subagent/job executor is still pending until the runtime contract is confirmed.
-- Applying task notification effects through QQ send APIs, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
+- Applying task notification deliveries through QQ send APIs, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
 
 Added first custom interactive poll/card feature:
 

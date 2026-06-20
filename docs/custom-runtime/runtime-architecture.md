@@ -524,6 +524,10 @@ Current implementation status:
   - peer notification for the originating group/DM
   - owner notification for future direct follow-up
   - result/error truncation for safe QQ text sends
+- `src/custom/task-notification-gateway-adapter.ts` maps notification effects to gateway send descriptions:
+  - peer audience -> original group/channel/DM/C2C target
+  - owner audience -> owner C2C target
+  - dedupes repeated audience/target effects
 - `src/custom/task-gateway-adapter.ts` handles `/bot-task` before the normal AI queue:
   - `/bot-task create <任务描述>`
   - `/bot-task list`
@@ -538,12 +542,12 @@ Important boundary:
 
 - This layer still does not start a real OpenClaw subagent/job by itself.
 - It now has an executor adapter boundary, so a future OpenClaw runner can attach without changing command parsing, task state, or workspace persistence.
-- It returns notification effects instead of sending QQ messages directly; gateway or a future task worker should apply those effects.
+- It returns notification delivery descriptions instead of sending QQ messages directly; gateway or a future task worker should apply those through QQ send APIs.
 - Without an attached executor, tasks remain queued with durable workspace/status files; group long-task commands still return immediately and do not block the main conversation queue.
 
 Next integration:
 
-Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, apply notification effects through QQ send APIs, then add task-scoped permission enforcement.
+Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, apply task notification deliveries through QQ send APIs, then add task-scoped permission enforcement.
 
 ### `src/custom/poll.ts`
 
