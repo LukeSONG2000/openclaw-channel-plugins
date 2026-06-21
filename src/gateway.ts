@@ -62,6 +62,12 @@ import {
   resolveQQBotConnectionFailureReconnectDelay,
   resolveQQBotWebSocketCloseDecision,
 } from "./custom/websocket-reconnect-policy.js";
+import {
+  buildQQBotWebSocketHeartbeatPayload,
+  resolveQQBotWebSocketDispatchDecision,
+  resolveQQBotWebSocketHelloDecision,
+  resolveQQBotWebSocketInvalidSessionDecision,
+} from "./custom/websocket-payload-policy.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -131,6 +137,19 @@ export interface GatewayContext {
     error: (msg: string) => void;
     debug?: (msg: string) => void;
   };
+}
+
+function logGatewayDecisionEntries(
+  log: GatewayContext["log"] | undefined,
+  accountId: string,
+  entries: Array<{ level: "info" | "debug" | "error"; message: string }>,
+): void {
+  for (const item of entries) {
+    const line = `[qqbot:${accountId}] ${item.message}`;
+    if (item.level === "error") log?.error(line);
+    else if (item.level === "debug") log?.debug?.(line);
+    else log?.info(line);
+  }
 }
 
 /**
@@ -1117,51 +1136,39 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           log?.debug?.(`[qqbot:${account.accountId}] Received op=${op} t=${t}`);
 
           switch (op) {
-            case 10: // Hello
-              log?.info(`[qqbot:${account.accountId}] Hello received`);
-              
-              // 如果有 session_id，尝试 Resume
-              if (sessionId && lastSeq !== null) {
-                log?.info(`[qqbot:${account.accountId}] Attempting to resume session ${sessionId}`);
-                ws.send(JSON.stringify({
-                  op: 6, // Resume
-                  d: {
-                    token: `QQBot ${accessToken}`,
-                    session_id: sessionId,
-                    seq: lastSeq,
-                  },
-                }));
-              } else {
-                // 新连接，发送 Identify，始终使用完整权限
-                log?.info(`[qqbot:${account.accountId}] Sending identify with intents: ${FULL_INTENTS} (${FULL_INTENTS_DESC})`);
-                ws.send(JSON.stringify({
-                  op: 2,
-                  d: {
-                    token: `QQBot ${accessToken}`,
-                    intents: FULL_INTENTS,
-                    shard: [0, 1],
-                  },
-                }));
-              }
+            case 10: { // Hello
+              const helloDecision = resolveQQBotWebSocketHelloDecision({
+                accessToken,
+                sessionId,
+                lastSeq,
+                intents: FULL_INTENTS,
+                intentsDesc: FULL_INTENTS_DESC,
+                heartbeatInterval: (d as { heartbeat_interval?: unknown }).heartbeat_interval,
+              });
+              logGatewayDecisionEntries(log, account.accountId, helloDecision.logs);
+              ws.send(JSON.stringify(helloDecision.outbound));
 
-              // 启动心跳
-              const interval = (d as { heartbeat_interval: number }).heartbeat_interval;
               if (heartbeatInterval) clearInterval(heartbeatInterval);
               heartbeatInterval = setInterval(() => {
                 if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify({ op: 1, d: lastSeq }));
+                  ws.send(JSON.stringify(buildQQBotWebSocketHeartbeatPayload(lastSeq)));
                   log?.debug?.(`[qqbot:${account.accountId}] Heartbeat sent`);
                 }
-              }, interval);
+              }, helloDecision.heartbeatIntervalMs);
               break;
+            }
 
-            case 0: // Dispatch
+            case 0: { // Dispatch
               log?.info(`[qqbot:${account.accountId}] 📩 Dispatch event: t=${t}, d=${JSON.stringify(d)}`);
-              if (t === "READY") {
-                const readyData = d as { session_id: string };
-                sessionId = readyData.session_id;
-                log?.info(`[qqbot:${account.accountId}] Ready with ${FULL_INTENTS_DESC}, session: ${sessionId}`);
-                // P1-2: 保存新的 Session 状态
+              const dispatchDecision = resolveQQBotWebSocketDispatchDecision({
+                eventType: t,
+                data: d,
+                pendingFirstReady: _pendingFirstReady.has(account.accountId),
+                intentsDesc: FULL_INTENTS_DESC,
+              });
+              logGatewayDecisionEntries(log, account.accountId, dispatchDecision.logs);
+              if (dispatchDecision.kind === "ready") {
+                sessionId = dispatchDecision.sessionId;
                 saveSession({
                   sessionId,
                   lastSeq,
@@ -1172,24 +1179,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   appId: account.appId,
                 });
                 onReady?.(d);
-
-                // 仅 startGateway 后的首次 READY 才发送上线通知
-                // ws 断线重连（resume 失败后重新 Identify）产生的 READY 不发送
-                if (!_pendingFirstReady.has(account.accountId)) {
-                  log?.info(`[qqbot:${account.accountId}] Skipping startup greeting (reconnect READY, not first startup)`);
-                } else {
+                if (dispatchDecision.startupGreeting) {
                   _pendingFirstReady.delete(account.accountId);
-                  sendStartupGreetings(adminCtx, "READY");
-                } // end isFirstReady
-              } else if (t === "RESUMED") {
-                log?.info(`[qqbot:${account.accountId}] Session resumed`);
-                onReady?.(d); // 通知框架连接已恢复，避免 health-monitor 误判 disconnected
-                // RESUMED 也属于首次启动（gateway restart 通常走 resume）
-                if (_pendingFirstReady.has(account.accountId)) {
-                  _pendingFirstReady.delete(account.accountId);
-                  sendStartupGreetings(adminCtx, "RESUMED");
+                  sendStartupGreetings(adminCtx, dispatchDecision.startupGreeting);
                 }
-                // P1-2: 更新 Session 连接时间
+              } else if (dispatchDecision.kind === "resumed") {
+                onReady?.(d);
+                if (dispatchDecision.startupGreeting) {
+                  _pendingFirstReady.delete(account.accountId);
+                  sendStartupGreetings(adminCtx, dispatchDecision.startupGreeting);
+                }
                 if (sessionId) {
                   saveSession({
                     sessionId,
@@ -1202,12 +1201,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   });
                 }
               } else {
-                // 所有其他事件统一分发
-                dispatchInboundEvent(t!, d).catch((err) => {
-                  log?.error(`[qqbot:${account.accountId}] Event dispatch error (t=${t}): ${err}`);
+                dispatchInboundEvent(dispatchDecision.eventType, dispatchDecision.data).catch((err) => {
+                  log?.error(`[qqbot:${account.accountId}] Event dispatch error (t=${dispatchDecision.eventType}): ${err}`);
                 });
               }
               break;
+            }
 
             case 11: // Heartbeat ACK
               log?.debug?.(`[qqbot:${account.accountId}] Heartbeat ACK`);
@@ -1219,22 +1218,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               scheduleReconnect();
               break;
 
-            case 9: // Invalid Session
-              const canResume = d as boolean;
-              log?.error(`[qqbot:${account.accountId}] Invalid session (${FULL_INTENTS_DESC}), can resume: ${canResume}, raw: ${rawData}`);
-              
-              if (!canResume) {
+            case 9: { // Invalid Session
+              const invalidSessionDecision = resolveQQBotWebSocketInvalidSessionDecision({
+                canResume: d as boolean,
+                intentsDesc: FULL_INTENTS_DESC,
+                rawData,
+              });
+              logGatewayDecisionEntries(log, account.accountId, invalidSessionDecision.logs);
+              if (invalidSessionDecision.shouldClearSession) {
                 sessionId = null;
                 lastSeq = null;
-                // P1-2: 清除持久化的 Session
                 clearSession(account.accountId);
-                shouldRefreshToken = true;
-                log?.info(`[qqbot:${account.accountId}] Will refresh token and retry with full intents (${FULL_INTENTS_DESC})`);
               }
-              cleanup();
-              // Invalid Session 后等待一段时间再重连
-              scheduleReconnect(3000);
+              if (invalidSessionDecision.shouldRefreshToken) {
+                shouldRefreshToken = true;
+              }
+              if (invalidSessionDecision.cleanup) {
+                cleanup();
+              }
+              if (invalidSessionDecision.reconnect) {
+                scheduleReconnect(invalidSessionDecision.reconnectDelayMs);
+              }
               break;
+            }
           }
         } catch (err) {
           log?.error(`[qqbot:${account.accountId}] Message parse error: ${err}`);
@@ -1254,13 +1260,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
           rateLimitDelayMs: RATE_LIMIT_DELAY,
         });
-        for (const item of closeDecision.logs) {
-          if (item.level === "error") {
-            log?.error(`[qqbot:${account.accountId}] ${item.message}`);
-          } else {
-            log?.info(`[qqbot:${account.accountId}] ${item.message}`);
-          }
-        }
+        logGatewayDecisionEntries(log, account.accountId, closeDecision.logs);
         if (closeDecision.shouldClearSession) {
           sessionId = null;
           lastSeq = null;

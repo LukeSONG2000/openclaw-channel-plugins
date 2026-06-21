@@ -399,6 +399,22 @@ Important boundary:
 - The module does not own a WebSocket instance, timers, session storage, token cache, or reconnect scheduling. It only returns a decision object; `gateway.ts` still applies session cleanup, token-cache refresh state, logging, and `scheduleReconnect()`.
 - Keeping this policy pure makes future transport changes (Webhook-only mode, official SDK transport changes, or separate connector package) easier to validate without replaying live QQ gateway failures.
 
+### `src/custom/websocket-payload-policy.ts`
+
+Pure WebSocket payload/session policy for QQ Gateway op messages.
+
+Current implementation status:
+
+- Builds Hello responses for either Resume (`op=6`) or Identify (`op=2`) using the current access token, session id, last sequence, and full-intent settings.
+- Builds heartbeat payloads (`op=1`) without letting the gateway duplicate raw packet shape.
+- Classifies Dispatch payloads into `READY`, `RESUMED`, or ordinary event fanout, including whether the first-startup greeting should fire.
+- Classifies Invalid Session payloads into session-clear, token-refresh, cleanup, and 3 second reconnect effects.
+
+Important boundary:
+
+- The module does not send WebSocket frames, own heartbeat timers, write session storage, mutate `_pendingFirstReady`, or call `onReady`. `gateway.ts` applies those side effects after reading the returned decision.
+- Keeping payload decisions pure gives the transport layer a testable seam before a larger WebSocket/Webhook lifecycle extraction.
+
 ### `src/custom/queued-message-context.ts`
 
 Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.

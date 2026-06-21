@@ -1145,3 +1145,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now asks the policy for a close decision and only applies the returned effects: logging, session clear, token-refresh flag, cleanup, and `scheduleReconnect()`.
 - Connection setup failures now reuse the same policy helper for `Too many requests` / `100001` rate-limit retry detection instead of keeping string matching inline in the transport catch block.
 - Added `tests/custom-websocket-reconnect-policy.test.ts` for invalid token, rate limit, session reset, internal gateway errors, bot offline/banned stops, repeated quick disconnects, normal close behavior, and setup rate-limit detection.
+
+抽出 WebSocket payload/session 策略：
+
+- Added `src/custom/websocket-payload-policy.ts` as a pure policy module for QQ Gateway Hello, heartbeat, Dispatch READY/RESUMED, ordinary event fanout, and Invalid Session decisions.
+- `gateway.ts` now sends identify/resume/heartbeat frames from policy-built payloads and applies READY/RESUMED/Invalid Session effects without hardcoding packet shapes in the WebSocket message handler.
+- Startup greeting semantics remain unchanged: first READY/RESUMED per account triggers the greeting, reconnect READY logs and skips the duplicate greeting.
+- Added `tests/custom-websocket-payload-policy.test.ts` for resume vs identify, heartbeat payloads, READY/reconnect READY, RESUMED, ordinary event fanout, and invalid-session retry decisions.
