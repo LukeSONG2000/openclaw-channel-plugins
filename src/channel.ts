@@ -10,11 +10,10 @@ import type { ResolvedQQBotAccount } from "./types.js";
 import { DEFAULT_ACCOUNT_ID, listQQBotAccountIds, resolveQQBotAccount, applyQQBotAccountConfig, resolveDefaultQQBotAccountId, resolveRequireMention, resolveToolPolicy, resolveGroupConfig } from "./config.js";
 import { sendText, sendMedia, resolveUserFacingMediaError } from "./outbound.js";
 import { startGateway } from "./gateway.js";
-import { qqbotOnboardingAdapter } from "./onboarding.js";
 import {
-  applyQQBotCustomRuntimeInitialization,
-  resolveQQBotCustomRuntimeInitializationInput,
-  validateQQBotCustomRuntimeInitializationInput,
+  applyQQBotSetupAccountConfig,
+  qqbotOnboardingAdapter,
+  validateQQBotSetupInput,
 } from "./onboarding.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { saveCredentialBackup, loadCredentialBackup } from "./credential-backup.js";
@@ -190,34 +189,10 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
         name,
       }),
     validateInput: ({ input }) => {
-      if (!input.token && !input.tokenFile && !input.useEnv) {
-        return "QQBot requires --token (format: appId:clientSecret) or --use-env";
-      }
-      return validateQQBotCustomRuntimeInitializationInput(resolveQQBotCustomRuntimeInitializationInput(input as Record<string, unknown>));
+      return validateQQBotSetupInput(input);
     },
     applyAccountConfig: ({ cfg, accountId, input }) => {
-      let appId = "";
-      let clientSecret = "";
-
-      if (input.token) {
-        const parts = input.token.split(":");
-        if (parts.length === 2) {
-          appId = parts[0];
-          clientSecret = parts[1];
-        }
-      }
-
-      const nextCfg = applyQQBotAccountConfig(cfg, accountId, {
-        appId,
-        clientSecret,
-        clientSecretFile: input.tokenFile,
-        name: input.name,
-        imageServerBaseUrl: (input as Record<string, unknown>).imageServerBaseUrl as string | undefined,
-      }) as OpenClawConfig;
-      const inputRecord = input as Record<string, unknown>;
-      return applyQQBotCustomRuntimeInitialization(nextCfg, {
-        ...resolveQQBotCustomRuntimeInitializationInput(inputRecord),
-      });
+      return applyQQBotSetupAccountConfig({ cfg, accountId, input });
     },
   },
   // Messaging 配置：用于解析目标地址

@@ -10,8 +10,9 @@ import type {
   ChannelOnboardingConfigureContext,
   ChannelOnboardingResult,
   OpenClawConfig,
+  SetupInput,
 } from "openclaw/plugin-sdk";
-import { DEFAULT_ACCOUNT_ID, listQQBotAccountIds, resolveQQBotAccount } from "./config.js";
+import { DEFAULT_ACCOUNT_ID, listQQBotAccountIds, resolveQQBotAccount, applyQQBotAccountConfig } from "./config.js";
 import { inspectCustomAdminBindings } from "./custom/auth.js";
 import {
   applyCustomRuntimeAdminBindingsToConfig,
@@ -125,6 +126,50 @@ export function applyQQBotCustomRuntimeInitialization(
     admins,
     adminGroup,
     enabled: input.enabled,
+  });
+}
+
+export function validateQQBotSetupInput(
+  input: SetupInput | Record<string, unknown>,
+  env?: Record<string, string | undefined>,
+): string | null {
+  const setupInput = input as SetupInput;
+  if (!setupInput.token && !setupInput.tokenFile && !setupInput.useEnv) {
+    return "QQBot requires --token (format: appId:clientSecret) or --use-env";
+  }
+  return validateQQBotCustomRuntimeInitializationInput(
+    resolveQQBotCustomRuntimeInitializationInput(input as Record<string, unknown>, env),
+  );
+}
+
+export function applyQQBotSetupAccountConfig(params: {
+  cfg: OpenClawConfig;
+  accountId: string;
+  input: SetupInput | Record<string, unknown>;
+}): OpenClawConfig {
+  const input = params.input as Record<string, unknown>;
+  let appId = "";
+  let clientSecret = "";
+  const token = typeof input.token === "string" ? input.token : "";
+
+  if (token) {
+    const parts = token.split(":");
+    if (parts.length === 2) {
+      appId = parts[0] ?? "";
+      clientSecret = parts[1] ?? "";
+    }
+  }
+
+  const nextCfg = applyQQBotAccountConfig(params.cfg, params.accountId, {
+    appId,
+    clientSecret,
+    clientSecretFile: typeof input.tokenFile === "string" ? input.tokenFile : undefined,
+    name: typeof input.name === "string" ? input.name : undefined,
+    imageServerBaseUrl: typeof input.imageServerBaseUrl === "string" ? input.imageServerBaseUrl : undefined,
+  }) as OpenClawConfig;
+
+  return applyQQBotCustomRuntimeInitialization(nextCfg, {
+    ...resolveQQBotCustomRuntimeInitializationInput(input),
   });
 }
 

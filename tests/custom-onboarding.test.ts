@@ -1,8 +1,10 @@
 import assert from "node:assert";
 import {
+  applyQQBotSetupAccountConfig,
   applyQQBotCustomRuntimeInitialization,
   qqbotOnboardingAdapter,
   resolveQQBotCustomRuntimeInitializationInput,
+  validateQQBotSetupInput,
   validateQQBotCustomRuntimeInitializationInput,
 } from "../src/onboarding.js";
 import { resolveCustomRuntimeConfig } from "../src/custom/config.js";
@@ -121,12 +123,39 @@ const setupInput = resolveQQBotCustomRuntimeInitializationInput({
 assert.equal(validateQQBotCustomRuntimeInitializationInput(setupInput), null);
 assert.equal(validateQQBotCustomRuntimeInitializationInput(resolveQQBotCustomRuntimeInitializationInput({
   customRuntimeAdminGroup: "ADMIN_GROUP_OPENID",
-}))?.includes("customRuntime admins"), true);
+}, {}))?.includes("customRuntime admins"), true);
 
 const setupCfg = applyQQBotCustomRuntimeInitialization({ channels: {} } as any, setupInput);
 const setupRuntime = resolveCustomRuntimeConfig(setupCfg as any);
 assert.deepEqual(setupRuntime.admins, ["ADMIN_OPENID"]);
 assert.equal(setupRuntime.adminGroup, "qqbot:group:ADMIN_GROUP_OPENID");
 assert.equal(setupRuntime.scenes?.["qqbot:group:ADMIN_GROUP_OPENID"]?.scene, "system-admin");
+
+assert.equal(validateQQBotSetupInput({
+  token: "APPID:SECRET",
+  customRuntimeAdmins: "ADMIN_OPENID",
+  customRuntimeAdminGroup: "ADMIN_GROUP_OPENID",
+}), null);
+assert.equal(validateQQBotSetupInput({ token: "APPID:SECRET" }, {})?.includes("customRuntime admins"), true);
+assert.equal(validateQQBotSetupInput({
+  token: "APPID:SECRET",
+  customRuntimeAdmins: "ADMIN_OPENID",
+}, {})?.includes("customRuntime adminGroup"), true);
+
+const setupAccountCfg = applyQQBotSetupAccountConfig({
+  cfg: { channels: {} } as any,
+  accountId: "default",
+  input: {
+    token: "SETUP_APPID:SETUP_SECRET",
+    customRuntimeAdmins: "SETUP_ADMIN",
+    customRuntimeAdminGroup: "SETUP_GROUP",
+  },
+});
+assert.equal((setupAccountCfg.channels?.qqbot as any)?.appId, "SETUP_APPID");
+assert.equal((setupAccountCfg.channels?.qqbot as any)?.clientSecret, "SETUP_SECRET");
+const setupAccountRuntime = resolveCustomRuntimeConfig(setupAccountCfg as any);
+assert.deepEqual(setupAccountRuntime.admins, ["SETUP_ADMIN"]);
+assert.equal(setupAccountRuntime.adminGroup, "qqbot:group:SETUP_GROUP");
+assert.equal(setupAccountRuntime.scenes?.["qqbot:group:SETUP_GROUP"]?.scene, "system-admin");
 
 console.log("custom onboarding tests passed");

@@ -565,3 +565,10 @@ Added configured scene binding inspection:
 - `/bot-task create` 现在根据当前 peer 的 scene 传入沙盒配置，因此不同群聊/单聊可以落到不同工作区，并拥有不同活跃任务上限。
 - 这个改动不重建 per-account runtime，也不把 OpenClaw 子 agent 细节塞进 gateway；真实 subagent/job executor 仍通过现有 `CustomTaskExecutor` 边界后续接入。
 - 扩展 task sandbox、custom runtime、custom slash gateway 测试，覆盖场景工作区覆盖和场景活跃任务上限。
+
+加固初始化配置的管理员/管理群绑定：
+
+- 将 QQBot setup 初始化的校验和写入逻辑收敛到 `src/onboarding.ts` 的 `validateQQBotSetupInput()` 与 `applyQQBotSetupAccountConfig()`。
+- `qqbotPlugin.setup.validateInput` 现在继续把缺少 `customRuntime.admins` 或 `customRuntime.adminGroup` 视为初始化失败，不能只填 AppID/Secret 就完成二开运行时初始化。
+- `qqbotPlugin.setup.applyAccountConfig` 复用同一 helper，写入账号凭证时同步写入管理员和管理群，并自动为管理群创建默认 `system-admin` scene 绑定。
+- 扩展 `tests/custom-onboarding.test.ts` 覆盖 setup 输入完整、缺管理员、缺管理群，以及写入凭证+绑定管理群的初始化路径。
