@@ -331,6 +331,16 @@ Current implementation status:
 - Keeps channel-DM peer mapping on the existing sender-id behavior for compatibility; `docs/custom-runtime/qqbot-message-flow.md` still marks channel-DM custom scene behavior as unaudited.
 - `src/custom/auth-gateway-adapter.ts` re-exports the mapper for compatibility, but new custom adapters should import it directly from `queued-message-context.ts` to avoid depending on auth internals.
 
+### `src/custom/gateway-message-routing.ts`
+
+Pure helper for the gateway's per-message routing context.
+
+Current implementation status:
+
+- Resolves the queue/framework peer id, framework route peer, custom scene peer, inbound `From` / `To` address, request-context target, and reply target from a `QueuedMessage`.
+- Keeps existing compatibility behavior for guild and channel-DM paths while making those mappings explicit and testable; channel-DM custom scene behavior remains marked unaudited in the message-flow document.
+- `gateway.ts` now asks this helper for routing primitives instead of repeating event-type conditionals around routing, scene lookup, request context, and reply target construction.
+
 ### `src/custom/interaction-event-normalizer.ts`
 
 Gateway-side normalizer for QQ `INTERACTION_CREATE` button/config events.

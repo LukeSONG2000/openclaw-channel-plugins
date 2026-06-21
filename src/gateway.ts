@@ -28,7 +28,7 @@ import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
 import { parseFaceTags, buildAttachmentSummaries } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
-import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload, type ReplyContext, type MessageTarget } from "./reply-dispatcher.js";
+import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload, type ReplyContext } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
 import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
@@ -117,6 +117,10 @@ import {
   resolveCustomUrgentQueueBypassCommand,
   resolveCustomUrgentQueuePeer,
 } from "./custom/urgent-commands.js";
+import {
+  resolveCustomGatewayMessageReplyTarget,
+  resolveCustomGatewayMessageRouteContext,
+} from "./custom/gateway-message-routing.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -1454,18 +1458,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           }
         })();
 
-        const isGroupChat = event.type === "guild" || event.type === "group";
-        // peerId 只放纯 ID，类型信息由 peer.kind 表达
-        // 群聊：用 groupOpenid（框架根据 kind:"group" 区分）
-        // 私聊：用 senderId（框架根据 dmScope 决定隔离粒度）
-        const peerId = event.type === "guild" ? (event.channelId ?? "unknown")
-                     : event.type === "group" ? (event.groupOpenid ?? "unknown")
-                     : event.senderId;
-
-        const routePeer: CustomRoutePeer = {
-          kind: isGroupChat ? "group" : "direct",
-          id: peerId,
-        };
+        const messageRoute = resolveCustomGatewayMessageRouteContext(event);
+        const { isGroupChat, peerId, routePeer } = messageRoute;
 
         let route = pluginRuntime.channel.routing.resolveAgentRoute({
           cfg,
@@ -1475,10 +1469,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }) as CustomAgentRoute;
 
         const customSceneState = isCustomRuntimeEnabled()
-          ? resolveCustomSceneState(cfg as any, {
-              kind: event.type === "guild" ? "channel" : event.type === "group" ? "group" : event.type === "dm" ? "dm" : "c2c",
-              id: peerId,
-            })
+          ? resolveCustomSceneState(cfg as any, messageRoute.customScenePeer)
           : null;
         if (customSceneState && !customSceneState.enabled) {
           log?.info(`[qqbot:${account.accountId}] Custom scene disabled for ${customSceneState.key}, skipping message from ${event.senderId}`);
@@ -1639,7 +1630,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           );
         }
         // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
-        const qualifiedTarget = isGroupChat ? `qqbot:group:${event.groupOpenid}` : `qqbot:c2c:${event.senderId}`;
+        const qualifiedTarget = messageRoute.requestTarget;
 
         // 动态检测 TTS 配置状态
         const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
@@ -1944,10 +1935,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
 
-        const fromAddress = event.type === "guild" ? `qqbot:channel:${event.channelId}`
-                         : event.type === "group" ? `qqbot:group:${event.groupOpenid}`
-                         : `qqbot:c2c:${event.senderId}`;
-        const toAddress = fromAddress;
+        const fromAddress = messageRoute.fromAddress;
+        const toAddress = messageRoute.toAddress;
 
         // 分离 imageUrls 为本地路径和远程 URL，供 openclaw 原生媒体处理
         const localMediaPaths: string[] = [];
@@ -2027,13 +2016,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // 构建回复上下文
         const replyAnchorId = event._customUnreadSnapshotId ? undefined : event.messageId;
-        const replyTarget: MessageTarget = {
-          type: event.type,
-          senderId: event.senderId,
-          messageId: replyAnchorId ?? "",
-          channelId: event.channelId,
-          groupOpenid: event.groupOpenid,
-        };
+        const replyTarget = resolveCustomGatewayMessageReplyTarget(event, replyAnchorId ?? "");
         const replyProactive = buildCustomProactiveGuard();
         const replyCtx: ReplyContext = {
           target: replyTarget,

@@ -773,3 +773,10 @@ Added configured scene binding inspection:
 - Auth、scene、task、poll、game、deploy 和 urgent fallback diagnostics 现在直接复用该 mapper，避免为了拿 peer/actor 而依赖 `auth-gateway-adapter.ts`。
 - `auth-gateway-adapter.ts` 暂时保留 re-export 兼容已有调用；新 adapter 应直接从 `queued-message-context.ts` 导入。
 - Added `tests/custom-queued-message-context.test.ts` for C2C/group/guild/channel-DM peer mapping, queue-peer fallback, actor mapping, and prefix stripping.
+
+抽出 gateway 消息路由上下文：
+
+- Added `src/custom/gateway-message-routing.ts` to resolve per-message queue peer id, framework route peer, custom scene peer, `From` / `To` address, request target, and reply target from `QueuedMessage`.
+- `gateway.ts` now uses that helper around agent route resolution, custom scene lookup, request-context target, and reply target construction instead of repeating event-type conditionals inline.
+- The helper intentionally preserves current guild/channel-DM compatibility behavior while making it explicit and covered by tests; channel-DM custom scene/media/card behavior remains marked unaudited.
+- Added `tests/custom-gateway-message-routing.test.ts`.
