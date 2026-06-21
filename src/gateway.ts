@@ -99,7 +99,11 @@ import {
 } from "./custom/fallbacks.js";
 import { appendCustomFallbackEvent } from "./custom/fallback-event-store.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
-import { isCustomUrgentQueueBypassCommand } from "./custom/urgent-commands.js";
+import {
+  buildCustomUrgentQueueBypassEvent,
+  resolveCustomUrgentQueueBypassCommand,
+  resolveCustomUrgentQueuePeer,
+} from "./custom/urgent-commands.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -817,13 +821,34 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     }
 
     // 检测是否为紧急命令 — 立即执行，清空该用户队列
-    const isUrgentCommand = isCustomUrgentQueueBypassCommand(content);
-    if (isUrgentCommand) {
+    const urgentCommand = resolveCustomUrgentQueueBypassCommand(content);
+    if (urgentCommand) {
       log?.info(`[qqbot:${account.accountId}] Urgent command detected: ${content.slice(0, 20)}, executing immediately`);
       const peerId = msgQueue.getMessagePeerId(msg);
+      const queueBefore = msgQueue.getSnapshot(peerId);
       const droppedCount = msgQueue.clearUserQueue(peerId);
+      const queueAfter = msgQueue.getSnapshot(peerId);
       if (droppedCount > 0) {
         log?.info(`[qqbot:${account.accountId}] Dropped ${droppedCount} queued messages for ${peerId} due to urgent command`);
+      }
+      const fallbackEvent = buildCustomUrgentQueueBypassEvent({
+        accountId: account.accountId,
+        peer: resolveCustomUrgentQueuePeer(msg, peerId),
+        actor: {
+          id: msg.senderId,
+          label: msg.senderName,
+          isBot: msg.senderIsBot,
+        },
+        messageId: msg.messageId,
+        command: urgentCommand,
+        queuePeerId: peerId,
+        droppedQueuedMessages: droppedCount,
+        queueBefore,
+        queueAfter,
+      });
+      log?.info(formatCustomFallbackEventLog(fallbackEvent));
+      if (!appendCustomFallbackEvent(account.accountId, fallbackEvent)) {
+        log?.error(`[qqbot:${account.accountId}] Failed to persist urgent queue bypass event: command=${urgentCommand} message=${msg.messageId}`);
       }
       msgQueue.executeImmediate(msg);
       return;

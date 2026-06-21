@@ -177,6 +177,7 @@ function formatCustomFallbackSummary(events: CustomFallbackEvent[], limit: numbe
     `统计：${events.length}/${limit}`,
     `响应超时：${byKind.get("response-timeout") ?? 0}`,
     `上下文过长：${byKind.get("context-too-long") ?? 0}`,
+    `紧急绕行：${byKind.get("urgent-queue-bypass") ?? 0}`,
     `工具兜底：${events.filter((event) => event.kind.startsWith("tool-")).length}`,
   );
 

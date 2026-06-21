@@ -671,7 +671,8 @@ Pure queue-bypass command policy:
 
 - Defines the urgent slash commands that must remain usable while a peer queue is blocked: `/stop`, `/approve`, `/new`, and `/compact`.
 - Matches the first slash command token only, so `/new reset` bypasses the queue but `/newspaper` does not.
-- Keeps the command list testable outside `gateway.ts`; gateway still owns mention stripping, queue clearing, immediate execution, logging, and slash/framework dispatch.
+- Builds `urgent-queue-bypass` diagnostic events from gateway-provided queue snapshots.
+- Keeps the command list, peer mapping, and event construction testable outside `gateway.ts`; gateway still owns mention stripping, queue clearing, immediate execution, logging, and slash/framework dispatch.
 
 Boundary:
 
@@ -683,6 +684,7 @@ Current implemented safeguards:
 - `/stop`, `/approve`, `/new`, and `/compact` bypass normal queueing in `gateway.ts`.
 - `src/message-queue.ts` now keeps immediate commands in a small pending-immediate list if the processor has not started yet, then flushes them as soon as `startProcessor()` is called.
 - Immediate execution can run while the same peer has a blocking queued message in flight, which keeps recovery commands usable after context-length failures or response timeouts.
+- Urgent queue bypasses emit `urgent-queue-bypass` fallback events with command, queue peer id, dropped queued message count, and before/after sender pending counts.
 - Response timeout sends a visible user notice and ignores late block/tool deliveries.
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
 - Context/token limit errors send a visible recovery notice that suggests `/compact` first and `/new` if needed.
@@ -700,6 +702,7 @@ Implemented behavior:
 - Stores recent `custom-fallback` events per account.
 - Defaults to retaining the latest 100 events.
 - Keeps queue snapshot fields inside event details when the gateway provides them.
+- Stores urgent queue-bypass diagnostics in the same stream as timeout/context/tool fallback events.
 - Uses the same atomic write pattern as auth/unread/task/poll stores.
 - Returns an empty list on missing, incompatible, or unreadable files so fallback handling never blocks queue recovery.
 
@@ -719,6 +722,7 @@ Authorization:
 
 - Uses slash-command metadata, so list/status access requires `system.status` through admin, scene capability, or temporary grant.
 - Summary access also requires `system.status` and aggregates recent fallback kinds plus max queue pressure.
+- Summary output includes an urgent queue-bypass count so admins can verify whether `/new` or `/compact` recovery commands actually reached the queue bypass path.
 - Clearing events requires `config.write` and an explicit `--force`.
 
 Still separate from the pure module:

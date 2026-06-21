@@ -121,6 +121,27 @@ const toolTextEvent = buildCustomFallbackEvent({
     queueSenderPending: 5,
   },
 });
+const urgentEvent = buildCustomFallbackEvent({
+  kind: "urgent-queue-bypass",
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  actor: { id: "MEMBER_OPENID", label: "Member" },
+  runId: "RUN_URGENT",
+  messageId: "MSG_URGENT",
+  reason: "urgent command /compact bypassed peer queue; dropped 2 queued message(s)",
+  at: Date.UTC(2026, 5, 21, 0, 3, 0),
+  details: {
+    command: "/compact",
+    queuePeerId: "group:GROUP_OPENID",
+    droppedQueuedMessages: 2,
+    queueTotalPending: 8,
+    queueActiveUsers: 2,
+    queueMaxConcurrentUsers: 3,
+    queueSenderPending: 2,
+    queueAfterTotalPending: 6,
+    queueAfterSenderPending: 0,
+  },
+});
 
 const result = handleCustomFallbackCommand({
   accountId: "default",
@@ -149,22 +170,24 @@ const summary = handleCustomFallbackCommand({
   store: {
     loadEvents: (_accountId, limit) => {
       summaryLimit = limit;
-      return [event, contextEvent, toolTextEvent];
+      return [event, contextEvent, toolTextEvent, urgentEvent];
     },
   },
 });
 assert.equal(summary.handled, true);
 assert.equal(summaryLimit, 50);
 assert.equal(summary.reply?.includes("兜底事件摘要"), true);
-assert.equal(summary.reply?.includes("统计：3/50"), true);
+assert.equal(summary.reply?.includes("统计：4/50"), true);
 assert.equal(summary.reply?.includes("响应超时：1"), true);
 assert.equal(summary.reply?.includes("上下文过长：1"), true);
+assert.equal(summary.reply?.includes("紧急绕行：1"), true);
 assert.equal(summary.reply?.includes("工具兜底：1"), true);
-assert.equal(summary.reply?.includes("最大队列：pending=6, active=2/3, senderPending=5"), true);
+assert.equal(summary.reply?.includes("最大队列：pending=8, active=2/3, senderPending=5"), true);
 assert.equal(summary.reply?.includes("response-timeout: 1"), true);
 assert.equal(summary.reply?.includes("context-too-long: 1"), true);
 assert.equal(summary.reply?.includes("tool-fallback-text: 1"), true);
-assert.equal(summary.reply?.includes("最新：2026-06-21T00:02:00.000Z tool-fallback-text"), true);
+assert.equal(summary.reply?.includes("urgent-queue-bypass: 1"), true);
+assert.equal(summary.reply?.includes("最新：2026-06-21T00:03:00.000Z urgent-queue-bypass"), true);
 
 const empty = handleCustomFallbackCommand({
   accountId: "default",

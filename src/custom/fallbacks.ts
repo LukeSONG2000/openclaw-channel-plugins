@@ -25,7 +25,8 @@ export type CustomFallbackEventKind =
   | "tool-only-complete-no-block"
   | "tool-fallback-media"
   | "tool-fallback-text"
-  | "tool-fallback-no-output";
+  | "tool-fallback-no-output"
+  | "urgent-queue-bypass";
 
 export interface CustomFallbackEvent {
   type: "custom-fallback";
