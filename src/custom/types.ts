@@ -230,6 +230,12 @@ export interface CustomSandboxTask {
     completedAt?: number;
     lastHeartbeatAt?: number;
   };
+  progress?: {
+    phase?: string;
+    message?: string;
+    percent?: number;
+    updatedAt: number;
+  };
   result?: string;
   error?: string;
 }

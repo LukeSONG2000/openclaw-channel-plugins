@@ -170,6 +170,41 @@ export class CustomTaskSandboxRuntime {
     };
   }
 
+  updateTaskProgress(params: {
+    taskId: string;
+    phase?: string;
+    message?: string;
+    percent?: number;
+    now?: number;
+  }): CustomTaskSandboxDecision {
+    const task = this.tasks.get(params.taskId);
+    if (!task) return { allowed: false, reason: "not_found" };
+    if (task.status !== "running") return { allowed: false, reason: "not_active", task: cloneTask(task) };
+    const now = params.now ?? Date.now();
+    const phase = normalizeProgressText(params.phase);
+    const message = normalizeProgressText(params.message);
+    const percent = normalizeProgressPercent(params.percent);
+    if (!phase && !message && percent === undefined) return { allowed: false, reason: "empty_prompt", task: cloneTask(task) };
+    task.updatedAt = now;
+    task.progress = {
+      ...task.progress,
+      ...(phase ? { phase } : {}),
+      ...(message ? { message } : {}),
+      ...(percent !== undefined ? { percent } : {}),
+      updatedAt: now,
+    };
+    task.execution = {
+      ...task.execution,
+      lastHeartbeatAt: now,
+    };
+    return {
+      allowed: true,
+      reason: "allowed",
+      task: cloneTask(task),
+      intents: [{ kind: "status-updated", task: cloneTask(task) }],
+    };
+  }
+
   completeTask(params: {
     taskId: string;
     result: string;
@@ -321,6 +356,19 @@ function normalizeWorkspaceRoot(value: unknown): string | undefined {
   return trimmed || undefined;
 }
 
+function normalizeProgressText(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed ? trimmed.slice(0, 400) : undefined;
+}
+
+function normalizeProgressPercent(value: unknown): number | undefined {
+  if (value === null || value === undefined || value === "") return undefined;
+  const n = Number(value);
+  if (!Number.isFinite(n)) return undefined;
+  return Math.max(0, Math.min(100, Math.round(n)));
+}
+
 function summarizeTitle(prompt: string): string {
   const compact = prompt.replace(/\s+/g, " ").trim();
   return compact.length <= 40 ? compact : `${compact.slice(0, 40)}...`;
@@ -340,5 +388,6 @@ function cloneTask(task: CustomSandboxTask): CustomSandboxTask {
       actor: { ...item.actor },
     })),
     execution: task.execution ? { ...task.execution } : undefined,
+    progress: task.progress ? { ...task.progress } : undefined,
   };
 }

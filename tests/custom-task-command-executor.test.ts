@@ -3,7 +3,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomTaskCommandExecutor, resolveCustomTaskCommandExecutorConfig } from "../src/custom/task-command-executor.js";
-import { applyCustomTaskExecutionIntents, completeCustomTaskExecution, failCustomTaskExecution } from "../src/custom/task-executor-adapter.js";
+import { applyCustomTaskExecutionIntents, completeCustomTaskExecution, failCustomTaskExecution, progressCustomTaskExecution } from "../src/custom/task-executor-adapter.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "qqbot-task-command-executor-"));
@@ -74,11 +74,12 @@ const taskId = created.task!.id;
 const completed: Array<{ taskId: string; result: string }> = [];
 const failed: Array<{ taskId: string; error: string }> = [];
 const heartbeats: string[] = [];
+const progressEvents: string[] = [];
 const executor = new CustomTaskCommandExecutor({
   config: {
     enabled: true,
     command: process.execPath,
-    args: ["-e", "console.log(process.env.QQBOT_CUSTOM_TASK_ID); console.error('warn line')"],
+    args: ["-e", "console.log(JSON.stringify({ type: 'qqbot.task.progress', phase: 'running', message: 'executor started', percent: 15 })); console.log(process.env.QQBOT_CUSTOM_TASK_ID); console.error('warn line')"],
     timeoutMs: 5_000,
     maxOutputChars: 1_000,
     notifyAudiences: ["peer", "owner"],
@@ -109,6 +110,18 @@ const executor = new CustomTaskCommandExecutor({
     heartbeat: (result) => {
       heartbeats.push(result.taskId);
     },
+    progress: (result) => {
+      progressEvents.push(`${result.taskId}:${result.percent}:${result.phase}:${result.message}`);
+      progressCustomTaskExecution({
+        tasks: runtime,
+        taskId: result.taskId,
+        phase: result.phase,
+        message: result.message,
+        percent: result.percent,
+        applyWorkspaceEffects: false,
+        now: 1_750,
+      });
+    },
   },
 });
 
@@ -130,6 +143,8 @@ assert.match(completed[0]?.result ?? "", new RegExp(taskId));
 assert.match(completed[0]?.result ?? "", /warn line/);
 assert.equal(runtime.getTask(taskId)?.status, "completed");
 assert.equal(heartbeats.includes(taskId), true);
+assert.equal(progressEvents.includes(`${taskId}:15:running:executor started`), true);
+assert.equal(runtime.getTask(taskId)?.progress?.message, "executor started");
 
 const stdinRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
 const stdinCreated = stdinRuntime.createTask({

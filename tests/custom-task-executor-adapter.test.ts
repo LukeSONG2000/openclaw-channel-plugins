@@ -7,6 +7,7 @@ import {
   completeCustomTaskExecution,
   failCustomTaskExecution,
   heartbeatCustomTaskExecution,
+  progressCustomTaskExecution,
   type CustomTaskExecutor,
 } from "../src/custom/task-executor-adapter.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
@@ -94,6 +95,20 @@ try {
   });
   assert.equal(heartbeat.changed, true);
   assert.equal(heartbeat.decision.task?.execution?.lastHeartbeatAt, 4_000);
+
+  const progress = progressCustomTaskExecution({
+    tasks: runtime,
+    taskId,
+    phase: "planning",
+    message: "拆分任务步骤",
+    percent: 25,
+    now: 4_050,
+  });
+  assert.equal(progress.changed, true);
+  assert.equal(progress.decision.task?.progress?.phase, "planning");
+  assert.equal(progress.decision.task?.progress?.message, "拆分任务步骤");
+  assert.equal(progress.effects.some((effect) => effect.kind === "task-progress"), true);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(created.task!.workspace, "status.json"), "utf8")).progress.percent, 25);
 
   const cancelRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
   const cancelCreated = cancelRuntime.createTask({

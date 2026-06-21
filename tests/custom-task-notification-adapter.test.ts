@@ -24,6 +24,12 @@ const baseTask: CustomSandboxTask = {
     startedAt: 1_500,
     lastHeartbeatAt: 2_000,
   },
+  progress: {
+    phase: "coding",
+    message: "正在实现任务通知",
+    percent: 70,
+    updatedAt: 2_500,
+  },
 };
 
 assert.equal(notificationForCustomTaskStatus({ task: baseTask }), null);
@@ -42,6 +48,7 @@ assert.equal(completed?.kind, "notify");
 assert.equal(completed?.audience, "peer");
 assert.equal(completed?.title, "✅ 长任务已完成");
 assert.equal(completed?.text.includes("工作区：/tmp/task-1"), true);
+assert.equal(completed?.text.includes("进度：70% / coding / 正在实现任务通知"), true);
 assert.equal(completed?.text.includes("...(已截断)"), true);
 
 const failed = notificationsForCustomTaskStatus({

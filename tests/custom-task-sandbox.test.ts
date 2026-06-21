@@ -139,6 +139,27 @@ const heartbeatSecond = runtime.heartbeatTask({
 assert.equal(heartbeatSecond.allowed, true);
 assert.equal(heartbeatSecond.task?.execution?.lastHeartbeatAt, 6_750);
 
+const progressSecond = runtime.updateTaskProgress({
+  taskId: second.task!.id,
+  phase: "coding",
+  message: "已完成核心模块",
+  percent: 42.6,
+  now: 6_800,
+});
+assert.equal(progressSecond.allowed, true);
+assert.equal(progressSecond.task?.progress?.phase, "coding");
+assert.equal(progressSecond.task?.progress?.message, "已完成核心模块");
+assert.equal(progressSecond.task?.progress?.percent, 43);
+assert.equal(progressSecond.task?.progress?.updatedAt, 6_800);
+assert.equal(progressSecond.task?.execution?.lastHeartbeatAt, 6_800);
+
+const emptyProgress = runtime.updateTaskProgress({
+  taskId: second.task!.id,
+  now: 6_850,
+});
+assert.equal(emptyProgress.allowed, false);
+assert.equal(emptyProgress.reason, "empty_prompt");
+
 const completeSecond = runtime.completeTask({
   taskId: second.task!.id,
   result: "Implemented sandbox execution adapter boundary.",

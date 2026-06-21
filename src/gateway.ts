@@ -79,6 +79,7 @@ import {
   completeCustomTaskExecution,
   failCustomTaskExecution,
   heartbeatCustomTaskExecution,
+  progressCustomTaskExecution,
   type CustomTaskExecutionEffect,
 } from "./custom/task-executor-adapter.js";
 import {
@@ -1387,6 +1388,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             const applied = heartbeatCustomTaskExecution({
               tasks: customMessageFlow.tasks,
               taskId,
+              applyWorkspaceEffects: true,
+              now,
+            });
+            if (applied.changed) persistCustomTaskState();
+          },
+          progress: ({ taskId, phase, message, percent, now }) => {
+            const applied = progressCustomTaskExecution({
+              tasks: customMessageFlow.tasks,
+              taskId,
+              phase,
+              message,
+              percent,
               applyWorkspaceEffects: true,
               now,
             });

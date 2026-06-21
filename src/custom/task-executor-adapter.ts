@@ -44,6 +44,7 @@ export interface CustomTaskExecutionEffect {
     | "executor-requirement-forwarded"
     | "executor-cancel-requested"
     | "task-heartbeat"
+    | "task-progress"
     | "task-completed"
     | "task-failed"
     | "notify"
@@ -202,6 +203,30 @@ export function heartbeatCustomTaskExecution(params: {
   });
 }
 
+export function progressCustomTaskExecution(params: {
+  tasks: CustomTaskSandboxRuntime;
+  taskId: string;
+  phase?: string;
+  message?: string;
+  percent?: number;
+  applyWorkspaceEffects?: boolean;
+  now?: number;
+}): CustomTaskExecutionStatusResult {
+  const decision = params.tasks.updateTaskProgress({
+    taskId: params.taskId,
+    phase: params.phase,
+    message: params.message,
+    percent: params.percent,
+    now: params.now,
+  });
+  return applyStatusDecision({
+    decision,
+    successKind: "task-progress",
+    applyWorkspaceEffects: params.applyWorkspaceEffects,
+    now: params.now,
+  });
+}
+
 export function completeCustomTaskExecution(params: {
   tasks: CustomTaskSandboxRuntime;
   taskId: string;
@@ -256,7 +281,7 @@ export function failCustomTaskExecution(params: {
 
 function applyStatusDecision(params: {
   decision: CustomTaskSandboxDecision;
-  successKind: Extract<CustomTaskExecutionEffect["kind"], "task-heartbeat" | "task-completed" | "task-failed">;
+  successKind: Extract<CustomTaskExecutionEffect["kind"], "task-heartbeat" | "task-progress" | "task-completed" | "task-failed">;
   applyWorkspaceEffects?: boolean;
   notifyAudiences?: CustomTaskNotificationAudience[];
   includeWorkspaceInNotification?: boolean;

@@ -259,6 +259,13 @@ function formatTaskStatus(task: CustomSandboxTask): string {
     `工作区：${task.workspace}`,
     `追加需求：${task.requirements.length}`,
   ];
+  if (task.execution?.executorId) lines.push(`执行器：${task.execution.executorId}`);
+  if (task.execution?.runId) lines.push(`运行：${task.execution.runId}`);
+  if (task.execution?.agentId) lines.push(`Agent：${task.execution.agentId}`);
+  if (task.execution?.lastHeartbeatAt) lines.push(`心跳：${new Date(task.execution.lastHeartbeatAt).toISOString()}`);
+  if (task.progress) {
+    lines.push(...formatTaskProgressLines(task.progress));
+  }
   if (task.result) lines.push(`结果：${task.result}`);
   if (task.error) lines.push(`错误：${task.error}`);
   lines.push(``, formatTaskCommandHints(task, { includeCreate: true }));
@@ -283,6 +290,17 @@ function formatTaskDecision(reason: string): string {
   if (reason === "not_active") return `⚠️ 任务已不处于活跃状态。`;
   if (reason === "invalid_transition") return `⚠️ 任务状态不允许执行该操作。`;
   return `⚠️ 操作失败：${reason}`;
+}
+
+function formatTaskProgressLines(progress: NonNullable<CustomSandboxTask["progress"]>): string[] {
+  const lines = [];
+  const parts = [];
+  if (progress.percent !== undefined) parts.push(`${progress.percent}%`);
+  if (progress.phase) parts.push(progress.phase);
+  if (progress.message) parts.push(progress.message);
+  lines.push(`进度：${parts.join(" / ") || "已更新"}`);
+  lines.push(`进度时间：${new Date(progress.updatedAt).toISOString()}`);
+  return lines;
 }
 
 function resolveTask(state: CustomTaskSandboxRuntimeState, input: string): CustomSandboxTask | null {

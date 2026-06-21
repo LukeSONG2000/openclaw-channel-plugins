@@ -58,6 +58,10 @@ function renderTaskMarkdown(task: CustomSandboxTask): string {
     `- Peer: ${task.peer.kind}:${task.peer.id}`,
     `- Owner: ${task.owner.label || task.owner.id}`,
     `- Created: ${new Date(task.createdAt).toISOString()}`,
+    ...(task.progress ? [
+      `- Progress: ${formatTaskProgress(task.progress)}`,
+      `- Progress Updated: ${new Date(task.progress.updatedAt).toISOString()}`,
+    ] : []),
     "",
     "## Prompt",
     "",
@@ -84,8 +88,17 @@ function taskStatusDocument(task: CustomSandboxTask, options?: CustomTaskWorkspa
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
     execution: task.execution,
+    progress: task.progress,
     requirements: task.requirements,
     result: task.result,
     error: task.error,
   };
+}
+
+function formatTaskProgress(progress: NonNullable<CustomSandboxTask["progress"]>): string {
+  const parts = [];
+  if (progress.percent !== undefined) parts.push(`${progress.percent}%`);
+  if (progress.phase) parts.push(progress.phase);
+  if (progress.message) parts.push(progress.message);
+  return parts.join(" - ") || "updated";
 }

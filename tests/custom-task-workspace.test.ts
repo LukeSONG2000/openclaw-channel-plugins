@@ -49,10 +49,12 @@ try {
 
   task.status = "running";
   task.execution = { executorId: "executor", startedAt: 4_000 };
+  task.progress = { phase: "coding", message: "写入状态文件", percent: 50, updatedAt: 4_250 };
   writeCustomTaskStatus(task, { now: 4_500 });
   const status = JSON.parse(fs.readFileSync(path.join(workspace, "status.json"), "utf8"));
   assert.equal(status.status, "running");
   assert.equal(status.execution.executorId, "executor");
+  assert.equal(status.progress.message, "写入状态文件");
 
   assert.equal(resolveWorkspacePath("/tmp/x"), "/tmp/x");
 } finally {

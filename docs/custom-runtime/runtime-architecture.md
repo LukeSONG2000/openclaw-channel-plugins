@@ -611,7 +611,7 @@ Long task isolation.
 Current implementation status:
 
 - Exists as a pure task state runtime with no QQ API, OpenClaw SDK, child process, timer, or filesystem dependency.
-- Creates durable task records with id, peer, owner, title, prompt, status, workspace path, timestamps, execution metadata, and appended requirements.
+- Creates durable task records with id, peer, owner, title, prompt, status, workspace path, timestamps, execution metadata, progress metadata, and appended requirements.
 - Emits task intents for start requests, requirement additions, cancellation requests, and status updates so a future executor can be plugged in without changing command parsing.
 - Defaults to at most 3 active tasks per account/peer.
 - Default workspace root is `~/.openclaw/qqbot/tasks`.
@@ -619,7 +619,7 @@ Current implementation status:
 - Each scene binding can also set `tasks.workspaceRoot` and `tasks.maxActiveTasksPerPeer`; scene values override global values when `/bot-task create` runs in that peer.
 - `inspectCustomTaskSandboxConfig()` exposes the resolved task sandbox config for a message, and `/bot-task create` passes it into `CustomTaskSandboxRuntime.createTask()` without rebuilding the per-account runtime.
 - Task ids use `qqbot-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
-- Supports create, list, status, add requirement, cancel, start, heartbeat, complete, and fail operations.
+- Supports create, list, status, add requirement, cancel, start, heartbeat, progress update, complete, and fail operations.
 - Exports/imports `CustomTaskSandboxRuntimeState` so the gateway can restore task metadata after restart.
 - Persists state under `~/.openclaw/qqbot/data/custom-tasks/tasks-<accountId>.json`.
 - `src/custom/task-workspace.ts` materializes each task into an isolated workspace with:
@@ -631,14 +631,15 @@ Current implementation status:
   - keep tasks queued when no executor is attached
   - start tasks when an executor accepts them, recording executor id, run id, agent id, and start time
   - forward appended requirements and cancellation requests to the executor when available
-  - expose heartbeat, complete, and fail helpers that update runtime state and `status.json`
+  - expose heartbeat, progress, complete, and fail helpers that update runtime state and `status.json`
 - `src/custom/task-command-executor.ts` provides a conservative optional command executor:
   - configured under `channels.qqbot.customRuntime.tasks.commandExecutor`
   - disabled by default
   - starts a configured local command in the task workspace without blocking the main QQ message queue
   - passes task metadata through `QQBOT_CUSTOM_TASK_*` environment variables
   - captures stdout/stderr, applies timeout and output truncation, then calls the same complete/fail helpers used by future executors
-  - cannot stream appended requirements into stdin; appended requirements are recorded in task state and workspace for polling/inspection
+  - can optionally keep stdin open with `forwardRequirementsToStdin=true`; appended requirements are sent as JSON lines while still being persisted
+  - can emit progress by writing either `QQBOT_TASK_PROGRESS {"phase":"...","message":"...","percent":50}` or a JSON line with `type:"qqbot.task.progress"` to stdout
 - `src/custom/task-notification-adapter.ts` formats task completion/failure/cancellation notification effects:
   - peer notification for the originating group/DM
   - owner notification for future direct follow-up
@@ -669,6 +670,7 @@ Current implementation status:
 - `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
 - `/bot-task add` and `/bot-task cancel` now use the same account/peer boundary before task-scoped auth; a cross-peer ordinary member cannot trigger an approval request for a task they should not know about.
 - Task create/status/add/cancel replies include QQ command-input shortcuts and C2C/group inline command keyboards for status, append, cancel, and new-task actions where applicable. Status/cancel buttons send the slash command directly; append/new-task buttons only prefill the command so the user can edit the requirement text before sending.
+- `/bot-task status <taskId>` now shows executor id, run id, agent id, heartbeat time, and the latest progress phase/message/percent when present, so group members can inspect a running long task without entering the main AI queue.
 - Slash-command capability metadata gates task mutations through custom auth:
   - query/help/list/status use `system.status`
   - create/add/cancel use `codex.longTask`
@@ -681,10 +683,11 @@ Important boundary:
 - It returns notification delivery descriptions instead of sending QQ messages directly; gateway applies anchored deliveries through QQ send APIs and applies proactive policy before unanchored async completion notifications.
 - Without an enabled executor, tasks remain queued with durable workspace/status files; group long-task commands still return immediately and do not block the main conversation queue.
 - The local command executor can optionally keep stdin open with `forwardRequirementsToStdin=true`; when enabled, `/bot-task add` forwards each added requirement as one JSON line while still persisting the requirement to task state and the workspace.
+- The local command executor can parse stdout progress events and persist them to task state/status files. This gives a future OpenClaw/subagent runner a minimal streaming-status contract without coupling the gateway to a specific runner API.
 
 Next integration:
 
-Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add richer task cards and workspace cleanup.
+Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add workspace cleanup and richer runner-specific status cards.
 
 Example command executor config:
 

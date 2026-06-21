@@ -686,3 +686,11 @@ Added configured scene binding inspection:
 - The preflight also warns on `customRuntime.enabled=false`, missing management-group scene binding, `upgradeMode=hot-reload`, `allowUpgradePkgOverride=true`, missing/disabled `customUpdateCheck`, and leftover official/legacy QQBot extension directories under `~/.openclaw/extensions`.
 - JSON output is available for future deployment checklists or OpenClaw admin cards; text output is Chinese and explicitly states the script is read-only.
 - Added `tests/custom-runtime-deploy-preflight.test.mjs` for package-source classification, duplicate plugin detection, management-anchor blockers, extension-dir warnings, CLI JSON output, and `--require-ready` exit code.
+
+增强长任务进度状态协议：
+
+- `CustomSandboxTask` 新增 `progress` 元数据，记录 phase/message/percent/updatedAt；`CustomTaskSandboxRuntime.updateTaskProgress()` 会同步更新时间和 heartbeat。
+- `progressCustomTaskExecution()` 将 executor 进度事件写入 task state 与 `status.json`，并产生 `task-progress` effect；gateway 的命令执行器回调会持久化该状态。
+- `CustomTaskCommandExecutor` 现在可以从 stdout 解析 `QQBOT_TASK_PROGRESS {...}` 或 `{"type":"qqbot.task.progress",...}` JSON 行，作为未来 OpenClaw/subagent runner 的轻量进度协议。
+- `/bot-task status` 输出执行器、run id、agent、heartbeat 和最新进度；完成/失败/取消通知也会携带最新进度摘要。
+- 扩展 task sandbox、executor adapter、command executor、gateway adapter、notification、workspace 测试，覆盖进度解析、状态持久化和状态展示。

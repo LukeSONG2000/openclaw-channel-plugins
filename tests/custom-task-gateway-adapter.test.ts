@@ -67,6 +67,21 @@ assert.equal(list.changed, undefined);
 assert.equal(list.reply?.includes(taskId), true);
 assert.equal(list.reply?.includes(`<qqbot-cmd-input text="/bot-task status ${taskId}" show="查看"/>`), true);
 
+tasks.startTask({
+  taskId,
+  executorId: "executor-1",
+  runId: "run-1",
+  agentId: "dev-agent",
+  now: 2_500,
+});
+tasks.updateTaskProgress({
+  taskId,
+  phase: "coding",
+  message: "正在实现任务状态卡",
+  percent: 60,
+  now: 2_800,
+});
+
 const statusBySuffix = handleCustomTaskCommand({
   accountId: "default",
   tasks,
@@ -76,6 +91,9 @@ const statusBySuffix = handleCustomTaskCommand({
 });
 assert.equal(statusBySuffix.handled, true);
 assert.equal(statusBySuffix.reply?.includes("长任务状态"), true);
+assert.equal(statusBySuffix.reply?.includes("执行器：executor-1"), true);
+assert.equal(statusBySuffix.reply?.includes("Agent：dev-agent"), true);
+assert.equal(statusBySuffix.reply?.includes("进度：60% / coding / 正在实现任务状态卡"), true);
 assert.equal(statusBySuffix.reply?.includes(`<qqbot-cmd-input text="/bot-task cancel ${taskId}" show="取消任务"/>`), true);
 assert.equal(statusBySuffix.reply?.includes(`<qqbot-cmd-input text="/bot-task create " show="新建长任务"/>`), true);
 assert.equal(statusBySuffix.keyboard?.content?.rows.length, 4);

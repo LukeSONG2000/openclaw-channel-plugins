@@ -33,6 +33,7 @@ export function notificationForCustomTaskStatus(params: {
 
   if (task.execution?.runId) lines.push(`运行：${task.execution.runId}`);
   if (task.execution?.agentId) lines.push(`Agent：${task.execution.agentId}`);
+  if (task.progress) lines.push(`进度：${formatTaskProgress(task.progress)}`);
   if (task.updatedAt) lines.push(`更新时间：${new Date(task.updatedAt).toISOString()}`);
   if (params.includeWorkspace) lines.push(`工作区：${task.workspace}`);
 
@@ -87,4 +88,12 @@ function truncateText(value: string, maxChars: number): string {
   const max = Math.max(20, Math.floor(maxChars));
   if (compact.length <= max) return compact;
   return `${compact.slice(0, max - 12)}\n...(已截断)`;
+}
+
+function formatTaskProgress(progress: NonNullable<CustomSandboxTask["progress"]>): string {
+  const parts = [];
+  if (progress.percent !== undefined) parts.push(`${progress.percent}%`);
+  if (progress.phase) parts.push(progress.phase);
+  if (progress.message) parts.push(progress.message);
+  return parts.join(" / ") || "已更新";
 }
