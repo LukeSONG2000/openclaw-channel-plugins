@@ -100,6 +100,7 @@ import {
 import { appendCustomFallbackEvent } from "./custom/fallback-event-store.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
+import { formatCustomMessageDeleteDiagnostics, inspectCustomMessageDeleteEvent, isCustomMessageDeleteEventType } from "./custom/message-delete-events.js";
 import {
   buildCustomUrgentQueueBypassEvent,
   resolveCustomUrgentQueueBypassCommand,
@@ -2800,6 +2801,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             now: normalizePlatformTimestampMs(ev.timestamp),
           });
           persistCustomProactiveBudgetState();
+        } else if (isCustomMessageDeleteEventType(t)) {
+          const diag = inspectCustomMessageDeleteEvent(t, d);
+          if (diag) {
+            log?.info(`[qqbot:${account.accountId}] Message delete diagnostics: ${formatCustomMessageDeleteDiagnostics(diag)}`);
+          }
         } else if (t === "INTERACTION_CREATE") {
           const ev = d as InteractionEvent;
           const resolved = ev.data?.resolved;

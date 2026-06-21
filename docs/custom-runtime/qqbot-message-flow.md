@@ -64,8 +64,8 @@ Use this table as the first decision point when adding custom runtime behavior.
 | --- | --- | --- | --- | --- | --- | --- |
 | QQ C2C | `C2C_MESSAGE_CREATE` | `qqbot:c2c:{author.user_openid}` | `author.user_openid` | no reliable nickname in current server state | Text, quote metadata, images/GIF/files/voice observed through local processing | Text/Markdown, inline keyboard, image/voice/video/file, streaming text, passive and proactive wrappers |
 | QQ group | `GROUP_AT_MESSAGE_CREATE`, `GROUP_MESSAGE_CREATE` | `qqbot:group:{group_openid}` | `author.member_openid` | `author.username`, mention usernames when provided | Text, mentions, quote metadata, images/GIF/files/voice observed; raw QQ group/member numbers not exposed | Text/Markdown, inline keyboard, image/voice/video/file, passive and proactive wrappers |
-| Guild channel | `AT_MESSAGE_CREATE` | `qqbot:channel:{channel_id}` | `author.id` | `author.username`, `member.nick` when provided | Basic text/attachments normalized | Text send through `/channels/{channel_id}/messages`; custom cards/media are not the focus of current runtime |
-| Channel DM | `DIRECT_MESSAGE_CREATE` | `qqbot:dm:{guild_id}` or current queue `dm:{author.id}` needs audit | `author.id` | `author.username` when provided | Basic text/attachments normalized | `sendDmMessage` exists, but several current paths treat `dm` like C2C fallback; audit before adding scene behavior |
+| Guild channel | `AT_MESSAGE_CREATE` | `qqbot:channel:{channel_id}` | `author.id` | `author.username`, `member.nick` when provided | Basic text/attachments normalized; `MESSAGE_DELETE` / `PUBLIC_MESSAGE_DELETE` are captured as diagnostics only | Text send through `/channels/{channel_id}/messages`; custom cards/media are not the focus of current runtime |
+| Channel DM | `DIRECT_MESSAGE_CREATE` | `qqbot:dm:{guild_id}` or current queue `dm:{author.id}` needs audit | `author.id` | `author.username` when provided | Basic text/attachments normalized; `DIRECT_MESSAGE_DELETE` is captured as diagnostics only | `sendDmMessage` exists, but several current paths treat `dm` like C2C fallback; audit before adding scene behavior |
 | Interaction | `INTERACTION_CREATE` | scene-specific openid fields | `group_member_openid`, `user_openid`, or resolved `user_id` | button metadata only | C2C/group auth and poll callbacks handled | Must ACK with `PUT /interactions/{id}`; follow-up replies use C2C/group send wrappers where available |
 
 Implementation rules:
@@ -74,7 +74,7 @@ Implementation rules:
 - Store human labels separately from policy keys. Labels can change or be absent; openids are the durable keys for scenes, auth, proactive budgets, unread state, task sandboxes, and polls.
 - Treat `ref-index.jsonl` as quote/context cache, not as the source of peer mapping. Use `known-users.json`, config, and fresh inbound events for openid mapping.
 - Prefer C2C/group custom features first. They have the best local wrapper coverage for messages, media, inline keyboards, proactive acceptance, and current tests.
-- Treat channel DM and recall/delete state as unverified until there is direct server evidence and a gateway event mapping.
+- Treat channel DM behavior as unverified until there is direct server evidence. Channel and channel-DM delete events now have diagnostic logging, but they do not mutate custom runtime history.
 
 ## C2C Fields
 
@@ -175,9 +175,13 @@ Known local message type constants:
 - `MSG_TYPE_TEXT = 0`
 - `MSG_TYPE_QUOTE = 103`
 
-Open item: the current plugin does not explicitly model message recall/delete events as first-class inbound events. If recall state matters, add event capture from official docs and server samples before relying on it.
+Recall/delete handling:
 
-Official recall/delete docs currently describe channel and channel-DM recall APIs/events. Local C2C/group custom runtime should not assume recall state until QQ group/C2C recall events are observed or explicitly added to the gateway event map.
+- Official event subscription docs list `MESSAGE_DELETE` under `GUILD_MESSAGES`, `DIRECT_MESSAGE_DELETE` under `DIRECT_MESSAGE`, and `PUBLIC_MESSAGE_DELETE` under `PUBLIC_GUILD_MESSAGES`.
+- Official C2C/group docs currently list message create events plus active-message receive/reject events, but do not expose C2C/group recall/delete events in the observed docs set.
+- `src/custom/message-delete-events.ts` parses channel-side delete events into diagnostics fields: event type, scope, message id, channel id, guild id, author id, operator id, timestamp, and safe top-level raw keys.
+- `gateway.ts` logs these diagnostics as `Message delete diagnostics` only. It does not delete ref-index records, unread history, group history, task context, or scene state.
+- Local C2C/group custom runtime must still treat recall state as unverified until real server samples show a supported event shape.
 
 ## Send Capabilities
 
@@ -330,4 +334,4 @@ Current custom runtime behavior:
 - Validate custom auth inline cards on the actual deployed bot after installing the custom package; local tests only validate payload construction and handler logic.
 - Validate custom poll inline cards on the actual deployed bot after installing the custom package; local tests validate payload construction, command handling, interaction handling, and persistence only.
 - Audit normal AI reply, media, proactive, and card behavior for channel DM before enabling scene-specific custom runtime behavior there; gateway slash text now uses `sendDmMessage`.
-- Capture official/observed recall-delete event behavior if the custom runtime needs deletion state.
+- Capture real server samples for C2C/group recall-delete behavior before adding any history mutation or ref-index deletion logic.

@@ -438,3 +438,11 @@ Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.
 - Fine-grained tool-level authorization inside model runs remains pending until the OpenClaw tool execution contract is confirmed.
+
+Added channel-side message delete diagnostics:
+
+- Added `src/custom/message-delete-events.ts` to parse official channel deletion events `MESSAGE_DELETE`, `PUBLIC_MESSAGE_DELETE`, and `DIRECT_MESSAGE_DELETE`.
+- The parser emits only conservative diagnostic fields: event type, scope, message id, channel id, guild id, author id, operator id, timestamp, and safe raw top-level keys.
+- `gateway.ts` now logs these events as `Message delete diagnostics` from the unified WebSocket/Webhook dispatch path.
+- This is intentionally diagnostic-only: it does not remove ref-index entries, unread history, group history, task context, or scene/auth state.
+- Updated message-flow and architecture docs to record that official C2C/group docs currently expose create plus active-message receive/reject events, while C2C/group recall-delete behavior still needs deployed-server evidence before runtime state can depend on it.

@@ -291,6 +291,18 @@ Temporary grants:
 
 When unauthorized use is detected, generate an approval request to bound admins. Prefer an inline keyboard if available; otherwise send a text approval command.
 
+### `src/custom/message-delete-events.ts`
+
+Message deletion is currently diagnostic-only.
+
+Current implementation status:
+
+- Parses official channel-side deletion event names: `MESSAGE_DELETE`, `PUBLIC_MESSAGE_DELETE`, and `DIRECT_MESSAGE_DELETE`.
+- Extracts only conservative diagnostic fields: event type, scope, message id, channel id, guild id, author id, operator id, timestamp, and safe raw top-level keys.
+- `gateway.ts` logs the parsed result as `Message delete diagnostics`.
+- The helper does not mutate unread state, ref-index records, group history, task context, authorization state, or scene bindings.
+- C2C/group recall-delete state remains unverified until the deployed environment produces an official or observed event shape for it.
+
 ### `src/custom/auth-gateway-adapter.ts`
 
 Gateway-side translation layer for authorization runtime.
