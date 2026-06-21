@@ -337,6 +337,14 @@ Added custom auth dispatch gate:
 - `gateway.ts` blocks unauthorized dispatches before model/tool execution, persists auth intents, and sends C2C/group approval cards when a bound admin can approve the request.
 - Expanded `tests/custom-auth-gateway-adapter.test.ts` for dispatch denial, temporary grant consumption, and codex-only capability selection.
 
+Added peer scene binding command:
+
+- Added `src/custom/scene-gateway-adapter.ts` to parse and handle `/bot-scene status`, `/bot-scene list`, `/bot-scene set <scene>`, and `/bot-scene <scene>` before normal slash handling.
+- Scene status/list require `system.status`; scene binding requires `config.write`, so non-admin users still go through the custom auth approval path unless the scene grants the capability.
+- `src/custom/slash-gateway-adapter.ts` now routes `/bot-scene` and returns exact config persistence intents instead of writing files directly.
+- `gateway.ts` persists scene binding changes by reloading the latest framework config, merging the peer scene under `channels.qqbot.customRuntime.scenes`, and calling `runtime.config.writeConfigFile()`.
+- Added `tests/custom-scene-gateway-adapter.test.ts` and expanded custom slash/capability tests.
+
 Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.

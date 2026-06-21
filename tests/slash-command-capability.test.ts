@@ -33,6 +33,11 @@ assert.equal(getSlashCommandCapability("/bot-poll list"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-poll status poll-default-group-GROUP_OPENID-1000-1"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-poll create Pick one | A | B"), "game.interact");
 assert.equal(getSlashCommandCapability("/bot-poll close poll-default-group-GROUP_OPENID-1000-1"), "game.interact");
+assert.equal(getSlashCommandCapability("/bot-scene"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-scene status"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-scene list"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-scene set dev-lab"), "config.write");
+assert.equal(getSlashCommandCapability("/bot-scene dev-lab"), "config.write");
 
 const blockedPkgOverride = await matchSlashCommand({
   type: "c2c",

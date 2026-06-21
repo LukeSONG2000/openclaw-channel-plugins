@@ -141,6 +141,15 @@ Built-in default capabilities:
 
 High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `deploy.apply`, and `proactive.send` are intentionally not granted by default scene profiles. They require admin status, an explicit scene capability, or a temporary grant.
 
+`src/custom/scene-gateway-adapter.ts` handles peer-level scene binding commands before normal slash handling:
+
+- `/bot-scene status`
+- `/bot-scene list`
+- `/bot-scene set <codex-only|chat|system-admin|dev-lab|default-dm>`
+- `/bot-scene <scene>` shorthand
+
+`/bot-scene status` and `list` require `system.status`; scene binding requires `config.write`. The adapter updates the live config object and returns a precise config persistence intent. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
+
 Open items:
 
 - Scene `agentId` overrides OpenClaw route selection after the base route resolves; the custom layer rebuilds `sessionKey` with the framework routing helper so agent binding and session storage stay aligned.
@@ -295,6 +304,7 @@ Initial slash command capability mapping:
 - `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
 - `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
 - `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
+- `/bot-scene`: `system.status`; `set`/`bind` or direct scene names require `config.write`
 
 Text approval commands:
 
@@ -317,7 +327,7 @@ Gateway-side custom slash command orchestration layer.
 Current implementation status:
 
 - Runs before official plugin slash command matching.
-- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-task`, and `/bot-poll` through one adapter entry point.
+- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-task`, and `/bot-poll` through one adapter entry point.
 - Returns typed side-effect descriptions instead of sending QQ messages directly:
   - text reply
   - keyboard reply
@@ -325,6 +335,7 @@ Current implementation status:
   - state areas that need persistence
   - info/error log lines
 - Applies task workspace file effects for task create/add/cancel while keeping QQ send APIs out of the custom command decision layer.
+- Returns exact scene config persistence intents for `/bot-scene set`, leaving disk writes to the gateway.
 - Leaves `gateway.ts` responsible for platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
 
 Important boundary:

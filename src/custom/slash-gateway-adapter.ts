@@ -12,6 +12,7 @@ import {
 } from "./auth-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
+import { handleCustomSceneCommand } from "./scene-gateway-adapter.js";
 import { handleCustomTaskCommand } from "./task-gateway-adapter.js";
 import {
   applyCustomTaskExecutionIntents,
@@ -21,6 +22,7 @@ import {
   deliveriesFromCustomTaskNotifications,
   type CustomTaskNotificationDelivery,
 } from "./task-notification-gateway-adapter.js";
+import type { CustomSceneConfig } from "./types.js";
 
 export type CustomSlashGatewayReply =
   | { kind: "text"; text: string }
@@ -29,6 +31,7 @@ export type CustomSlashGatewayReply =
 
 export interface CustomSlashGatewayPersist {
   auth?: boolean;
+  config?: { sceneKey: string; sceneConfig: CustomSceneConfig };
   tasks?: boolean;
   polls?: boolean;
 }
@@ -112,6 +115,29 @@ export function handleCustomSlashGatewayCommand(params: {
             }
           : {}),
       },
+      persist,
+      logs,
+    });
+  }
+
+  const customSceneCommand = handleCustomSceneCommand({
+    cfg: params.cfg,
+    message: params.message,
+    rawContent: params.rawContent,
+  });
+  if (customSceneCommand.handled) {
+    if (customSceneCommand.changed && customSceneCommand.sceneKey && customSceneCommand.sceneConfig) {
+      persist.config = {
+        sceneKey: customSceneCommand.sceneKey,
+        sceneConfig: customSceneCommand.sceneConfig,
+      };
+      logs.push({
+        level: "info",
+        message: `custom scene updated: key=${customSceneCommand.sceneKey} scene=${customSceneCommand.sceneConfig?.scene}`,
+      });
+    }
+    return handled({
+      reply: customSceneCommand.reply ? { kind: "text", text: customSceneCommand.reply } : undefined,
       persist,
       logs,
     });
@@ -209,5 +235,5 @@ function handled(params: {
 }
 
 function hasPersist(persist?: CustomSlashGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.tasks || persist?.polls);
+  return Boolean(persist?.auth || persist?.config || persist?.tasks || persist?.polls);
 }

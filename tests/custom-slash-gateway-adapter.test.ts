@@ -22,7 +22,7 @@ const cfg = {
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
-            capabilities: ["chat.send", "system.status", "codex.longTask", "game.interact"],
+            capabilities: ["chat.send", "system.status", "codex.longTask", "game.interact", "config.write"],
           },
         },
       },
@@ -125,5 +125,37 @@ assert.equal(poll.persist?.polls, true);
 assert.equal(poll.reply?.kind, "keyboard");
 assert.equal(poll.reply?.kind === "keyboard" && poll.reply.keyboard.content?.rows.length, 2);
 assert.equal(Object.keys(pollRuntime.polls.getState().polls)[0], "poll-default-group-GROUP_OPENID-4000-1");
+
+const sceneRuntime = createCustomMessageFlowRuntime();
+const sceneStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: sceneRuntime,
+  message: { ...baseMessage, content: "/bot-scene status" },
+  rawContent: "/bot-scene status",
+  now: 5_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(sceneStatus.handled, true);
+assert.equal(sceneStatus.persist, undefined);
+assert.equal(sceneStatus.reply?.kind, "text");
+assert.equal(sceneStatus.reply?.kind === "text" && sceneStatus.reply.text.includes("场景：chat"), true);
+
+const sceneSet = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: sceneRuntime,
+  message: { ...baseMessage, content: "/bot-scene set dev-lab" },
+  rawContent: "/bot-scene set dev-lab",
+  now: 5_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(sceneSet.handled, true);
+assert.equal(sceneSet.persist?.config?.sceneKey, "qqbot:group:GROUP_OPENID");
+assert.equal(sceneSet.persist?.config?.sceneConfig.scene, "dev-lab");
+assert.equal(sceneSet.reply?.kind, "text");
+assert.equal(sceneSet.reply?.kind === "text" && sceneSet.reply.text.includes("场景：dev-lab"), true);
+assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
+assert.equal(sceneSet.logs?.some((item) => item.message.includes("custom scene updated")), true);
 
 console.log("custom slash gateway adapter tests passed");

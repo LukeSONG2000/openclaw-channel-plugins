@@ -411,6 +411,27 @@ registerCommand({
   handler: () => null,
 });
 
+/**
+ * /bot-scene — custom runtime scene binding command.
+ *
+ * The gateway handles this command against the live config object before
+ * normal slash command matching. This registry entry only provides help text
+ * and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-scene",
+  description: "查看和绑定自定义场景",
+  capability: (request) => slashSceneCapability(request.args),
+  usage: [
+    `/bot-scene status`,
+    `/bot-scene list`,
+    `/bot-scene set <codex-only|chat|system-admin|dev-lab|default-dm>`,
+    ``,
+    `查看当前会话场景，或将当前群聊/私聊绑定到指定二开场景。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
 const DEFAULT_UPGRADE_URL = "https://docs.qq.com/doc/DSGxOZk1oVnVKVkpq";
 
 function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {
@@ -2613,4 +2634,15 @@ function slashPollCapability(args: string): SlashCommandCapability {
     return "game.interact";
   }
   return "game.interact";
+}
+
+function slashSceneCapability(args: string): SlashCommandCapability {
+  const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+    return "system.status";
+  }
+  if (action === "set" || action === "bind" || action === "codex-only" || action === "chat" || action === "system-admin" || action === "dev-lab" || action === "default-dm") {
+    return "config.write";
+  }
+  return "config.write";
 }

@@ -66,6 +66,7 @@ import {
 } from "./custom/auth-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
+import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
 import { applyCustomTaskNotificationDeliveries } from "./custom/task-notification-gateway-adapter.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
@@ -812,6 +813,24 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           }
         }
         if (customSlashCommand.persist?.auth) persistCustomAuthState();
+        if (customSlashCommand.persist?.config) {
+          const pluginRuntime = getQQBotRuntime();
+          const configApi = pluginRuntime.config as {
+            loadConfig?: () => Record<string, unknown>;
+            writeConfigFile: (cfg: unknown) => Promise<void>;
+          };
+          const currentCfg = typeof configApi.loadConfig === "function"
+            ? structuredClone(configApi.loadConfig()) as Record<string, unknown>
+            : structuredClone(cfg) as Record<string, unknown>;
+          upsertCustomSceneConfig(
+            currentCfg as any,
+            customSlashCommand.persist.config.sceneKey,
+            customSlashCommand.persist.config.sceneConfig,
+            resolveCustomRuntimeConfig(currentCfg as any),
+          );
+          await configApi.writeConfigFile(currentCfg);
+          log?.info(`[qqbot:${account.accountId}] custom runtime config persisted: key=${customSlashCommand.persist.config.sceneKey} scene=${customSlashCommand.persist.config.sceneConfig.scene}`);
+        }
         if (customSlashCommand.persist?.tasks) persistCustomTaskState();
         if (customSlashCommand.persist?.polls) persistCustomPollState();
         if (customSlashCommand.reply) {

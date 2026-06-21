@@ -52,8 +52,10 @@ Out of scope for the first custom runtime:
 - `src/custom/auth.ts`: scene/capability authorization runtime, temporary grants, and approval request intents.
 - `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command authorization checks.
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
+- `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/list/bind command adapter with gateway-owned config persistence.
+- `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash orchestration for auth, scene, task, and poll commands.
 - `src/custom/runtime.ts`: composition helpers and exported custom runtime modules.
 - `src/custom/unread-runtime.ts`: pure unread/follow-up/sleep-digest state machine.
 - `src/custom/unread-gateway-adapter.ts`: effect bridge between unread runtime and gateway queue/history types.
-- `src/gateway.ts`: executes unread runtime effects and plugin slash command auth checks when `channels.qqbot.customRuntime.enabled` is true; default remains off.
+- `src/gateway.ts`: executes custom runtime effects, persists scene/config intents, and applies plugin slash command auth checks when `channels.qqbot.customRuntime.enabled` is true; default remains off.
 - `src/message-queue.ts`: honors `_noMerge` so synthetic catch-up messages keep their snapshots.
