@@ -388,6 +388,17 @@ Current implementation status:
 - Accepts injected sub-message formatting and envelope callbacks, so face/mention/attachment parsing and framework envelope formatting remain at the gateway boundary.
 - The returned initial `agentBody` is then passed through `src/custom/unread-context.ts` for custom/legacy history injection before `finalizeInboundContext()`.
 
+### `src/custom/inbound-context-payload.ts`
+
+Pure helper for building the object passed into the OpenClaw `finalizeInboundContext()` boundary.
+
+Current implementation status:
+
+- Assembles body fields, route addresses, account/session ids, chat type, sender metadata, timestamps, provider/surface ids, and origin QQ ids from the already-normalized queued message.
+- Merges static QQBot system prompts with group prompt context before they are injected as `GroupSystemPrompt`.
+- Adds voice metadata, local/remote media fields, command authorization status, and quote `ReplyTo*` fields only when present, preserving the previous optional field behavior.
+- `gateway.ts` still calls `pluginRuntime.channel.reply.finalizeInboundContext()` and owns framework runtime interaction; this helper only constructs the payload object.
+
 ### `src/custom/inbound-media-context.ts`
 
 Pure helper for inbound image/voice context derived after attachment processing.

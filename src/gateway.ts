@@ -45,9 +45,9 @@ import {
 } from "./custom/group-activation.js";
 import {
   buildCustomGroupPromptContext,
-  mergeCustomSystemPromptParts,
 } from "./custom/group-prompt-context.js";
 import { buildCustomAgentMessageBodyContext } from "./custom/agent-message-body-context.js";
+import { buildCustomInboundContextPayload } from "./custom/inbound-context-payload.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -1750,64 +1750,33 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const fromAddress = messageRoute.fromAddress;
         const toAddress = messageRoute.toAddress;
 
-        // QQBot 静态系统提示（投递地址、TTS 能力等）合并到 GroupSystemPrompt，
-        // 通过框架的 extraSystemPrompt 机制注入 AI system prompt，
-        // 不会存入 transcript 的 user turn content。
-        const qqbotSystemInstruction = systemPrompts.length > 0 ? systemPrompts.join("\n") : "";
-        const mergedGroupSystemPrompt = mergeCustomSystemPromptParts([qqbotSystemInstruction, groupSystemPrompt]);
-
-        const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext({
-          Body: body,
-          BodyForAgent: agentBody,
-          RawBody: event.content,
-          CommandBody: event.content,
-          From: fromAddress,
-          To: toAddress,
-          SessionKey: route.sessionKey,
-          AccountId: route.accountId,
-          ChatType: isGroupChat ? "group" : "direct",
-          GroupSystemPrompt: mergedGroupSystemPrompt,
-          // 群消息元数据（框架级字段）
-          WasMentioned: isGroupChat ? wasMentioned : undefined,
-          SenderLabel: isGroupChat ? senderLabel : undefined,
-          GroupSubject: isGroupChat ? groupSubject : undefined,
-          SenderId: event.senderId,
-          SenderName: event.senderName,
-          Provider: "qqbot",
-          Surface: "qqbot",
-          MessageSid: event.messageId,
-          Timestamp: new Date(event.timestamp).getTime(),
-          OriginatingChannel: "qqbot",
-          OriginatingTo: toAddress,
-          QQChannelId: event.channelId,
-          QQGuildId: event.guildId,
-          QQGroupOpenid: event.groupOpenid,
-          QQVoiceAsrReferAvailable: hasAsrReferFallback,
-          QQVoiceTranscriptSources: voiceTranscriptSources,
-          QQVoiceAttachmentPaths: uniqueVoicePaths,
-          QQVoiceAttachmentUrls: uniqueVoiceUrls,
-          QQVoiceAsrReferTexts: uniqueVoiceAsrReferTexts,
-          QQVoiceInputStrategy: "prefer_audio_stt_then_asr_fallback",
-          CommandAuthorized: commandAuthorized,
-          // 传递媒体路径和 URL，使 openclaw 原生媒体处理（视觉等）能正常工作
-          ...(localMediaPaths.length > 0 ? {
-            MediaPaths: localMediaPaths,
-            MediaPath: localMediaPaths[0],
-            MediaTypes: localMediaTypes,
-            MediaType: localMediaTypes[0],
-          } : {}),
-          ...(remoteMediaUrls.length > 0 ? {
-            MediaUrls: remoteMediaUrls,
-            MediaUrl: remoteMediaUrls[0],
-          } : {}),
-          // 引用消息上下文
-          ...(quoteRef.replyToId ? {
-            ReplyToId: quoteRef.replyToId,
-            ReplyToBody: quoteRef.replyToBody,
-            ReplyToSender: quoteRef.replyToSender,
-            ReplyToIsQuote: quoteRef.replyToIsQuote,
-          } : {}),
-        });
+        const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext(buildCustomInboundContextPayload({
+          event,
+          body,
+          agentBody,
+          fromAddress,
+          toAddress,
+          sessionKey: route.sessionKey,
+          accountId: route.accountId,
+          isGroupChat,
+          staticSystemPrompts: systemPrompts,
+          groupSystemPrompt,
+          wasMentioned,
+          senderLabel,
+          groupSubject,
+          hasAsrReferFallback,
+          voiceTranscriptSources,
+          uniqueVoicePaths,
+          uniqueVoiceUrls,
+          uniqueVoiceAsrReferTexts,
+          commandAuthorized,
+          media: {
+            localMediaPaths,
+            localMediaTypes,
+            remoteMediaUrls,
+          },
+          quote: quoteRef,
+        }));
 
         // 构建回复上下文
         const replyAnchorId = event._customUnreadSnapshotId ? undefined : event.messageId;

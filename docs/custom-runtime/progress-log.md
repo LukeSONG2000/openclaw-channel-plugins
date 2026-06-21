@@ -845,3 +845,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only resolves the group history limit and provides the framework envelope formatter callback; custom snapshot/mention/legacy history selection and no-op handling stay outside the main dispatch flow.
 - The helper preserves current behavior for non-group/C2C messages by returning the initial agent body unchanged without invoking the envelope formatter.
 - Expanded `tests/custom-unread-context.test.ts` to cover agentBody history injection and direct-message no-op behavior.
+
+抽出 finalizeInboundContext 入站 payload 构造：
+
+- Added `src/custom/inbound-context-payload.ts` to build the object passed into OpenClaw `finalizeInboundContext()` from normalized message, routing, media, voice, quote, auth, and group prompt fields.
+- `gateway.ts` now keeps the actual framework `finalizeInboundContext()` call, but no longer owns the large literal object or the conditional media/quote field spread logic.
+- The helper preserves optional-field behavior for group metadata, local/remote media, quote `ReplyTo*` fields, and static QQBot + group prompt merging.
+- Added `tests/custom-inbound-context-payload.test.ts` for group payload metadata, voice/media/quote fields, system prompt merging, direct-message group-field suppression, and absent optional media/quote fields.
