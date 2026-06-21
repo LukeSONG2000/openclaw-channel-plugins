@@ -354,6 +354,7 @@ Current custom deploy confirmation cards:
 - `/bot-deploy confirm /bot-upgrade --latest` and `/bot-deploy confirm /bot-upgrade --version <version>` create a pending deployment confirmation in the per-account custom runtime.
 - `/bot-deploy list` and `/bot-deploy status <confirmationId>` inspect current-session confirmation state.
 - `/bot-deploy preflight` returns an in-chat read-only deploy safety summary from the live config object: admin/admin-group anchors, custom runtime enabled state, update package source, update check settings, and duplicate/legacy QQBot plugin config risks.
+- The preflight reply includes QQ command buttons. When no blockers exist it offers refresh/version/`/bot-deploy confirm /bot-upgrade --latest`; when blockers exist it offers only refresh/version/auth-status/scene-binding diagnostics.
 - Chat preflight does not run shell commands, inspect server extension directories, install, restart, or delete anything. Real deploy still requires the server-side `scripts/preflight-custom-runtime-deploy.mjs --require-ready` plus backup.
 - C2C/group creation and pending status replies use inline callback buttons when available; channel/DM paths fall back to text.
 - Button data prefix: `custom-deploy:<confirmationId>:confirm|cancel`.

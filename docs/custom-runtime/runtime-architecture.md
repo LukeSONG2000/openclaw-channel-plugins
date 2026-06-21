@@ -938,6 +938,7 @@ Implemented behavior:
 - `/bot-deploy preflight` inspects the live config object and formats a management-friendly summary.
 - Checks admin anchors, management group anchor, `customRuntime.enabled`, management-group scene binding, update package source, upgrade mode, package override setting, custom update check setting, and duplicate/legacy QQBot plugin config entries.
 - Uses `deploy.check` capability through slash-command metadata.
+- Returns a QQ command keyboard: refresh/version are always available, `confirm /bot-upgrade --latest` appears only when no blockers exist, and blocker states expose only read-only diagnostics such as `/bot-auth status` and `/bot-scene bindings`.
 - Does not read server extension directories, run shell commands, install packages, restart the gateway, delete files, or mutate config.
 - Complements but does not replace `scripts/preflight-custom-runtime-deploy.mjs --require-ready`, which should still run on the server before real deploy/update.
 

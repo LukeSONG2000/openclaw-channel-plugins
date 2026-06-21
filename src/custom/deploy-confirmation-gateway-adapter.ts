@@ -4,7 +4,11 @@ import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomDeployConfirmationRuntime, normalizeDeployCommand } from "./deploy-confirmation.js";
-import { buildCustomDeployPreflightSummary, formatCustomDeployPreflightSummary } from "./deploy-preflight.js";
+import {
+  buildCustomDeployPreflightKeyboard,
+  buildCustomDeployPreflightSummary,
+  formatCustomDeployPreflightSummary,
+} from "./deploy-preflight.js";
 import type { CustomActor, CustomDeployConfirmation, CustomPeer } from "./types.js";
 
 export type CustomDeployCommand =
@@ -79,9 +83,11 @@ export function handleCustomDeployCommand(params: {
     };
   }
   if (command.kind === "preflight") {
+    const summary = buildCustomDeployPreflightSummary(params.cfg);
     return {
       handled: true,
-      reply: formatCustomDeployPreflightSummary(buildCustomDeployPreflightSummary(params.cfg)),
+      reply: formatCustomDeployPreflightSummary(summary),
+      keyboard: buildCustomDeployPreflightKeyboard(summary),
     };
   }
   if (command.kind === "status") {

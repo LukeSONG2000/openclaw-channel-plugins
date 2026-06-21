@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { normalizeCustomRuntimeAdminGroup, normalizeCustomRuntimeAdminList } from "./config.js";
 
 export type CustomDeployPreflightSeverity = "blocker" | "warning" | "info";
@@ -133,6 +134,32 @@ export function formatCustomDeployPreflightSummary(summary: CustomDeployPrefligh
   return lines.join("\n");
 }
 
+export function buildCustomDeployPreflightKeyboard(summary: CustomDeployPreflightSummary): InlineKeyboard {
+  const rows: Array<{ buttons: KeyboardButton[] }> = [
+    {
+      buttons: [
+        makePreflightCommandButton("refresh", "刷新预检", "/bot-deploy preflight", true, 1),
+        makePreflightCommandButton("version", "查看版本", "/bot-version", true, 1),
+      ],
+    },
+  ];
+  if (summary.ok) {
+    rows.push({
+      buttons: [
+        makePreflightCommandButton("confirm_latest", "创建确认卡", "/bot-deploy confirm /bot-upgrade --latest", true, 1),
+      ],
+    });
+  } else {
+    rows.push({
+      buttons: [
+        makePreflightCommandButton("auth_status", "授权状态", "/bot-auth status", true, 0),
+        makePreflightCommandButton("scene_bindings", "场景绑定", "/bot-scene bindings", true, 0),
+      ],
+    });
+  }
+  return { content: { rows } };
+}
+
 function inspectPluginConfig(plugins: Record<string, unknown>): CustomDeployPreflightFinding[] {
   const findings: CustomDeployPreflightFinding[] = [];
   const entries = objectOrEmpty(plugins.entries);
@@ -180,6 +207,27 @@ function appendFindings(lines: string[], title: string, findings: CustomDeployPr
     lines.push(`- [${finding.code}] ${finding.message}`);
   }
   lines.push("");
+}
+
+function makePreflightCommandButton(
+  id: string,
+  label: string,
+  command: string,
+  enter: boolean,
+  style: 0 | 1 | 3,
+): KeyboardButton {
+  return {
+    id: `deploy_preflight_${id}`,
+    render_data: { label, visited_label: label, style },
+    action: {
+      type: 2,
+      data: command,
+      enter,
+      permission: { type: 2 },
+      click_limit: 0,
+    },
+    group_id: "custom-deploy-preflight",
+  };
 }
 
 function hasQQBotCredentials(qqbot: Record<string, unknown>): boolean {

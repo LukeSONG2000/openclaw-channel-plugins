@@ -148,6 +148,9 @@ assert.equal(preflight.handled, true);
 assert.equal(preflight.changed, undefined);
 assert.equal(preflight.reply?.includes("QQBot 二开部署预检（只读）"), true);
 assert.equal(preflight.reply?.includes("无阻断项"), true);
+assert.equal(preflight.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "/bot-deploy preflight");
+assert.equal(preflight.keyboard?.content?.rows[0]?.buttons[1]?.action?.data, "/bot-version");
+assert.equal(preflight.keyboard?.content?.rows[1]?.buttons[0]?.action?.data, "/bot-deploy confirm /bot-upgrade --latest");
 
 const otherGroupStatus = handleCustomDeployCommand({
   cfg,

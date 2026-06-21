@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import {
+  buildCustomDeployPreflightKeyboard,
   buildCustomDeployPreflightSummary,
   formatCustomDeployPreflightSummary,
 } from "../src/custom/deploy-preflight.js";
@@ -35,6 +36,10 @@ assert.equal(ready.adminGroup, "qqbot:group:GROUP_OPENID");
 assert.equal(ready.upgradePkg, "@lukesong/openclaw-qqbot");
 assert.equal(ready.findings.some((finding) => finding.code === "preflight_read_only"), true);
 assert.equal(formatCustomDeployPreflightSummary(ready).includes("QQBot 二开部署预检（只读）"), true);
+const readyKeyboard = buildCustomDeployPreflightKeyboard(ready);
+assert.equal(readyKeyboard.content?.rows[0]?.buttons[0]?.action?.data, "/bot-deploy preflight");
+assert.equal(readyKeyboard.content?.rows[0]?.buttons[1]?.action?.data, "/bot-version");
+assert.equal(readyKeyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-deploy confirm /bot-upgrade --latest");
 
 const unsafe = buildCustomDeployPreflightSummary({
   channels: {
@@ -70,6 +75,9 @@ assert.equal(unsafe.findings.some((finding) => finding.code === "official_qqbot_
 assert.equal(unsafe.findings.some((finding) => finding.code === "multiple_qqbot_plugins_configured"), true);
 assert.equal(unsafe.findings.some((finding) => finding.code === "legacy_qqbot_plugin_allowed"), true);
 assert.equal(formatCustomDeployPreflightSummary(unsafe).includes("发现"), true);
+const unsafeKeyboard = buildCustomDeployPreflightKeyboard(unsafe);
+assert.equal(unsafeKeyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-auth status");
+assert.equal(unsafeKeyboard.content?.rows[1]?.buttons[1]?.action?.data, "/bot-scene bindings");
 
 const missing = buildCustomDeployPreflightSummary({ channels: {} } as any);
 assert.equal(missing.ok, false);

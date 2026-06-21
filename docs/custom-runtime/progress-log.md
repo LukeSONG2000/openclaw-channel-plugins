@@ -707,5 +707,6 @@ Added configured scene binding inspection:
 - Added `src/custom/deploy-preflight.ts` as a pure in-runtime safety summary for `/bot-deploy preflight`.
 - The command checks the live config object for admin/admin-group anchors, `customRuntime.enabled`, management-group scene binding, personal update package source, hot-reload/override settings, custom update check config, and duplicate/legacy QQBot plugin entries.
 - It is read-only and uses `deploy.check`; it does not run shell commands, inspect extension directories, install packages, restart gateway, delete files, or mutate config.
+- The preflight response now includes QQ command buttons: refresh/version always; create-confirm-card only when blockers are zero; auth/scene diagnostics when blockers exist.
 - Server-side deployment still requires `scripts/preflight-custom-runtime-deploy.mjs --require-ready` plus backup because chat preflight cannot see filesystem-level leftovers.
 - Added `tests/custom-deploy-preflight.test.ts` and expanded deploy gateway/capability tests.
