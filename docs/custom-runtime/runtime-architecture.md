@@ -434,6 +434,23 @@ Current implementation status:
 - Logs message delete diagnostics through the dedicated delete inspector.
 - Normalizes `INTERACTION_CREATE` for logging and hands the raw interaction event to the existing interaction handler with async error logging.
 
+### `src/custom/gateway-lifecycle-gateway-adapter.ts`
+
+Gateway-side connection lifecycle controller shared by WebSocket and Webhook startup paths.
+
+Current implementation status:
+
+- Owns mutable transport/session state that used to live directly in `gateway.ts`: reconnect attempts, abort flag, current WebSocket, heartbeat timer, session id, last sequence, last connect time, quick-disconnect counter, connecting flag, reconnect timer, and token-refresh flag.
+- Restores persisted session state and exposes the session getter/setter callbacks required by the WebSocket message/close adapters.
+- Centralizes cleanup for runtime services, heartbeat timer, and live WebSocket close.
+- Centralizes reconnect scheduling with bounded attempts, existing reconnect delays, timer replacement, and abort-aware connect callbacks.
+- Centralizes abort handling and the final wait-for-abort promise used by `startGateway()`.
+
+Important boundary:
+
+- The controller does not know QQ tokens, OpenClaw runtime internals, message queues, or persistence stores. `gateway.ts` injects cleanup side effects such as runtime-service disposal, token refresh stopping, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler stop.
+- It keeps transport lifecycle state testable without opening a real WebSocket or starting Webhook transport.
+
 ### `src/custom/websocket-reconnect-policy.ts`
 
 Pure WebSocket reconnect/close policy for the official QQ Gateway transport.

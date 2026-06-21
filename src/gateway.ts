@@ -41,13 +41,13 @@ import { runCustomMessageIngressGateway } from "./custom/message-ingress-gateway
 import {
   isQQBotGatewayWebSocketClosable,
   startQQBotWebSocketConnectionGateway,
-  type QQBotGatewayWebSocketLike,
 } from "./custom/websocket-connection-gateway-adapter.js";
 import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
 import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
 import { registerCustomOutboundRefIndexGateway } from "./custom/outbound-ref-index-gateway-adapter.js";
 import { runQQBotGatewayStartupPreflight } from "./custom/startup-preflight-gateway-adapter.js";
 import { createCustomInteractionCreateHandlerGateway } from "./custom/interaction-create-handler-gateway-adapter.js";
+import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -165,18 +165,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     log?.info(`[qqbot:${account.accountId}] Using webhook transport mode`);
   }
 
-  // ============ WebSocket / Webhook 公共初始化 ============
-  let reconnectAttempts = 0;
-  let isAborted = false;
-  let currentWs: QQBotGatewayWebSocketLike | null = null;
-  let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
-  let sessionId: string | null = null;
-  let lastSeq: number | null = null;
-  let lastConnectTime: number = 0; // 上次连接成功的时间
-  let quickDisconnectCount = 0; // 连续快速断开次数
-  let isConnecting = false; // 防止并发连接
-  let reconnectTimer: ReturnType<typeof setTimeout> | null = null; // 重连定时器
-  let shouldRefreshToken = false; // 下次连接是否需要刷新 token
+  let customUnreadScheduler: CustomUnreadScheduler | null = null;
+  let customTaskExecutor: CustomTaskCommandExecutor | null = null;
+  const lifecycle = createQQBotGatewayLifecycle({
+    accountId: account.accountId,
+    reconnectDelays: RECONNECT_DELAYS,
+    maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
+    isWebSocketClosable: isQQBotGatewayWebSocketClosable,
+    disposeRuntimeServices: () => {
+      customUnreadScheduler?.dispose();
+      customUnreadScheduler = null;
+      customTaskExecutor?.dispose();
+      customTaskExecutor = null;
+    },
+    log,
+  });
   // 标记此 account 为待发问候（进程重启时 Set 里已有，断线重连不会重新加入）
   _pendingFirstReady.add(account.accountId);
 
@@ -184,12 +187,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
   // ============ P1-2: 尝试从持久化存储恢复 Session ============
   // 传入当前 appId，如果 appId 已变更（换了机器人），旧 session 自动失效
-  const savedSession = loadSession(account.accountId, account.appId);
-  if (savedSession) {
-    sessionId = savedSession.sessionId;
-    lastSeq = savedSession.lastSeq;
-    log?.info(`[qqbot:${account.accountId}] Restored session from storage: sessionId=${sessionId}, lastSeq=${lastSeq}`);
-  }
+  lifecycle.restoreSession(loadSession(account.accountId, account.appId));
 
   // ============ 审批 Handler ============
   const approvalHandler = new QQBotApprovalHandler({
@@ -208,7 +206,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const msgQueue = createMessageQueue({
     accountId: account.accountId,
     log,
-    isAborted: () => isAborted,
+    isAborted: () => lifecycle.isAborted(),
   });
   const customState = createCustomMessageFlowStateController({
     accountId: account.accountId,
@@ -225,8 +223,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomGameState = customState.persistGameState;
   const persistCustomDeployConfirmationState = customState.persistDeployConfirmationState;
   const persistCustomUnreadState = customState.persistUnreadState;
-  let customUnreadScheduler: CustomUnreadScheduler | null = null;
-  let customTaskExecutor: CustomTaskCommandExecutor | null = null;
 
   const isCustomRuntimeEnabled = (): boolean =>
     resolveCustomRuntimeConfig(cfg as any).enabled === true;
@@ -301,13 +297,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     await slashPrequeueHandler(msg);
   };
 
-  abortSignal.addEventListener("abort", () => {
-    isAborted = true;
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-    cleanup();
+  lifecycle.registerAbort(abortSignal, () => {
     // P1-1: 停止后台 Token 刷新
     stopBackgroundTokenRefresh(account.appId);
     // P1-3: 保存已知用户数据
@@ -323,67 +313,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     unregisterApprovalHandler(account.accountId);
   });
 
-  const cleanup = () => {
-    customUnreadScheduler?.dispose();
-    customUnreadScheduler = null;
-    customTaskExecutor?.dispose();
-    customTaskExecutor = null;
-    if (heartbeatInterval) {
-      clearInterval(heartbeatInterval);
-      heartbeatInterval = null;
-    }
-    if (currentWs && isQQBotGatewayWebSocketClosable(currentWs)) {
-      currentWs.close();
-    }
-    currentWs = null;
-  };
-
-  const getReconnectDelay = () => {
-    const idx = Math.min(reconnectAttempts, RECONNECT_DELAYS.length - 1);
-    return RECONNECT_DELAYS[idx];
-  };
-
+  const cleanup = lifecycle.cleanup;
   const scheduleReconnect = (customDelay?: number) => {
-    if (isAborted || reconnectAttempts >= MAX_RECONNECT_ATTEMPTS) {
-      log?.error(`[qqbot:${account.accountId}] Max reconnect attempts reached or aborted`);
-      return;
-    }
-
-    // 取消已有的重连定时器
-    if (reconnectTimer) {
-      clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-
-    const delay = customDelay ?? getReconnectDelay();
-    reconnectAttempts++;
-    log?.info(`[qqbot:${account.accountId}] Reconnecting in ${delay}ms (attempt ${reconnectAttempts})`);
-
-    reconnectTimer = setTimeout(() => {
-      reconnectTimer = null;
-      if (!isAborted) {
-        connect();
-      }
-    }, delay);
+    lifecycle.scheduleReconnect(() => connect(), customDelay);
   };
 
   const connect = async () => {
     // 防止并发连接
-    if (isConnecting) {
-      log?.debug?.(`[qqbot:${account.accountId}] Already connecting, skip`);
-      return;
-    }
-    isConnecting = true;
+    if (!lifecycle.beginConnect()) return;
 
     try {
-      cleanup();
-
-      // 如果标记了需要刷新 token，则清除缓存
-      if (shouldRefreshToken) {
-        log?.info(`[qqbot:${account.accountId}] Refreshing token...`);
-        clearTokenCache(account.appId);
-        shouldRefreshToken = false;
-      }
+      lifecycle.prepareConnection({
+        clearTokenCache: () => clearTokenCache(account.appId),
+      });
 
       const pluginRuntime = getQQBotRuntime();
 
@@ -628,7 +570,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       // ============ Webhook 模式：共享 handleMessage，不走 WS ============
       if (transportMode === "webhook") {
-        isConnecting = false;
+        lifecycle.setConnecting(false);
         await startQQBotWebhookTransportGateway({
           account,
           abortSignal,
@@ -651,30 +593,23 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         clientSecret: account.clientSecret,
         intents: FULL_INTENTS,
         intentsDesc: FULL_INTENTS_DESC,
-        isAborted: () => isAborted,
-        getSessionState: () => ({ sessionId, lastSeq, lastConnectTime }),
-        setLastSeq: (nextLastSeq) => { lastSeq = nextLastSeq; },
-        setSessionId: (nextSessionId) => { sessionId = nextSessionId; },
-        setShouldRefreshToken: (nextShouldRefreshToken) => { shouldRefreshToken = nextShouldRefreshToken; },
-        setCurrentWebSocket: (ws) => { currentWs = ws; },
-        setConnecting: (nextIsConnecting) => { isConnecting = nextIsConnecting; },
-        setReconnectAttempts: (nextReconnectAttempts) => { reconnectAttempts = nextReconnectAttempts; },
-        setLastConnectTime: (nextLastConnectTime) => { lastConnectTime = nextLastConnectTime; },
-        getLastConnectTime: () => lastConnectTime,
-        getQuickDisconnectCount: () => quickDisconnectCount,
-        setQuickDisconnectCount: (nextQuickDisconnectCount) => { quickDisconnectCount = nextQuickDisconnectCount; },
+        isAborted: lifecycle.isAborted,
+        getSessionState: lifecycle.getSessionState,
+        setLastSeq: lifecycle.setLastSeq,
+        setSessionId: lifecycle.setSessionId,
+        setShouldRefreshToken: lifecycle.setShouldRefreshToken,
+        setCurrentWebSocket: lifecycle.setCurrentWebSocket,
+        setConnecting: lifecycle.setConnecting,
+        setReconnectAttempts: lifecycle.setReconnectAttempts,
+        setLastConnectTime: lifecycle.setLastConnectTime,
+        getLastConnectTime: lifecycle.getLastConnectTime,
+        getQuickDisconnectCount: lifecycle.getQuickDisconnectCount,
+        setQuickDisconnectCount: lifecycle.setQuickDisconnectCount,
         quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
         maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
         rateLimitDelayMs: RATE_LIMIT_DELAY,
         startMessageProcessor: () => msgQueue.startProcessor(handleMessage),
-        resetHeartbeat: (intervalMs, onHeartbeat, isSocketOpen) => {
-          if (heartbeatInterval) clearInterval(heartbeatInterval);
-          heartbeatInterval = setInterval(() => {
-            if (isSocketOpen()) {
-              onHeartbeat();
-            }
-          }, intervalMs);
-        },
+        resetHeartbeat: lifecycle.resetHeartbeat,
         isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
         markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
         onReady: (payload) => onReady?.(payload),
@@ -687,7 +622,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       });
 
     } catch (err) {
-      isConnecting = false; // 释放锁
+      lifecycle.setConnecting(false); // 释放锁
       handleQQBotWebSocketConnectionFailureGateway({
         accountId: account.accountId,
         err,
@@ -702,8 +637,5 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   await connect();
 
   // 等待 abort 信号（如果 connect() 返回时 signal 已经 aborted，直接 resolve）
-  if (abortSignal.aborted) return;
-  return new Promise<void>((resolve) => {
-    abortSignal.addEventListener("abort", () => resolve(), { once: true });
-  });
+  await lifecycle.waitForAbort(abortSignal);
 }

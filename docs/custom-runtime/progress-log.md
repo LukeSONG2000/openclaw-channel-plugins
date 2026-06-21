@@ -1230,3 +1230,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now hands raw interaction events to this per-account handler instead of inlining token caching, `acknowledgeInteraction()`, C2C/group/channel follow-up sends, and version lookup inside inbound event fanout.
 - The adapter reuses one QQ access-token promise per interaction, preserving the previous ACK/reply behavior while keeping interactive auth/poll/game/deploy card transport outside the main gateway file.
 - Added `tests/custom-interaction-create-handler-gateway-adapter.test.ts` for account/runtime/version binding, ACK payload forwarding, token reuse, and group/C2C/channel follow-up reply routing.
+
+抽出 gateway lifecycle 控制器：
+
+- Added `src/custom/gateway-lifecycle-gateway-adapter.ts` to own reconnect attempts, abort state, session id/sequence state, heartbeat timer, current WebSocket, connecting flag, quick-disconnect counter, token-refresh flag, cleanup, reconnect scheduling, and final abort waiting.
+- `gateway.ts` now delegates transport lifecycle state to this controller while injecting account-specific side effects for runtime-service disposal, token refresh stop, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler stop.
+- WebSocket connection setup now receives lifecycle callbacks directly (`getSessionState`, setters, heartbeat reset, cleanup, scheduleReconnect), reducing repeated mutable state plumbing in the main gateway file.
+- Added `tests/custom-gateway-lifecycle-gateway-adapter.test.ts` for session restore, connect locking, refresh-token preparation, heartbeat cleanup, WebSocket close cleanup, reconnect timer replacement, max-attempt guard, and abort cleanup.
