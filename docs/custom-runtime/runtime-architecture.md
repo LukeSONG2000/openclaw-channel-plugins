@@ -672,8 +672,9 @@ Current implementation status:
   - `/bot-poll close <pollId>`
 - For C2C/group messages, poll creation replies with an inline keyboard when available; channel/DM paths fall back to text.
 - Button callbacks use `custom-poll:<pollId>:vote:<optionId>`.
-- `gateway.ts` acknowledges interactions first, then routes `custom-poll:` callbacks to the per-account poll runtime.
+- `gateway.ts` acknowledges interactions first, maps the callback source into a custom peer, then routes `custom-poll:` callbacks to the per-account poll runtime.
 - `/bot-poll status <pollId>` and `/bot-poll close <pollId>` only reveal or mutate polls in the original account/peer, or polls created by the current actor. A poll id from another group/DM is treated as not found for ordinary readers.
+- Button votes apply the same account/peer visibility check before state mutation. Ordinary users cannot vote from another group/DM by replaying a poll callback payload; the poll creator can still interact with their own poll across peers.
 - Slash-command capability metadata gates poll mutations through custom auth:
   - help/list/status use `system.status`
   - create/close use `game.interact`

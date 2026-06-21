@@ -332,6 +332,7 @@ Current custom poll cards:
 - C2C/group creation replies use inline keyboard buttons when available; channel/DM paths fall back to text.
 - Button data prefix: `custom-poll:<pollId>:vote:<1-4>`.
 - Button callbacks are acknowledged before local state mutation, then the bot sends a short vote confirmation.
+- Callback source fields are mapped back to a custom peer: `group_openid` -> group, `user_openid` -> C2C, `channel_id` -> channel, and `guild_id` -> DM fallback. Poll votes only mutate state when the callback comes from the original account/peer, except that the poll creator may interact with their own poll across peers.
 - One actor has one vote per poll; clicking a different option updates the vote.
 - Poll state persists under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
 - Custom auth gates mutations through `game.interact`; list/status use `system.status`.

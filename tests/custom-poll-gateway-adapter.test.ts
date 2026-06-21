@@ -90,16 +90,60 @@ const keyboard = buildCustomPollKeyboard(polls.getPoll(pollId)!);
 assert.equal(keyboard.content?.rows[1]?.buttons[0]?.action?.data, `custom-poll:${pollId}:vote:2`);
 
 const vote = handleCustomPollInteraction({
+  accountId: "default",
   polls,
   buttonData: `custom-poll:${pollId}:vote:2`,
   actorId: "VOTER_OPENID",
   actorLabel: "Voter",
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
   now: 2_000,
 });
 assert.equal(vote.handled, true);
 assert.equal(vote.changed, true);
 assert.equal(vote.reply?.includes("已记录投票：B"), true);
 assert.equal(polls.getPoll(pollId)?.votes.VOTER_OPENID?.optionId, "2");
+
+const crossPeerVote = handleCustomPollInteraction({
+  accountId: "default",
+  polls,
+  buttonData: `custom-poll:${pollId}:vote:1`,
+  actorId: "OTHER_MEMBER_OPENID",
+  actorLabel: "Other",
+  sourcePeer: { kind: "group", id: "OTHER_GROUP_OPENID" },
+  now: 2_100,
+});
+assert.equal(crossPeerVote.handled, true);
+assert.equal(crossPeerVote.changed, false);
+assert.equal(crossPeerVote.reply?.includes("不属于当前会话"), true);
+assert.equal(polls.getPoll(pollId)?.votes.OTHER_MEMBER_OPENID, undefined);
+
+const crossAccountVote = handleCustomPollInteraction({
+  accountId: "other-account",
+  polls,
+  buttonData: `custom-poll:${pollId}:vote:1`,
+  actorId: "OTHER_ACCOUNT_MEMBER_OPENID",
+  actorLabel: "Other Account",
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  now: 2_150,
+});
+assert.equal(crossAccountVote.handled, true);
+assert.equal(crossAccountVote.changed, false);
+assert.equal(crossAccountVote.reply?.includes("不属于当前会话"), true);
+assert.equal(polls.getPoll(pollId)?.votes.OTHER_ACCOUNT_MEMBER_OPENID, undefined);
+
+const creatorCrossPeerVote = handleCustomPollInteraction({
+  accountId: "default",
+  polls,
+  buttonData: `custom-poll:${pollId}:vote:3`,
+  actorId: "MEMBER_OPENID",
+  actorLabel: "Member",
+  sourcePeer: { kind: "c2c", id: "MEMBER_OPENID" },
+  now: 2_200,
+});
+assert.equal(creatorCrossPeerVote.handled, true);
+assert.equal(creatorCrossPeerVote.changed, true);
+assert.equal(creatorCrossPeerVote.reply?.includes("已记录投票：C"), true);
+assert.equal(polls.getPoll(pollId)?.votes.MEMBER_OPENID?.optionId, "3");
 
 const list = handleCustomPollCommand({
   cfg,
@@ -173,9 +217,11 @@ assert.equal(close.changed, true);
 assert.equal(close.reply?.includes("投票已关闭"), true);
 
 const voteClosed = handleCustomPollInteraction({
+  accountId: "default",
   polls,
   buttonData: `custom-poll:${pollId}:vote:1`,
   actorId: "VOTER2_OPENID",
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
   now: 6_000,
 });
 assert.equal(voteClosed.handled, true);

@@ -480,7 +480,13 @@ Hardened poll text-command visibility:
 - `/bot-poll status <pollId>` and `/bot-poll close <pollId>` now check account/peer visibility before showing poll details or closing a poll.
 - A poll is visible through text commands only in its original account/peer, or to its creator across peers.
 - Ordinary users who paste a poll id from another group/DM receive "not found or not current session" and do not see question/options/vote counts.
-- Button voting remains unchanged; the interaction adapter currently receives button data and actor only, so source-peer enforcement for callback votes remains a future gateway payload mapping item.
+
+Hardened poll button callback visibility:
+
+- `gateway.ts` now maps `INTERACTION_CREATE` callback source fields (`group_openid`, `user_openid`, `channel_id`, `guild_id`) into a custom peer before routing `custom-poll:` buttons.
+- `handleCustomPollInteraction()` now checks account and source peer before mutating votes. Ordinary users cannot vote on a poll from another group/DM by replaying or pasting a `custom-poll:<pollId>` button payload.
+- Poll creators can still interact with their own poll across peers, matching text-command status visibility.
+- Added interaction and poll adapter tests for same-peer vote success, cross-peer vote denial, creator cross-peer vote, and source-peer parsing.
 
 Added unread runtime inspection summaries:
 

@@ -65,7 +65,7 @@ import {
   firstCustomAuthApprovalRequest,
   formatCustomDispatchAuthorizationDeniedMessage,
 } from "./custom/auth-gateway-adapter.js";
-import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
+import { handleCustomInteractionGatewayButton, resolveCustomInteractionSourcePeer, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
@@ -270,11 +270,18 @@ async function handleInteractionCreate(params: {
     const buttonData = event.data?.resolved?.button_data ?? "";
     const customInteraction: CustomInteractionGatewayResult = params.customAuth && params.customPolls ? handleCustomInteractionGatewayButton({
       cfg: cfg as any,
+      accountId: account.accountId,
       runtime: { auth: params.customAuth, polls: params.customPolls },
       buttonData,
       actor: {
         id: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
       },
+      sourcePeer: resolveCustomInteractionSourcePeer({
+        groupOpenid: event.group_openid,
+        userOpenid: event.user_openid,
+        channelId: event.channel_id,
+        guildId: event.guild_id,
+      }),
       now: Date.now(),
     }) : { handled: false };
     if (customInteraction.handled) {

@@ -1,7 +1,10 @@
 import assert from "node:assert";
 import { createCustomMessageFlowRuntime } from "../src/custom/runtime.js";
 import { handleCustomSlashGatewayCommand } from "../src/custom/slash-gateway-adapter.js";
-import { handleCustomInteractionGatewayButton } from "../src/custom/interaction-gateway-adapter.js";
+import {
+  handleCustomInteractionGatewayButton,
+  resolveCustomInteractionSourcePeer,
+} from "../src/custom/interaction-gateway-adapter.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
 const cfg = {
@@ -83,14 +86,39 @@ assert.equal(pollId, "poll-default-group-GROUP_OPENID-4000-1");
 
 const vote = handleCustomInteractionGatewayButton({
   cfg,
+  accountId: "default",
   runtime: pollRuntime,
   buttonData: `custom-poll:${pollId}:vote:2`,
   actor: { id: "VOTER_OPENID", label: "Voter" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
   now: 5_000,
 });
 assert.equal(vote.handled, true);
 assert.equal(vote.persist?.polls, true);
 assert.equal(vote.reply?.includes("已记录投票：B"), true);
+
+const crossPeerVote = handleCustomInteractionGatewayButton({
+  cfg,
+  accountId: "default",
+  runtime: pollRuntime,
+  buttonData: `custom-poll:${pollId}:vote:1`,
+  actor: { id: "OTHER_MEMBER_OPENID", label: "Other" },
+  sourcePeer: { kind: "group", id: "OTHER_GROUP_OPENID" },
+  now: 5_100,
+});
+assert.equal(crossPeerVote.handled, true);
+assert.equal(crossPeerVote.persist, undefined);
+assert.equal(crossPeerVote.reply?.includes("不属于当前会话"), true);
+assert.equal(pollRuntime.polls.getPoll(pollId)?.votes.OTHER_MEMBER_OPENID, undefined);
+
+assert.deepEqual(resolveCustomInteractionSourcePeer({ groupOpenid: "GROUP_OPENID" }), {
+  kind: "group",
+  id: "GROUP_OPENID",
+});
+assert.deepEqual(resolveCustomInteractionSourcePeer({ userOpenid: "USER_OPENID" }), {
+  kind: "c2c",
+  id: "USER_OPENID",
+});
 
 const unknown = handleCustomInteractionGatewayButton({
   cfg,

@@ -5,6 +5,7 @@ import {
 } from "./auth-gateway-adapter.js";
 import { handleCustomPollInteraction } from "./poll-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
+import type { CustomPeer } from "./types.js";
 
 export interface CustomInteractionActor {
   id: string;
@@ -32,9 +33,11 @@ export type CustomInteractionGatewayResult =
 
 export function handleCustomInteractionGatewayButton(params: {
   cfg: OpenClawConfig;
+  accountId?: string;
   runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls">;
   buttonData: string;
   actor: CustomInteractionActor;
+  sourcePeer?: CustomPeer;
   now?: number;
 }): CustomInteractionGatewayResult {
   const authResult = handleCustomAuthInteraction({
@@ -63,10 +66,12 @@ export function handleCustomInteractionGatewayButton(params: {
   }
 
   const pollResult = handleCustomPollInteraction({
+    accountId: params.accountId,
     polls: params.runtime.polls,
     buttonData: params.buttonData,
     actorId: params.actor.id,
     actorLabel: params.actor.label,
+    sourcePeer: params.sourcePeer,
     now: params.now,
   });
   if (pollResult.handled) {
@@ -77,6 +82,19 @@ export function handleCustomInteractionGatewayButton(params: {
   }
 
   return { handled: false };
+}
+
+export function resolveCustomInteractionSourcePeer(input: {
+  groupOpenid?: string;
+  userOpenid?: string;
+  channelId?: string;
+  guildId?: string;
+}): CustomPeer | undefined {
+  if (input.groupOpenid) return { kind: "group", id: input.groupOpenid };
+  if (input.userOpenid) return { kind: "c2c", id: input.userOpenid };
+  if (input.channelId) return { kind: "channel", id: input.channelId };
+  if (input.guildId) return { kind: "dm", id: input.guildId };
+  return undefined;
 }
 
 function handled(params: {

@@ -4,7 +4,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomPollRuntime, summarizePollResults } from "./poll.js";
-import type { CustomActor, CustomPoll } from "./types.js";
+import type { CustomActor, CustomPeer, CustomPoll } from "./types.js";
 
 export type CustomPollCommand =
   | { kind: "help" }
@@ -125,15 +125,30 @@ export function parseCustomPollButtonData(buttonData: string): { pollId: string;
 }
 
 export function handleCustomPollInteraction(params: {
+  accountId?: string;
   polls: CustomPollRuntime;
   buttonData: string;
   actorId: string;
   actorLabel?: string;
+  sourcePeer?: CustomPeer;
   now?: number;
 }): CustomPollInteractionResult {
   const payload = parseCustomPollButtonData(params.buttonData);
   if (!payload) return { handled: false };
   const actor: CustomActor = { id: params.actorId, label: params.actorLabel };
+  const poll = params.polls.getPoll(payload.pollId);
+  if (!canVoteFromInteraction({
+    poll,
+    accountId: params.accountId,
+    sourcePeer: params.sourcePeer,
+    actor,
+  })) {
+    return {
+      handled: true,
+      changed: false,
+      reply: `⚠️ 投票不存在，或该投票不属于当前会话。`,
+    };
+  }
   const result = params.polls.vote({
     pollId: payload.pollId,
     optionId: payload.optionId,
@@ -257,4 +272,18 @@ function canReadPoll(
   if (poll.accountId !== accountId) return false;
   if (poll.creator.id.toUpperCase() === actor.id.toUpperCase()) return true;
   return poll.peer.kind === peer.kind && poll.peer.id === peer.id;
+}
+
+function canVoteFromInteraction(params: {
+  poll: CustomPoll | null;
+  accountId?: string;
+  sourcePeer?: CustomPeer;
+  actor: CustomActor;
+}): boolean {
+  const { poll } = params;
+  if (!poll) return false;
+  if (params.accountId && poll.accountId !== params.accountId) return false;
+  if (poll.creator.id.toUpperCase() === params.actor.id.toUpperCase()) return true;
+  if (!params.sourcePeer) return true;
+  return poll.peer.kind === params.sourcePeer.kind && poll.peer.id === params.sourcePeer.id;
 }
