@@ -99,6 +99,7 @@ Out of scope for the first custom runtime:
 - `src/custom/slash-reply-target.ts`: pure slash reply target resolution for C2C/group/guild-channel/channel-DM text replies.
 - `src/custom/urgent-commands.ts`: pure queue-bypass command policy for `/stop`, `/approve`, `/new`, and `/compact`.
 - `src/custom/urgent-queue-bypass-gateway-adapter.ts`: gateway-side urgent command queue bypass executor with queue snapshots, fallback diagnostics, and immediate execution callbacks.
+- `src/custom/scene-route-gateway-adapter.ts`: gateway-side scene route setup for resolving custom scenes, skipping disabled scenes, applying scene agent overrides, and returning system prompts.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/profile-list/binding-list/bind command adapter with gateway-owned config persistence.
 - `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash auth gate and typed effect merge layer.
 - `src/custom/slash-prequeue-gateway-adapter.ts`: gateway-side prequeue slash orchestrator for mention-stripped slash content, urgent bypass, custom slash effects, official slash matching, delegate enqueueing, and file reply delivery callbacks.

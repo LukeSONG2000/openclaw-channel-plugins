@@ -30,8 +30,7 @@ import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
-import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/config.js";
-import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
+import { resolveCustomRuntimeConfig } from "./custom/config.js";
 import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
 import { buildCustomGatewayReplyContext } from "./custom/reply-context-gateway-adapter.js";
 import {
@@ -40,7 +39,8 @@ import {
 } from "./custom/outbound-deliver-context.js";
 import { applyCustomGuardedMediaAutoSend } from "./custom/guarded-media-send-gateway-adapter.js";
 import { buildCustomDispatchSendHelpers } from "./custom/dispatch-send-helpers-gateway-adapter.js";
-import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
+import type { CustomAgentRoute } from "./custom/route.js";
+import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
   type CustomMessageFlowRuntime,
@@ -907,30 +907,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const messageRoute = resolveCustomGatewayMessageRouteContext(event);
         const { isGroupChat, peerId, routePeer } = messageRoute;
 
-        let route = pluginRuntime.channel.routing.resolveAgentRoute({
+        const baseRoute = pluginRuntime.channel.routing.resolveAgentRoute({
           cfg,
           channel: "qqbot",
           accountId: account.accountId,
           peer: routePeer,
         }) as CustomAgentRoute;
 
-        const customSceneState = isCustomRuntimeEnabled()
-          ? resolveCustomSceneState(cfg as any, messageRoute.customScenePeer)
-          : null;
-        if (customSceneState && !customSceneState.enabled) {
-          log?.info(`[qqbot:${account.accountId}] Custom scene disabled for ${customSceneState.key}, skipping message from ${event.senderId}`);
+        const sceneRoute = applyCustomSceneRouteGateway({
+          cfg: cfg as any,
+          accountId: account.accountId,
+          senderId: event.senderId,
+          baseRoute,
+          routePeer,
+          customScenePeer: messageRoute.customScenePeer,
+          routing: pluginRuntime.channel.routing,
+          customRuntimeEnabled: isCustomRuntimeEnabled(),
+          accountSystemPrompt: account.systemPrompt,
+          log,
+        });
+        if (sceneRoute.action === "stop") {
           return;
         }
-        route = applyCustomSceneAgentRoute({
-          route,
-          scene: customSceneState,
-          routing: pluginRuntime.channel.routing,
-          peer: routePeer,
-          cfg: cfg as Record<string, unknown>,
-        });
-        if (customSceneState?.config.agentId) {
-          log?.info(`[qqbot:${account.accountId}] Custom scene route: scene=${customSceneState.key}, agentId=${route.agentId}, sessionKey=${route.sessionKey}`);
-        }
+        const route = sceneRoute.route;
 
         const envelopeOptions = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
 
@@ -941,13 +940,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // ============ 用户标识信息 ============
         
         // 收集额外的系统提示（如果配置了账户级别的 systemPrompt）
-        const systemPrompts: string[] = [];
-        if (account.systemPrompt) {
-          systemPrompts.push(account.systemPrompt);
-        }
-        if (customSceneState) {
-          systemPrompts.push(buildCustomSceneSystemPrompt(customSceneState));
-        }
+        const systemPrompts = sceneRoute.systemPrompts;
         
         const inboundPrepared = await prepareCustomInboundMessageGateway({
           cfg,

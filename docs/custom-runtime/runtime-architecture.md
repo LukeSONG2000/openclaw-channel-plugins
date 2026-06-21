@@ -157,6 +157,23 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 
 Scene `agentId` overrides OpenClaw route selection after the base route resolves; the custom layer rebuilds `sessionKey` with the framework routing helper so agent binding and session storage stay aligned. `/bot-scene status` and `/bot-scene bindings` expose the current override so group/DM routing can be audited without opening `openclaw.json`.
 
+### `src/custom/scene-route-gateway-adapter.ts`
+
+Gateway-side scene route setup before inbound message preparation.
+
+Current implementation status:
+
+- Receives the framework base route plus normalized route peer and custom scene peer from `gateway.ts`.
+- Resolves the custom scene only when `channels.qqbot.customRuntime.enabled=true`.
+- Stops processing before dispatch when a resolved scene has `enabled:false`, preserving the existing skip log.
+- Applies scene `agentId` overrides through the framework routing helper so `agentId`, `sessionKey`, and `matchedBy` stay aligned.
+- Returns the account system prompt plus the resolved scene prompt as `systemPrompts`, so `gateway.ts` no longer builds scene prompts inline.
+
+Important boundary:
+
+- The adapter does not decide framework routing, account lookup, config reloads, message parsing, or QQ send behavior.
+- `gateway.ts` still owns the initial OpenClaw route resolution and passes only the route/scene inputs needed by this custom layer.
+
 ### `src/custom/proactive-budget.ts`
 
 Owns local proactive/unanchored text-send budget for custom runtime paths.

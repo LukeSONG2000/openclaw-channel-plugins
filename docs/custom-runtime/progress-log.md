@@ -1061,3 +1061,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects sub-message formatting, merged/history envelope formatting, and finalization callbacks into the adapter; route/context/media/quote fields are passed as data instead of rebuilding the payload inline.
 - The adapter preserves slash-command body bypass, merged group message formatting, custom unread snapshot/mention history priority, legacy history fallback, and group/direct payload field behavior.
 - Added `tests/custom-agent-context-gateway-adapter.test.ts` for group history injection plus finalized payload fields, and direct slash-command no-history behavior.
+
+抽出 scene route 网关编排层并复核初始化目标：
+
+- Added `src/custom/scene-route-gateway-adapter.ts` to own custom scene route setup: resolve scene state, skip disabled scenes, apply scene `agentId` route override, and return account/scene system prompts.
+- `gateway.ts` now delegates scene route setup to the adapter after the framework base route is resolved, so later inbound preparation consumes a finalized route and prompt list without rebuilding scene state inline.
+- 同步复核新增目标：初始化配置仍要求绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`；现有 onboarding/setup/helper/preflight 路径继续把缺管理员或管理群视为未完整初始化。
+- Added `tests/custom-scene-route-gateway-adapter.test.ts` for scene route override, disabled-scene stop behavior, and disabled-runtime no-op behavior.
