@@ -612,3 +612,10 @@ Added configured scene binding inspection:
 - 开启后，运行中的 `CustomTaskCommandExecutor` 会保持子进程 stdin 打开，`/bot-task add` 仍先持久化到任务状态/工作区，再把追加需求作为一行 JSON 转发到子进程 stdin。
 - 这给后续真实 OpenClaw/subagent runner 提供了轻量协议：主群聊不被长任务阻塞，同时可以继续引导任务追加需求。
 - 扩展 `tests/custom-task-command-executor.test.ts`，用真实 Node 子进程验证追加需求能通过 stdin 到达执行器并进入最终结果。
+
+补齐场景绑定的 agent 路由运维入口：
+
+- `/bot-scene set <scene>` 现在支持 `--agent <agentId>` 和 `--clear-agent`，可以在聊天里把当前群/单聊绑定到指定 OpenClaw agent 或恢复默认路由。
+- 该能力仍走 `/bot-scene set` 的 `config.write` 鉴权和 gateway 持久化路径，不绕过现有管理员/临时授权机制。
+- `/bot-scene status` 和 `/bot-scene bindings` 会显示当前 agent override，方便审计 codex-only/chat/system-admin/dev-lab 等场景实际会路由到哪个 agent。
+- 扩展 `tests/custom-scene-gateway-adapter.test.ts`，覆盖 agent 参数解析、写入、状态展示和清除。

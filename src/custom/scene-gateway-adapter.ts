@@ -14,7 +14,7 @@ export type CustomSceneCommand =
   | { kind: "list" }
   | { kind: "bindings" }
   | { kind: "status" }
-  | { kind: "set"; scene: CustomSceneKind };
+  | { kind: "set"; scene: CustomSceneKind; agentId?: string | null };
 
 export type CustomSceneCommandParseResult =
   | { matched: false }
@@ -52,11 +52,15 @@ export function parseCustomSceneCommand(rawContent: string): CustomSceneCommandP
     const scene = tokens.shift();
     if (!scene) return { matched: true, error: "缺少 scene 名称" };
     if (!isCustomSceneKind(scene)) return { matched: true, error: `未知 scene：${scene}` };
-    return { matched: true, command: { kind: "set", scene } };
+    const agent = parseSceneAgentOption(tokens);
+    if (agent.error) return { matched: true, error: agent.error };
+    return { matched: true, command: { kind: "set", scene, agentId: agent.agentId } };
   }
 
   if (isCustomSceneKind(action)) {
-    return { matched: true, command: { kind: "set", scene: action } };
+    const agent = parseSceneAgentOption(tokens);
+    if (agent.error) return { matched: true, error: agent.error };
+    return { matched: true, command: { kind: "set", scene: action, agentId: agent.agentId } };
   }
 
   return { matched: true, error: `未知子命令：${action}` };
@@ -86,6 +90,13 @@ export function handleCustomSceneCommand(params: {
     ...runtime.scenes?.[key],
     scene: command.scene,
   };
+  if (command.agentId !== undefined) {
+    if (command.agentId === null) {
+      delete sceneConfig.agentId;
+    } else {
+      sceneConfig.agentId = command.agentId;
+    }
+  }
   upsertCustomSceneConfig(params.cfg, key, sceneConfig, runtime);
 
   return {
@@ -99,6 +110,7 @@ export function handleCustomSceneCommand(params: {
       ``,
       `目标：${key}`,
       `场景：${command.scene}`,
+      `Agent：${sceneConfig.agentId ?? "默认路由"}`,
       `说明：${getCustomSceneProfile(command.scene).description}`,
       ``,
       `配置已写入当前运行时，并将由 gateway 持久化到 openclaw.json。`,
@@ -165,7 +177,8 @@ function formatCustomSceneHelp(error?: string): string {
     `/bot-scene status`,
     `/bot-scene list`,
     `/bot-scene bindings`,
-    `/bot-scene set <scene>`,
+    `/bot-scene set <scene> [--agent <agentId>]`,
+    `/bot-scene set <scene> --clear-agent`,
     ``,
     `可选 scene：${CUSTOM_SCENE_KINDS.join(", ")}`,
   );
@@ -210,6 +223,7 @@ function formatCustomSceneBindings(runtime: CustomRuntimeConfig): string {
       `- ${key}`,
       `  scene=${scene.scene}, enabled=${scene.enabled === false ? "no" : "yes"}`,
       `  label=${scene.label ?? profile.label}`,
+      `  agent=${scene.agentId ?? "default"}`,
       `  capabilities=${capabilities || "none"}`,
     );
   }
@@ -226,9 +240,44 @@ function formatCustomSceneStatus(cfg: OpenClawConfig, peer: ReturnType<typeof to
     `来源：${resolved.source}`,
     `配置键：${resolved.key}`,
     `启用：${resolved.enabled ? "是" : "否"}`,
+    `Agent：${resolved.config.agentId ?? "默认路由"}`,
     `能力：${resolved.capabilities.length ? resolved.capabilities.join(", ") : "none"}`,
     `说明：${resolved.profile.description}`,
   ].join("\n");
+}
+
+function parseSceneAgentOption(tokens: string[]): { agentId?: string | null; error?: string } {
+  let agentId: string | null | undefined;
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]!;
+    if (token === "--clear-agent" || token === "--agent=none" || token === "--agent=default") {
+      agentId = null;
+      continue;
+    }
+    if (token === "--agent") {
+      const value = tokens[++i];
+      if (!value) return { error: "缺少 agentId" };
+      const normalized = normalizeSceneAgentInput(value);
+      agentId = normalized ?? null;
+      continue;
+    }
+    if (token.startsWith("--agent=")) {
+      const normalized = normalizeSceneAgentInput(token.slice("--agent=".length));
+      if (normalized === undefined) return { error: "缺少 agentId" };
+      agentId = normalized ?? null;
+      continue;
+    }
+    return { error: `未知参数：${token}` };
+  }
+  return { agentId };
+}
+
+function normalizeSceneAgentInput(value: string): string | null | undefined {
+  const trimmed = value.trim();
+  if (!trimmed) return undefined;
+  const lowered = trimmed.toLowerCase();
+  if (lowered === "none" || lowered === "default" || lowered === "null" || lowered === "-") return null;
+  return trimmed;
 }
 
 function isCustomSceneKind(value: string): value is CustomSceneKind {

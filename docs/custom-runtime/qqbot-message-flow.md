@@ -374,6 +374,7 @@ Current custom runtime behavior:
 - QQBot initialization binds `customRuntime.admins` and `customRuntime.adminGroup`; onboarding status remains incomplete until both management anchors are present.
 - Initializing `customRuntime.adminGroup` also binds that group to the `system-admin` scene if it has no explicit scene, while preserving existing scene overrides.
 - `/bot-scene bindings` lists explicit configured scene bindings, which helps audit multi-group/DM scene routing without opening `openclaw.json`.
+- `/bot-scene set <scene> --agent <agentId>` binds the current peer to both a scene and an OpenClaw agent override; the same `config.write` authorization gate applies, and `/bot-scene status`/`bindings` display the configured agent override.
 - Synthetic digest messages use `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
 - Synthetic digest sends use proactive/unanchored group sends and should therefore be guarded by proactive budget/policy.
 - Mention replies can trigger unread catch-up after the direct reply.
