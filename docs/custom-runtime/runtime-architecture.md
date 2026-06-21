@@ -527,6 +527,23 @@ Current implementation status:
 - Finalizes the streaming controller through `streaming-gateway-adapter.ts`.
 - Keeps unread/history completion and the outer typing stop call in `gateway.ts`.
 
+### `src/custom/dispatch-completion-gateway-adapter.ts`
+
+Gateway-side orchestrator for the end of one ordinary dispatch.
+
+Current implementation status:
+
+- Races the OpenClaw dispatch promise against the response-timeout promise.
+- Clears the response-timeout timer before race-failure fallback handling and again before final cleanup, preserving the previous defensive cleanup behavior.
+- Delegates timeout/context-too-long recovery notices to `dispatch-failure-gateway-adapter.ts`.
+- Delegates tool-only fallback completion, debouncer disposal, and streaming finalization to `dispatch-finalize-gateway-adapter.ts`.
+- Exposes a post-finalize hook with `hasModelBlockOutput` so `gateway.ts` can keep custom unread completion wiring outside the dispatch race/finalize core.
+
+Important boundary:
+
+- The adapter does not own unread runtime state. It only invokes the injected post-finalize hook after dispatch cleanup is done.
+- It does not send QQ messages directly; visible fallback sends still flow through injected `sendErrorMessage()` / fallback-session callbacks.
+
 ### `src/custom/dispatch-fallback-session-gateway-adapter.ts`
 
 Gateway-side per-dispatch fallback session wrapper.

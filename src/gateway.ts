@@ -56,8 +56,8 @@ import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-ga
 import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
 import { handleCustomDispatchDeliverCallbackGateway } from "./custom/dispatch-deliver-callback-gateway-adapter.js";
 import { handleCustomDispatchErrorCallbackGateway } from "./custom/dispatch-error-callback-gateway-adapter.js";
+import { runCustomDispatchCompletionGateway } from "./custom/dispatch-completion-gateway-adapter.js";
 import {
-  handleCustomDispatchRaceFailure,
   handleCustomMessageProcessingFailure,
 } from "./custom/dispatch-failure-gateway-adapter.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
@@ -67,7 +67,6 @@ import {
 import {
   handleCustomStreamingPartialReply,
 } from "./custom/streaming-gateway-adapter.js";
-import { finalizeCustomDispatchGateway } from "./custom/dispatch-finalize-gateway-adapter.js";
 import { prepareCustomInboundMessageGateway } from "./custom/inbound-preparation-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
@@ -1088,7 +1087,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             sendGuardedMediaAuto,
             sendErrorMessage,
           });
-          const fallbackState = fallbackSession.state;
           const recordFallbackEvent = fallbackSession.recordFallbackEvent;
         try {
           const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
@@ -1097,7 +1095,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const debounceConfig = account.config?.deliverDebounce;
           let debouncer: DeliverDebouncer | null = null as DeliverDebouncer | null;
 
-          const sendToolFallback = fallbackSession.sendToolFallback;
           const timeoutPromise = fallbackSession.createResponseTimeoutPromise();
 
 
@@ -1180,45 +1177,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             },
           });
 
-          // 等待分发完成或超时
-          try {
-            await Promise.race([dispatchPromise, timeoutPromise]);
-          } catch (err) {
-            fallbackSession.clearResponseTimeout();
-            await handleCustomDispatchRaceFailure({
-              accountId: account.accountId,
-              err,
-              responseTimeoutMs: fallbackSession.responseTimeoutMs,
-              state: fallbackState,
-              recordFallbackEvent,
-              sendErrorMessage,
-              log,
-            });
-
-          } finally {
-            fallbackSession.clearResponseTimeout();
-            await finalizeCustomDispatchGateway({
-              accountId: account.accountId,
-              toolOnlyTimer: fallbackSession.getToolOnlyTimer(),
-              setToolOnlyTimer: fallbackSession.setToolOnlyTimer,
-              fallbackState,
-              recordFallbackEvent,
-              sendToolFallback,
-              debouncer,
-              setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
-              streamingController,
-              log,
-            });
-
-            // 回复完成后处理群历史/自定义未读 runtime
-            if (event.type === "group" && event.groupOpenid) {
+          await runCustomDispatchCompletionGateway({
+            accountId: account.accountId,
+            dispatchPromise,
+            timeoutPromise,
+            fallbackSession,
+            sendErrorMessage,
+            debouncer,
+            setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
+            streamingController,
+            log,
+            onAfterFinalize: ({ hasModelBlockOutput }) => {
+              // 回复完成后处理群历史/自定义未读 runtime
+              if (event.type !== "group" || !event.groupOpenid) return;
               applyCustomUnreadCompletionGateway({
                 accountId: account.accountId,
                 unread: customMessageFlow.unread,
                 groupOpenid: event.groupOpenid,
                 cfg: customUnreadCfgForEvent,
                 snapshotId: event._customUnreadSnapshotId,
-                hasModelBlockOutput: fallbackState.hasModelBlockOutput,
+                hasModelBlockOutput,
                 shouldCatchUpAfterReply: shouldCatchUpUnreadAfterReply,
                 wasMentioned,
                 groupHistories,
@@ -1227,8 +1205,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
                 log,
               });
-            }
-          }
+            },
+          });
         } catch (err) {
           await handleCustomMessageProcessingFailure({
             accountId: account.accountId,

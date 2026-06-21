@@ -1110,3 +1110,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates `onError` to the adapter, leaving the model dispatch body focused on wiring callbacks instead of duplicating streaming/error fallback branches.
 - The adapter preserves duplicate-notice prevention: when streaming handles the error, it stops before `dispatch-failure-gateway-adapter.ts`; otherwise it uses the existing callback-failure policy and injected send/record callbacks.
 - Added `tests/custom-dispatch-error-callback-gateway-adapter.test.ts` for streaming-handled errors, no-controller fallback routing, response marking, timer cleanup, visible text fallback, and fallback recorder propagation.
+
+抽出 dispatch completion 网关收尾层：
+
+- Added `src/custom/dispatch-completion-gateway-adapter.ts` to own dispatch/timeout `Promise.race` handling, response-timeout cleanup, race-failure fallback routing, finalization, and post-finalize hook execution.
+- `gateway.ts` now delegates the dispatch completion sequence to this adapter and only injects the unread completion hook, keeping unread runtime wiring outside the generic dispatch race/finalize core.
+- The adapter preserves timeout/context-too-long fallback behavior by reusing `dispatch-failure-gateway-adapter.ts`, and preserves tool/debounce/streaming cleanup by reusing `dispatch-finalize-gateway-adapter.ts`.
+- Added `tests/custom-dispatch-completion-gateway-adapter.test.ts` for successful dispatch finalization, post-finalize `hasModelBlockOutput` propagation, race-failure notice routing, and defensive response-timeout cleanup.
