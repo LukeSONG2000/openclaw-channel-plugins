@@ -72,4 +72,46 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 assert.equal(immediateProcessed.length, 1);
 assert.equal(immediateProcessed[0]!.messageId, "urgent-before-start");
 
+const blockedPeerProcessed: QueuedMessage[] = [];
+let releaseBlockedPeer: (() => void) | undefined;
+const blockedPeerQueue = createMessageQueue({
+  accountId: "default",
+  isAborted: () => false,
+});
+
+blockedPeerQueue.startProcessor(async (msg) => {
+  blockedPeerProcessed.push(msg);
+  if (msg.messageId === "blocking-peer") {
+    await new Promise<void>((resolve) => {
+      releaseBlockedPeer = resolve;
+    });
+  }
+});
+
+blockedPeerQueue.enqueue(groupMessage("blocking-peer"));
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+const queuedNormal = groupMessage("queued-normal");
+blockedPeerQueue.enqueue(queuedNormal);
+const blockedPeerId = blockedPeerQueue.getMessagePeerId(queuedNormal);
+assert.equal(blockedPeerQueue.clearUserQueue(blockedPeerId), 1);
+
+blockedPeerQueue.executeImmediate(groupMessage("urgent-while-peer-blocked", {
+  content: "/compact",
+}));
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+assert.deepEqual(blockedPeerProcessed.map((msg) => msg.messageId), [
+  "blocking-peer",
+  "urgent-while-peer-blocked",
+]);
+
+releaseBlockedPeer?.();
+await new Promise((resolve) => setTimeout(resolve, 0));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(blockedPeerProcessed.map((msg) => msg.messageId), [
+  "blocking-peer",
+  "urgent-while-peer-blocked",
+]);
+
 console.log("message queue tests passed");

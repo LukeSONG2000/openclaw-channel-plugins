@@ -306,7 +306,7 @@ Current official connector behavior:
 - Non-mentioned group messages are recorded to in-memory pending history if allowed, then skipped.
 - Mentioned group messages inject pending history into the agent context.
 - Slash commands are detected before normal dispatch.
-- Urgent commands bypass blocked queues.
+- Urgent commands (`/stop`, `/approve`, `/new`, `/compact`) bypass blocked queues using first-token matching, so `/new args` is immediate while `/newspaper` is ordinary text.
 
 Current custom runtime behavior:
 
@@ -320,6 +320,7 @@ Current custom runtime behavior:
 - Custom auth also gates ordinary OpenClaw/model dispatch before tools run: normal chat needs `chat.send`, framework slash-like commands need `codex.run`, and codex-only scenes route ordinary dispatch checks to `codex.run`.
 - Custom auth supports temporary grants through text commands and C2C/group inline cards. Requests created outside `customRuntime.adminGroup` are also copied to that management group when configured, and the copy is treated as a guarded proactive group send.
 - Custom poll commands provide the first lightweight interactive-card feature on top of the same C2C/group inline keyboard send paths.
+- Response timeout and context-too-long fallbacks leave `/compact` and `/new` available even when the same peer has an active blocked run.
 
 ## Open Items
 

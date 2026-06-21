@@ -99,6 +99,7 @@ import {
 } from "./custom/fallbacks.js";
 import { appendCustomFallbackEvent } from "./custom/fallback-event-store.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
+import { isCustomUrgentQueueBypassCommand } from "./custom/urgent-commands.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -805,8 +806,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // /stop     — 停止当前 agent run，清空队列
   // /approve  — 审批决策，必须在 agent 等待审批时立即执行，否则死锁
   // /new 和 /compact — 上下文异常或超长时必须能绕过队列，恢复客户端可操作性
-  const URGENT_COMMANDS = ["/stop", "/approve", "/new", "/compact"];
-
   const trySlashCommandOrEnqueue = async (msg: QueuedMessage): Promise<void> => {
     const rawContent = (msg.content ?? "").trim();
     const content = msg.type === "group" && msg.mentions?.length
@@ -818,8 +817,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     }
 
     // 检测是否为紧急命令 — 立即执行，清空该用户队列
-    const contentLower = content.toLowerCase();
-    const isUrgentCommand = URGENT_COMMANDS.some(cmd => contentLower.startsWith(cmd.toLowerCase()));
+    const isUrgentCommand = isCustomUrgentQueueBypassCommand(content);
     if (isUrgentCommand) {
       log?.info(`[qqbot:${account.accountId}] Urgent command detected: ${content.slice(0, 20)}, executing immediately`);
       const peerId = msgQueue.getMessagePeerId(msg);

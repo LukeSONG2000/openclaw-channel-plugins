@@ -30,7 +30,7 @@ The server package also contains several `.codex-backup-*` files from prior hotf
 Keep as productized runtime behavior:
 
 - Token fetch fallback in `api.ts`: retries with `node:https` when global `fetch` fails and logs network causes. Ported in commit after architecture baseline.
-- Queue emergency commands: `/stop`, `/approve`, `/new`, `/compact` should bypass normal queue blocking. Ported in commit after architecture baseline.
+- Queue emergency commands: `/stop`, `/approve`, `/new`, `/compact` should bypass normal queue blocking. Ported in commit after architecture baseline, with first-token matching extracted to `src/custom/urgent-commands.ts`.
 - Timeout protection: visible timeout notice, ignore late deliveries after timeout, and continue queue processing. Ported in commit after architecture baseline.
 - Tool-only fallback: if tools produce no user-visible block response, release queue with a visible notice. Ported in commit after architecture baseline.
 - Error send retry without `msg_id`: if reply anchoring fails because `msg_id` is invalid/expired/unauthorized, retry unanchored. Ported in commit after architecture baseline.

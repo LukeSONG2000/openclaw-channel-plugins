@@ -665,10 +665,24 @@ Boundary:
 - It is pure TypeScript and has no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.
 - `gateway.ts` still owns queue release, timer lifecycle, log emission, retry, and outbound sends.
 
+### `src/custom/urgent-commands.ts`
+
+Pure queue-bypass command policy:
+
+- Defines the urgent slash commands that must remain usable while a peer queue is blocked: `/stop`, `/approve`, `/new`, and `/compact`.
+- Matches the first slash command token only, so `/new reset` bypasses the queue but `/newspaper` does not.
+- Keeps the command list testable outside `gateway.ts`; gateway still owns mention stripping, queue clearing, immediate execution, logging, and slash/framework dispatch.
+
+Boundary:
+
+- It is pure TypeScript and has no gateway, QQ API, queue, filesystem, or OpenClaw SDK dependency.
+- `gateway.ts` still owns mention stripping, queue snapshot/clearing, immediate execution, and final routing.
+
 Current implemented safeguards:
 
 - `/stop`, `/approve`, `/new`, and `/compact` bypass normal queueing in `gateway.ts`.
 - `src/message-queue.ts` now keeps immediate commands in a small pending-immediate list if the processor has not started yet, then flushes them as soon as `startProcessor()` is called.
+- Immediate execution can run while the same peer has a blocking queued message in flight, which keeps recovery commands usable after context-length failures or response timeouts.
 - Response timeout sends a visible user notice and ignores late block/tool deliveries.
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
 - Context/token limit errors send a visible recovery notice that suggests `/compact` first and `/new` if needed.
