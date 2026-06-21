@@ -109,6 +109,7 @@ Out of scope for the first custom runtime:
 - `src/custom/task-sandbox.ts`: pure long-task state runtime with global/scene-level sandbox config resolution, workspace root, active-task limits, and progress metadata.
 - `src/custom/runtime.ts`: composition helpers and exported custom runtime modules.
 - `src/custom/unread-context.ts`: gateway-side adapter for selecting custom/legacy history, applying it to the initial agent body, legacy history record/clear, and attachment tag formatting.
+- `src/custom/unread-completion-gateway-adapter.ts`: gateway-side unread completion adapter for custom unread effects/persistence and legacy history clearing after dispatch.
 - `src/custom/unread-runtime.ts`: pure unread/follow-up/sleep-digest state machine.
 - `src/custom/unread-gateway-adapter.ts`: effect bridge between unread runtime and gateway queue/history types.
 - `src/custom/unread-status-gateway-adapter.ts`: `/bot-unread` read-only status adapter for unread/follow-up/sleep-digest inspection.

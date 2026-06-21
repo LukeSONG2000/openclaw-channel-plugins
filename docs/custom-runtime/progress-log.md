@@ -962,3 +962,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps only mutable handles for `toolOnlyTimeoutId` and `debouncer`; the adapter owns the cleanup order and reuses the existing tool/streaming adapters.
 - Unread runtime completion and outer typing cleanup intentionally remain in `gateway.ts` because they depend on group-history/runtime state beyond one dispatch send pipeline.
 - Added `tests/custom-dispatch-finalize-gateway-adapter.test.ts` for timer clearing, completion fallback, debouncer disposal, streaming finalization, and no-op cleanup paths.
+
+抽出 unread completion gateway 应用层：
+
+- Added `src/custom/unread-completion-gateway-adapter.ts` to apply post-dispatch custom unread completion results through injected log/persist/scheduler callbacks.
+- `gateway.ts` now delegates custom unread completion and legacy group-history clearing to the adapter, while still owning config-based history-limit resolution and runtime handles.
+- The adapter preserves the fallback path: if custom unread does not handle the dispatch, legacy pending group history is cleared with the resolved history limit.
+- Added `tests/custom-unread-completion-gateway-adapter.test.ts` for custom-handled persist/scheduler/log behavior, legacy clear fallback, and non-group no-op behavior.

@@ -69,10 +69,9 @@ import {
 } from "./custom/unread-ingress.js";
 import {
   applyCustomUnreadHistoryContextToAgentBody,
-  clearLegacyGroupHistoryAfterDispatch,
   recordLegacyGroupHistoryBeforeDispatch,
 } from "./custom/unread-context.js";
-import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
+import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
@@ -2142,7 +2141,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
             // 回复完成后处理群历史/自定义未读 runtime
             if (event.type === "group" && event.groupOpenid) {
-              const customUnreadCompletion = completeCustomUnreadAfterDispatch({
+              applyCustomUnreadCompletionGateway({
                 accountId: account.accountId,
                 unread: customMessageFlow.unread,
                 groupOpenid: event.groupOpenid,
@@ -2151,23 +2150,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 hasModelBlockOutput: fallbackState.hasModelBlockOutput,
                 shouldCatchUpAfterReply: shouldCatchUpUnreadAfterReply,
                 wasMentioned,
+                groupHistories,
+                resolveHistoryLimit: (groupOpenid, accountId) => resolveHistoryLimit(cfg as any, groupOpenid, accountId),
+                persistCustomUnreadState,
+                applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
+                log,
               });
-              if (customUnreadCompletion.handled) {
-                for (const item of customUnreadCompletion.logs) {
-                  log?.info(`[qqbot:${account.accountId}] ${item.message}`);
-                }
-                if (customUnreadCompletion.persist) {
-                  persistCustomUnreadState();
-                }
-                customUnreadScheduler?.apply(customUnreadCompletion.effects, customUnreadCfgForEvent ?? undefined);
-              } else {
-                const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-                clearLegacyGroupHistoryAfterDispatch({
-                  groupHistories,
-                  groupOpenid: event.groupOpenid,
-                  historyLimit,
-                });
-              }
             }
           }
         } catch (err) {

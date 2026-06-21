@@ -853,6 +853,21 @@ Important boundary:
 
 - This module does not send QQ messages.
 - It does not own follow-up or sleep-digest timers; `src/custom/unread-scheduler.ts` applies the returned effects.
+
+### `src/custom/unread-completion-gateway-adapter.ts`
+
+Gateway-side effect applier for post-dispatch unread completion.
+
+Current implementation status:
+
+- Calls `completeCustomUnreadAfterDispatch()` for group messages and applies its logs, persist request, and scheduler effects through injected gateway callbacks.
+- Falls back to `clearLegacyGroupHistoryAfterDispatch()` only when the custom unread completion path does not handle the dispatch.
+- Resolves the legacy history limit through an injected callback, keeping account/config lookups in `gateway.ts`.
+- Returns typed `custom-handled`, `legacy-cleared`, or `non-group` results for deterministic tests.
+
+Important boundary:
+
+- This adapter still does not send QQ messages or own timers; it only invokes scheduler/persist callbacks supplied by gateway.
 - It does not clean up legacy group history; when it does not handle an event, `gateway.ts` still performs the existing legacy history cleanup path.
 
 Current gateway wiring:
