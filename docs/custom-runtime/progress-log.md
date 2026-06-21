@@ -1223,3 +1223,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now calls this adapter before registering outbound ref-index hooks and starting transport, reducing startup-phase inline side effects in the main gateway file.
 - The adapter keeps secrets masked in TTS logs and preserves existing image-server behavior: disabled when no `imageServerBaseUrl`, otherwise start/return the configured public URL.
 - Added `tests/custom-startup-preflight-gateway-adapter.test.ts` for diagnostics logging, runtime OK/failure handling, markdown config setup, TTS masking, image-server enable/disable behavior, and returned startup status.
+
+抽出 interaction create handler 绑定层：
+
+- Added `src/custom/interaction-create-handler-gateway-adapter.ts` to bind `INTERACTION_CREATE` orchestration to a live QQBot account, custom runtime slices, persistence callbacks, config/routing access, plugin/framework versions, QQ ACK transport, follow-up reply senders, and legacy approval-handler lookup.
+- `gateway.ts` now hands raw interaction events to this per-account handler instead of inlining token caching, `acknowledgeInteraction()`, C2C/group/channel follow-up sends, and version lookup inside inbound event fanout.
+- The adapter reuses one QQ access-token promise per interaction, preserving the previous ACK/reply behavior while keeping interactive auth/poll/game/deploy card transport outside the main gateway file.
+- Added `tests/custom-interaction-create-handler-gateway-adapter.test.ts` for account/runtime/version binding, ACK payload forwarding, token reuse, and group/C2C/channel follow-up reply routing.

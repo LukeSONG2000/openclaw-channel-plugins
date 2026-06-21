@@ -1014,6 +1014,22 @@ Important boundary:
 - The adapter does not fetch QQ access tokens and does not call QQ send APIs directly. `gateway.ts` still injects `acknowledge`, `sendReply`, config API access, routing, and the legacy approval-handler lookup.
 - It is the single gateway entry point for interactive cards, so future auth cards, poll/game cards, deploy confirmations, or other mini-interactions can be added behind the custom callback router without growing `gateway.ts`.
 
+### `src/custom/interaction-create-handler-gateway-adapter.ts`
+
+Gateway-side binding layer for QQ `INTERACTION_CREATE` handling.
+
+Current implementation status:
+
+- Creates the per-account interaction handler by binding `interaction-create-gateway-adapter.ts` to the live account, custom runtime slices, persistence callbacks, config API, routing lookup, and legacy approval handler lookup.
+- Owns QQ interaction ACK transport, including per-interaction access-token reuse across ACK and follow-up replies.
+- Owns follow-up reply routing for callback cards across group, C2C, and guild channel targets.
+- Supplies plugin/framework version strings to config interaction ACKs without forcing `gateway.ts` to know those details.
+
+Important boundary:
+
+- This adapter does not decide how button payloads are interpreted; config interactions, auth/poll/game/deploy callbacks, and legacy approval decisions still live behind `interaction-create-gateway-adapter.ts` and `interaction-router.ts`.
+- Keeping QQ ACK/reply transport here makes interactive auth cards, polls, games, and deploy confirmations easier to extend without adding more token/send code to the main gateway transport file.
+
 ### `src/custom/message-delete-events.ts`
 
 Message deletion is currently diagnostic-only.
