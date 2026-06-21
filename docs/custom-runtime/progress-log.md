@@ -257,7 +257,7 @@ Added custom long-task notification delivery application:
 Still intentionally open:
 
 - A real OpenClaw subagent/job executor is still pending until the runtime contract is confirmed.
-- Unanchored async task completion notifications, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
+- Workspace cleanup and richer task-scoped execution controls still need to be connected once the executor contract is confirmed.
 
 Added first custom interactive poll/card feature:
 
@@ -352,6 +352,14 @@ Added optional command-backed long-task executor:
 - When enabled, it starts the configured command in the task workspace, passes task metadata through `QQBOT_CUSTOM_TASK_*` environment variables, captures stdout/stderr, enforces timeout/output truncation, and calls the same complete/fail helpers used by future executors.
 - `gateway.ts` now attaches the command executor to `/bot-task create`, persists async completion/failure state, and sends async task notifications only after applying the proactive acceptance/budget guard for unanchored C2C/group deliveries.
 - Added `tests/custom-task-command-executor.test.ts`.
+
+Added task-scoped mutation authorization:
+
+- Added `src/custom/task-auth-gateway-adapter.ts` to check `/bot-task add` and `/bot-task cancel` before task state mutation.
+- Task owners can mutate their own tasks; custom runtime admins can mutate any task; other group members need a task-scoped `codex.longTask` temporary grant.
+- Task mutation denials create auth requests with `taskId`; approval cards show the task id and default to a task-scoped grant when approved without an explicit mode.
+- `src/custom/slash-gateway-adapter.ts` now applies this check before calling `handleCustomTaskCommand`, so denied add/cancel attempts do not modify task records.
+- Added `tests/custom-task-auth-gateway-adapter.test.ts` and expanded custom slash gateway tests.
 
 Still intentionally open:
 

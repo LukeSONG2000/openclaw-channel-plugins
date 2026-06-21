@@ -110,6 +110,64 @@ assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.type, "group");
 assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.messageId, "msg-cancel");
 assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.text.includes("长任务已取消"), true);
 
+const taskAuthRuntime = createCustomMessageFlowRuntime();
+const ownerTask = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "OWNER_OPENID", senderName: "Owner", content: "/bot-task create Owner task" },
+  rawContent: "/bot-task create Owner task",
+  now: 3_600,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(ownerTask.handled, true);
+const ownerTaskId = Object.keys(taskAuthRuntime.tasks.getState().tasks)[0]!;
+
+const deniedTaskAdd = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "MEMBER_OPENID", senderName: "Member", content: `/bot-task add ${ownerTaskId} member idea` },
+  rawContent: `/bot-task add ${ownerTaskId} member idea`,
+  now: 3_700,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deniedTaskAdd.handled, true);
+assert.equal(deniedTaskAdd.persist?.auth, true);
+assert.equal(deniedTaskAdd.persist?.tasks, undefined);
+assert.equal(deniedTaskAdd.reply?.kind, "auth-approval");
+if (deniedTaskAdd.reply?.kind !== "auth-approval") throw new Error("expected task auth approval reply");
+assert.equal(deniedTaskAdd.reply.denialText.includes("需要能力：codex.longTask"), true);
+assert.equal(deniedTaskAdd.reply.approvalText?.includes(`任务：${ownerTaskId}`), true);
+assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.render_data?.label, "允许此任务");
+
+const taskRequestId = Object.keys(taskAuthRuntime.auth.getState().requests)[0]!;
+const approveTask = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: `/bot-auth approve ${taskRequestId}` },
+  rawContent: `/bot-auth approve ${taskRequestId}`,
+  now: 3_800,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(approveTask.handled, true);
+assert.equal(approveTask.persist?.auth, true);
+assert.equal(taskAuthRuntime.auth.getState().grants[Object.keys(taskAuthRuntime.auth.getState().grants)[0]!]!.taskId, ownerTaskId);
+
+const allowedTaskAdd = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "MEMBER_OPENID", senderName: "Member", content: `/bot-task add ${ownerTaskId} member idea after approval` },
+  rawContent: `/bot-task add ${ownerTaskId} member idea after approval`,
+  now: 3_900,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(allowedTaskAdd.handled, true);
+assert.equal(allowedTaskAdd.persist?.tasks, true);
+assert.equal(allowedTaskAdd.reply?.kind === "text" && allowedTaskAdd.reply.text.includes("当前追加需求数：1"), true);
+
 const pollRuntime = createCustomMessageFlowRuntime();
 const poll = handleCustomSlashGatewayCommand({
   cfg,

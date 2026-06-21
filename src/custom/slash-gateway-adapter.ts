@@ -13,6 +13,7 @@ import {
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { handleCustomSceneCommand } from "./scene-gateway-adapter.js";
+import { checkCustomTaskCommandAuthorization } from "./task-auth-gateway-adapter.js";
 import { handleCustomTaskCommand } from "./task-gateway-adapter.js";
 import {
   applyCustomTaskExecutionIntents,
@@ -111,7 +112,7 @@ export function handleCustomSlashGatewayCommand(params: {
         ...(request && (params.message.type === "c2c" || params.message.type === "group")
           ? {
               approvalText: buildCustomAuthApprovalText(request),
-              keyboard: buildCustomAuthApprovalKeyboard(request.id),
+              keyboard: buildCustomAuthApprovalKeyboard(request),
             }
           : {}),
       },
@@ -141,6 +142,52 @@ export function handleCustomSlashGatewayCommand(params: {
       persist,
       logs,
     });
+  }
+
+  const taskAuthorization = checkCustomTaskCommandAuthorization({
+    cfg: params.cfg,
+    auth: params.runtime.auth,
+    tasks: params.runtime.tasks,
+    message: params.message,
+    rawContent: params.rawContent,
+    now: params.now,
+  });
+  if (taskAuthorization.handled) {
+    if (taskAuthorization.result?.intents.length) {
+      logs.push(...logAuthIntents(taskAuthorization.result.intents));
+      persist.auth = true;
+    }
+    if (!taskAuthorization.allowed) {
+      logs.push({
+        level: "info",
+        message: `Custom task command denied by task auth: task=${taskAuthorization.taskId} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
+      });
+      const request = taskAuthorization.result?.intents
+        ? firstCustomAuthApprovalRequest(taskAuthorization.result.intents)
+        : null;
+      return handled({
+        reply: {
+          kind: "auth-approval",
+          denialText: formatCustomAuthorizationDeniedMessage({
+            enabled: true,
+            allowed: false,
+            capability: "codex.longTask",
+            peer: taskAuthorization.peer,
+            actor: taskAuthorization.actor,
+            result: taskAuthorization.result,
+            reason: "denied",
+          }),
+          ...(request && (params.message.type === "c2c" || params.message.type === "group")
+            ? {
+                approvalText: buildCustomAuthApprovalText(request),
+                keyboard: buildCustomAuthApprovalKeyboard(request),
+              }
+            : {}),
+        },
+        persist,
+        logs,
+      });
+    }
   }
 
   const customTaskCommand = handleCustomTaskCommand({

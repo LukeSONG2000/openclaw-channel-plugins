@@ -268,10 +268,11 @@ export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandPar
     const requestId = tokens.shift();
     if (!requestId) return { matched: true, error: "缺少 requestId" };
 
-    let grantUse: CustomGrantUse = "once";
+    let grantUse: CustomGrantUse | undefined;
     let grantCount: number | undefined;
     let grantTtlMs: number | undefined;
 
+    if (action === "allow-once") grantUse = "once";
     if (action === "allow-count") grantUse = "count";
     if (action === "allow-timed") grantUse = "timed";
 
@@ -281,6 +282,8 @@ export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandPar
     if (mode) {
       if (mode === "once") {
         grantUse = "once";
+      } else if (mode === "task") {
+        grantUse = "task";
       } else if (mode === "count") {
         grantUse = "count";
         const countRaw = tokens.shift();
@@ -388,36 +391,12 @@ export function handleCustomAuthCommand(params: {
     return { handled: true, reply: formatCustomAuthStatus(params.auth) };
   }
 
-  const state = params.auth.getState();
-  const requestId = findPendingRequestId(Object.keys(state.requests), command.requestId);
-  if (!requestId) {
-    return {
-      handled: true,
-      reply: `⚠️ 未找到待处理授权申请：${command.requestId}`,
-    };
-  }
-
-  const intent = params.auth.resolveApproval({
-    requestId,
-    approved: command.approved,
-    resolvedBy: actor.id,
+  return resolveCustomAuthRequest({
+    auth: params.auth,
+    actor,
+    command,
     now: params.now,
-    grantUse: command.grantUse,
-    grantCount: command.grantCount,
-    grantTtlMs: command.grantTtlMs,
   });
-  if (!intent || intent.kind !== "approval-resolved") {
-    return {
-      handled: true,
-      reply: `⚠️ 授权申请已不存在或不再是 pending：${requestId}`,
-    };
-  }
-
-  return {
-    handled: true,
-    intent,
-    reply: formatApprovalResolution(intent),
-  };
 }
 
 export function buildCustomAuthApprovalText(request: CustomAuthorizationApprovalRequest): string {
@@ -429,15 +408,20 @@ export function buildCustomAuthApprovalText(request: CustomAuthorizationApproval
     `会话：${request.peer.label || request.peer.id}`,
     `能力：${request.capability}`,
     `场景：${request.sceneLabel || request.scene}`,
+    ...(request.taskId ? [`任务：${request.taskId}`] : []),
     `申请：${request.id}`,
     ``,
     `超时：${expiresInSec} 秒`,
-    `也可回复 /bot-auth approve ${request.id} once`,
+    request.taskId
+      ? `也可回复 /bot-auth approve ${request.id}`
+      : `也可回复 /bot-auth approve ${request.id} once`,
   ];
   return lines.join("\n");
 }
 
-export function buildCustomAuthApprovalKeyboard(requestId: string): InlineKeyboard {
+export function buildCustomAuthApprovalKeyboard(request: CustomAuthorizationApprovalRequest | string): InlineKeyboard {
+  const requestId = typeof request === "string" ? request : request.id;
+  const isTaskRequest = typeof request !== "string" && Boolean(request.taskId);
   const makeBtn = (
     id: string,
     label: string,
@@ -460,7 +444,13 @@ export function buildCustomAuthApprovalKeyboard(requestId: string): InlineKeyboa
       rows: [
         {
           buttons: [
-            makeBtn("allow_once", "允许一次", "已允许一次", `custom-auth:${requestId}:allow-once`, 1),
+            makeBtn(
+              "allow_once",
+              isTaskRequest ? "允许此任务" : "允许一次",
+              isTaskRequest ? "已允许此任务" : "已允许一次",
+              `custom-auth:${requestId}:allow-once`,
+              1,
+            ),
             makeBtn("allow_count", "允许3次", "已允许3次", `custom-auth:${requestId}:allow-count`, 1),
             makeBtn("deny", "拒绝", "已拒绝", `custom-auth:${requestId}:deny`, 3),
           ],
@@ -553,6 +543,7 @@ function formatCustomAuthHelp(error?: string): string {
     ``,
     `/bot-auth status`,
     `/bot-auth approve <requestId> once`,
+    `/bot-auth approve <requestId> task`,
     `/bot-auth approve <requestId> count 3`,
     `/bot-auth approve <requestId> timed 10m`,
     `/bot-auth deny <requestId>`,
@@ -637,7 +628,7 @@ function resolveCustomAuthRequest(params: {
     approved: params.command.approved,
     resolvedBy: params.actor.id,
     now: params.now,
-    grantUse: params.command.grantUse,
+    grantUse: params.command.grantUse ?? (state.requests[requestId]?.taskId ? "task" : undefined),
     grantCount: params.command.grantCount,
     grantTtlMs: params.command.grantTtlMs,
   });

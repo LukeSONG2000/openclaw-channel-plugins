@@ -549,6 +549,11 @@ Current implementation status:
   - applies anchored deliveries through a gateway-provided text sender
   - skips unanchored deliveries by default until proactive send policy is explicitly applied
 - `gateway.ts` applies async command-executor completion/failure notifications through the same proactive acceptance/budget guard used by autonomous sends before allowing unanchored C2C/group delivery.
+- `src/custom/task-auth-gateway-adapter.ts` gates task mutation commands before they change task state:
+  - task owner can append/cancel their own task
+  - custom runtime admins can append/cancel any task
+  - other members need a task-scoped `codex.longTask` temporary grant
+  - denied add/cancel attempts create an approval request that carries `taskId`
 - `src/custom/task-gateway-adapter.ts` handles `/bot-task` before the normal AI queue:
   - `/bot-task create <任务描述>`
   - `/bot-task list`
@@ -558,6 +563,7 @@ Current implementation status:
 - Slash-command capability metadata gates task mutations through custom auth:
   - query/help/list/status use `system.status`
   - create/add/cancel use `codex.longTask`
+- Task mutation commands get an additional task-scoped ownership check after the scene-level capability check and before any state mutation.
 
 Important boundary:
 
@@ -568,7 +574,7 @@ Important boundary:
 
 Next integration:
 
-Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add task-scoped permission enforcement.
+Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add richer task cards and workspace cleanup.
 
 Example command executor config:
 

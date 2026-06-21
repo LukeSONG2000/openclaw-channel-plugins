@@ -1927,7 +1927,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   token,
                   event.senderId,
                   buildCustomAuthApprovalText(request),
-                  buildCustomAuthApprovalKeyboard(request.id),
+                  buildCustomAuthApprovalKeyboard(request),
                   event.messageId,
                 );
               } else if (event.groupOpenid) {
@@ -1935,7 +1935,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   token,
                   event.groupOpenid,
                   buildCustomAuthApprovalText(request),
-                  buildCustomAuthApprovalKeyboard(request.id),
+                  buildCustomAuthApprovalKeyboard(request),
                   event.messageId,
                 );
               }
