@@ -398,6 +398,8 @@ Current official connector behavior:
 
 Current custom runtime behavior:
 
+- QQ inbound message events are normalized by `src/custom/inbound-event-normalizer.ts` before entering the queue: C2C uses `user_openid`, group uses `group_openid` + `member_openid`, guild/channel uses `channel_id` + `guild_id`, and channel DM uses `guild_id` + author id.
+- The same normalizer emits known-user records and proactive receive/reject state updates, so field mapping stays in one place while `gateway.ts` still owns queueing, persistence calls, and QQ send side effects.
 - Unread/follow-up/sleep-digest state is extracted into `src/custom/unread-runtime.ts` and wired through `src/custom/unread-gateway-adapter.ts`.
 - Custom runtime defaults off unless `channels.qqbot.customRuntime.enabled=true`.
 - QQBot initialization binds `customRuntime.admins` and `customRuntime.adminGroup`; onboarding status remains incomplete until both management anchors are present.

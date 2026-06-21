@@ -305,6 +305,19 @@ Temporary grants:
 
 When unauthorized use is detected, generate an approval request to bound admins. Prefer an inline keyboard if available; otherwise send a text approval command.
 
+### `src/custom/inbound-event-normalizer.ts`
+
+Gateway-side normalizer for QQ inbound event shapes.
+
+Current implementation status:
+
+- Converts `C2C_MESSAGE_CREATE`, `AT_MESSAGE_CREATE`, `DIRECT_MESSAGE_CREATE`, `GROUP_AT_MESSAGE_CREATE`, and `GROUP_MESSAGE_CREATE` into the internal `QueuedMessage` shape used by the message-flow pipeline.
+- Emits known-user records alongside message results, preserving the current openid-only mapping: C2C/guild/DM users by user openid and group users by `member_openid + group_openid`.
+- Normalizes quote/ref indexes through the shared `parseRefIndices()` helper, including `message_scene.ext` and `msg_elements[0].msg_idx` for quote messages.
+- Normalizes proactive receive/reject events (`C2C_MSG_REJECT`, `C2C_MSG_RECEIVE`, `GROUP_MSG_REJECT`, `GROUP_MSG_RECEIVE`) into peer acceptance updates with millisecond timestamps.
+- Normalizes `GROUP_ADD_ROBOT` / `GROUP_DEL_ROBOT` into loggable group robot membership events; add events still record the operator as a known group user.
+- Does not enqueue, persist known users, mutate proactive budget state, or send replies. `gateway.ts` applies the returned effects.
+
 ### `src/custom/message-delete-events.ts`
 
 Message deletion is currently diagnostic-only.

@@ -1,7 +1,7 @@
 import WebSocket from "ws";
 import path from "node:path";
 import fs from "node:fs";
-import type { ResolvedQQBotAccount, WSPayload, C2CMessageEvent, GuildMessageEvent, GroupMessageEvent, InteractionEvent, MsgElement, TransportMode } from "./types.js";
+import type { ResolvedQQBotAccount, WSPayload, InteractionEvent, MsgElement, TransportMode } from "./types.js";
 import { MSG_TYPE_QUOTE } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
 import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
@@ -26,7 +26,7 @@ import { processAttachments, formatVoiceText } from "./inbound-attachments.js";
 import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 
 import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
-import { parseFaceTags, parseRefIndices, buildAttachmentSummaries } from "./utils/text-parsing.js";
+import { parseFaceTags, buildAttachmentSummaries } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload, type ReplyContext, type MessageTarget } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
@@ -100,6 +100,7 @@ import {
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
 import { recordCustomFallbackEventGateway } from "./custom/fallback-record-gateway-adapter.js";
+import { normalizeQQBotInboundEvent } from "./custom/inbound-event-normalizer.js";
 import {
   buildCustomUpdateAvailableNotification,
   startCustomUpdateCheckLoop,
@@ -343,16 +344,6 @@ async function handleInteractionCreate(params: {
       }
     }
   }
-}
-
-function normalizePlatformTimestampMs(timestamp: unknown): number {
-  const n = typeof timestamp === "number"
-    ? timestamp
-    : typeof timestamp === "string"
-      ? Number(timestamp)
-      : NaN;
-  if (!Number.isFinite(n) || n <= 0) return Date.now();
-  return n < 10_000_000_000 ? n * 1000 : n;
 }
 
 // /activation 命令支持：读取 session store 中的 groupActivation 值
@@ -2748,75 +2739,31 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       // ============ 统一事件分发（WebSocket/Webhook 共用） ============
       const dispatchInboundEvent = async (t: string, d: unknown): Promise<void> => {
-        if (t === "C2C_MESSAGE_CREATE") {
-          const ev = d as C2CMessageEvent;
-          recordKnownUser({ openid: ev.author.user_openid, type: "c2c", accountId: account.accountId });
-          const refs = parseRefIndices(ev.message_scene?.ext, ev.message_type, ev.msg_elements);
-          await trySlashCommandOrEnqueue({ type: "c2c", senderId: ev.author.user_openid, content: ev.content, messageId: ev.id, timestamp: ev.timestamp, attachments: ev.attachments, refMsgIdx: refs.refMsgIdx, msgIdx: refs.msgIdx, msgElements: ev.msg_elements, msgType: ev.message_type });
-        } else if (t === "C2C_MSG_REJECT") {
-          const ev = d as { timestamp: number | string; openid: string };
-          log?.info(`[qqbot:${account.accountId}] C2C user ${ev.openid} rejected bot proactive messages`);
+        const normalized = normalizeQQBotInboundEvent({
+          eventType: t,
+          data: d,
+          accountId: account.accountId,
+        });
+        if (normalized.kind === "message") {
+          for (const user of normalized.knownUsers) {
+            recordKnownUser(user);
+          }
+          await trySlashCommandOrEnqueue(normalized.message);
+        } else if (normalized.kind === "proactive-acceptance") {
+          log?.info(`[qqbot:${account.accountId}] ${normalized.logMessage}`);
           customMessageFlow.proactiveBudget.setAcceptance({
             accountId: account.accountId,
-            peer: { kind: "c2c", id: ev.openid },
-            accepted: false,
-            now: normalizePlatformTimestampMs(ev.timestamp),
+            peer: normalized.peer,
+            accepted: normalized.accepted,
+            updatedBy: normalized.updatedBy,
+            now: normalized.timestampMs,
           });
           persistCustomProactiveBudgetState();
-        } else if (t === "C2C_MSG_RECEIVE") {
-          const ev = d as { timestamp: number | string; openid: string };
-          log?.info(`[qqbot:${account.accountId}] C2C user ${ev.openid} accepted bot proactive messages`);
-          customMessageFlow.proactiveBudget.setAcceptance({
-            accountId: account.accountId,
-            peer: { kind: "c2c", id: ev.openid },
-            accepted: true,
-            now: normalizePlatformTimestampMs(ev.timestamp),
-          });
-          persistCustomProactiveBudgetState();
-        } else if (t === "AT_MESSAGE_CREATE") {
-          const ev = d as GuildMessageEvent;
-          recordKnownUser({ openid: ev.author.id, type: "c2c", nickname: ev.author.username, accountId: account.accountId });
-          const refs = parseRefIndices((ev as any).message_scene?.ext, (ev as any).message_type, (ev as any).msg_elements);
-          await trySlashCommandOrEnqueue({ type: "guild", senderId: ev.author.id, senderName: ev.author.username, content: ev.content, messageId: ev.id, timestamp: ev.timestamp, channelId: ev.channel_id, guildId: ev.guild_id, attachments: ev.attachments, refMsgIdx: refs.refMsgIdx, msgIdx: refs.msgIdx, msgType: (ev as any).message_type });
-        } else if (t === "DIRECT_MESSAGE_CREATE") {
-          const ev = d as GuildMessageEvent;
-          recordKnownUser({ openid: ev.author.id, type: "c2c", nickname: ev.author.username, accountId: account.accountId });
-          const refs = parseRefIndices((ev as any).message_scene?.ext, (ev as any).message_type, (ev as any).msg_elements);
-          await trySlashCommandOrEnqueue({ type: "dm", senderId: ev.author.id, senderName: ev.author.username, content: ev.content, messageId: ev.id, timestamp: ev.timestamp, guildId: ev.guild_id, attachments: ev.attachments, refMsgIdx: refs.refMsgIdx, msgIdx: refs.msgIdx, msgType: (ev as any).message_type });
-        } else if (t === "GROUP_AT_MESSAGE_CREATE" || t === "GROUP_MESSAGE_CREATE") {
-          const ev = d as GroupMessageEvent;
-          recordKnownUser({ openid: ev.author.member_openid, type: "group", nickname: ev.author.username, groupOpenid: ev.group_openid, accountId: account.accountId });
-          const refs = parseRefIndices(ev.message_scene?.ext, ev.message_type, ev.msg_elements);
-          await trySlashCommandOrEnqueue({ type: "group", senderId: ev.author.member_openid, senderName: ev.author.username, senderIsBot: ev.author.bot, content: ev.content, messageId: ev.id, timestamp: ev.timestamp, groupOpenid: ev.group_openid, attachments: ev.attachments, refMsgIdx: refs.refMsgIdx, msgIdx: refs.msgIdx, eventType: t, mentions: ev.mentions, messageScene: ev.message_scene, msgElements: ev.msg_elements, msgType: ev.message_type });
-        } else if (t === "GROUP_ADD_ROBOT") {
-          const ev = d as { timestamp: string; group_openid: string; op_member_openid: string };
-          log?.info(`[qqbot:${account.accountId}] Bot added to group: ${ev.group_openid} by ${ev.op_member_openid}`);
-          recordKnownUser({ openid: ev.op_member_openid, type: "group", groupOpenid: ev.group_openid, accountId: account.accountId });
-        } else if (t === "GROUP_DEL_ROBOT") {
-          const ev = d as { timestamp: string; group_openid: string; op_member_openid: string };
-          log?.info(`[qqbot:${account.accountId}] Bot removed from group: ${ev.group_openid} by ${ev.op_member_openid}`);
-        } else if (t === "GROUP_MSG_REJECT") {
-          const ev = d as { timestamp: number; group_openid: string; op_member_openid: string };
-          log?.info(`[qqbot:${account.accountId}] Group ${ev.group_openid} rejected bot proactive messages (by ${ev.op_member_openid})`);
-          customMessageFlow.proactiveBudget.setAcceptance({
-            accountId: account.accountId,
-            peer: { kind: "group", id: ev.group_openid },
-            accepted: false,
-            updatedBy: ev.op_member_openid,
-            now: normalizePlatformTimestampMs(ev.timestamp),
-          });
-          persistCustomProactiveBudgetState();
-        } else if (t === "GROUP_MSG_RECEIVE") {
-          const ev = d as { timestamp: number; group_openid: string; op_member_openid: string };
-          log?.info(`[qqbot:${account.accountId}] Group ${ev.group_openid} accepted bot proactive messages (by ${ev.op_member_openid})`);
-          customMessageFlow.proactiveBudget.setAcceptance({
-            accountId: account.accountId,
-            peer: { kind: "group", id: ev.group_openid },
-            accepted: true,
-            updatedBy: ev.op_member_openid,
-            now: normalizePlatformTimestampMs(ev.timestamp),
-          });
-          persistCustomProactiveBudgetState();
+        } else if (normalized.kind === "group-robot") {
+          log?.info(`[qqbot:${account.accountId}] ${normalized.logMessage}`);
+          for (const user of normalized.knownUsers) {
+            recordKnownUser(user);
+          }
         } else if (isCustomMessageDeleteEventType(t)) {
           const diag = inspectCustomMessageDeleteEvent(t, d);
           if (diag) {

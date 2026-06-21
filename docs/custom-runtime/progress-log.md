@@ -745,3 +745,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps timer handles and QQ sends locally, but reads fallback snapshots from the tracker when recording timeout/context/tool fallback events.
 - This reduces mutable fallback counters in the main dispatch loop and keeps the state reusable for later inbound normalization or runner-specific dispatch adapters.
 - Added `tests/custom-fallback-dispatch-state.test.ts` for response/block flags, tool collection counts, media dedupe, renewal limits, timeout state, and model-output visibility.
+
+抽出 QQ 入站事件归一化：
+
+- Added `src/custom/inbound-event-normalizer.ts` to convert C2C/group/guild/channel-DM message events into the shared `QueuedMessage` shape before queueing.
+- The normalizer also emits known-user records, proactive receive/reject acceptance updates, and group robot add/remove log metadata without mutating stores or sending messages.
+- `gateway.ts` now applies normalized effects instead of hand-building every C2C/group/channel/DM queued message inline; message delete diagnostics and interaction handling remain separate for now.
+- Added `tests/custom-inbound-event-normalizer.test.ts` covering C2C quote refs, group mentions/openids, guild and DM routing fields, proactive acceptance timestamps, group add records, and unsupported events.
