@@ -584,3 +584,10 @@ Added configured scene binding inspection:
 - 长任务追加/取消触发的授权申请卡片现在使用 `custom-auth:<requestId>:allow-task`，不再用普通 `allow-once` payload 承载“允许此任务”的文案。
 - `handleCustomAuthInteraction()` 对 `allow-task` 增加 request 校验：只有带 `taskId` 的申请能生成 task-scoped grant，普通申请即使被手动改 payload 也会返回可见错误。
 - 扩展 auth、slash gateway、interaction gateway 测试，覆盖 task 卡片 payload、task grant 写入，以及普通申请误用 `allow-task` 的拒绝路径。
+
+加入长任务指令型状态卡片：
+
+- `handleCustomTaskCommand()` 现在为创建、状态、追加、取消成功回复生成 QQ inline command keyboard；`/bot-task list` 仍保持轻量文本列表。
+- 任务卡片按钮使用 QQ 指令型 action，不新增 callback 状态：查看/取消会直接发送 slash 命令，追加需求/新建任务只预填可编辑命令，避免静默提交不完整需求。
+- `handleCustomSlashGatewayCommand()` 会把带 keyboard 的任务回复透出为 `kind="keyboard"`，复用现有 C2C/group keyboard 发送路径；客户端不支持时仍有文本中的 `<qqbot-cmd-input>` 兜底。
+- 扩展 task gateway 和 slash gateway 测试，覆盖任务键盘内容、活跃/已取消任务按钮差异，以及任务回复从 text 变为 keyboard 的路由。

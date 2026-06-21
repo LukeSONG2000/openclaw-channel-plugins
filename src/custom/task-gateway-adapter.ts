@@ -1,4 +1,5 @@
 import type { QueuedMessage } from "../message-queue.js";
+import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import type { CustomSandboxTask, CustomTaskIntent, CustomTaskRequirement, CustomTaskSandboxRuntimeState } from "./types.js";
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
@@ -20,6 +21,7 @@ export type CustomTaskCommandParseResult =
 export interface CustomTaskCommandResult {
   handled: boolean;
   reply?: string;
+  keyboard?: InlineKeyboard;
   changed?: boolean;
   task?: CustomSandboxTask;
   requirement?: CustomTaskRequirement;
@@ -90,7 +92,7 @@ export function handleCustomTaskCommand(params: {
     if (!result.allowed || !result.task) {
       return { handled: true, reply: formatTaskDecision(result.reason), changed: false };
     }
-    return { handled: true, reply: formatTaskCreated(result.task), changed: true, task: result.task, intents: result.intents, change: "created" };
+    return { handled: true, reply: formatTaskCreated(result.task), keyboard: buildCustomTaskKeyboard(result.task), changed: true, task: result.task, intents: result.intents, change: "created" };
   }
   if (command.kind === "list") {
     const tasks = params.tasks.listTasks({ accountId: params.accountId, peer, limit: 8 });
@@ -101,7 +103,7 @@ export function handleCustomTaskCommand(params: {
     if (!task || !canReadTask(task, params.accountId, peer, actor)) {
       return { handled: true, reply: formatCustomTaskOutOfScope(command.taskId) };
     }
-    return { handled: true, reply: formatTaskStatus(task) };
+    return { handled: true, reply: formatTaskStatus(task), keyboard: buildCustomTaskKeyboard(task) };
   }
   if (command.kind === "add") {
     const task = resolveTask(params.tasks.getState(), command.taskId);
@@ -110,6 +112,7 @@ export function handleCustomTaskCommand(params: {
     return {
       handled: true,
       reply: result.allowed && result.task ? formatTaskRequirementAdded(result.task) : formatTaskDecision(result.reason),
+      keyboard: result.allowed && result.task ? buildCustomTaskKeyboard(result.task) : undefined,
       changed: result.allowed,
       task: result.task,
       requirement: result.requirement,
@@ -124,6 +127,7 @@ export function handleCustomTaskCommand(params: {
     return {
       handled: true,
       reply: result.allowed && result.task ? formatTaskCancelled(result.task) : formatTaskDecision(result.reason),
+      keyboard: result.allowed && result.task ? buildCustomTaskKeyboard(result.task) : undefined,
       changed: result.allowed,
       task: result.task,
       intents: result.intents,
@@ -132,6 +136,76 @@ export function handleCustomTaskCommand(params: {
   }
 
   return { handled: true, reply: formatCustomTaskHelp() };
+}
+
+export function buildCustomTaskKeyboard(task: CustomSandboxTask): InlineKeyboard {
+  const buttons: KeyboardButton[] = [
+    makeTaskCommandButton({
+      id: "status",
+      label: "查看状态",
+      visitedLabel: "已查看",
+      command: `/bot-task status ${task.id}`,
+      enter: true,
+      style: 1,
+    }),
+  ];
+
+  if (task.status === "queued" || task.status === "running") {
+    buttons.push(makeTaskCommandButton({
+      id: "add",
+      label: "追加需求",
+      visitedLabel: "继续追加",
+      command: `/bot-task add ${task.id} `,
+      enter: false,
+      style: 1,
+    }));
+    buttons.push(makeTaskCommandButton({
+      id: "cancel",
+      label: "取消任务",
+      visitedLabel: "已选择取消",
+      command: `/bot-task cancel ${task.id}`,
+      enter: true,
+      style: 3,
+    }));
+  }
+
+  buttons.push(makeTaskCommandButton({
+    id: "new",
+    label: "新建长任务",
+    visitedLabel: "继续新建",
+    command: "/bot-task create ",
+    enter: false,
+    style: 0,
+  }));
+
+  return {
+    content: {
+      rows: buttons.map((button) => ({ buttons: [button] })),
+    },
+  };
+}
+
+function makeTaskCommandButton(params: {
+  id: string;
+  label: string;
+  visitedLabel: string;
+  command: string;
+  enter: boolean;
+  style: 0 | 1 | 3;
+}): KeyboardButton {
+  return {
+    id: `task_${params.id}`,
+    render_data: { label: params.label, visited_label: params.visitedLabel, style: params.style },
+    action: {
+      type: 2,
+      data: params.command,
+      enter: params.enter,
+      reply: !params.enter,
+      permission: { type: 2 },
+      click_limit: 0,
+    },
+    group_id: "custom-task",
+  };
 }
 
 function formatCustomTaskHelp(error?: string): string {

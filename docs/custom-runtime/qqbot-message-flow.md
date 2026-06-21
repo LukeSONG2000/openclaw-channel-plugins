@@ -338,10 +338,16 @@ Current custom poll cards:
 - Poll state persists under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
 - Custom auth gates mutations through `game.interact`; list/status use `system.status`.
 
+Current custom task cards:
+
+- `/bot-task create`, `/bot-task status`, `/bot-task add`, and `/bot-task cancel` replies can include inline command keyboards for C2C/group sends.
+- Task buttons use QQ command actions rather than callback payloads: status/cancel send the slash command directly, while add/new-task prefill editable command text.
+- The text reply still includes command-input shortcuts as fallback for clients where inline keyboards are unavailable.
+
 Potential future uses:
 
 - Scene switch cards for admins.
-- Task status cards: query, cancel, add requirement.
+- Richer task status cards with live progress/details once a real OpenClaw subagent executor contract is wired.
 - Additional lightweight games now that callback ACK and state storage have a first poll implementation.
 - Admin-only deployment/update confirmation cards.
 

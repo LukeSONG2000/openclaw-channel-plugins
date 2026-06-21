@@ -627,7 +627,7 @@ Current implementation status:
   - `/bot-task cancel <taskId>`
 - `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
 - `/bot-task add` and `/bot-task cancel` now use the same account/peer boundary before task-scoped auth; a cross-peer ordinary member cannot trigger an approval request for a task they should not know about.
-- Task create/list/status/add replies include QQ command-input shortcuts for status, append, cancel, and new-task actions where applicable. These shortcuts only prefill commands, so append still requires the user to edit the requirement text before sending.
+- Task create/status/add/cancel replies include QQ command-input shortcuts and C2C/group inline command keyboards for status, append, cancel, and new-task actions where applicable. Status/cancel buttons send the slash command directly; append/new-task buttons only prefill the command so the user can edit the requirement text before sending.
 - Slash-command capability metadata gates task mutations through custom auth:
   - query/help/list/status use `system.status`
   - create/add/cancel use `codex.longTask`

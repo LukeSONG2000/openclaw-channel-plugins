@@ -324,7 +324,11 @@ export function handleCustomSlashGatewayCommand(params: {
       }
     }
     return handled({
-      reply: customTaskCommand.reply ? { kind: "text", text: customTaskCommand.reply } : undefined,
+      reply: customTaskCommand.reply
+        ? customTaskCommand.keyboard
+          ? { kind: "keyboard", text: customTaskCommand.reply, keyboard: customTaskCommand.keyboard }
+          : { kind: "text", text: customTaskCommand.reply }
+        : undefined,
       persist,
       taskNotificationDeliveries,
       logs,

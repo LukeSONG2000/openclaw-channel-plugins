@@ -121,8 +121,9 @@ const task = handleCustomSlashGatewayCommand({
 });
 assert.equal(task.handled, true);
 assert.equal(task.persist?.tasks, true);
-assert.equal(task.reply?.kind, "text");
-assert.equal(task.reply?.kind === "text" && task.reply.text.includes("长任务已创建"), true);
+assert.equal(task.reply?.kind, "keyboard");
+assert.equal(task.reply?.kind === "keyboard" && task.reply.text.includes("长任务已创建"), true);
+assert.equal(task.reply?.kind === "keyboard" && task.reply.keyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-task add qqbot-default-group-GROUP_OPENID-3000-1 ");
 assert.equal(Object.keys(taskRuntime.tasks.getState().tasks)[0], "qqbot-default-group-GROUP_OPENID-3000-1");
 assert.equal(taskRuntime.tasks.getTask("qqbot-default-group-GROUP_OPENID-3000-1")?.workspace, "/tmp/group-slash-tasks/qqbot-default-group-GROUP_OPENID-3000-1");
 
@@ -151,7 +152,8 @@ const cancelTask = handleCustomSlashGatewayCommand({
 });
 assert.equal(cancelTask.handled, true);
 assert.equal(cancelTask.persist?.tasks, true);
-assert.equal(cancelTask.reply?.kind, "text");
+assert.equal(cancelTask.reply?.kind, "keyboard");
+assert.equal(cancelTask.reply?.kind === "keyboard" && cancelTask.reply.keyboard.content?.rows.length, 2);
 assert.equal(cancelTask.taskNotificationDeliveries?.length, 1);
 assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.type, "group");
 assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.messageId, "msg-cancel");
@@ -216,7 +218,8 @@ const allowedTaskAdd = handleCustomSlashGatewayCommand({
 });
 assert.equal(allowedTaskAdd.handled, true);
 assert.equal(allowedTaskAdd.persist?.tasks, true);
-assert.equal(allowedTaskAdd.reply?.kind === "text" && allowedTaskAdd.reply.text.includes("当前追加需求数：1"), true);
+assert.equal(allowedTaskAdd.reply?.kind === "keyboard" && allowedTaskAdd.reply.text.includes("当前追加需求数：1"), true);
+assert.equal(allowedTaskAdd.reply?.kind === "keyboard" && allowedTaskAdd.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.data, `/bot-task status ${ownerTaskId}`);
 
 const crossPeerTaskAdd = handleCustomSlashGatewayCommand({
   cfg,
