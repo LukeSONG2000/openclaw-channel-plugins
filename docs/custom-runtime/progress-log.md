@@ -1004,3 +1004,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only builds the QQ ACK, custom interaction routing input, normalized reply target, and platform send callback; effect ordering lives in the adapter.
 - Reply-send failures are logged by the adapter after persistence callbacks run, preserving callback state updates even if QQ follow-up reply delivery fails.
 - Added `tests/custom-interaction-effects-gateway-adapter.test.ts` for persistence callbacks, group/C2C/channel reply targets, missing-target skip behavior, send failure logging, and optional persistence callbacks.
+
+抽出长任务执行 effects 应用层：
+
+- Added `src/custom/task-execution-effects-gateway-adapter.ts` to apply command-executor task effects outside `gateway.ts`: effect logging, notify-effect to delivery mapping, async task persistence, and delivery result logging.
+- `gateway.ts` now only injects task runtime, persistence callback, proactive-guarded text sender, and account logger when command-executor complete/fail callbacks return effects.
+- Async completion/failure notifications still require explicit unanchored opt-in and the gateway keeps using the same proactive acceptance/budget guard before sending C2C/group notices.
+- Added `tests/custom-task-execution-effects-gateway-adapter.test.ts` for effect-to-delivery mapping, missing-task skip behavior, anchored sends, unanchored group/channel policy, empty no-op, and async failure logging.

@@ -105,6 +105,7 @@ Out of scope for the first custom runtime:
 - `src/custom/deploy-preflight.ts`: pure in-runtime deploy preflight summary for `/bot-deploy preflight`; it inspects the live config object but never runs shell commands or touches server files.
 - `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
 - `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter for deployment confirmation cards.
+- `src/custom/task-execution-effects-gateway-adapter.ts`: gateway-side long-task execution effect applier for executor logs, async persistence, and guarded task notification delivery.
 - `src/custom/game.ts`: pure lightweight game runtime for interactive cards.
 - `src/custom/game-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-games`.
 - `src/custom/game-gateway-adapter.ts`: `/bot-game` command and `custom-game:` button callback adapter.

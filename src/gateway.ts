@@ -86,11 +86,7 @@ import { createCustomMessageFlowStateController } from "./custom/message-flow-st
 import { handleCustomSlashGatewayCommand } from "./custom/slash-gateway-adapter.js";
 import { applyCustomSlashGatewayEffects } from "./custom/slash-effects-gateway-adapter.js";
 import { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
-import {
-  applyCustomTaskNotificationDeliveries,
-  deliveriesFromCustomTaskNotifications,
-  type CustomTaskNotificationDelivery,
-} from "./custom/task-notification-gateway-adapter.js";
+import { applyCustomTaskAsyncStatusGateway } from "./custom/task-execution-effects-gateway-adapter.js";
 import {
   completeCustomTaskExecution,
   failCustomTaskExecution,
@@ -1044,31 +1040,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       // 群历史消息缓存：非@消息写入此 Map，被@时一次性注入上下文后清空
       const groupHistories = new Map<string, HistoryEntry[]>();
 
-      const applyCustomTaskExecutionEffects = (effects: CustomTaskExecutionEffect[], passiveMessageId?: string): CustomTaskNotificationDelivery[] => {
-        const deliveries: CustomTaskNotificationDelivery[] = [];
-        for (const effect of effects) {
-          log?.[effect.kind === "error" ? "error" : "info"]?.(`[qqbot:${account.accountId}] custom task execution: kind=${effect.kind}${effect.taskId ? ` task=${effect.taskId}` : ""}${effect.runId ? ` run=${effect.runId}` : ""}${effect.message ? ` message=${effect.message}` : ""}`);
-          if (effect.kind !== "notify" || !effect.notification || !effect.taskId) continue;
-          const task = customMessageFlow.tasks.getTask(effect.taskId);
-          if (!task) continue;
-          deliveries.push(...deliveriesFromCustomTaskNotifications({
-            task,
-            notifications: [effect.notification],
-            passiveMessageId,
-          }));
-        }
-        return deliveries;
-      };
-
-      const sendCustomTaskNotificationDeliveries = async (
-        deliveries: CustomTaskNotificationDelivery[],
-        allowUnanchored = false,
-      ): Promise<void> => {
-        if (!deliveries.length) return;
-        const results = await applyCustomTaskNotificationDeliveries({
-          deliveries,
-          allowUnanchored: (delivery) => allowUnanchored
-            && (delivery.target.type === "c2c" || delivery.target.type === "group"),
+      const applyAsyncCustomTaskStatus = async (effects: CustomTaskExecutionEffect[]): Promise<void> => {
+        await applyCustomTaskAsyncStatusGateway({
+          accountId: account.accountId,
+          tasks: customMessageFlow.tasks,
+          effects,
+          persistTaskState: persistCustomTaskState,
+          allowUnanchored: true,
           sendText: async (delivery) => {
             const proactive = buildCustomProactiveGuard();
             await sendTextToTarget({
@@ -1079,28 +1057,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               prepareUnanchoredTextSend: proactive.proactiveGuard,
             }, delivery.text);
           },
+          log,
         });
-        for (const result of results) {
-          const target = `${result.delivery.target.type}:${result.delivery.target.groupOpenid ?? result.delivery.target.channelId ?? result.delivery.target.senderId}`;
-          if (result.status === "sent") {
-            log?.info(`[qqbot:${account.accountId}] custom task notification sent: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target}`);
-          } else if (result.status === "skipped") {
-            log?.info(`[qqbot:${account.accountId}] custom task notification skipped: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
-          } else {
-            log?.error(`[qqbot:${account.accountId}] custom task notification failed: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
-          }
-        }
-      };
-
-      const applyAsyncCustomTaskStatus = async (effects: CustomTaskExecutionEffect[]): Promise<void> => {
-        try {
-          if (!effects.length) return;
-          persistCustomTaskState();
-          const deliveries = applyCustomTaskExecutionEffects(effects);
-          await sendCustomTaskNotificationDeliveries(deliveries, true);
-        } catch (err) {
-          log?.error(`[qqbot:${account.accountId}] custom task async status handling failed: ${err}`);
-        }
       };
 
       const resolveCustomUnreadForEvent = (event: QueuedMessage): ResolvedCustomUnreadConfig | null => {

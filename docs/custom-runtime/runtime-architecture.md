@@ -981,7 +981,12 @@ Current implementation status:
   - dedupes repeated audience/target effects
   - applies anchored deliveries through a gateway-provided text sender
   - skips unanchored deliveries by default until proactive send policy is explicitly applied
-- `gateway.ts` applies async command-executor completion/failure notifications through the same proactive acceptance/budget guard used by autonomous sends before allowing unanchored C2C/group delivery.
+- `src/custom/task-execution-effects-gateway-adapter.ts` applies executor completion/failure effects at the gateway boundary:
+  - logs executor/workspace/status/notify effects with account-prefixed messages
+  - resolves notification effects back to current task records
+  - persists async task state before delivering completion/failure notifications
+  - sends notification deliveries through injected gateway text callbacks
+  - allows unanchored async C2C/group deliveries only when the gateway opts in with the same proactive acceptance/budget guard used by autonomous sends
 - `src/custom/task-access.ts` is the shared pure policy for account, peer, and owner boundaries:
   - task owner can read and mutate across peers in the same account
   - members in the original peer can read status, but mutation still flows through owner/admin/task-scoped auth
