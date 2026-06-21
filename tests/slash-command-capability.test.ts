@@ -36,6 +36,7 @@ assert.equal(getSlashCommandCapability("/bot-poll close poll-default-group-GROUP
 assert.equal(getSlashCommandCapability("/bot-scene"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-scene status"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-scene list"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-scene bindings"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-scene set dev-lab"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-scene dev-lab"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-fallback"), "system.status");

@@ -28,6 +28,10 @@ assert.deepEqual(parseCustomSceneCommand("/bot-scene codex-only"), {
   matched: true,
   command: { kind: "set", scene: "codex-only" },
 });
+assert.deepEqual(parseCustomSceneCommand("/bot-scene bindings"), {
+  matched: true,
+  command: { kind: "bindings" },
+});
 assert.deepEqual(parseCustomSceneCommand("/bot-scene set missing"), {
   matched: true,
   error: "未知 scene：missing",
@@ -38,7 +42,17 @@ const cfg = {
     qqbot: {
       customRuntime: {
         enabled: true,
-        scenes: {},
+        scenes: {
+          "qqbot:group:ADMIN_GROUP": {
+            scene: "system-admin",
+            label: "Admin group",
+          },
+          "qqbot:c2c:USER_OPENID": {
+            scene: "default-dm",
+            enabled: false,
+            capabilities: ["system.status"],
+          },
+        },
       },
     },
   },
@@ -62,6 +76,21 @@ const list = handleCustomSceneCommand({
 assert.equal(list.handled, true);
 assert.equal(list.reply?.includes("dev-lab"), true);
 
+const bindings = handleCustomSceneCommand({
+  cfg,
+  message,
+  rawContent: "/bot-scene bindings",
+});
+assert.equal(bindings.handled, true);
+assert.equal(bindings.reply?.includes("已配置自定义场景绑定"), true);
+assert.equal(bindings.reply?.includes("数量：2"), true);
+assert.equal(bindings.reply?.includes("- qqbot:group:ADMIN_GROUP"), true);
+assert.equal(bindings.reply?.includes("scene=system-admin, enabled=yes"), true);
+assert.equal(bindings.reply?.includes("label=Admin group"), true);
+assert.equal(bindings.reply?.includes("- qqbot:c2c:USER_OPENID"), true);
+assert.equal(bindings.reply?.includes("scene=default-dm, enabled=no"), true);
+assert.equal(bindings.reply?.includes("capabilities=system.status"), true);
+
 const set = handleCustomSceneCommand({
   cfg,
   message,
@@ -80,5 +109,23 @@ const updatedStatus = handleCustomSceneCommand({
 });
 assert.equal(updatedStatus.reply?.includes("场景：dev-lab"), true);
 assert.equal(updatedStatus.reply?.includes("来源：exact"), true);
+
+const emptyBindings = handleCustomSceneCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          scenes: {},
+        },
+      },
+    },
+  } as any,
+  message,
+  rawContent: "/bot-scene bindings",
+});
+assert.equal(emptyBindings.handled, true);
+assert.equal(emptyBindings.reply?.includes("数量：0"), true);
+assert.equal(emptyBindings.reply?.includes("暂无显式场景绑定"), true);
 
 console.log("custom scene gateway adapter tests passed");

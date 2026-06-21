@@ -533,3 +533,10 @@ Auto-bound the management group scene during initialization:
 - Existing management-group scene bindings are preserved, so a user-defined `dev-lab` or other profile is not overwritten by later admin/admin-group setup.
 - This makes the management group immediately useful for status queries, authorization operations, deploy checks, and operational alerts without implicitly granting high-risk mutation capabilities.
 - Added onboarding, runtime-config, and init-script tests for automatic binding and preservation of existing scene config.
+
+Added configured scene binding inspection:
+
+- `/bot-scene bindings` now lists explicit `customRuntime.scenes` bindings without mutating config.
+- Output includes binding key, scene, enabled state, label, and resolved capability summary, but no chat content or cached runtime state.
+- The command requires only `system.status`; `/bot-scene list` remains the built-in profile list, while `/bot-scene bindings` shows actual configured peers/wildcards.
+- Added parser, adapter, slash gateway, and slash capability tests for the new read-only subcommand.

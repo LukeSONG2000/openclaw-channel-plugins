@@ -148,10 +148,11 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 
 - `/bot-scene status`
 - `/bot-scene list`
+- `/bot-scene bindings`
 - `/bot-scene set <codex-only|chat|system-admin|dev-lab|default-dm>`
 - `/bot-scene <scene>` shorthand
 
-`/bot-scene status` and `list` require `system.status`; scene binding requires `config.write`. The adapter updates the live config object and returns a precise config persistence intent. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
+`/bot-scene status`, `list`, and `bindings` require `system.status`; scene binding requires `config.write`. `list` shows built-in scene profiles, while `bindings` shows explicit configured peer/wildcard bindings with scene, enabled state, label, and capability summary. The adapter updates the live config object only for bind/set commands and returns a precise config persistence intent. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
 
 Open items:
 
@@ -336,7 +337,7 @@ Initial slash command capability mapping:
 - `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
 - `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
 - `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
-- `/bot-scene`: `system.status`; `set`/`bind` or direct scene names require `config.write`
+- `/bot-scene`: `system.status` for status/list/bindings; `set`/`bind` or direct scene names require `config.write`
 - `/bot-fallback`: `system.status`; `clear`/`reset` require `config.write`
 - `/bot-queue`: `system.status`
 - `/bot-unread`: `system.status`

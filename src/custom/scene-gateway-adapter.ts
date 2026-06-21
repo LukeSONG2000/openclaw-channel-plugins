@@ -11,6 +11,7 @@ import type { CustomRuntimeConfig, CustomSceneConfig, CustomSceneKind } from "./
 export type CustomSceneCommand =
   | { kind: "help" }
   | { kind: "list" }
+  | { kind: "bindings" }
   | { kind: "status" }
   | { kind: "set"; scene: CustomSceneKind };
 
@@ -43,6 +44,7 @@ export function parseCustomSceneCommand(rawContent: string): CustomSceneCommandP
   const action = (tokens.shift() ?? "status").toLowerCase();
   if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
   if (action === "list" || action === "ls") return { matched: true, command: { kind: "list" } };
+  if (action === "bindings" || action === "binds" || action === "configured") return { matched: true, command: { kind: "bindings" } };
   if (action === "status" || action === "show") return { matched: true, command: { kind: "status" } };
   if (action === "set" || action === "bind") {
     const scene = tokens.shift();
@@ -72,6 +74,7 @@ export function handleCustomSceneCommand(params: {
 
   if (command.kind === "help") return { handled: true, reply: formatCustomSceneHelp() };
   if (command.kind === "list") return { handled: true, reply: formatCustomSceneList() };
+  if (command.kind === "bindings") return { handled: true, reply: formatCustomSceneBindings(runtime) };
   if (command.kind === "status") {
     return { handled: true, reply: formatCustomSceneStatus(params.cfg, peer) };
   }
@@ -128,6 +131,7 @@ function formatCustomSceneHelp(error?: string): string {
     ``,
     `/bot-scene status`,
     `/bot-scene list`,
+    `/bot-scene bindings`,
     `/bot-scene set <scene>`,
     ``,
     `可选 scene：${CUSTOM_SCENE_KINDS.join(", ")}`,
@@ -140,6 +144,41 @@ function formatCustomSceneList(): string {
   for (const scene of CUSTOM_SCENE_KINDS) {
     const profile = getCustomSceneProfile(scene);
     lines.push(`- ${scene}: ${profile.description}`);
+  }
+  return lines.join("\n");
+}
+
+function formatCustomSceneBindings(runtime: CustomRuntimeConfig): string {
+  const entries = Object.entries(runtime.scenes ?? {})
+    .filter((entry): entry is [string, CustomSceneConfig] =>
+      Boolean(entry[0])
+      && typeof entry[1] === "object"
+      && entry[1] !== null
+      && !Array.isArray(entry[1])
+    )
+    .sort(([a], [b]) => a.localeCompare(b));
+  const lines = [
+    `🧭 已配置自定义场景绑定`,
+    ``,
+    `数量：${entries.length}`,
+  ];
+  if (entries.length === 0) {
+    lines.push(``, `暂无显式场景绑定。当前会话仍会使用默认场景规则。`);
+    return lines.join("\n");
+  }
+
+  for (const [key, scene] of entries) {
+    const profile = getCustomSceneProfile(scene.scene);
+    const capabilities = scene.capabilities?.length
+      ? scene.capabilities.join(", ")
+      : profile.capabilities.join(", ");
+    lines.push(
+      ``,
+      `- ${key}`,
+      `  scene=${scene.scene}, enabled=${scene.enabled === false ? "no" : "yes"}`,
+      `  label=${scene.label ?? profile.label}`,
+      `  capabilities=${capabilities || "none"}`,
+    );
   }
   return lines.join("\n");
 }

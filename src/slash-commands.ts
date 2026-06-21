@@ -429,9 +429,10 @@ registerCommand({
   usage: [
     `/bot-scene status`,
     `/bot-scene list`,
+    `/bot-scene bindings`,
     `/bot-scene set <codex-only|chat|system-admin|dev-lab|default-dm>`,
     ``,
-    `查看当前会话场景，或将当前群聊/私聊绑定到指定二开场景。`,
+    `查看当前会话场景、已配置绑定，或将当前群聊/私聊绑定到指定二开场景。`,
   ].join("\n"),
   handler: () => null,
 });
@@ -2706,7 +2707,7 @@ function slashPollCapability(args: string): SlashCommandCapability {
 
 function slashSceneCapability(args: string): SlashCommandCapability {
   const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
-  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show" || action === "bindings" || action === "binds" || action === "configured") {
     return "system.status";
   }
   if (action === "set" || action === "bind" || action === "codex-only" || action === "chat" || action === "system-admin" || action === "dev-lab" || action === "default-dm") {

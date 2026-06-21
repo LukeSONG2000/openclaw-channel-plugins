@@ -243,6 +243,21 @@ assert.equal(sceneSet.reply?.kind === "text" && sceneSet.reply.text.includes("�
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
 assert.equal(sceneSet.logs?.some((item) => item.message.includes("custom scene updated")), true);
 
+const sceneBindings = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: sceneRuntime,
+  message: { ...baseMessage, content: "/bot-scene bindings" },
+  rawContent: "/bot-scene bindings",
+  now: 5_700,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(sceneBindings.handled, true);
+assert.equal(sceneBindings.persist, undefined);
+assert.equal(sceneBindings.reply?.kind, "text");
+assert.equal(sceneBindings.reply?.kind === "text" && sceneBindings.reply.text.includes("已配置自定义场景绑定"), true);
+assert.equal(sceneBindings.reply?.kind === "text" && sceneBindings.reply.text.includes("qqbot:group:GROUP_OPENID"), true);
+
 const fallbackStatus = handleCustomSlashGatewayCommand({
   cfg,
   accountId: "default",
