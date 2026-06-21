@@ -517,6 +517,23 @@ Important boundary:
 - The adapter does not import `ws`, token helpers, session-store helpers, startup-greeting logic, or inbound event normalizers directly. `gateway.ts` still owns those platform/process side effects.
 - This adapter is the bridge between the official WebSocket transport and the custom runtime event fanout; it enables a future transport lifecycle extraction without mixing transport packet policy with message-flow customization.
 
+### `src/custom/webhook-transport-gateway-adapter.ts`
+
+Gateway-side adapter for the QQBot Webhook transport mode.
+
+Current implementation status:
+
+- Starts the shared message queue processor before the Webhook transport begins receiving events.
+- Starts background token refresh with the same account credentials used by the WebSocket path.
+- Logs Webhook event fanout and delegates normalized event handling through the injected `dispatchInboundEvent()` callback.
+- Applies Webhook READY side effects: framework `onReady`, first-startup greeting, and `_pendingFirstReady` consumption.
+- Forwards Webhook transport errors to the gateway-level error callback, then stops background token refresh and unregisters the approval handler after the transport returns.
+
+Important boundary:
+
+- The adapter does not normalize QQ events, own message handling, or own approval/runtime state; it only binds Webhook transport lifecycle callbacks to injected gateway side effects.
+- This keeps WebSocket and Webhook startup paths structurally similar while preserving the same `handleMessage` and `dispatchInboundEvent` core pipeline.
+
 ### `src/custom/queued-message-context.ts`
 
 Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.

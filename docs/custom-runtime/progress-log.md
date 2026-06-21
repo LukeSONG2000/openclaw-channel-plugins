@@ -1195,3 +1195,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates the WebSocket transport callback wiring while still owning higher-level state (`isConnecting`, reconnect counters, session variables, heartbeat timer, message queue, inbound event fanout, cleanup, and startup greeting).
 - The adapter reuses the existing message and close adapters, so payload policy, close/reconnect policy, and live socket wiring are now independently testable seams.
 - Added `tests/custom-websocket-connection-gateway-adapter.test.ts` with a fake socket for open lifecycle effects, message delegation/sendJson/heartbeat wiring, closable detection, and close-event state forwarding.
+
+抽出 Webhook transport 网关适配器：
+
+- Added `src/custom/webhook-transport-gateway-adapter.ts` to own the Webhook startup path: queue processor startup, background token refresh, Webhook event fanout logging, READY greeting, error forwarding, and post-transport cleanup.
+- `gateway.ts` now delegates both WebSocket and Webhook transport callback binding while keeping shared `handleMessage` and `dispatchInboundEvent` as the message-flow core.
+- The adapter preserves the existing Webhook behavior: `onReady({ transport: "webhook" })`, first-startup greeting consumption, `onError` forwarding, background token refresh stop, and approval-handler unregister after the Webhook transport returns.
+- Added `tests/custom-webhook-transport-gateway-adapter.test.ts` for event dispatch, ready/greeting side effects, error forwarding, token-refresh lifecycle, and approval-handler cleanup.

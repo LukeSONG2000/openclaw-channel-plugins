@@ -1,7 +1,6 @@
 import path from "node:path";
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
-import { startWebhookTransport } from "./transport/index.js";
-import { getAccessToken, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, stopBackgroundTokenRefresh, onMessageSent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -53,6 +52,7 @@ import {
   type QQBotGatewayWebSocketLike,
 } from "./custom/websocket-connection-gateway-adapter.js";
 import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
+import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -815,37 +815,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       // ============ Webhook 模式：共享 handleMessage，不走 WS ============
       if (transportMode === "webhook") {
         isConnecting = false;
-        msgQueue.startProcessor(handleMessage);
-        startBackgroundTokenRefresh(account.appId, account.clientSecret, {
-          log: log as { info: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void },
-        });
-
-        await startWebhookTransport({
+        await startQQBotWebhookTransportGateway({
           account,
           abortSignal,
-          onEvent: async (event) => {
-            const { eventType: t, data: d } = event;
-            log?.info(`[qqbot:${account.accountId}:webhook] 📩 Dispatch event: t=${t}, d=${JSON.stringify(d)}`);
-            await dispatchInboundEvent(t, d);
-          },
-          onReady: () => {
-            log?.info(`[qqbot:${account.accountId}:webhook] Transport ready`);
-            log?.info(`[qqbot:${account.accountId}] ✅ Webhook transport started successfully (path: ${account.config.webhook?.path ?? "/qqbot/webhook"})`);
-            onReady?.({ transport: "webhook" });
-            if (_pendingFirstReady.has(account.accountId)) {
-              _pendingFirstReady.delete(account.accountId);
-              sendStartupGreetings(adminCtx, "READY");
-            }
-          },
-          onError: (error) => {
-            log?.error(`[qqbot:${account.accountId}:webhook] Error: ${error.message}`);
-            onError?.(error);
-          },
+          startMessageProcessor: () => msgQueue.startProcessor(handleMessage),
+          dispatchInboundEvent,
+          onReady: (payload) => onReady?.(payload),
+          onError: (error) => onError?.(error),
+          isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
+          markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
+          sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
+          unregisterApprovalHandler,
           log,
         });
-
-        stopBackgroundTokenRefresh();
-        unregisterApprovalHandler(account.accountId);
         return; // webhook transport 结束，不继续 WS 逻辑
       }
 
