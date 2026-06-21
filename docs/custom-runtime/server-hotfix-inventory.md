@@ -73,12 +73,18 @@ Server `openclaw.json` has:
 - group `5C1152CA05D191171B05E6997791C3F5` named `friends-main`, with `historyLimit: 60`
 - `plugins.allow` includes `openclaw-qqbot`, `openclaw-lark`, `ddingtalk`, and others.
 
-Known local state:
+Known local state from the 2026-06-21 08:18 CST read-only check:
 
 - `~/.openclaw/qqbot/data/known-users.json`
 - `~/.openclaw/qqbot/data/ref-index.jsonl`
 - `~/.openclaw/qqbot/sessions/session-default.json`
 - `~/.openclaw/qqbot/sessions/session-bot2.json`
+- `known-users.json`: 32 entries total, 7 C2C and 25 group-member records. Records are openid-based; raw QQ numbers are not present.
+- `ref-index.jsonl`: 2379 records using `{ k, t, v }`; 163 records contain attachments, with 166 attachment entries.
+- Observed ref-index attachment categories: `image/jpeg`, `image/png`, `image/gif`, generic `image`, `file`, and `voice`.
+- Observed attachment metadata keys: `type`, `filename`, `contentType`, `localPath`, `transcript`, and `transcriptSource`.
+- Two observed voice attachments include transcript metadata.
+- `journalctl --user -u openclaw-gateway` reported no journal files during this check; use QQBot persisted data plus systemd status as the durable evidence source unless journald persistence is enabled later.
 
 The configured test group in the user request is QQ group number `945739251` / `Master Luke的图书馆`; the official event payload exposes `group_openid`, not the raw QQ group number. The current config only showed group openid `5C1152CA05D191171B05E6997791C3F5`, so the mapping should be verified by sending a test message and reading logs/state before hardcoding policy.
 

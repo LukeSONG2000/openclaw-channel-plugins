@@ -19,10 +19,15 @@ Read-only check on `laptop-home` on 2026-06-21:
 - Current deployed QQBot startup marker reports plugin version `1.7.2` for default account app id `1903501811`.
 - Current configured main group entry uses group openid `5C1152CA05D191171B05E6997791C3F5` and config label `friends-main`.
 - User-provided human alias for that test group is QQ `945739251` / `Master Luke的图书馆`; the runtime routing key must use the group openid, not the raw QQ group number.
-- `known-users.json` records C2C and group users by openid only. It includes group nicknames for observed group members, but C2C entries do not reliably include human-readable nicknames.
+- `known-users.json` records 32 observed users: 7 C2C entries and 25 group-member entries, all by openid.
+- It includes group nicknames for observed group members, but C2C entries do not reliably include human-readable nicknames.
 - `known-users.json` and `ref-index.jsonl` show that the server sees group members by `member_openid`, optional nickname, and `groupOpenid`; raw QQ numbers are not present in these local records.
-- `ref-index.jsonl` shows observed attachment content types including `image/jpeg`, `image/png`, `image/gif`, and voice messages stored as `contentType="voice"` with local media files and fallback transcript text when STT is not configured.
-- The current service status output did not expose recent QQ event logs through `journalctl --user`, but persisted QQBot data files were present under `~/.openclaw/qqbot/data`.
+- `ref-index.jsonl` uses a `{ k, t, v }` wrapper where `k` is the ref index, `t` is timestamp, and `v` stores cached sender/content/attachment metadata.
+- Current `ref-index.jsonl` has 2379 records; 163 records carry attachments and 166 attachment entries were observed.
+- Observed attachment categories include `image/jpeg`, `image/png`, `image/gif`, `image`, `file`, and `voice`.
+- Observed attachment keys include `type`, `filename`, `contentType`, `localPath`, `transcript`, and `transcriptSource`; all sampled attachments are local cached files, not raw remote URLs.
+- Two observed voice attachment entries include ASR transcript metadata.
+- `journalctl --user -u openclaw-gateway` currently reports no journal files, so the durable evidence source on this host is the QQBot data directory plus service status, not full historical event logs.
 
 Privacy note: server evidence in this document records identifiers and capability facts only. Message text from private chats/groups should not be copied into docs unless needed for a narrow debugging case.
 
@@ -47,6 +52,8 @@ The gateway uses full intents:
 
 Official event docs note that duplicate delivery of the same `msg_id` can happen in extreme cases, and passive reply code should use `msg_seq`/dedupe to avoid duplicate replies. Local `api.ts` generates `msg_seq` for C2C/group sends.
 
+Official event docs also state message order is not guaranteed to be strictly ordered; if strict ordering matters, the application should buffer and sort by event/message sequence. Local code currently processes gateway events as they arrive.
+
 ## C2C Fields
 
 Official docs and local type `C2CMessageEvent` expose:
@@ -64,6 +71,7 @@ Official docs and local type `C2CMessageEvent` expose:
 Current local behavior:
 
 - Routed to queue as `type="c2c"`, peer key `dm:{user_openid}` internally and custom peer `qqbot:c2c:{user_openid}` for custom runtime policy.
+- Persisted known-user evidence stores C2C by `openid`; no raw QQ number is persisted.
 - C2C supports input typing notification through `sendC2CInputNotify`.
 - C2C supports streaming text only when `accountConfig.streaming=true` and `shouldUseStreaming()` allows it.
 - Raw QQ number is not exposed; use `user_openid` for authorization and routing.
@@ -89,6 +97,7 @@ Current local behavior:
 
 - `GROUP_AT_MESSAGE_CREATE` and `GROUP_MESSAGE_CREATE` are both normalized to queue `type="group"`.
 - Group peer id is `group:{group_openid}` in the queue and `qqbot:group:{group_openid}` in custom runtime config.
+- Persisted known-user evidence stores group members as `member_openid` plus optional nickname and `groupOpenid`.
 - Group policy is controlled by `groupPolicy`, `groupAllowFrom`, `groups.{groupOpenid}.requireMention`, `ignoreOtherMentions`, and group/custom unread history.
 - Non-mentioned group messages can be recorded as unread context instead of triggering immediate AI dispatch.
 - Mentioned or implicitly mentioned group messages can inject pending unread context into the current model prompt.
@@ -127,6 +136,8 @@ Observed server-side stored attachment categories:
 
 - Static images: `image/jpeg`, `image/png`.
 - GIF / animated image payloads: often stored as `image/gif`, sometimes with image file extensions after download.
+- Generic image entries: `type="image"` can appear without a `contentType`, especially for bot-side cached/local images in ref-index.
+- Files: observed as `type="file"` in ref-index.
 - Voice: stored locally with `contentType="voice"`; voice messages may have ASR text from QQ or plugin fallback text if STT is not configured.
 - Multiple images in one message are preserved as multiple attachments in ref-index entries.
 
@@ -143,6 +154,8 @@ Known local message type constants:
 - `MSG_TYPE_QUOTE = 103`
 
 Open item: the current plugin does not explicitly model message recall/delete events as first-class inbound events. If recall state matters, add event capture from official docs and server samples before relying on it.
+
+Official recall/delete docs currently describe channel and channel-DM recall APIs/events. Local C2C/group custom runtime should not assume recall state until QQ group/C2C recall events are observed or explicitly added to the gateway event map.
 
 ## Send Capabilities
 
@@ -183,10 +196,16 @@ Local API wrappers currently provide:
 
 The connector switches text sends to Markdown when `markdownSupport` is true. Inline keyboard sending is currently wrapped for C2C and group messages, and custom auth cards use those paths.
 
+Current local gap:
+
+- `DIRECT_MESSAGE_CREATE` is normalized as `type="dm"`, but several send paths reply through C2C-style `sendC2CMessage` rather than the existing `sendDmMessage` wrapper. Treat channel-DM behavior as unaudited before adding new custom scene logic there.
+- C2C/group text sends support inline keyboards; channel/DM custom card paths currently fall back to text in custom poll/auth code.
+
 ## Official Limits That Affect Custom Runtime
 
 From official send docs:
 
+- Sandbox environments are documented as not subject to message frequency controls, but the current production OpenClaw instance should not assume it is a sandbox.
 - C2C passive replies: valid for 60 minutes, max 5 replies per incoming message.
 - Group passive replies: valid for 5 minutes, max 5 replies per incoming message.
 - C2C proactive messages: 4 messages per user per month.
@@ -201,9 +220,11 @@ Implication for custom runtime:
 
 - Group delayed autonomous replies must be either near-term passive replies inside the 5-minute window or scarce proactive sends.
 - Ten-minute sleep catch-up cannot rely on passive group `msg_id`.
+- Because official docs say proactive push is no longer provided after 2025-04-21, unanchored C2C/group sends must be treated as best-effort and high risk even if older monthly frequency limits are still listed.
 - Delayed group speaking needs scene policy, budget tracking, and visible logging before it is safe to enable broadly.
 - Follow-up after direct mention should stay inside the group passive-reply window when using passive replies.
 - Synthetic catch-up messages should not pretend to be passive replies if they have no valid QQ `msg_id` anchor.
+- Long-task completion notifications without a current `msg_id` anchor should pass through the same proactive policy/acceptance/budget layer before any actual send attempt.
 
 ## Interaction And Buttons
 
@@ -214,6 +235,7 @@ Local types support `InlineKeyboard` and `INTERACTION_CREATE`:
 - The handler must acknowledge interactions through `PUT /interactions/{id}`.
 - Official button docs state that, as of 2026-04-23, C2C/group custom button capability is open without separate template approval; channel buttons still require invite/opening.
 - Local code already uses inline keyboard buttons for official OpenClaw exec/plugin approvals and custom auth approvals.
+- Callback button events must be acknowledged with `PUT /interactions/{id}`; otherwise the QQ client may keep the button in a loading state until timeout.
 
 Current custom auth cards:
 
