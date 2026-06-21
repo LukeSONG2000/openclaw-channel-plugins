@@ -55,6 +55,7 @@ Out of scope for the first custom runtime:
 - `src/custom/fallback-event-store.ts`: bounded JSON persistence for recent custom fallback events.
 - `src/custom/fallback-gateway-adapter.ts`: `/bot-fallback` status command adapter for recent fallback events.
 - `src/custom/fallbacks.ts`: pure timeout, model-skip, tool-only fallback, and dispatch failure policy helpers.
+- `src/custom/slash-reply-target.ts`: pure slash reply target resolution for C2C/group/guild-channel/channel-DM text replies.
 - `src/custom/urgent-commands.ts`: pure queue-bypass command policy for `/stop`, `/approve`, `/new`, and `/compact`.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/list/bind command adapter with gateway-owned config persistence.
 - `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash orchestration for auth, scene, task, and poll commands.

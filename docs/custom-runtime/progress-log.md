@@ -28,6 +28,12 @@ Ported safe server hotfixes into the fork:
 - Error messages retry without `msg_id` if the reply anchor is invalid, expired, or unauthorized.
 - Presigned COS part upload no longer sets explicit `Content-Length`.
 
+Clarified channel-DM slash replies:
+
+- Added `src/custom/slash-reply-target.ts` so gateway-level slash replies resolve C2C, group, guild channel, and channel DM targets through a pure helper.
+- Gateway slash text replies for `DIRECT_MESSAGE_CREATE` now use `sendDmMessage` with the event `guild_id` instead of falling through to C2C-style user sends.
+- Slash file/media replies remain disabled for channel DM until a correct DM media path is added.
+
 Still intentionally not ported:
 
 - Unread catch-up/follow-up timers.

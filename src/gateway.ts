@@ -4,7 +4,7 @@ import fs from "node:fs";
 import type { ResolvedQQBotAccount, WSPayload, C2CMessageEvent, GuildMessageEvent, GroupMessageEvent, InteractionEvent, MsgElement, TransportMode } from "./types.js";
 import { MSG_TYPE_QUOTE } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
-import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession, saveSession, clearSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -99,6 +99,7 @@ import {
 } from "./custom/fallbacks.js";
 import { appendCustomFallbackEvent } from "./custom/fallback-event-store.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
+import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
 import {
   buildCustomUrgentQueueBypassEvent,
   resolveCustomUrgentQueueBypassCommand,
@@ -877,14 +878,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     try {
       const sendSlashTextReply = async (text: string): Promise<void> => {
         const token = await getAccessToken(account.appId, account.clientSecret);
-        if (msg.type === "c2c") {
-          await sendC2CMessage(token, msg.senderId, text, msg.messageId);
-        } else if (msg.type === "group" && msg.groupOpenid) {
-          await sendGroupMessage(token, msg.groupOpenid, text, msg.messageId);
-        } else if (msg.channelId) {
-          await sendChannelMessage(token, msg.channelId, text, msg.messageId);
-        } else if (msg.type === "dm") {
-          await sendC2CMessage(token, msg.senderId, text, msg.messageId);
+        const target = resolveCustomSlashReplyTarget(msg);
+        if (!target) {
+          log?.error(`[qqbot:${account.accountId}] Unable to resolve slash reply target for ${msg.type} message ${msg.messageId}`);
+          return;
+        }
+        if (target.kind === "c2c") {
+          await sendC2CMessage(token, target.userOpenid, text, target.msgId);
+        } else if (target.kind === "group") {
+          await sendGroupMessage(token, target.groupOpenid, text, target.msgId);
+        } else if (target.kind === "channel") {
+          await sendChannelMessage(token, target.channelId, text, target.msgId);
+        } else {
+          await sendDmMessage(token, target.guildId, text, target.msgId);
         }
       };
 
@@ -1030,24 +1036,32 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       const replyFile = isFileResult ? (reply as SlashCommandFileResult).filePath : null;
 
       // 先发送文本回复
-      if (msg.type === "c2c") {
-        await sendC2CMessage(token, msg.senderId, replyText, msg.messageId);
-      } else if (msg.type === "group" && msg.groupOpenid) {
-        await sendGroupMessage(token, msg.groupOpenid, replyText, msg.messageId);
-      } else if (msg.channelId) {
-        await sendChannelMessage(token, msg.channelId, replyText, msg.messageId);
-      } else if (msg.type === "dm") {
-        await sendC2CMessage(token, msg.senderId, replyText, msg.messageId);
+      const slashReplyTarget = resolveCustomSlashReplyTarget(msg);
+      if (!slashReplyTarget) {
+        log?.error(`[qqbot:${account.accountId}] Unable to resolve slash reply target for ${msg.type} message ${msg.messageId}`);
+        return;
+      }
+      if (slashReplyTarget.kind === "c2c") {
+        await sendC2CMessage(token, slashReplyTarget.userOpenid, replyText, slashReplyTarget.msgId);
+      } else if (slashReplyTarget.kind === "group") {
+        await sendGroupMessage(token, slashReplyTarget.groupOpenid, replyText, slashReplyTarget.msgId);
+      } else if (slashReplyTarget.kind === "channel") {
+        await sendChannelMessage(token, slashReplyTarget.channelId, replyText, slashReplyTarget.msgId);
+      } else {
+        await sendDmMessage(token, slashReplyTarget.guildId, replyText, slashReplyTarget.msgId);
       }
 
       // 如果有文件需要发送
       if (replyFile) {
         try {
-          const targetType = msg.type === "group" ? "group" : msg.type === "c2c" || msg.type === "dm" ? "c2c" : "channel";
-          const targetId = msg.type === "group" ? (msg.groupOpenid || msg.senderId) : msg.type === "c2c" || msg.type === "dm" ? msg.senderId : (msg.channelId || msg.senderId);
+          const mediaTarget = resolveCustomSlashReplyMediaTarget(msg);
+          if (!mediaTarget) {
+            log?.error(`[qqbot:${account.accountId}] Slash command file result is not supported for ${msg.type} message ${msg.messageId}`);
+            return;
+          }
           const mediaCtx: MediaTargetContext = {
-            targetType,
-            targetId,
+            targetType: mediaTarget.targetType,
+            targetId: mediaTarget.targetId,
             account,
             replyToId: msg.messageId,
             logPrefix: `[qqbot:${account.accountId}]`,

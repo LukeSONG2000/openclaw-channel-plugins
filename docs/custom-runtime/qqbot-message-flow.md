@@ -222,7 +222,7 @@ Current send matrix:
 
 | Capability | C2C | Group | Guild channel | Channel DM | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Plain text | `sendC2CMessage` | `sendGroupMessage` | `sendChannelMessage` | `sendDmMessage` | C2C/group include `msg_seq`; passive sends include `msg_id` when available; local reply dispatcher requires the proactive guard hook before unanchored C2C/group text sends |
+| Plain text | `sendC2CMessage` | `sendGroupMessage` | `sendChannelMessage` | `sendDmMessage` for gateway slash replies | C2C/group include `msg_seq`; passive sends include `msg_id` when available; local reply dispatcher requires the proactive guard hook before unanchored C2C/group text sends |
 | Markdown text | `sendC2CMessage` when `markdownSupport=true` | `sendGroupMessage` when `markdownSupport=true` | not via current wrapper | not via current wrapper | Local C2C/group body uses `msg_type=2` and `markdown.content` |
 | Inline keyboard/cards | `sendC2CMessageWithInlineKeyboard` | `sendGroupMessageWithInlineKeyboard` | not wired for custom runtime | not wired for custom runtime | Auth approvals and polls use this path; text fallback commands remain required |
 | Image | `sendC2CImageMessage` | `sendGroupImageMessage` | skipped or text fallback in current outbound code | not audited | Uses rich media upload, then `msg_type=7` media send |
@@ -235,8 +235,9 @@ Current send matrix:
 
 Current local gap:
 
-- `DIRECT_MESSAGE_CREATE` is normalized as `type="dm"`, but several send paths reply through C2C-style `sendC2CMessage` rather than the existing `sendDmMessage` wrapper. Treat channel-DM behavior as unaudited before adding new custom scene logic there.
+- `DIRECT_MESSAGE_CREATE` is normalized as `type="dm"` and gateway slash-command text replies now resolve to `sendDmMessage` with the event `guild_id`, matching the local `/dms/{guild_id}/messages` wrapper.
 - C2C/group text sends support inline keyboards; channel/DM custom card paths currently fall back to text in custom poll/auth code.
+- Slash-command file/media replies intentionally remain unsupported for channel DM until a proper DM media upload/send path is added; they no longer fall back to C2C targeting.
 
 ## Official Limits That Affect Custom Runtime
 
@@ -328,5 +329,5 @@ Current custom runtime behavior:
 
 - Validate custom auth inline cards on the actual deployed bot after installing the custom package; local tests only validate payload construction and handler logic.
 - Validate custom poll inline cards on the actual deployed bot after installing the custom package; local tests validate payload construction, command handling, interaction handling, and persistence only.
-- Audit channel DM send path before adding scene-specific logic for `DIRECT_MESSAGE_CREATE`.
+- Audit normal AI reply, media, proactive, and card behavior for channel DM before enabling scene-specific custom runtime behavior there; gateway slash text now uses `sendDmMessage`.
 - Capture official/observed recall-delete event behavior if the custom runtime needs deletion state.

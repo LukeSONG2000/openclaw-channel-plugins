@@ -361,6 +361,23 @@ Important boundary:
 - This is not a full command framework replacement.
 - Official/plugin slash commands still live in `src/slash-commands.ts`; the custom adapter only handles custom runtime gates and commands that need live per-account runtime state.
 
+### `src/custom/slash-reply-target.ts`
+
+Pure target resolution for gateway-level slash replies.
+
+Current implementation status:
+
+- Maps C2C slash replies to `sendC2CMessage`.
+- Maps group slash replies to `sendGroupMessage`.
+- Maps guild channel slash replies to `sendChannelMessage`.
+- Maps channel DM slash text replies to `sendDmMessage` using the `guild_id` from `DIRECT_MESSAGE_CREATE`.
+- Keeps slash file/media targets limited to C2C, group, and guild channel; channel DM file/media replies stay unsupported until a correct DM media path is added.
+
+Boundary:
+
+- It does not call QQ APIs, load tokens, or inspect custom auth state.
+- `gateway.ts` still owns actual sends, keyboard fallbacks, error logging, and file delivery.
+
 ### `src/custom/interaction-gateway-adapter.ts`
 
 Gateway-side custom button interaction orchestration layer.
