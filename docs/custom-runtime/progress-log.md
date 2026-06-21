@@ -1259,3 +1259,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now uses the adapter for approval-handler startup and abort cleanup, while `interaction-create-handler-gateway-adapter.ts` can still resolve the registered legacy handler for `approve:<approvalId>:...` buttons.
 - Webhook transport shutdown now receives an account-bound unregister callback from the adapter instead of importing the raw registry operation in `gateway.ts`.
 - Added `tests/custom-approval-handler-gateway-adapter.test.ts` for handler construction, register/start ordering, idempotent stop/unregister, startup-error logging, and dispose behavior.
+
+抽出 connection handlers 网关绑定层：
+
+- Added `src/custom/connection-handlers-gateway-adapter.ts` to bundle the per-connection runtime services, queued-message handler, interaction handler, and shared WebSocket/Webhook inbound-event fanout handler.
+- `gateway.ts` now creates one connection handler bundle after `beginConnect()` and only keeps the transport-level choice between Webhook and WebSocket, reducing repeated wiring of runtime slices, persistence callbacks, and per-connection group history state.
+- The adapter returns the active task executor and unread scheduler so the existing lifecycle controller can still dispose them on reconnect/abort without owning message-flow details.
+- Added `tests/custom-connection-handlers-gateway-adapter.test.ts` for runtime-service factory wiring, message/interaction/inbound handler composition, scheduler closure binding, and inbound interaction handoff.

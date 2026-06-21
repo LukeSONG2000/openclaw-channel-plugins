@@ -5,7 +5,6 @@ import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { getApprovalHandler } from "./approval-handler.js";
-import type { HistoryEntry } from "./group-history.js";
 import { setRefIndex, flushRefIndex } from "./ref-index-store.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
 import { sendMedia as sendMediaAuto } from "./outbound.js";
@@ -21,7 +20,6 @@ import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapte
 import { createCustomAdminGroupNotificationServiceGateway } from "./custom/admin-group-notification-service-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
-import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
 import {
   startCustomUpdateCheckLoop,
 } from "./custom/update-check.js";
@@ -34,11 +32,9 @@ import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket
 import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
 import { registerCustomOutboundRefIndexGateway } from "./custom/outbound-ref-index-gateway-adapter.js";
 import { runQQBotGatewayStartupPreflight } from "./custom/startup-preflight-gateway-adapter.js";
-import { createCustomInteractionCreateHandlerGateway } from "./custom/interaction-create-handler-gateway-adapter.js";
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
-import { createCustomMessageHandlerGateway } from "./custom/message-handler-gateway-adapter.js";
-import { createCustomInboundEventHandlerGateway } from "./custom/inbound-event-handler-gateway-adapter.js";
 import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gateway-adapter.js";
+import { createCustomConnectionHandlersGateway } from "./custom/connection-handlers-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -313,16 +309,20 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       const pluginRuntime = getQQBotRuntime();
 
-      // 群历史消息缓存：非@消息写入此 Map，被@时一次性注入上下文后清空
-      const groupHistories = new Map<string, HistoryEntry[]>();
-
-      const customRuntimeServices = createCustomRuntimeServicesGateway({
-        cfg: cfg as any,
-        accountId: account.accountId,
+      const connectionHandlers = createCustomConnectionHandlersGateway({
+        account,
+        cfg,
+        pluginRuntime,
         runtime: customMessageFlow,
         previousTaskExecutor: customTaskExecutor,
-        enqueueMessage: (message) => trySlashCommandOrEnqueue(message),
+        enqueueMessage: trySlashCommandOrEnqueue,
+        getQueueSnapshot: (peerId) => msgQueue.getSnapshot(peerId),
+        persistAuthState: persistCustomAuthState,
+        persistProactiveBudgetState: persistCustomProactiveBudgetState,
         persistTaskState: persistCustomTaskState,
+        persistPollState: persistCustomPollState,
+        persistGameState: persistCustomGameState,
+        persistDeployConfirmationState: persistCustomDeployConfirmationState,
         persistUnreadState: persistCustomUnreadState,
         sendTaskStatusText: async (delivery) => {
           const proactive = buildCustomProactiveGuard();
@@ -334,23 +334,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             prepareUnanchoredTextSend: proactive.proactiveGuard,
           }, delivery.text);
         },
-        log,
-      });
-      customTaskExecutor = customRuntimeServices.taskExecutor;
-      customUnreadScheduler = customRuntimeServices.unreadScheduler;
-
-      // 处理收到的消息
-      const handleMessage = createCustomMessageHandlerGateway({
-        account,
-        cfg,
-        pluginRuntime,
-        runtime: customMessageFlow,
-        groupHistories,
-        customRuntimeServices,
-        getQueueSnapshot: (peerId) => msgQueue.getSnapshot(peerId),
-        getUnreadScheduler: () => customUnreadScheduler,
-        persistAuthState: persistCustomAuthState,
-        persistCustomUnreadState,
         buildProactiveGuard: buildCustomProactiveGuard,
         sendMedia: sendMediaAuto,
         createDebouncer: createDeliverDebouncer,
@@ -374,22 +357,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             accountId,
             groupId: groupOpenid,
           }),
-        log,
-      });
-
-      const handleInteraction = createCustomInteractionCreateHandlerGateway({
-        account,
-        cfg,
-        runtime: {
-          auth: customMessageFlow.auth,
-          polls: customMessageFlow.polls,
-          games: customMessageFlow.games,
-          deployConfirmations: customMessageFlow.deployConfirmations,
-        },
-        persistAuthState: persistCustomAuthState,
-        persistPollState: persistCustomPollState,
-        persistGameState: persistCustomGameState,
-        persistDeployConfirmationState: persistCustomDeployConfirmationState,
         getConfigApi: () => getQQBotRuntime().config as {
           loadConfig: () => Record<string, unknown>;
           writeConfigFile: (cfg: unknown) => Promise<void>;
@@ -398,21 +365,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         getLegacyApprovalHandler: getApprovalHandler,
         log,
       });
-
-      // ============ 统一事件分发（WebSocket/Webhook 共用） ============
-      const inboundEventHandler = createCustomInboundEventHandlerGateway({
-        accountId: account.accountId,
-        runtime: customMessageFlow,
-        enqueueMessage: trySlashCommandOrEnqueue,
-        persistProactiveBudgetState: persistCustomProactiveBudgetState,
-        handleInteraction: async (event) => {
-          await handleInteraction(event);
-        },
-        log,
-      });
-      const dispatchInboundEvent = async (t: string, d: unknown): Promise<void> => {
-        await inboundEventHandler(t, d);
-      };
+      customTaskExecutor = connectionHandlers.taskExecutor;
+      customUnreadScheduler = connectionHandlers.unreadScheduler;
+      const handleMessage = connectionHandlers.handleMessage;
+      const dispatchInboundEvent = connectionHandlers.dispatchInboundEvent;
 
       // ============ Webhook 模式：共享 handleMessage，不走 WS ============
       if (transportMode === "webhook") {

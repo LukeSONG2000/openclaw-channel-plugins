@@ -259,6 +259,23 @@ Important boundary:
 - The adapter binds live gateway dependencies but still does not own transport startup, WebSocket/Webhook event parsing, queue lifecycle, or deployment actions.
 - It is the next seam for replacing the official message loop with a deeper custom runtime while keeping server deployment rollback safe.
 
+### `src/custom/connection-handlers-gateway-adapter.ts`
+
+Gateway-side per-connection handler bundle.
+
+Current implementation status:
+
+- Creates the runtime service bundle for each connection attempt: long-task command executor, unread scheduler, and unread config lookup helpers.
+- Creates the per-account `handleMessage` callback, `INTERACTION_CREATE` handler, and WebSocket/Webhook inbound-event fanout handler together so their shared runtime slices and persistence callbacks are wired once.
+- Owns the short-lived per-connection group history map used by legacy group catch-up fallback, keeping it scoped to the message handler bundle instead of the transport connection code.
+- Returns `taskExecutor` and `unreadScheduler` so the outer lifecycle controller can still dispose the active services on reconnect/abort.
+- Keeps `gateway.ts` at a higher level: prepare connection, build handler bundle, choose Webhook or WebSocket transport, and delegate transport callbacks.
+
+Important boundary:
+
+- The adapter does not open WebSocket/Webhook transports and does not own reconnect state; lifecycle and transport adapters still handle those concerns.
+- It is a gateway binding layer, not the pure message-flow runtime itself. Core custom behavior remains in unread/auth/task/poll/game/deploy runtime modules and their smaller gateway adapters.
+
 ### `src/custom/proactive-budget.ts`
 
 Owns local proactive/unanchored text-send budget for custom runtime paths.
