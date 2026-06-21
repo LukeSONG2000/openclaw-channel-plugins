@@ -634,7 +634,19 @@ Current implementation status:
 - Applies custom slash authorization for plugin-level and custom commands.
 - Delegates authorized custom runtime commands to `src/custom/slash-router.ts`.
 - Merges auth-stage and route-stage typed effects before returning to `gateway.ts`.
-- Leaves `gateway.ts` responsible for platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
+- Leaves `src/custom/slash-effects-gateway-adapter.ts` to apply typed effects, while `gateway.ts` still owns platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
+
+### `src/custom/slash-effects-gateway-adapter.ts`
+
+Gateway-side effect applier for handled custom slash commands.
+
+Current implementation status:
+
+- Applies custom slash logs with consistent account-prefixed gateway logging.
+- Persists auth/task/poll/game/deploy-confirmation state through injected state callbacks.
+- Persists scene/config changes through an injected config API, while reusing the existing scene upsert helper and latest loaded config snapshot.
+- Delegates reply delivery to `src/custom/slash-reply-delivery-gateway-adapter.ts` so reply-send failures are logged without preventing task notification delivery.
+- Sends task notification deliveries through injected text callbacks and records sent/skipped/failed delivery logs.
 
 ### `src/custom/slash-reply-delivery-gateway-adapter.ts`
 

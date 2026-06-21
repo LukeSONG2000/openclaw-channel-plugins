@@ -94,6 +94,7 @@ Out of scope for the first custom runtime:
 - `src/custom/urgent-commands.ts`: pure queue-bypass command policy for `/stop`, `/approve`, `/new`, and `/compact`.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/profile-list/binding-list/bind command adapter with gateway-owned config persistence.
 - `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash auth gate and typed effect merge layer.
+- `src/custom/slash-effects-gateway-adapter.ts`: gateway-side custom slash effect applier for logs, state/config persistence, reply delivery, and task notification results.
 - `src/custom/slash-reply-delivery-gateway-adapter.ts`: gateway-side custom slash reply delivery for text, keyboard fallback, auth approval cards, and management-group copies.
 - `src/custom/slash-router.ts`: pluggable custom slash route table for scene, fallback, queue, unread, task, poll, game, and deploy-confirmation commands.
 - `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and deploy-confirmation cards.

@@ -82,9 +82,8 @@ import {
   parseLegacyApprovalInteractionButton,
 } from "./custom/interaction-event-normalizer.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
-import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
 import { handleCustomSlashGatewayCommand } from "./custom/slash-gateway-adapter.js";
-import { deliverCustomSlashGatewayReply } from "./custom/slash-reply-delivery-gateway-adapter.js";
+import { applyCustomSlashGatewayEffects } from "./custom/slash-effects-gateway-adapter.js";
 import { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import {
   applyCustomTaskNotificationDeliveries,
@@ -888,74 +887,34 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         taskExecutor: customTaskExecutor ?? undefined,
       });
       if (customSlashCommand.handled) {
-        if (customSlashCommand.logs) {
-          for (const item of customSlashCommand.logs) {
-            if (item.level === "error") log?.error(`[qqbot:${account.accountId}] ${item.message}`);
-            else log?.info(`[qqbot:${account.accountId}] ${item.message}`);
-          }
-        }
-        if (customSlashCommand.persist?.auth) persistCustomAuthState();
-        if (customSlashCommand.persist?.config) {
-          const pluginRuntime = getQQBotRuntime();
-          const configApi = pluginRuntime.config as {
+        await applyCustomSlashGatewayEffects({
+          accountId: account.accountId,
+          cfg: cfg as any,
+          result: customSlashCommand,
+          getConfigApi: () => getQQBotRuntime().config as {
             loadConfig?: () => Record<string, unknown>;
             writeConfigFile: (cfg: unknown) => Promise<void>;
-          };
-          const currentCfg = typeof configApi.loadConfig === "function"
-            ? structuredClone(configApi.loadConfig()) as Record<string, unknown>
-            : structuredClone(cfg) as Record<string, unknown>;
-          upsertCustomSceneConfig(
-            currentCfg as any,
-            customSlashCommand.persist.config.sceneKey,
-            customSlashCommand.persist.config.sceneConfig,
-            resolveCustomRuntimeConfig(currentCfg as any),
-          );
-          await configApi.writeConfigFile(currentCfg);
-          log?.info(`[qqbot:${account.accountId}] custom runtime config persisted: key=${customSlashCommand.persist.config.sceneKey} scene=${customSlashCommand.persist.config.sceneConfig.scene}`);
-        }
-        if (customSlashCommand.persist?.tasks) persistCustomTaskState();
-        if (customSlashCommand.persist?.polls) persistCustomPollState();
-        if (customSlashCommand.persist?.games) persistCustomGameState();
-        if (customSlashCommand.persist?.deployConfirmations) persistCustomDeployConfirmationState();
-        if (customSlashCommand.reply) {
-          try {
-            await deliverCustomSlashGatewayReply({
-              accountId: account.accountId,
-              reply: customSlashCommand.reply,
-              sendText: sendSlashTextReply,
-              sendKeyboard: sendSlashKeyboardReply,
-              sendAdminGroupNotification: async (notification) => {
-                await sendCustomAuthAdminGroupNotification({ ...notification, source: "slash" });
-              },
+          },
+          persistAuthState: persistCustomAuthState,
+          persistTaskState: persistCustomTaskState,
+          persistPollState: persistCustomPollState,
+          persistGameState: persistCustomGameState,
+          persistDeployConfirmationState: persistCustomDeployConfirmationState,
+          sendText: sendSlashTextReply,
+          sendKeyboard: sendSlashKeyboardReply,
+          sendAdminGroupNotification: async (notification) => {
+            await sendCustomAuthAdminGroupNotification({ ...notification, source: "slash" });
+          },
+          sendTaskNotificationText: async (delivery) => {
+            await sendTextToTarget({
+              target: delivery.target,
+              account,
+              cfg,
               log,
-            });
-          } catch (sendErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom slash command reply: ${sendErr}`);
-          }
-        }
-        if (customSlashCommand.taskNotificationDeliveries?.length) {
-          const results = await applyCustomTaskNotificationDeliveries({
-            deliveries: customSlashCommand.taskNotificationDeliveries,
-            sendText: async (delivery) => {
-              await sendTextToTarget({
-                target: delivery.target,
-                account,
-                cfg,
-                log,
-              }, delivery.text);
-            },
-          });
-          for (const result of results) {
-            const target = `${result.delivery.target.type}:${result.delivery.target.groupOpenid ?? result.delivery.target.channelId ?? result.delivery.target.senderId}`;
-            if (result.status === "sent") {
-              log?.info(`[qqbot:${account.accountId}] custom task notification sent: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target}`);
-            } else if (result.status === "skipped") {
-              log?.info(`[qqbot:${account.accountId}] custom task notification skipped: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
-            } else {
-              log?.error(`[qqbot:${account.accountId}] custom task notification failed: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
-            }
-          }
-        }
+            }, delivery.text);
+          },
+          log,
+        });
         return;
       }
 

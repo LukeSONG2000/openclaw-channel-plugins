@@ -976,3 +976,10 @@ Added configured scene binding inspection:
 - `gateway.ts` still owns token lookup and QQ API calls through injected text/keyboard/admin-group callbacks, while fallback-to-text and management-group copy ordering live in the adapter.
 - Auth approval cards still fall back to denial text on card-send failure and continue forwarding approval requests to the bound management group with `source=slash`.
 - Added `tests/custom-slash-reply-delivery-gateway-adapter.test.ts` for text replies, keyboard fallback, auth approval card success/failure, admin-group notification forwarding, and no-card denial text.
+
+抽出 custom slash effects 应用层：
+
+- Added `src/custom/slash-effects-gateway-adapter.ts` to apply handled custom slash side effects outside `gateway.ts`: logs, auth/task/poll/game/deploy state persistence, scene config writes, reply delivery, and task notification delivery logs.
+- `gateway.ts` now only builds injected platform callbacks for text/card/admin-group/task-notification sends and delegates custom slash effect ordering to the adapter.
+- Reply send failures remain non-fatal for task notifications, preserving the previous behavior where a failed command reply does not prevent cancellation/async task notification copies.
+- Added `tests/custom-slash-effects-gateway-adapter.test.ts` for persistence callbacks, latest-config scene writes, reply failure isolation, task notification sent/skipped logging, and missing config API guardrails.
