@@ -25,6 +25,7 @@ assert.equal(getSlashCommandCapability("/bot-group-allways off"), "config.write"
 assert.equal(getSlashCommandCapability("/bot-task"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-task list"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-task status qqbot-default-group-GROUP_OPENID-1000-1"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-task cleanup --older-than 7d"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-task create Build sandbox"), "codex.longTask");
 assert.equal(getSlashCommandCapability("/bot-task add qqbot-default-group-GROUP_OPENID-1000-1 more requirements"), "codex.longTask");
 assert.equal(getSlashCommandCapability("/bot-task cancel qqbot-default-group-GROUP_OPENID-1000-1"), "codex.longTask");

@@ -366,6 +366,7 @@ Current custom task cards:
 - `/bot-task create`, `/bot-task status`, `/bot-task add`, and `/bot-task cancel` replies can include inline command keyboards for C2C/group sends.
 - Task buttons use QQ command actions rather than callback payloads: status/cancel send the slash command directly, while add/new-task prefill editable command text.
 - `/bot-task status <taskId>` includes executor/run/agent metadata, heartbeat time, and the latest progress phase/message/percent when the attached executor reports progress.
+- `/bot-task cleanup [--older-than 7d] [--limit 10]` returns a current-peer, read-only cleanup plan for old completed/failed/cancelled task workspaces. It does not delete files or mutate task state.
 - The optional command executor accepts stdout progress events as `QQBOT_TASK_PROGRESS {...}` or JSON lines with `type:"qqbot.task.progress"`, giving future OpenClaw/subagent runners a small status protocol without blocking the main chat.
 - The text reply still includes command-input shortcuts as fallback for clients where inline keyboards are unavailable.
 

@@ -5,6 +5,13 @@ import type { CustomSandboxTask, CustomTaskIntent, CustomTaskRequirement, Custom
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
 import type { CustomTaskSandboxConfig } from "./task-sandbox.js";
 import { evaluateCustomTaskPeerAccess, formatCustomTaskOutOfScope } from "./task-access.js";
+import {
+  buildCustomTaskCleanupPlan,
+  formatCustomTaskCleanupDuration,
+  parseCustomTaskCleanupDuration,
+  parseCustomTaskCleanupLimit,
+  type CustomTaskCleanupPlan,
+} from "./task-cleanup.js";
 
 export type CustomTaskCommand =
   | { kind: "help" }
@@ -12,7 +19,8 @@ export type CustomTaskCommand =
   | { kind: "list" }
   | { kind: "status"; taskId: string }
   | { kind: "add"; taskId: string; content: string }
-  | { kind: "cancel"; taskId: string };
+  | { kind: "cancel"; taskId: string }
+  | { kind: "cleanup-plan"; olderThanMs?: number; limit?: number };
 
 export type CustomTaskCommandParseResult =
   | { matched: false }
@@ -43,6 +51,12 @@ export function parseCustomTaskCommand(rawContent: string): CustomTaskCommandPar
     return { matched: true, command: { kind: "create", prompt } };
   }
   if (action === "list" || action === "ls") return { matched: true, command: { kind: "list" } };
+  if (action === "cleanup" || action === "cleanup-plan" || action === "prune" || action === "prune-plan") {
+    const parsed = parseCleanupPlanOptions(tokens);
+    return parsed.error
+      ? { matched: true, error: parsed.error }
+      : { matched: true, command: { kind: "cleanup-plan", olderThanMs: parsed.olderThanMs, limit: parsed.limit } };
+  }
   if (action === "status" || action === "show") {
     const taskId = tokens.shift();
     if (!taskId) return { matched: true, error: "缺少 taskId" };
@@ -97,6 +111,16 @@ export function handleCustomTaskCommand(params: {
   if (command.kind === "list") {
     const tasks = params.tasks.listTasks({ accountId: params.accountId, peer, limit: 8 });
     return { handled: true, reply: formatTaskList(tasks) };
+  }
+  if (command.kind === "cleanup-plan") {
+    const plan = buildCustomTaskCleanupPlan(params.tasks.getState(), {
+      accountId: params.accountId,
+      peer,
+      olderThanMs: command.olderThanMs,
+      limit: command.limit,
+      now: params.now,
+    });
+    return { handled: true, reply: formatTaskCleanupPlan(plan) };
   }
   if (command.kind === "status") {
     const task = resolveTask(params.tasks.getState(), command.taskId);
@@ -219,8 +243,47 @@ function formatCustomTaskHelp(error?: string): string {
     `/bot-task status <taskId>`,
     `/bot-task add <taskId> <追加需求>`,
     `/bot-task cancel <taskId>`,
+    `/bot-task cleanup [--older-than 7d] [--limit 10]`,
   );
   return lines.join("\n");
+}
+
+function parseCleanupPlanOptions(tokens: string[]): { olderThanMs?: number; limit?: number; error?: string } {
+  const result: { olderThanMs?: number; limit?: number; error?: string } = {};
+  for (let i = 0; i < tokens.length; i += 1) {
+    const token = tokens[i]!;
+    const readValue = () => {
+      if (i + 1 >= tokens.length) return undefined;
+      i += 1;
+      return tokens[i];
+    };
+    if (token === "--older-than" || token === "--age") {
+      const value = readValue();
+      const duration = parseCustomTaskCleanupDuration(value);
+      if (!duration) return { error: "--older-than 需要正数时长，例如 7d、12h、30m" };
+      result.olderThanMs = duration;
+    } else if (token.startsWith("--older-than=")) {
+      const duration = parseCustomTaskCleanupDuration(token.slice("--older-than=".length));
+      if (!duration) return { error: "--older-than 需要正数时长，例如 7d、12h、30m" };
+      result.olderThanMs = duration;
+    } else if (token.startsWith("--age=")) {
+      const duration = parseCustomTaskCleanupDuration(token.slice("--age=".length));
+      if (!duration) return { error: "--age 需要正数时长，例如 7d、12h、30m" };
+      result.olderThanMs = duration;
+    } else if (token === "--limit") {
+      const value = readValue();
+      const limit = parseCustomTaskCleanupLimit(value);
+      if (!limit) return { error: "--limit 需要 1-50 之间的整数" };
+      result.limit = limit;
+    } else if (token.startsWith("--limit=")) {
+      const limit = parseCustomTaskCleanupLimit(token.slice("--limit=".length));
+      if (!limit) return { error: "--limit 需要 1-50 之间的整数" };
+      result.limit = limit;
+    } else {
+      return { error: `未知 cleanup 参数：${token}` };
+    }
+  }
+  return result;
 }
 
 function formatTaskCreated(task: CustomSandboxTask): string {
@@ -245,6 +308,40 @@ function formatTaskList(tasks: CustomSandboxTask[]): string {
     lines.push(`- ${task.id} [${task.status}] ${task.title}`);
     lines.push(`  ${cmdInput(`/bot-task status ${task.id}`, "查看")}`);
   }
+  return lines.join("\n");
+}
+
+function formatTaskCleanupPlan(plan: CustomTaskCleanupPlan): string {
+  const lines = [
+    `🧹 长任务工作区清理规划（只读）`,
+    ``,
+    `范围：当前会话`,
+    `条件：已结束任务，更新时间早于 ${formatCustomTaskCleanupDuration(plan.olderThanMs)}`,
+    `候选：${plan.totalEligible}`,
+  ];
+  if (plan.items.length === 0) {
+    lines.push(
+      ``,
+      `暂无可清理任务。`,
+      ``,
+      cmdInput(`/bot-task cleanup --older-than ${formatCustomTaskCleanupDuration(plan.olderThanMs)}`, "重新检查"),
+    );
+    return lines.join("\n");
+  }
+
+  lines.push(``, `候选列表：`);
+  for (const item of plan.items) {
+    lines.push(`- ${item.taskId} [${item.status}] ${item.title}`);
+    lines.push(`  更新时间：${new Date(item.updatedAt).toISOString()}；工作区：${item.workspace}`);
+  }
+  if (plan.truncated) {
+    lines.push(``, `还有 ${plan.totalEligible - plan.items.length} 个候选未展示，请增大 --limit 或分批处理。`);
+  }
+  lines.push(
+    ``,
+    `当前命令只生成计划，不删除文件或任务状态。后续接入 --force 前仍需管理员确认和备份。`,
+    cmdInput(`/bot-task cleanup --older-than ${formatCustomTaskCleanupDuration(plan.olderThanMs)} --limit ${Math.min(plan.totalEligible, 50) || 10}`, "刷新规划"),
+  );
   return lines.join("\n");
 }
 

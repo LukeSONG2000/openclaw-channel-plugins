@@ -387,8 +387,9 @@ registerCommand({
     `/bot-task status <taskId>`,
     `/bot-task add <taskId> <追加需求>`,
     `/bot-task cancel <taskId>`,
+    `/bot-task cleanup [--older-than 7d] [--limit 10]`,
     ``,
-    `创建、查询、追加或取消二开运行时维护的长任务状态。`,
+    `创建、查询、追加、取消或只读规划清理二开运行时维护的长任务状态。`,
   ].join("\n"),
   handler: () => null,
 });
@@ -2729,7 +2730,19 @@ function slashUpgradeCapability(args: string): SlashCommandCapability {
 
 function slashTaskCapability(args: string): SlashCommandCapability {
   const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
-  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+  if (
+    !action
+    || action === "help"
+    || action === "?"
+    || action === "list"
+    || action === "ls"
+    || action === "status"
+    || action === "show"
+    || action === "cleanup"
+    || action === "cleanup-plan"
+    || action === "prune"
+    || action === "prune-plan"
+  ) {
     return "system.status";
   }
   if (action === "create" || action === "new" || action === "start" || action === "add" || action === "append" || action === "cancel" || action === "stop") {

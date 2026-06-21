@@ -626,6 +626,11 @@ Current implementation status:
   - `TASK.md`
   - `status.json`
   - `requirements.jsonl`
+- `src/custom/task-cleanup.ts` builds a read-only cleanup plan for terminal tasks:
+  - only considers `completed`, `failed`, and `cancelled` tasks
+  - scopes by account and current peer before exposing workspace paths
+  - defaults to tasks older than 7 days and limits output to a bounded list
+  - never deletes files or mutates task state
 - `src/custom/task-executor-adapter.ts` applies task intents to an optional executor boundary:
   - materialize workspace on `start-requested`
   - keep tasks queued when no executor is attached
@@ -667,12 +672,14 @@ Current implementation status:
   - `/bot-task status <taskId>`
   - `/bot-task add <taskId> <追加需求>`
   - `/bot-task cancel <taskId>`
+  - `/bot-task cleanup [--older-than 7d] [--limit 10]`
 - `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
 - `/bot-task add` and `/bot-task cancel` now use the same account/peer boundary before task-scoped auth; a cross-peer ordinary member cannot trigger an approval request for a task they should not know about.
 - Task create/status/add/cancel replies include QQ command-input shortcuts and C2C/group inline command keyboards for status, append, cancel, and new-task actions where applicable. Status/cancel buttons send the slash command directly; append/new-task buttons only prefill the command so the user can edit the requirement text before sending.
 - `/bot-task status <taskId>` now shows executor id, run id, agent id, heartbeat time, and the latest progress phase/message/percent when present, so group members can inspect a running long task without entering the main AI queue.
+- `/bot-task cleanup` is a read-only cleanup planner for the current peer. It lists eligible terminal tasks and their workspaces, but does not delete files or remove task state; a future destructive cleanup path must still add `--force`, admin confirmation, and backup checks.
 - Slash-command capability metadata gates task mutations through custom auth:
-  - query/help/list/status use `system.status`
+  - query/help/list/status/cleanup use `system.status`
   - create/add/cancel use `codex.longTask`
 - Task mutation commands get an additional task-scoped ownership check after the scene-level capability check and before any state mutation.
 
@@ -687,7 +694,7 @@ Important boundary:
 
 Next integration:
 
-Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add workspace cleanup and richer runner-specific status cards.
+Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add force-gated workspace cleanup and richer runner-specific status cards.
 
 Example command executor config:
 

@@ -694,3 +694,10 @@ Added configured scene binding inspection:
 - `CustomTaskCommandExecutor` 现在可以从 stdout 解析 `QQBOT_TASK_PROGRESS {...}` 或 `{"type":"qqbot.task.progress",...}` JSON 行，作为未来 OpenClaw/subagent runner 的轻量进度协议。
 - `/bot-task status` 输出执行器、run id、agent、heartbeat 和最新进度；完成/失败/取消通知也会携带最新进度摘要。
 - 扩展 task sandbox、executor adapter、command executor、gateway adapter、notification、workspace 测试，覆盖进度解析、状态持久化和状态展示。
+
+加入长任务工作区只读清理规划：
+
+- Added `src/custom/task-cleanup.ts` to build a cleanup plan for terminal long tasks without deleting files or mutating runtime state.
+- `/bot-task cleanup [--older-than 7d] [--limit 10]` now lists old completed/failed/cancelled tasks for the current account/peer and shows their workspace paths for audit.
+- The command is intentionally read-only and uses `system.status`; future destructive cleanup still needs `--force`, admin confirmation, and backup guardrails.
+- Added `tests/custom-task-cleanup.test.ts` and expanded task gateway/capability tests for cleanup duration parsing, bounded planning, current-peer scope, and read-only slash capability.

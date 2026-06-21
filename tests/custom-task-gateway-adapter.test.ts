@@ -26,6 +26,14 @@ assert.deepEqual(parseCustomTaskCommand("/bot-task cancel"), {
   matched: true,
   error: "缺少 taskId",
 });
+assert.deepEqual(parseCustomTaskCommand("/bot-task cleanup --older-than 2d --limit 3"), {
+  matched: true,
+  command: { kind: "cleanup-plan", olderThanMs: 172_800_000, limit: 3 },
+});
+assert.deepEqual(parseCustomTaskCommand("/bot-task cleanup --limit 51"), {
+  matched: true,
+  error: "--limit 需要 1-50 之间的整数",
+});
 
 const tasks = new CustomTaskSandboxRuntime({
   workspaceRoot: "/tmp/openclaw-qqbot-tasks",
@@ -163,6 +171,19 @@ assert.equal(cancelledStatus.reply?.includes(`show="追加需求"`), false);
 assert.equal(cancelledStatus.reply?.includes(`show="取消任务"`), false);
 assert.equal(cancelledStatus.reply?.includes("新建长任务"), true);
 assert.equal(buildCustomTaskKeyboard(tasks.getTask(taskId)!).content?.rows.length, 2);
+
+const cleanupPlan = handleCustomTaskCommand({
+  accountId: "default",
+  tasks,
+  message,
+  rawContent: "/bot-task cleanup --older-than 1ms --limit 5",
+  now: 6_000,
+});
+assert.equal(cleanupPlan.handled, true);
+assert.equal(cleanupPlan.changed, undefined);
+assert.equal(cleanupPlan.reply?.includes("长任务工作区清理规划（只读）"), true);
+assert.equal(cleanupPlan.reply?.includes(taskId), true);
+assert.equal(cleanupPlan.reply?.includes("当前命令只生成计划，不删除文件或任务状态"), true);
 
 const noMatch = handleCustomTaskCommand({
   accountId: "default",
