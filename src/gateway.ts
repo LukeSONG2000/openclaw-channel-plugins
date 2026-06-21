@@ -6,10 +6,9 @@ import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js"
 import { getApprovalHandler } from "./approval-handler.js";
 import { flushRefIndex } from "./ref-index-store.js";
 import { sendMedia as sendMediaAuto } from "./outbound.js";
-import { handleStructuredPayload } from "./reply-dispatcher.js";
+import { handleStructuredPayload, sendTextToTarget } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
-import { sendTextToTarget } from "./reply-dispatcher.js";
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import {
@@ -20,34 +19,7 @@ import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gate
 import { createCustomGatewayAccountServices } from "./custom/gateway-account-services-gateway-adapter.js";
 import { startQQBotGatewayStartup } from "./custom/gateway-startup-gateway-adapter.js";
 import { runQQBotGatewayConnectAttempt } from "./custom/gateway-connect-attempt-gateway-adapter.js";
-
-// ============ Mention Gating — 已抽取到 message-gating.ts ============
-
-// ============ Command Detection（委托框架运行时 commands-registry） ============
-
-/**
- * 检测消息是否包含框架控制命令（如 /activation、/status 等）。
- *
- * 不再使用静态 KNOWN_CONTROL_COMMANDS 列表，而是委托给框架运行时
- * pluginRuntime.channel.text.hasControlCommand()，确保框架新增命令时
- * 无需手动同步。
- *
- * 如果 pluginRuntime 尚未初始化（极端边界），回退到简单的 "/" 前缀检测。
- */
-function hasControlCommand(text: string): boolean {
-  if (!text || !text.startsWith("/")) return false;
-  try {
-    const runtime = getQQBotRuntime();
-    const runtimeHasControlCommand = runtime?.channel?.text?.hasControlCommand;
-    if (typeof runtimeHasControlCommand === "function") {
-      return runtimeHasControlCommand(text);
-    }
-  } catch {
-    // runtime 未初始化，fallback
-  }
-  // fallback：简单的 "/" + word 检测（宁可误判为 true 也不漏掉命令）
-  return /^\/[a-z][a-z0-9_-]*/i.test(text);
-}
+import { createQQBotGatewayPlatformServices } from "./custom/gateway-platform-services-gateway-adapter.js";
 
 // QQ Bot intents - 按权限级别分组
 const INTENTS = {
@@ -96,6 +68,17 @@ const _pendingFirstReady = new Set<string>();
  */
 export async function startGateway(ctx: GatewayContext): Promise<void> {
   const { account, abortSignal, cfg, onReady, onError, log } = ctx;
+  const platformServices = createQQBotGatewayPlatformServices({
+    account,
+    cfg,
+    log,
+    getRuntime: getQQBotRuntime as any,
+    plugin: qqbotPlugin,
+    stripMentionText,
+    detectWasMentioned,
+    getLegacyApprovalHandler: getApprovalHandler,
+    sendTextToTarget: sendTextToTarget as any,
+  });
 
   let customUnreadScheduler: CustomUnreadScheduler | null = null;
   let customTaskExecutor: CustomTaskCommandExecutor | null = null;
@@ -119,7 +102,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     abortSignal,
     restoreSession: lifecycle.restoreSession,
     markPendingFirstReady: () => { _pendingFirstReady.add(account.accountId); },
-    getRuntime: getQQBotRuntime,
+    getRuntime: platformServices.getRuntime,
     log,
   });
   const transportMode = startup.transportMode;
@@ -137,11 +120,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     cfg,
     isAborted: () => lifecycle.isAborted(),
     getTaskExecutor: () => customTaskExecutor ?? undefined,
-    stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
-    getConfigApi: () => getQQBotRuntime().config as {
-      loadConfig?: () => Record<string, unknown>;
-      writeConfigFile: (cfg: unknown) => Promise<void>;
-    },
+    stripMentionText: platformServices.stripMentionText,
+    getConfigApi: platformServices.getConfigApi,
     log,
   });
   const msgQueue = accountServices.queue;
@@ -200,16 +180,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       persistGameState: persistCustomGameState,
       persistDeployConfirmationState: persistCustomDeployConfirmationState,
       persistUnreadState: persistCustomUnreadState,
-      sendTaskStatusText: async (delivery) => {
-        const proactive = buildCustomProactiveGuard();
-        await sendTextToTarget({
-          target: delivery.target,
-          account,
-          cfg,
-          log,
-          prepareUnanchoredTextSend: proactive.proactiveGuard,
-        }, delivery.text);
-      },
+      sendTaskStatusText: platformServices.createTaskStatusTextSender(buildCustomProactiveGuard),
       buildProactiveGuard: buildCustomProactiveGuard,
       sendMedia: sendMediaAuto,
       createDebouncer: createDeliverDebouncer,
@@ -218,27 +189,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       sendPlainReply,
       adminGroupNotifications: customAdminGroupNotifications,
       isCustomRuntimeEnabled,
-      isControlCommand: hasControlCommand,
-      stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
-      detectWasMentioned: (input) => detectWasMentioned(input),
-      resolveRequireMention: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-        qqbotPlugin.groups?.resolveRequireMention?.({
-          cfg: groupCfg as any,
-          accountId,
-          groupId: groupOpenid,
-        }) ?? true,
-      resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-        qqbotPlugin.groups?.resolveGroupIntroHint?.({
-          cfg: groupCfg as any,
-          accountId,
-          groupId: groupOpenid,
-        }),
-      getConfigApi: () => getQQBotRuntime().config as {
-        loadConfig: () => Record<string, unknown>;
-        writeConfigFile: (cfg: unknown) => Promise<void>;
-      },
-      getRouting: () => getQQBotRuntime().channel?.routing,
-      getLegacyApprovalHandler: getApprovalHandler,
+      isControlCommand: platformServices.isControlCommand,
+      stripMentionText: platformServices.stripMentionText,
+      detectWasMentioned: platformServices.detectWasMentioned,
+      resolveRequireMention: platformServices.resolveRequireMention,
+      resolveGroupIntroHint: platformServices.resolveGroupIntroHint,
+      getConfigApi: platformServices.getConfigApi,
+      getRouting: platformServices.getRouting,
+      getLegacyApprovalHandler: platformServices.getLegacyApprovalHandler,
       adminContext: adminCtx,
       isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
       markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
@@ -251,7 +209,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
       maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
       rateLimitDelayMs: RATE_LIMIT_DELAY,
-      getRuntime: getQQBotRuntime,
+      getRuntime: platformServices.getRuntime,
       log,
     });
   };

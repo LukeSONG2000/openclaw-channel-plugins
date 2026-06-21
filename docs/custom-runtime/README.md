@@ -64,6 +64,7 @@ Out of scope for the first custom runtime:
 - `src/custom/approval-handler-gateway-adapter.ts`: gateway-side binding layer for the legacy OpenClaw approval handler start/register/stop/unregister lifecycle.
 - `src/custom/gateway-account-services-gateway-adapter.ts`: gateway-side account bootstrap for queue, custom state, proactive guard, admin-group notifications, update checks, and slash prequeue handling.
 - `src/custom/gateway-startup-gateway-adapter.ts`: gateway-side startup bootstrap for credential validation, process guard, preflight, outbound ref-index hook, transport mode, READY marker, and session restore.
+- `src/custom/gateway-platform-services-gateway-adapter.ts`: gateway-side platform dependency bundle for OpenClaw runtime access, command/mention helpers, group config resolvers, legacy approval lookup, and guarded task-status text delivery.
 - `src/custom/admin-group-notification-service-gateway-adapter.ts`: gateway-side management-group notification service for auth copies, repeated-fallback alerts, custom update prompts, proactive guard injection, and shared cooldown state.
 - `src/custom/dispatch-authorization-gateway-adapter.ts`: gateway-side ordinary-dispatch auth orchestration for checks, intent persistence/logging, denial delivery, and admin-group copies.
 - `src/custom/dispatch-auth-delivery-gateway-adapter.ts`: gateway-facing delivery helper for ordinary-dispatch auth denials, approval cards, text fallback, and management-group copy intent.

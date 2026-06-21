@@ -116,6 +116,22 @@ Important boundary:
 - The adapter does not create message queues, runtime services, approval handlers, or transports. Those remain in account-services, approval-handler, lifecycle, connection-handlers, and transport adapters.
 - It preserves the existing startup safety semantics while keeping `gateway.ts` focused on composing the outer lifecycle.
 
+### `src/custom/gateway-platform-services-gateway-adapter.ts`
+
+Gateway-side platform dependency bundle for official OpenClaw/QQBot connector services.
+
+Current implementation status:
+
+- Centralizes the wrappers that adapt official connector/runtime helpers into stable gateway callbacks: OpenClaw runtime lookup, config API lookup, routing lookup, legacy approval-handler lookup, mention stripping, mention detection, command detection, group mention/intro config resolvers, and task-status text sends.
+- Keeps the framework control-command decision delegated to `pluginRuntime.channel.text.hasControlCommand()` with the existing safe slash fallback when the runtime is not ready.
+- Creates the long-task status text sender with the current custom proactive guard, so unanchored task notifications still pass through the same proactive acceptance/budget policy before QQ sends.
+- Remains dependency-injectable for tests; the adapter itself does not import `channel.ts`, `runtime.ts`, or QQ send modules directly, so standalone adapter tests do not need the OpenClaw package loaded.
+
+Important boundary:
+
+- The bundle does not own account state, message queues, authorization, or transport startup. It only shapes platform callbacks used by account-services and connect-attempt wiring.
+- `gateway.ts` still imports the official connector entry points and supplies them to this adapter, which makes future official updates easier to review because platform-facing imports stay explicit at the top-level gateway.
+
 ### `src/custom/types.ts`
 
 Stable custom types:

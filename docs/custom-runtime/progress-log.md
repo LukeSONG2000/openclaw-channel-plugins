@@ -1294,3 +1294,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates per-attempt orchestration and failure retry handoff to this adapter; handler setup or transport-start errors still clear `connecting` and pass through the existing connection-failure reconnect path.
 - Added `tests/custom-gateway-connect-attempt-gateway-adapter.test.ts` for successful sequencing, concurrent-connect skip, and handler-setup failure recovery.
 - 同步复核新增初始化目标：初始化配置仍必须同时绑定 `customRuntime.admins` 与 `customRuntime.adminGroup`；本轮复跑 `tests/custom-onboarding.test.ts` 通过，管理群写入时继续默认绑定 `system-admin` 场景并保留已有显式 scene override。
+
+抽出 gateway platform services 平台依赖绑定层：
+
+- Added `src/custom/gateway-platform-services-gateway-adapter.ts` to centralize OpenClaw runtime/config/routing lookup, framework control-command detection, mention helpers, group mention/intro config resolvers, legacy approval lookup, and guarded task-status text delivery.
+- `gateway.ts` now constructs this platform dependency bundle once and passes stable callbacks into account services and connect-attempt wiring, reducing inline official connector glue while keeping official imports explicit for future upstream review.
+- The command detector still delegates to `pluginRuntime.channel.text.hasControlCommand()` and falls back to safe slash-prefix detection when the runtime is unavailable, preserving `/new` and `/compact` recovery visibility during early startup/failure edges.
+- Added `tests/custom-gateway-platform-services-gateway-adapter.test.ts` for command fallback behavior, mention/group resolver forwarding, runtime config/routing lookup, legacy approval lookup, task-status proactive text send wiring, and fallback defaults.
