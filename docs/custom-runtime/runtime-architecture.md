@@ -383,6 +383,22 @@ Current implementation status:
 - Logs message delete diagnostics through the dedicated delete inspector.
 - Normalizes `INTERACTION_CREATE` for logging and hands the raw interaction event to the existing interaction handler with async error logging.
 
+### `src/custom/websocket-reconnect-policy.ts`
+
+Pure WebSocket reconnect/close policy for the official QQ Gateway transport.
+
+Current implementation status:
+
+- Classifies close codes that should stop reconnects, refresh tokens, clear persisted sessions, re-identify, or back off for rate limits.
+- Preserves QQ close-code behavior from `gateway.ts`: `4004` refreshes token, `4008` waits the rate-limit delay, `4006`/`4007`/`4009` reset session state, `4900`-`4913` re-identify, and `4914`/`4915` stop reconnecting.
+- Tracks quick-disconnect counters as a pure state transition and returns the rate-limit backoff decision when repeated fast disconnects exceed the configured threshold.
+- Classifies connection setup failures such as `Too many requests` / `100001` into rate-limit retry delay.
+
+Important boundary:
+
+- The module does not own a WebSocket instance, timers, session storage, token cache, or reconnect scheduling. It only returns a decision object; `gateway.ts` still applies session cleanup, token-cache refresh state, logging, and `scheduleReconnect()`.
+- Keeping this policy pure makes future transport changes (Webhook-only mode, official SDK transport changes, or separate connector package) easier to validate without replaying live QQ gateway failures.
+
 ### `src/custom/queued-message-context.ts`
 
 Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.

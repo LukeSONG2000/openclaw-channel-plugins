@@ -58,6 +58,10 @@ import {
 import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-gateway-adapter.js";
 import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
 import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
+import {
+  resolveQQBotConnectionFailureReconnectDelay,
+  resolveQQBotWebSocketCloseDecision,
+} from "./custom/websocket-reconnect-policy.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -1240,95 +1244,37 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       ws.on("close", (code, reason) => {
         log?.info(`[qqbot:${account.accountId}] WebSocket closed: ${code} ${reason.toString()}`);
         isConnecting = false; // 释放锁
-        
-        // 根据错误码处理（见 QQ 官方文档）
-        // 4004: CODE_INVALID_TOKEN - Token 无效，需刷新 token 重新连接
-        // 4006: CODE_SESSION_NO_LONGER_VALID - 会话失效，需重新 identify
-        // 4007: CODE_INVALID_SEQ - Resume 时 seq 无效，需重新 identify
-        // 4008: CODE_RATE_LIMITED - 限流断开，等待后重连
-        // 4009: CODE_SESSION_TIMED_OUT - 会话超时，需重新 identify
-        // 4900-4913: 内部错误，需要重新 identify
-        // 4914: 机器人已下架
-        // 4915: 机器人已封禁
-        if (code === 4914 || code === 4915) {
-          log?.error(`[qqbot:${account.accountId}] Bot is ${code === 4914 ? "offline/sandbox-only" : "banned"}. Please contact QQ platform.`);
-          cleanup();
-          // 不重连，直接退出
-          return;
-        }
-        
-        // 4004: Token 无效，强制刷新 token 后重连
-        if (code === 4004) {
-          log?.info(`[qqbot:${account.accountId}] Invalid token (4004), will refresh token and reconnect`);
-          shouldRefreshToken = true;
-          cleanup();
-          if (!isAborted) {
-            scheduleReconnect();
+
+        const closeDecision = resolveQQBotWebSocketCloseDecision({
+          code,
+          isAborted,
+          lastConnectTime,
+          quickDisconnectCount,
+          quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
+          maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
+          rateLimitDelayMs: RATE_LIMIT_DELAY,
+        });
+        for (const item of closeDecision.logs) {
+          if (item.level === "error") {
+            log?.error(`[qqbot:${account.accountId}] ${item.message}`);
+          } else {
+            log?.info(`[qqbot:${account.accountId}] ${item.message}`);
           }
-          return;
         }
-        
-        // 4008: 限流断开，等待后重连（不需要重新 identify）
-        if (code === 4008) {
-          log?.info(`[qqbot:${account.accountId}] Rate limited (4008), waiting ${RATE_LIMIT_DELAY}ms before reconnect`);
-          cleanup();
-          if (!isAborted) {
-            scheduleReconnect(RATE_LIMIT_DELAY);
-          }
-          return;
-        }
-        
-        // 4006/4007/4009: 会话失效或超时，需要清除 session 重新 identify
-        if (code === 4006 || code === 4007 || code === 4009) {
-          const codeDesc: Record<number, string> = {
-            4006: "session no longer valid",
-            4007: "invalid seq on resume",
-            4009: "session timed out",
-          };
-          log?.info(`[qqbot:${account.accountId}] Error ${code} (${codeDesc[code]}), will re-identify`);
+        if (closeDecision.shouldClearSession) {
           sessionId = null;
           lastSeq = null;
-          // 清除持久化的 Session
           clearSession(account.accountId);
-          shouldRefreshToken = true;
-        } else if (code >= 4900 && code <= 4913) {
-          // 4900-4913 内部错误，清除 session 重新 identify
-          log?.info(`[qqbot:${account.accountId}] Internal error (${code}), will re-identify`);
-          sessionId = null;
-          lastSeq = null;
-          // 清除持久化的 Session
-          clearSession(account.accountId);
+        }
+        if (closeDecision.shouldRefreshToken) {
           shouldRefreshToken = true;
         }
-        
-        // 检测是否是快速断开（连接后很快就断了）
-        const connectionDuration = Date.now() - lastConnectTime;
-        if (connectionDuration < QUICK_DISCONNECT_THRESHOLD && lastConnectTime > 0) {
-          quickDisconnectCount++;
-          log?.info(`[qqbot:${account.accountId}] Quick disconnect detected (${connectionDuration}ms), count: ${quickDisconnectCount}`);
-          
-          // 如果连续快速断开超过阈值，等待更长时间
-          if (quickDisconnectCount >= MAX_QUICK_DISCONNECT_COUNT) {
-            log?.error(`[qqbot:${account.accountId}] Too many quick disconnects. This may indicate a permission issue.`);
-            log?.error(`[qqbot:${account.accountId}] Please check: 1) AppID/Secret correct 2) Bot permissions on QQ Open Platform`);
-            quickDisconnectCount = 0;
-            cleanup();
-            // 快速断开太多次，等待更长时间再重连
-            if (!isAborted && code !== 1000) {
-              scheduleReconnect(RATE_LIMIT_DELAY);
-            }
-            return;
-          }
-        } else {
-          // 连接持续时间够长，重置计数
-          quickDisconnectCount = 0;
+        quickDisconnectCount = closeDecision.nextQuickDisconnectCount;
+        if (closeDecision.cleanup) {
+          cleanup();
         }
-        
-        cleanup();
-        
-        // 非正常关闭则重连
-        if (!isAborted && code !== 1000) {
-          scheduleReconnect();
+        if (closeDecision.reconnect) {
+          scheduleReconnect(closeDecision.reconnectDelayMs);
         }
       });
 
@@ -1339,13 +1285,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
     } catch (err) {
       isConnecting = false; // 释放锁
-      const errMsg = String(err);
       log?.error(`[qqbot:${account.accountId}] Connection failed: ${err}`);
       
-      // 如果是频率限制错误，等待更长时间
-      if (errMsg.includes("Too many requests") || errMsg.includes("100001")) {
+      const reconnectDelay = resolveQQBotConnectionFailureReconnectDelay(err, RATE_LIMIT_DELAY);
+      if (reconnectDelay !== undefined) {
         log?.info(`[qqbot:${account.accountId}] Rate limited, waiting ${RATE_LIMIT_DELAY}ms before retry`);
-        scheduleReconnect(RATE_LIMIT_DELAY);
+        scheduleReconnect(reconnectDelay);
       } else {
         scheduleReconnect();
       }

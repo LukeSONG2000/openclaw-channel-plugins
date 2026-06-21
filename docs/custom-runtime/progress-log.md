@@ -1138,3 +1138,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects QQ token-backed text/keyboard send callbacks and a proactive guard factory into this service instead of keeping separate auth/fallback/update notification closures.
 - The service owns shared management-group cooldown state and delegates the low-level guarded send to `admin-group-delivery-gateway-adapter.ts`, preserving the boundary that custom modules do not import QQ API token helpers.
 - Added `tests/custom-admin-group-notification-service-gateway-adapter.test.ts` for auth card delivery, fallback alert cooldown suppression, and update-available notification/skipped behavior.
+
+抽出 WebSocket 重连策略：
+
+- Added `src/custom/websocket-reconnect-policy.ts` as a pure policy module for QQ Gateway close-code handling, token refresh decisions, session reset decisions, quick-disconnect counters, and rate-limit retry delays.
+- `gateway.ts` now asks the policy for a close decision and only applies the returned effects: logging, session clear, token-refresh flag, cleanup, and `scheduleReconnect()`.
+- Connection setup failures now reuse the same policy helper for `Too many requests` / `100001` rate-limit retry detection instead of keeping string matching inline in the transport catch block.
+- Added `tests/custom-websocket-reconnect-policy.test.ts` for invalid token, rate limit, session reset, internal gateway errors, bot offline/banned stops, repeated quick disconnects, normal close behavior, and setup rate-limit detection.

@@ -87,6 +87,7 @@ Out of scope for the first custom runtime:
 - `src/custom/tool-deliver-gateway-adapter.ts`: gateway-side tool deliver observer for immediate media forwarding, tool-only timeout scheduling, and completion fallback triggering.
 - `src/custom/tool-fallback-gateway-adapter.ts`: gateway-side tool-only fallback sender for collected media/text/no-output notices.
 - `src/custom/gateway-message-routing.ts`: pure gateway message routing context helper for queue peer id, framework route peer, custom scene peer, request target, and reply target.
+- `src/custom/websocket-reconnect-policy.ts`: pure WebSocket close/connection-failure policy for token refresh, session reset, quick-disconnect backoff, and rate-limit retry decisions.
 - `src/custom/group-activation.ts`: gateway-adjacent group activation helper for `/activation` session-store path resolution and `mention`/`always` fallback parsing.
 - `src/custom/group-message-gate-context.ts`: pure group-message gate context helper for mention detection, implicit quote mention, text-command gating, and synthetic unread catch-up overrides.
 - `src/custom/group-dispatch-gateway-adapter.ts`: gateway-side group dispatch gate orchestrator for allow-list checks, mention/activation gates, ingress side effects, prompt context, and unread catch-up metadata.
