@@ -1126,6 +1126,7 @@ Current implementation status:
 - Immediately forwards post-block tool media through an injected guarded media sender, including block-media dedupe and send-error logging.
 - Owns tool-only timer renewal-limit decisions and timeout scheduling while `gateway.ts` only stores/clears the current timer handle.
 - On timeout, records `tool-only-timeout`, marks the fallback as sent, and invokes the injected `sendToolFallback()` callback without importing QQ send APIs.
+- On dispatch completion with tool delivers but no block, records `tool-only-complete-no-block` and triggers the same injected fallback sender.
 
 ### `src/custom/tool-fallback-gateway-adapter.ts`
 

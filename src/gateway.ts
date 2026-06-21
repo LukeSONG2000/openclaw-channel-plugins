@@ -114,7 +114,10 @@ import {
   recordCustomFallbackEventGateway,
   type CustomDispatchFallbackRecorder,
 } from "./custom/fallback-record-gateway-adapter.js";
-import { handleCustomToolDeliverGateway } from "./custom/tool-deliver-gateway-adapter.js";
+import {
+  handleCustomToolDeliverGateway,
+  handleCustomToolOnlyCompletionFallback,
+} from "./custom/tool-deliver-gateway-adapter.js";
 import { sendCustomToolFallback } from "./custom/tool-fallback-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
@@ -2211,15 +2214,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               toolOnlyTimeoutId = null;
             }
             // dispatch 完成后，如果只有 tool 没有 block，且尚未发过兜底，立即兜底
-            if (fallbackState.shouldSendToolFallbackOnComplete()) {
-              fallbackState.markToolFallbackSent();
-              recordFallbackEvent({
-                kind: "tool-only-complete-no-block",
-                reason: "dispatch completed after tool deliver callbacks without block deliver",
-              });
-              log?.error(`[qqbot:${account.accountId}] Dispatch completed with ${fallbackState.toolDeliverCount} tool deliver(s) but no block deliver, sending fallback`);
-              await sendToolFallback();
-            }
+            await handleCustomToolOnlyCompletionFallback({
+              accountId: account.accountId,
+              state: fallbackState,
+              recordFallbackEvent,
+              sendToolFallback,
+              log,
+            });
             // 销毁 debouncer，flush 剩余缓冲的文本
             if (debouncer) {
               await debouncer.dispose();

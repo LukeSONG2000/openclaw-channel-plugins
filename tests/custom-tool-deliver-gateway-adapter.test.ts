@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { CustomFallbackDispatchState } from "../src/custom/fallback-dispatch-state.js";
 import {
   handleCustomToolDeliverGateway,
+  handleCustomToolOnlyCompletionFallback,
   type CustomToolOnlyTimerHandle,
 } from "../src/custom/tool-deliver-gateway-adapter.js";
 import type { CustomDispatchFallbackRecordParams } from "../src/custom/fallback-record-gateway-adapter.js";
@@ -202,5 +203,31 @@ const sentResult = await handleCustomToolDeliverGateway({
   sendToolFallback: async () => {},
 });
 assert.equal(sentResult.kind, "fallback-already-sent");
+
+const completionState = new CustomFallbackDispatchState();
+completionState.observeToolDeliver({ text: "done without block" });
+const completionRecords: CustomDispatchFallbackRecordParams[] = [];
+let completionFallbackSends = 0;
+const completionResult = await handleCustomToolOnlyCompletionFallback({
+  accountId: "default",
+  state: completionState,
+  recordFallbackEvent: makeRecorder(completionRecords),
+  sendToolFallback: async () => { completionFallbackSends += 1; },
+  log,
+});
+assert.equal(completionResult.kind, "sent");
+assert.equal(completionResult.kind === "sent" && completionResult.toolDeliverCount, 1);
+assert.equal(completionState.toolFallbackSent, true);
+assert.equal(completionFallbackSends, 1);
+assert.equal(completionRecords[0]?.kind, "tool-only-complete-no-block");
+
+const completionSkipped = await handleCustomToolOnlyCompletionFallback({
+  accountId: "default",
+  state: completionState,
+  recordFallbackEvent: makeRecorder(completionRecords),
+  sendToolFallback: async () => { completionFallbackSends += 1; },
+});
+assert.equal(completionSkipped.kind, "skipped");
+assert.equal(completionFallbackSends, 1);
 
 console.log("custom tool deliver gateway adapter tests passed");

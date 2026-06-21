@@ -26,6 +26,12 @@ export interface CustomToolDeliverGatewayState {
   markToolFallbackSent(): void;
 }
 
+export interface CustomToolOnlyCompletionFallbackState {
+  readonly toolDeliverCount: number;
+  shouldSendToolFallbackOnComplete(): boolean;
+  markToolFallbackSent(): void;
+}
+
 export interface HandleCustomToolDeliverGatewayParams {
   accountId: string;
   payload: CustomFallbackDeliverPayload;
@@ -71,6 +77,23 @@ export type HandleCustomToolDeliverGatewayResult =
       renewalCount: number;
     };
 
+export interface HandleCustomToolOnlyCompletionFallbackParams {
+  accountId: string;
+  state: CustomToolOnlyCompletionFallbackState;
+  recordFallbackEvent: CustomDispatchFallbackRecorder;
+  sendToolFallback: () => Promise<void>;
+  log?: CustomToolFallbackLogger;
+}
+
+export type HandleCustomToolOnlyCompletionFallbackResult =
+  | {
+      kind: "sent";
+      toolDeliverCount: number;
+    }
+  | {
+      kind: "skipped";
+    };
+
 export async function handleCustomToolDeliverGateway(
   params: HandleCustomToolDeliverGatewayParams,
 ): Promise<HandleCustomToolDeliverGatewayResult> {
@@ -112,6 +135,26 @@ export async function handleCustomToolDeliverGateway(
     timer,
     renewed,
     renewalCount,
+  };
+}
+
+export async function handleCustomToolOnlyCompletionFallback(
+  params: HandleCustomToolOnlyCompletionFallbackParams,
+): Promise<HandleCustomToolOnlyCompletionFallbackResult> {
+  if (!params.state.shouldSendToolFallbackOnComplete()) {
+    return { kind: "skipped" };
+  }
+
+  params.state.markToolFallbackSent();
+  params.recordFallbackEvent({
+    kind: "tool-only-complete-no-block",
+    reason: "dispatch completed after tool deliver callbacks without block deliver",
+  });
+  params.log?.error?.(`[qqbot:${params.accountId}] Dispatch completed with ${params.state.toolDeliverCount} tool deliver(s) but no block deliver, sending fallback`);
+  await params.sendToolFallback();
+  return {
+    kind: "sent",
+    toolDeliverCount: params.state.toolDeliverCount,
   };
 }
 
