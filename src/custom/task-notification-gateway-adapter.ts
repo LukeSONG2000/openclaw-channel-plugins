@@ -64,11 +64,14 @@ export function deliveriesFromCustomTaskNotifications(params: {
 export async function applyCustomTaskNotificationDeliveries(params: {
   deliveries: CustomTaskNotificationDelivery[];
   sendText: CustomTaskNotificationSendText;
-  allowUnanchored?: boolean;
+  allowUnanchored?: boolean | ((delivery: CustomTaskNotificationDelivery) => boolean);
 }): Promise<CustomTaskNotificationDeliveryResult[]> {
   const results: CustomTaskNotificationDeliveryResult[] = [];
   for (const delivery of params.deliveries) {
-    if (!params.allowUnanchored && !delivery.target.messageId) {
+    const allowUnanchored = typeof params.allowUnanchored === "function"
+      ? params.allowUnanchored(delivery)
+      : params.allowUnanchored === true;
+    if (!allowUnanchored && !delivery.target.messageId) {
       results.push({
         delivery,
         status: "skipped",

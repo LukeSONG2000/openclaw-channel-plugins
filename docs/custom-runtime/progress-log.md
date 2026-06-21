@@ -345,6 +345,14 @@ Added peer scene binding command:
 - `gateway.ts` persists scene binding changes by reloading the latest framework config, merging the peer scene under `channels.qqbot.customRuntime.scenes`, and calling `runtime.config.writeConfigFile()`.
 - Added `tests/custom-scene-gateway-adapter.test.ts` and expanded custom slash/capability tests.
 
+Added optional command-backed long-task executor:
+
+- Added `src/custom/task-command-executor.ts` as a conservative local command executor implementing the existing `CustomTaskExecutor` boundary.
+- The executor is disabled by default and configured under `channels.qqbot.customRuntime.tasks.commandExecutor`.
+- When enabled, it starts the configured command in the task workspace, passes task metadata through `QQBOT_CUSTOM_TASK_*` environment variables, captures stdout/stderr, enforces timeout/output truncation, and calls the same complete/fail helpers used by future executors.
+- `gateway.ts` now attaches the command executor to `/bot-task create`, persists async completion/failure state, and sends async task notifications only after applying the proactive acceptance/budget guard for unanchored C2C/group deliveries.
+- Added `tests/custom-task-command-executor.test.ts`.
+
 Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.

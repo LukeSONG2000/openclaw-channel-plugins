@@ -113,4 +113,25 @@ const failedResults = await applyCustomTaskNotificationDeliveries({
 assert.equal(failedResults[0]?.status, "failed");
 assert.match(failedResults[0]?.reason ?? "", /send failed/);
 
+const mixedUnanchored = [
+  deliveryFromCustomTaskNotification({
+    task,
+    notification: peerNotification,
+  })!,
+  deliveryFromCustomTaskNotification({
+    task: { ...task, peer: { kind: "channel", id: "CHANNEL_ID" } },
+    notification: peerNotification,
+  })!,
+];
+const selectivelyAllowed: string[] = [];
+const selectiveResults = await applyCustomTaskNotificationDeliveries({
+  deliveries: mixedUnanchored,
+  allowUnanchored: (delivery) => delivery.target.type === "group",
+  sendText: async (delivery) => {
+    selectivelyAllowed.push(delivery.target.type);
+  },
+});
+assert.deepEqual(selectivelyAllowed, ["group"]);
+assert.deepEqual(selectiveResults.map((item) => item.status), ["sent", "skipped"]);
+
 console.log("custom task notification gateway adapter tests passed");

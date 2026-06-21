@@ -531,6 +531,13 @@ Current implementation status:
   - start tasks when an executor accepts them, recording executor id, run id, agent id, and start time
   - forward appended requirements and cancellation requests to the executor when available
   - expose heartbeat, complete, and fail helpers that update runtime state and `status.json`
+- `src/custom/task-command-executor.ts` provides a conservative optional command executor:
+  - configured under `channels.qqbot.customRuntime.tasks.commandExecutor`
+  - disabled by default
+  - starts a configured local command in the task workspace without blocking the main QQ message queue
+  - passes task metadata through `QQBOT_CUSTOM_TASK_*` environment variables
+  - captures stdout/stderr, applies timeout and output truncation, then calls the same complete/fail helpers used by future executors
+  - cannot stream appended requirements into stdin; appended requirements are recorded in task state and workspace for polling/inspection
 - `src/custom/task-notification-adapter.ts` formats task completion/failure/cancellation notification effects:
   - peer notification for the originating group/DM
   - owner notification for future direct follow-up
@@ -541,6 +548,7 @@ Current implementation status:
   - dedupes repeated audience/target effects
   - applies anchored deliveries through a gateway-provided text sender
   - skips unanchored deliveries by default until proactive send policy is explicitly applied
+- `gateway.ts` applies async command-executor completion/failure notifications through the same proactive acceptance/budget guard used by autonomous sends before allowing unanchored C2C/group delivery.
 - `src/custom/task-gateway-adapter.ts` handles `/bot-task` before the normal AI queue:
   - `/bot-task create <任务描述>`
   - `/bot-task list`
@@ -554,13 +562,36 @@ Current implementation status:
 Important boundary:
 
 - This layer still does not start a real OpenClaw subagent/job by itself.
-- It now has an executor adapter boundary, so a future OpenClaw runner can attach without changing command parsing, task state, or workspace persistence.
-- It returns notification delivery descriptions instead of sending QQ messages directly; gateway applies anchored deliveries through QQ send APIs and leaves unanchored proactive sends behind policy gates.
-- Without an attached executor, tasks remain queued with durable workspace/status files; group long-task commands still return immediately and do not block the main conversation queue.
+- It now has both a generic executor adapter boundary and a local command executor proving path, so a future OpenClaw runner can attach without changing command parsing, task state, or workspace persistence.
+- It returns notification delivery descriptions instead of sending QQ messages directly; gateway applies anchored deliveries through QQ send APIs and applies proactive policy before unanchored async completion notifications.
+- Without an enabled executor, tasks remain queued with durable workspace/status files; group long-task commands still return immediately and do not block the main conversation queue.
 
 Next integration:
 
-Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, apply unanchored async task notifications through proactive send policy, then add task-scoped permission enforcement.
+Connect `CustomTaskExecutor` to an actual OpenClaw runtime/subagent contract, then add task-scoped permission enforcement.
+
+Example command executor config:
+
+```json
+{
+  "channels": {
+    "qqbot": {
+      "customRuntime": {
+        "tasks": {
+          "commandExecutor": {
+            "enabled": false,
+            "command": "/usr/local/bin/custom-task-runner",
+            "args": [],
+            "timeoutMs": 1800000,
+            "maxOutputChars": 6000,
+            "notifyAudiences": ["peer"]
+          }
+        }
+      }
+    }
+  }
+}
+```
 
 ### `src/custom/poll.ts`
 

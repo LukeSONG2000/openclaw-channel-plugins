@@ -54,6 +54,7 @@ Out of scope for the first custom runtime:
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/list/bind command adapter with gateway-owned config persistence.
 - `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash orchestration for auth, scene, task, and poll commands.
+- `src/custom/task-command-executor.ts`: optional command-backed long-task executor, disabled by default.
 - `src/custom/runtime.ts`: composition helpers and exported custom runtime modules.
 - `src/custom/unread-runtime.ts`: pure unread/follow-up/sleep-digest state machine.
 - `src/custom/unread-gateway-adapter.ts`: effect bridge between unread runtime and gateway queue/history types.

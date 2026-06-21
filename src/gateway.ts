@@ -68,7 +68,18 @@ import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResu
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
-import { applyCustomTaskNotificationDeliveries } from "./custom/task-notification-gateway-adapter.js";
+import { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
+import {
+  applyCustomTaskNotificationDeliveries,
+  deliveriesFromCustomTaskNotifications,
+  type CustomTaskNotificationDelivery,
+} from "./custom/task-notification-gateway-adapter.js";
+import {
+  completeCustomTaskExecution,
+  failCustomTaskExecution,
+  heartbeatCustomTaskExecution,
+  type CustomTaskExecutionEffect,
+} from "./custom/task-executor-adapter.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -692,6 +703,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomPollState = customState.persistPollState;
   const persistCustomUnreadState = customState.persistUnreadState;
   let customUnreadScheduler: CustomUnreadScheduler | null = null;
+  let customTaskExecutor: CustomTaskCommandExecutor | null = null;
 
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
   // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
@@ -804,6 +816,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         runtime: customMessageFlow,
         message: msg,
         rawContent: content,
+        taskExecutor: customTaskExecutor ?? undefined,
       });
       if (customSlashCommand.handled) {
         if (customSlashCommand.logs) {
@@ -953,6 +966,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const cleanup = () => {
     customUnreadScheduler?.dispose();
     customUnreadScheduler = null;
+    customTaskExecutor?.dispose();
+    customTaskExecutor = null;
     if (heartbeatInterval) {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
@@ -1018,6 +1033,117 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       const isCustomRuntimeEnabled = (): boolean =>
         resolveCustomRuntimeConfig(cfg as any).enabled === true;
 
+      const buildCustomProactiveGuard = () => ({
+        proactiveGuard: ({ targetType, targetId, text }: { targetType: "c2c" | "group"; targetId: string; text: string }) => {
+          if (!isCustomRuntimeEnabled()) return { allowed: true as const };
+          const peer: CustomPeer = { kind: targetType, id: targetId };
+          const proactiveCfg = inspectCustomProactiveConfig({
+            cfg: cfg as any,
+            message: {
+              accountId: account.accountId,
+              peer,
+              actor: { id: account.accountId, label: account.accountId, isBot: true },
+              content: text,
+              messageId: `custom-task-notification-${Date.now()}`,
+              timestamp: Date.now(),
+              mentionedBot: false,
+            },
+          });
+          const check = customMessageFlow.proactiveBudget.check({
+            accountId: account.accountId,
+            peer,
+            cfg: proactiveCfg,
+          });
+          if (!check.allowed) {
+            const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
+            return {
+              allowed: false as const,
+              reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
+            };
+          }
+          return {
+            allowed: true as const,
+            commit: () => {
+              const recorded = customMessageFlow.proactiveBudget.record({
+                accountId: account.accountId,
+                peer,
+                cfg: proactiveCfg,
+              });
+              log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
+              persistCustomProactiveBudgetState();
+            },
+          };
+        },
+      });
+
+      const applyCustomTaskExecutionEffects = (effects: CustomTaskExecutionEffect[], passiveMessageId?: string): CustomTaskNotificationDelivery[] => {
+        const deliveries: CustomTaskNotificationDelivery[] = [];
+        for (const effect of effects) {
+          log?.[effect.kind === "error" ? "error" : "info"]?.(`[qqbot:${account.accountId}] custom task execution: kind=${effect.kind}${effect.taskId ? ` task=${effect.taskId}` : ""}${effect.runId ? ` run=${effect.runId}` : ""}${effect.message ? ` message=${effect.message}` : ""}`);
+          if (effect.kind !== "notify" || !effect.notification || !effect.taskId) continue;
+          const task = customMessageFlow.tasks.getTask(effect.taskId);
+          if (!task) continue;
+          deliveries.push(...deliveriesFromCustomTaskNotifications({
+            task,
+            notifications: [effect.notification],
+            passiveMessageId,
+          }));
+        }
+        return deliveries;
+      };
+
+      const sendCustomTaskNotificationDeliveries = async (
+        deliveries: CustomTaskNotificationDelivery[],
+        allowUnanchored = false,
+      ): Promise<void> => {
+        if (!deliveries.length) return;
+        const results = await applyCustomTaskNotificationDeliveries({
+          deliveries,
+          allowUnanchored: (delivery) => allowUnanchored
+            && (delivery.target.type === "c2c" || delivery.target.type === "group"),
+          sendText: async (delivery) => {
+            const proactive = buildCustomProactiveGuard();
+            const proactiveDecision = !delivery.target.messageId
+              && (delivery.target.type === "c2c" || delivery.target.type === "group")
+              ? proactive.proactiveGuard({
+                  targetType: delivery.target.type,
+                  targetId: delivery.target.type === "group" ? delivery.target.groupOpenid! : delivery.target.senderId,
+                  text: delivery.text,
+                })
+              : { allowed: true as const };
+            if (!proactiveDecision.allowed) throw new Error(proactiveDecision.reason);
+            await sendTextToTarget({
+              target: delivery.target,
+              account,
+              cfg,
+              log,
+            }, delivery.text);
+            proactiveDecision.commit?.();
+          },
+        });
+        for (const result of results) {
+          const target = `${result.delivery.target.type}:${result.delivery.target.groupOpenid ?? result.delivery.target.channelId ?? result.delivery.target.senderId}`;
+          if (result.status === "sent") {
+            log?.info(`[qqbot:${account.accountId}] custom task notification sent: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target}`);
+          } else if (result.status === "skipped") {
+            log?.info(`[qqbot:${account.accountId}] custom task notification skipped: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
+          } else {
+            log?.error(`[qqbot:${account.accountId}] custom task notification failed: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
+          }
+        }
+      };
+
+      const applyAsyncCustomTaskStatus = async (effects: CustomTaskExecutionEffect[]): Promise<void> => {
+        try {
+          if (!effects.length) return;
+          persistCustomTaskState();
+          const deliveries = applyCustomTaskExecutionEffects(effects);
+          await sendCustomTaskNotificationDeliveries(deliveries, true);
+        } catch (err) {
+          log?.error(`[qqbot:${account.accountId}] custom task async status handling failed: ${err}`);
+        }
+      };
+
       const resolveCustomUnreadForEvent = (event: QueuedMessage): ResolvedCustomUnreadConfig | null => {
         return resolveCustomUnreadForQueuedGroupMessage({
           cfg: cfg as any,
@@ -1036,6 +1162,48 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             timestamp: new Date().toISOString(),
             groupOpenid: peerId,
           });
+
+      customTaskExecutor?.dispose();
+      customTaskExecutor = new CustomTaskCommandExecutor({
+        config: resolveCustomRuntimeConfig(cfg as any).tasks?.commandExecutor,
+        callbacks: {
+          complete: ({ taskId, result, now }) => {
+            const applied = completeCustomTaskExecution({
+              tasks: customMessageFlow.tasks,
+              taskId,
+              result,
+              notifyAudiences: customTaskExecutor?.notifyAudiences ?? ["peer"],
+              applyWorkspaceEffects: true,
+              now,
+            });
+            void applyAsyncCustomTaskStatus(applied.effects);
+          },
+          fail: ({ taskId, error, now }) => {
+            const applied = failCustomTaskExecution({
+              tasks: customMessageFlow.tasks,
+              taskId,
+              error,
+              notifyAudiences: customTaskExecutor?.notifyAudiences ?? ["peer"],
+              applyWorkspaceEffects: true,
+              now,
+            });
+            void applyAsyncCustomTaskStatus(applied.effects);
+          },
+          heartbeat: ({ taskId, now }) => {
+            const applied = heartbeatCustomTaskExecution({
+              tasks: customMessageFlow.tasks,
+              taskId,
+              applyWorkspaceEffects: true,
+              now,
+            });
+            if (applied.changed) persistCustomTaskState();
+          },
+        },
+        log: {
+          info: (msg) => log?.info(`[qqbot:${account.accountId}] ${msg}`),
+          error: (msg) => log?.error(`[qqbot:${account.accountId}] ${msg}`),
+        },
+      });
 
       customUnreadScheduler = new CustomUnreadScheduler({
         accountId: account.accountId,

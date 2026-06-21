@@ -75,6 +75,7 @@ export interface CustomRuntimeConfig {
   defaultScene?: CustomSceneKind;
   unread?: CustomUnreadConfig;
   proactive?: CustomProactiveConfig;
+  tasks?: CustomTaskRuntimeConfig;
 }
 
 export interface CustomUnreadConfig {
@@ -91,6 +92,20 @@ export interface CustomProactiveConfig {
   monthlyLimit?: number;
   rateLimitWindowMs?: number;
   rateLimitMax?: number;
+}
+
+export interface CustomTaskRuntimeConfig {
+  commandExecutor?: CustomTaskCommandExecutorConfig;
+}
+
+export interface CustomTaskCommandExecutorConfig {
+  enabled?: boolean;
+  command?: string;
+  args?: string[];
+  cwd?: string;
+  timeoutMs?: number;
+  maxOutputChars?: number;
+  notifyAudiences?: Array<"peer" | "owner">;
 }
 
 export interface CustomAuthorizationDecision {
