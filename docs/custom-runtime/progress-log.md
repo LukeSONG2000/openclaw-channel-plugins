@@ -1159,3 +1159,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates `ws.on("message")` to the adapter and only injects platform/process side effects: WebSocket send/timer reset, session state setters, session-store writes, startup greeting, inbound dispatch, cleanup, and reconnect scheduling.
 - The adapter composes the previously extracted `websocket-payload-policy.ts`, so packet-shape logic stays pure while gateway-owned side effects stay outside the policy module.
 - Added `tests/custom-websocket-message-gateway-adapter.test.ts` for identify/resume Hello handling, heartbeat callback sends, READY/RESUMED session/greeting effects, ordinary event fanout, invalid-session retry cleanup, and parse-error logging.
+
+抽出 WebSocket close 网关适配器：
+
+- Added `src/custom/websocket-close-gateway-adapter.ts` to apply WebSocket close and connection-failure policy decisions through injected session/token/cleanup/reconnect side effects.
+- `gateway.ts` now delegates `ws.on("close")` and connection setup catch handling to the adapter, leaving only local state setters and process-owned callbacks at the connector boundary.
+- The adapter composes `websocket-reconnect-policy.ts`, so close-code classification stays pure while session clearing, token-refresh flags, quick-disconnect counters, cleanup, and retry scheduling stay gateway-owned.
+- Added `tests/custom-websocket-close-gateway-adapter.test.ts` for invalid-token refresh, session reset, rate-limit delay, bot offline stop, quick-disconnect backoff, and connection setup retry classification.

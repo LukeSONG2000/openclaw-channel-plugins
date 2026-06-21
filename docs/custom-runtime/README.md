@@ -87,6 +87,7 @@ Out of scope for the first custom runtime:
 - `src/custom/tool-deliver-gateway-adapter.ts`: gateway-side tool deliver observer for immediate media forwarding, tool-only timeout scheduling, and completion fallback triggering.
 - `src/custom/tool-fallback-gateway-adapter.ts`: gateway-side tool-only fallback sender for collected media/text/no-output notices.
 - `src/custom/gateway-message-routing.ts`: pure gateway message routing context helper for queue peer id, framework route peer, custom scene peer, request target, and reply target.
+- `src/custom/websocket-close-gateway-adapter.ts`: gateway-side WebSocket close/connection-failure adapter for applying reconnect policy, session/token side effects, cleanup, and retry scheduling.
 - `src/custom/websocket-message-gateway-adapter.ts`: gateway-side WebSocket `message` event adapter for JSON parsing, seq/session persistence, Hello/Dispatch/Invalid-Session policy application, heartbeat setup, READY greetings, event fanout, and reconnect requests.
 - `src/custom/websocket-payload-policy.ts`: pure WebSocket Hello/Dispatch/Invalid-Session payload policy for identify/resume packets, heartbeat payloads, READY/RESUMED startup semantics, and invalid-session retry effects.
 - `src/custom/websocket-reconnect-policy.ts`: pure WebSocket close/connection-failure policy for token refresh, session reset, quick-disconnect backoff, and rate-limit retry decisions.

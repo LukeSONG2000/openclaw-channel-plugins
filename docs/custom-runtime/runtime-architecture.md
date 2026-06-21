@@ -399,6 +399,22 @@ Important boundary:
 - The module does not own a WebSocket instance, timers, session storage, token cache, or reconnect scheduling. It only returns a decision object; `gateway.ts` still applies session cleanup, token-cache refresh state, logging, and `scheduleReconnect()`.
 - Keeping this policy pure makes future transport changes (Webhook-only mode, official SDK transport changes, or separate connector package) easier to validate without replaying live QQ gateway failures.
 
+### `src/custom/websocket-close-gateway-adapter.ts`
+
+Gateway-side adapter for WebSocket close events and connection setup failures.
+
+Current implementation status:
+
+- Applies `websocket-reconnect-policy.ts` decisions to injected side effects: session clearing, token-refresh flag updates, quick-disconnect counter updates, cleanup, and reconnect scheduling.
+- Logs close reasons and policy diagnostics in the same account-prefixed format used by the rest of the connector.
+- Handles connection setup failures through the shared rate-limit classifier for `Too many requests` / `100001`.
+- Returns a typed summary for tests and future transport lifecycle orchestration.
+
+Important boundary:
+
+- The adapter does not import `ws`, session-store, token-cache helpers, or timers directly. `gateway.ts` still owns the live transport objects and injects setters/callbacks.
+- Close handling is now separate from message handling, so future transport changes can independently test connection failure behavior and inbound packet behavior.
+
 ### `src/custom/websocket-payload-policy.ts`
 
 Pure WebSocket payload/session policy for QQ Gateway op messages.

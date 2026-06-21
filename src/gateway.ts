@@ -59,9 +59,9 @@ import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-ga
 import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
 import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
 import {
-  resolveQQBotConnectionFailureReconnectDelay,
-  resolveQQBotWebSocketCloseDecision,
-} from "./custom/websocket-reconnect-policy.js";
+  handleQQBotWebSocketCloseGateway,
+  handleQQBotWebSocketConnectionFailureGateway,
+} from "./custom/websocket-close-gateway-adapter.js";
 import { handleQQBotWebSocketMessageGateway } from "./custom/websocket-message-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
@@ -132,19 +132,6 @@ export interface GatewayContext {
     error: (msg: string) => void;
     debug?: (msg: string) => void;
   };
-}
-
-function logGatewayDecisionEntries(
-  log: GatewayContext["log"] | undefined,
-  accountId: string,
-  entries: Array<{ level: "info" | "debug" | "error"; message: string }>,
-): void {
-  for (const item of entries) {
-    const line = `[qqbot:${accountId}] ${item.message}`;
-    if (item.level === "error") log?.error(line);
-    else if (item.level === "debug") log?.debug?.(line);
-    else log?.info(line);
-  }
 }
 
 /**
@@ -1141,34 +1128,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       });
 
       ws.on("close", (code, reason) => {
-        log?.info(`[qqbot:${account.accountId}] WebSocket closed: ${code} ${reason.toString()}`);
         isConnecting = false; // 释放锁
-
-        const closeDecision = resolveQQBotWebSocketCloseDecision({
+        handleQQBotWebSocketCloseGateway({
+          accountId: account.accountId,
           code,
+          reason: reason.toString(),
           isAborted,
           lastConnectTime,
           quickDisconnectCount,
           quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
           maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
           rateLimitDelayMs: RATE_LIMIT_DELAY,
+          setSessionId: (nextSessionId) => { sessionId = nextSessionId; },
+          setLastSeq: (nextLastSeq) => { lastSeq = nextLastSeq; },
+          setShouldRefreshToken: (nextShouldRefreshToken) => { shouldRefreshToken = nextShouldRefreshToken; },
+          setQuickDisconnectCount: (nextQuickDisconnectCount) => { quickDisconnectCount = nextQuickDisconnectCount; },
+          clearSession,
+          cleanup,
+          scheduleReconnect,
+          log,
         });
-        logGatewayDecisionEntries(log, account.accountId, closeDecision.logs);
-        if (closeDecision.shouldClearSession) {
-          sessionId = null;
-          lastSeq = null;
-          clearSession(account.accountId);
-        }
-        if (closeDecision.shouldRefreshToken) {
-          shouldRefreshToken = true;
-        }
-        quickDisconnectCount = closeDecision.nextQuickDisconnectCount;
-        if (closeDecision.cleanup) {
-          cleanup();
-        }
-        if (closeDecision.reconnect) {
-          scheduleReconnect(closeDecision.reconnectDelayMs);
-        }
       });
 
       ws.on("error", (err) => {
@@ -1178,15 +1157,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
     } catch (err) {
       isConnecting = false; // 释放锁
-      log?.error(`[qqbot:${account.accountId}] Connection failed: ${err}`);
-      
-      const reconnectDelay = resolveQQBotConnectionFailureReconnectDelay(err, RATE_LIMIT_DELAY);
-      if (reconnectDelay !== undefined) {
-        log?.info(`[qqbot:${account.accountId}] Rate limited, waiting ${RATE_LIMIT_DELAY}ms before retry`);
-        scheduleReconnect(reconnectDelay);
-      } else {
-        scheduleReconnect();
-      }
+      handleQQBotWebSocketConnectionFailureGateway({
+        accountId: account.accountId,
+        err,
+        rateLimitDelayMs: RATE_LIMIT_DELAY,
+        scheduleReconnect,
+        log,
+      });
     }
   };
 
