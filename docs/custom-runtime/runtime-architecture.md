@@ -457,7 +457,24 @@ Current implementation status:
 - Handles streaming block-deliver callbacks, including debug logging, `onDeliver()`, static fallback detection, and outbound activity recording.
 - Handles streaming `onError` and `onPartialReply` callbacks with the same best-effort logging and static fallback behavior as the previous inline gateway path.
 - Finalizes streaming after dispatch completion by calling `markFullyComplete()` / `onIdle()` and best-effort `abortStreaming()` on failure.
-- Keeps controller construction, streaming enablement config, and non-streaming static delivery in `gateway.ts`.
+- Streaming enablement and controller construction now live in `src/custom/dispatch-streaming-setup-gateway-adapter.ts`; this adapter owns only the runtime callback orchestration after a controller exists.
+
+### `src/custom/dispatch-streaming-setup-gateway-adapter.ts`
+
+Gateway-side setup helper for streaming dispatch state.
+
+Current implementation status:
+
+- Resolves the dispatch target type (`c2c`, `group`, or `channel`) from the queued message.
+- Applies the existing `shouldUseStreaming()` policy and logs enabled/disabled state with the account prefix.
+- Creates `StreamingController` only when streaming is enabled and the message has a passive reply anchor.
+- Builds the controller dependencies, including log prefix and media send context, without letting `gateway.ts` know the constructor shape.
+- Keeps synthetic unread catch-up unanchored: if there is no reply anchor, streaming remains unavailable and the message falls back to normal/static delivery.
+
+Important boundary:
+
+- The adapter does not send partial replies or finalize streams; `src/custom/streaming-gateway-adapter.ts` still owns deliver/error/partial/finalize orchestration.
+- It does not decide account config itself beyond calling the injected/default `shouldUseStreaming()` policy.
 
 ### `src/custom/static-deliver-gateway-adapter.ts`
 

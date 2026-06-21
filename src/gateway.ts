@@ -29,10 +29,10 @@ import { sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
-import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveCustomRuntimeConfig } from "./custom/config.js";
 import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
 import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
+import { setupCustomDispatchStreamingGateway } from "./custom/dispatch-streaming-setup-gateway-adapter.js";
 import type { CustomAgentRoute } from "./custom/route.js";
 import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./custom/runtime.js";
@@ -1137,36 +1137,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           });
 
 
-          // ============ 流式消息控制器 ============
-          const targetType = event.type === "c2c" ? "c2c" as const
-                          : event.type === "group" ? "group" as const
-                          : "channel" as const;
-          const useStreaming = shouldUseStreaming(account, targetType);
-          log?.info(`[qqbot:${account.accountId}] Streaming ${useStreaming ? "enabled" : "disabled"} for ${targetType} message from ${event.senderId}`);
-          let streamingController: StreamingController | null = null;
-
-          if (useStreaming && replyAnchorId) {
-            log?.info(`[qqbot:${account.accountId}] Streaming mode enabled for ${targetType} target`);
-            streamingController = new StreamingController({
-              account,
-              userId: event.senderId,
-              replyToMsgId: replyAnchorId,
-              eventId: event.messageId,
-              logPrefix: `[qqbot:${account.accountId}:streaming]`,
-              log,
-              mediaContext: {
-                account,
-                event: {
-                  type: event.type as "c2c" | "group" | "channel",
-                  senderId: event.senderId,
-                  messageId: event.messageId,
-                  groupOpenid: event.groupOpenid,
-                  channelId: event.channelId,
-                },
-                log,
-              },
-            });
-          }
+          const {
+            targetType,
+            useStreaming,
+            streamingController,
+          } = setupCustomDispatchStreamingGateway({
+            account,
+            event,
+            replyAnchorId,
+            log,
+          });
 
           // 打印 runId 用于调试
           log?.info?.(`[qqbot:${account.accountId}] Dispatching with runId: ${event.messageId}`);

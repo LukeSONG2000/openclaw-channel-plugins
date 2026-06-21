@@ -1082,3 +1082,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now passes account/config/event/target plus proactive guard and media-send callbacks into the setup adapter, removing another inline cluster before authorization and model dispatch.
 - The adapter preserves anchored reply behavior for normal QQ messages and unanchored proactive-guard behavior for synthetic unread catch-up messages.
 - Added `tests/custom-dispatch-setup-gateway-adapter.test.ts` for normal reply anchors, synthetic snapshot anchors, proactive guard source wiring, blocked media sends, and unanchored media budget commit behavior.
+
+抽出 dispatch streaming setup 网关准备层：
+
+- Added `src/custom/dispatch-streaming-setup-gateway-adapter.ts` to own streaming target-type resolution, `shouldUseStreaming()` policy application, enable/disable logs, and `StreamingController` construction.
+- `gateway.ts` now consumes `targetType`、`useStreaming` 和 `streamingController` from the setup adapter; streaming deliver/error/partial/finalize behavior remains in the existing streaming gateway adapter.
+- The setup adapter preserves the synthetic unread catch-up boundary: no passive reply anchor means no streaming controller, so unanchored replies continue through normal/static proactive-guarded delivery.
+- Added `tests/custom-dispatch-streaming-setup-gateway-adapter.test.ts` for C2C controller deps, missing-anchor no-op, group disabled streaming, account-level streaming disable, and target-type mapping for guild/dm compatibility.
