@@ -45,6 +45,7 @@ const authCfg = {
       customRuntime: {
         enabled: true,
         admins: ["ADMIN_OPENID"],
+        adminGroup: "GROUP_OPENID",
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
@@ -77,6 +78,7 @@ assert.equal(denied.enabled, true);
 assert.equal(denied.allowed, false);
 assert.equal(denied.capability, "config.write");
 assert.equal(denied.result?.decision.requestId, "authreq-2000-1");
+assert.equal(denied.result?.intents[0]?.kind === "request-approval" && denied.result.intents[0].request.adminGroup, "qqbot:group:GROUP_OPENID");
 assert.equal(formatCustomAuthorizationDeniedMessage(denied).includes("需要能力：config.write"), true);
 assert.deepEqual(parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 3"), {
   matched: true,
@@ -127,6 +129,38 @@ const adminMessage: QueuedMessage = {
   senderId: "ADMIN_OPENID",
   senderName: "Admin",
 };
+const status = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth,
+  message: adminMessage,
+  rawContent: "/bot-auth status",
+  now: 2_800,
+});
+assert.equal(status.handled, true);
+assert.equal(status.reply?.includes("管理员：ADMIN_OPENID"), true);
+assert.equal(status.reply?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
+assert.equal(status.reply?.includes("初始化：完整"), true);
+
+const missingInitStatus = handleCustomAuthCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          admins: ["ADMIN_OPENID"],
+        },
+      },
+    },
+  } as any,
+  auth,
+  message: adminMessage,
+  rawContent: "/bot-auth status",
+  now: 2_900,
+});
+assert.equal(missingInitStatus.handled, true);
+assert.equal(missingInitStatus.reply?.includes("管理群：未绑定"), true);
+assert.equal(missingInitStatus.reply?.includes("初始化：缺少 adminGroup"), true);
+
 const approved = handleCustomAuthCommand({
   cfg: authCfg,
   auth,

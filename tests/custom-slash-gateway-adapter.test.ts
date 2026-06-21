@@ -19,6 +19,7 @@ const cfg = {
       customRuntime: {
         enabled: true,
         admins: ["ADMIN_OPENID"],
+        adminGroup: "GROUP_OPENID",
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
@@ -36,6 +37,7 @@ const deniedCfg = {
       customRuntime: {
         enabled: true,
         admins: ["ADMIN_OPENID"],
+        adminGroup: "GROUP_OPENID",
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
@@ -73,6 +75,7 @@ assert.equal(denied.persist?.auth, true);
 assert.equal(denied.reply?.kind, "auth-approval");
 if (denied.reply?.kind !== "auth-approval") throw new Error("expected auth approval reply");
 assert.equal(denied.reply.denialText.includes("需要能力：config.write"), true);
+assert.equal(denied.reply.approvalText?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
 assert.equal(denied.reply.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-2000-1:allow-once");
 assert.equal(denied.logs?.some((item) => item.message.includes("Slash command denied by custom auth")), true);
 
@@ -139,6 +142,7 @@ assert.equal(deniedTaskAdd.reply?.kind, "auth-approval");
 if (deniedTaskAdd.reply?.kind !== "auth-approval") throw new Error("expected task auth approval reply");
 assert.equal(deniedTaskAdd.reply.denialText.includes("需要能力：codex.longTask"), true);
 assert.equal(deniedTaskAdd.reply.approvalText?.includes(`任务：${ownerTaskId}`), true);
+assert.equal(deniedTaskAdd.reply.approvalText?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
 assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.render_data?.label, "允许此任务");
 
 const taskRequestId = Object.keys(taskAuthRuntime.auth.getState().requests)[0]!;

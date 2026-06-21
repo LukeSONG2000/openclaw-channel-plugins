@@ -392,6 +392,14 @@ Added task-scoped mutation authorization:
 - `src/custom/slash-gateway-adapter.ts` now applies this check before calling `handleCustomTaskCommand`, so denied add/cancel attempts do not modify task records.
 - Added `tests/custom-task-auth-gateway-adapter.test.ts` and expanded custom slash gateway tests.
 
+Added custom runtime admin initialization anchors:
+
+- Added `customRuntime.adminGroup` beside `customRuntime.admins`; the runtime normalizes raw QQ `group_openid`, `group:<openid>`, and `qqbot:group:<openid>` into a stable management peer key.
+- Added `inspectCustomAdminBindings()` so adapters can detect whether custom runtime initialization has both administrators and a management group.
+- Authorization approval requests now carry the normalized management group key, and approval card text displays it for operational clarity.
+- `/bot-auth status` now reports bound admins, bound management group, and whether initialization is complete or missing `admins`/`adminGroup`.
+- Updated docs and tests for admin-group binding, status output, and approval-request propagation.
+
 Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.

@@ -49,8 +49,8 @@ Out of scope for the first custom runtime:
 
 ## Current Implementation Modules
 
-- `src/custom/auth.ts`: scene/capability authorization runtime, temporary grants, and approval request intents.
-- `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command authorization checks.
+- `src/custom/auth.ts`: scene/capability authorization runtime, admin/admin-group binding inspection, temporary grants, and approval request intents.
+- `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command and ordinary dispatch authorization checks.
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
 - `src/custom/fallback-event-store.ts`: bounded JSON persistence for recent custom fallback events.
 - `src/custom/fallback-gateway-adapter.ts`: `/bot-fallback` status command adapter for recent fallback events.

@@ -1,5 +1,10 @@
 import assert from "node:assert";
-import { evaluateCustomAuthorization, isCustomRuntimeAdmin } from "../src/custom/auth.js";
+import {
+  evaluateCustomAuthorization,
+  inspectCustomAdminBindings,
+  isCustomRuntimeAdmin,
+  resolveCustomAdminGroupKey,
+} from "../src/custom/auth.js";
 import { formatCustomPeerKey, resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "../src/custom/config.js";
 import { createCustomMessageFlowRuntime, inspectCustomRuntimeMessage, inspectCustomUnreadConfig } from "../src/custom/runtime.js";
 import type { CustomActor, CustomPeer } from "../src/custom/types.js";
@@ -14,6 +19,7 @@ const cfg = {
       customRuntime: {
         enabled: true,
         admins: ["ADMIN_OPENID"],
+        adminGroup: "GROUP_OPENID",
         defaultScene: "default-dm",
         scenes: {
           [formatCustomPeerKey(groupPeer)]: {
@@ -36,8 +42,25 @@ const cfg = {
 
 const runtime = resolveCustomRuntimeConfig(cfg);
 assert.equal(runtime.enabled, true);
+assert.equal(runtime.adminGroup, "GROUP_OPENID");
 assert.equal(isCustomRuntimeAdmin(runtime, admin), true);
 assert.equal(isCustomRuntimeAdmin(runtime, user), false);
+assert.equal(resolveCustomAdminGroupKey(runtime.adminGroup), "qqbot:group:GROUP_OPENID");
+assert.deepEqual(inspectCustomAdminBindings(runtime), {
+  enabled: true,
+  admins: ["ADMIN_OPENID"],
+  adminGroup: "qqbot:group:GROUP_OPENID",
+  missing: [],
+  ready: true,
+});
+assert.deepEqual(inspectCustomAdminBindings({ enabled: true, admins: [] }), {
+  enabled: true,
+  admins: [],
+  adminGroup: undefined,
+  missing: ["admins", "adminGroup"],
+  ready: false,
+});
+assert.equal(resolveCustomAdminGroupKey("qqbot:channel:CHANNEL_ID"), undefined);
 
 const scene = resolveCustomSceneConfig(cfg, groupPeer);
 assert.equal(scene.scene, "dev-lab");

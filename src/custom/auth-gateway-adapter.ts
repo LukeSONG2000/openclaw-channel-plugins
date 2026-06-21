@@ -1,7 +1,12 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import { getSlashCommandCapability } from "../slash-commands.js";
-import { isCustomRuntimeAdmin, type CustomAuthorizationCheckResult, type CustomAuthorizationRuntime } from "./auth.js";
+import {
+  inspectCustomAdminBindings,
+  isCustomRuntimeAdmin,
+  type CustomAuthorizationCheckResult,
+  type CustomAuthorizationRuntime,
+} from "./auth.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
 import type {
   CustomActor,
@@ -388,7 +393,7 @@ export function handleCustomAuthCommand(params: {
   }
 
   if (command.kind === "status") {
-    return { handled: true, reply: formatCustomAuthStatus(params.auth) };
+    return { handled: true, reply: formatCustomAuthStatus(params.auth, runtime) };
   }
 
   return resolveCustomAuthRequest({
@@ -410,6 +415,7 @@ export function buildCustomAuthApprovalText(request: CustomAuthorizationApproval
     `场景：${request.sceneLabel || request.scene}`,
     ...(request.taskId ? [`任务：${request.taskId}`] : []),
     `申请：${request.id}`,
+    ...(request.adminGroup ? [`管理群：${request.adminGroup}`] : []),
     ``,
     `超时：${expiresInSec} 秒`,
     request.taskId
@@ -551,13 +557,20 @@ function formatCustomAuthHelp(error?: string): string {
   return lines.join("\n");
 }
 
-function formatCustomAuthStatus(auth: CustomAuthorizationRuntime): string {
+function formatCustomAuthStatus(auth: CustomAuthorizationRuntime, runtime?: ReturnType<typeof resolveCustomRuntimeConfig>): string {
   const state = auth.getState();
   const requests = Object.values(state.requests).filter((request) => request.status === "pending");
   const grants = Object.values(state.grants);
+  const adminBindings = runtime ? inspectCustomAdminBindings(runtime) : null;
   const lines = [
     `🔐 自定义授权状态`,
     ``,
+    ...(adminBindings ? [
+      `管理员：${adminBindings.admins.length ? adminBindings.admins.join(", ") : "未绑定"}`,
+      `管理群：${adminBindings.adminGroup ?? "未绑定"}`,
+      `初始化：${adminBindings.ready ? "完整" : `缺少 ${adminBindings.missing.join(", ")}`}`,
+      ``,
+    ] : []),
     `待审批：${requests.length}`,
     `临时授权：${grants.length}`,
   ];

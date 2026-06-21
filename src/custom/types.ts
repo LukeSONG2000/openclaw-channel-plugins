@@ -72,6 +72,13 @@ export interface CustomRuntimeConfig {
   enabled?: boolean;
   scenes?: Record<string, CustomSceneConfig>;
   admins?: string[];
+  /**
+   * Management group bound during custom runtime initialization.
+   *
+   * Accepts either a raw QQ group_openid or a full peer key such as
+   * `qqbot:group:<group_openid>`.
+   */
+  adminGroup?: string;
   defaultScene?: CustomSceneKind;
   unread?: CustomUnreadConfig;
   proactive?: CustomProactiveConfig;
@@ -145,6 +152,7 @@ export interface CustomAuthorizationApprovalRequest {
   requestedAt: number;
   expiresAt: number;
   admins: string[];
+  adminGroup?: string;
   taskId?: string;
   status: "pending" | "approved" | "denied" | "expired";
   resolvedBy?: string;

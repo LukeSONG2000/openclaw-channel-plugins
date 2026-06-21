@@ -3,7 +3,9 @@ import {
   CustomAuthorizationRuntime,
   defaultSceneCapabilities,
   evaluateCustomAuthorization,
+  inspectCustomAdminBindings,
   isCustomRuntimeAdmin,
+  resolveCustomAdminGroupKey,
 } from "../src/custom/auth.js";
 import type { CustomActor, CustomPeer, CustomRuntimeConfig, CustomSceneConfig } from "../src/custom/types.js";
 
@@ -14,6 +16,7 @@ const admin: CustomActor = { id: "ADMIN_OPENID", label: "Admin" };
 const runtimeCfg: CustomRuntimeConfig = {
   enabled: true,
   admins: ["ADMIN_OPENID"],
+  adminGroup: "group:ADMIN_GROUP_OPENID",
 };
 const chatScene: CustomSceneConfig = {
   scene: "chat",
@@ -24,6 +27,14 @@ const devScene: CustomSceneConfig = {
 };
 
 assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send"]);
+assert.equal(resolveCustomAdminGroupKey(runtimeCfg.adminGroup), "qqbot:group:ADMIN_GROUP_OPENID");
+assert.deepEqual(inspectCustomAdminBindings(runtimeCfg), {
+  enabled: true,
+  admins: ["ADMIN_OPENID"],
+  adminGroup: "qqbot:group:ADMIN_GROUP_OPENID",
+  missing: [],
+  ready: true,
+});
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, admin), true);
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, member), false);
 
@@ -75,6 +86,7 @@ assert.equal(denied.intents[0].deduped, false);
 const requestId = denied.intents[0].request.id;
 assert.equal(denied.decision.requestId, requestId);
 assert.deepEqual(denied.intents[0].request.admins, ["ADMIN_OPENID"]);
+assert.equal(denied.intents[0].request.adminGroup, "qqbot:group:ADMIN_GROUP_OPENID");
 
 const duplicate = authRuntime.check({
   runtime: runtimeCfg,

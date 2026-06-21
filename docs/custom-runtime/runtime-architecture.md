@@ -112,6 +112,9 @@ Scene config must live under a custom namespace, not arbitrary keys inside offic
   "channels": {
     "qqbot": {
       "customRuntime": {
+        "enabled": true,
+        "admins": ["ADMIN_MEMBER_OPENID"],
+        "adminGroup": "5C1152CA05D191171B05E6997791C3F5",
         "scenes": {
           "qqbot:group:*": {
             "scene": "codex-only",
@@ -230,6 +233,9 @@ Current implementation status:
 - Unauthorized ordinary dispatch requests receive a visible denial message and can create the same approval-card request in C2C/group.
 - QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
 - Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
+- Runtime initialization requires both `customRuntime.admins` and `customRuntime.adminGroup` when the custom runtime is enabled. `adminGroup` accepts either a raw QQ `group_openid` or `qqbot:group:<group_openid>` and is normalized to a peer key.
+- `/bot-auth status` reports whether the admin binding is complete. Missing admins or admin group means authorization still blocks high-risk actions, but approval requests have no reliable management anchor.
+- Approval request records carry the normalized management group key so approval cards, text fallbacks, and future system push/deploy notifications can share the same target.
 
 Policy inputs:
 
@@ -240,6 +246,9 @@ Policy inputs:
 - requested capability
 - command/tool name
 - temporary grants
+- admin bindings:
+  - `customRuntime.admins`: member/user openids allowed to approve grants and run high-risk capabilities
+  - `customRuntime.adminGroup`: management group peer for auth requests, system push, deployment checks, and operational alerts
 
 Suggested capabilities:
 

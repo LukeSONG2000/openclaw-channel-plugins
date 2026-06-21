@@ -33,8 +33,40 @@ const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
   "game.interact",
 ];
 
+export interface CustomAdminBindingStatus {
+  enabled: boolean;
+  admins: string[];
+  adminGroup?: string;
+  missing: Array<"admins" | "adminGroup">;
+  ready: boolean;
+}
+
 export function isCustomRuntimeAdmin(runtime: CustomRuntimeConfig, actor: CustomActor): boolean {
-  return (runtime.admins ?? []).some((admin) => admin === "*" || admin.toUpperCase() === actor.id.toUpperCase());
+  return normalizeCustomAdmins(runtime).some((admin) => admin === "*" || admin.toUpperCase() === actor.id.toUpperCase());
+}
+
+export function resolveCustomAdminGroupKey(raw?: string | null): string | undefined {
+  const value = String(raw ?? "").trim();
+  if (!value) return undefined;
+  if (value.startsWith("qqbot:group:")) return value;
+  if (value.startsWith("qqbot:")) return undefined;
+  if (value.startsWith("group:")) return `qqbot:${value}`;
+  return `qqbot:group:${value}`;
+}
+
+export function inspectCustomAdminBindings(runtime: CustomRuntimeConfig): CustomAdminBindingStatus {
+  const admins = normalizeCustomAdmins(runtime);
+  const adminGroup = resolveCustomAdminGroupKey(runtime.adminGroup);
+  const missing: CustomAdminBindingStatus["missing"] = [];
+  if (runtime.enabled && admins.length === 0) missing.push("admins");
+  if (runtime.enabled && !adminGroup) missing.push("adminGroup");
+  return {
+    enabled: runtime.enabled === true,
+    admins,
+    adminGroup,
+    missing,
+    ready: runtime.enabled !== true || missing.length === 0,
+  };
 }
 
 export { defaultSceneCapabilities };
@@ -140,6 +172,7 @@ export class CustomAuthorizationRuntime {
         scene: params.scene,
         reason: base.reason,
         admins: boundAdmins(params.runtime),
+        adminGroup: resolveCustomAdminGroupKey(params.runtime.adminGroup),
         now,
         ttlMs: params.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS,
         taskId: params.taskId,
@@ -306,6 +339,7 @@ export class CustomAuthorizationRuntime {
     scene: CustomSceneConfig;
     reason: CustomAuthorizationDecision["reason"];
     admins: string[];
+    adminGroup?: string;
     now: number;
     ttlMs: number;
     taskId?: string;
@@ -336,6 +370,7 @@ export class CustomAuthorizationRuntime {
       requestedAt: params.now,
       expiresAt: params.now + params.ttlMs,
       admins: params.admins.slice(),
+      adminGroup: params.adminGroup,
       taskId: params.taskId,
       status: "pending",
     };
@@ -355,7 +390,14 @@ export class CustomAuthorizationRuntime {
 }
 
 function boundAdmins(runtime: CustomRuntimeConfig): string[] {
-  return (runtime.admins ?? []).filter((admin) => admin !== "*");
+  return normalizeCustomAdmins(runtime).filter((admin) => admin !== "*");
+}
+
+function normalizeCustomAdmins(runtime: CustomRuntimeConfig): string[] {
+  return (runtime.admins ?? [])
+    .filter((admin): admin is string => typeof admin === "string")
+    .map((admin) => admin.trim())
+    .filter(Boolean);
 }
 
 function expiresAtForUse(use: CustomGrantUse, now: number, ttlMs?: number): number | undefined {
