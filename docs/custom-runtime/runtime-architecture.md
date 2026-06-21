@@ -510,6 +510,23 @@ Current implementation status:
 - Finalizes the streaming controller through `streaming-gateway-adapter.ts`.
 - Keeps unread/history completion and the outer typing stop call in `gateway.ts`.
 
+### `src/custom/dispatch-fallback-session-gateway-adapter.ts`
+
+Gateway-side per-dispatch fallback session wrapper.
+
+Current implementation status:
+
+- Creates the `CustomFallbackDispatchState` for one ordinary dispatch and exposes it as the shared fallback state source.
+- Binds `createCustomDispatchFallbackRecorder()` once with account id, queued message, session key, runtime/queue/dispatch snapshots, logger, and management-group alert callback.
+- Owns the response-timeout timer and exposes `createResponseTimeoutPromise()` / `clearResponseTimeout()` so gateway code no longer stores a separate response timer handle.
+- Owns the mutable tool-only timer handle and exposes `getToolOnlyTimer()` / `setToolOnlyTimer()` for tool deliver and finalize adapters.
+- Wires `sendToolFallback()` to `tool-fallback-gateway-adapter.ts` with guarded media auto-send and visible text fallback callbacks injected by `gateway.ts`.
+
+Important boundary:
+
+- The session wrapper does not classify timeout/context failures; `dispatch-failure-gateway-adapter.ts` still decides which recovery notice to send.
+- It does not send QQ messages or read config files directly. Gateway injects the runtime snapshot, queue snapshot, alert sender, media sender, and text sender.
+
 ### `src/custom/typing-keepalive-gateway-adapter.ts`
 
 Gateway-side helper for C2C input-notify and typing keepalive.

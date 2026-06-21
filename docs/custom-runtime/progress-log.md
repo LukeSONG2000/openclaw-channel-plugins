@@ -1089,3 +1089,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now consumes `targetType`、`useStreaming` 和 `streamingController` from the setup adapter; streaming deliver/error/partial/finalize behavior remains in the existing streaming gateway adapter.
 - The setup adapter preserves the synthetic unread catch-up boundary: no passive reply anchor means no streaming controller, so unanchored replies continue through normal/static proactive-guarded delivery.
 - Added `tests/custom-dispatch-streaming-setup-gateway-adapter.test.ts` for C2C controller deps, missing-anchor no-op, group disabled streaming, account-level streaming disable, and target-type mapping for guild/dm compatibility.
+
+抽出 dispatch fallback session 网关会话层：
+
+- Added `src/custom/dispatch-fallback-session-gateway-adapter.ts` to own per-dispatch fallback state, fallback recorder binding, response-timeout timer, tool-only timer handle, and tool fallback sender wiring.
+- `gateway.ts` now asks the session for `state`、`recordFallbackEvent`、response timeout promise/clearer and tool-only timer accessors, instead of keeping those mutable handles inline in the model dispatch body.
+- The adapter preserves the timeout/context-too-long boundary: failure classification and recovery notice delivery still live in `dispatch-failure-gateway-adapter.ts`, while QQ/media/text sends remain injected by gateway callbacks.
+- Added `tests/custom-dispatch-fallback-session-gateway-adapter.test.ts` for response timeout rejection, block-response timeout suppression, response timer clearing, tool-only timer accessors, and injected tool fallback sender wiring.

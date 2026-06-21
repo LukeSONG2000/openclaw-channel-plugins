@@ -53,11 +53,7 @@ import {
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
-import {
-  CUSTOM_RESPONSE_TIMEOUT_MS,
-  CUSTOM_TOOL_ONLY_MAX_RENEWALS,
-  CUSTOM_TOOL_ONLY_TIMEOUT_MS,
-} from "./custom/fallbacks.js";
+import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
 import {
   handleCustomLateDispatchDeliver,
   prepareCustomBlockDeliver,
@@ -68,14 +64,10 @@ import {
   handleCustomMessageProcessingFailure,
 } from "./custom/dispatch-failure-gateway-adapter.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
-import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
 import {
-  createCustomDispatchFallbackRecorder,
   recordCustomFallbackEventGateway,
-  type CustomDispatchFallbackRecorder,
 } from "./custom/fallback-record-gateway-adapter.js";
 import { handleCustomToolDeliverGateway } from "./custom/tool-deliver-gateway-adapter.js";
-import { sendCustomToolFallback } from "./custom/tool-fallback-gateway-adapter.js";
 import {
   handleCustomStreamingDeliver,
   handleCustomStreamingError,
@@ -1093,22 +1085,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码
         // （包括 AI agent 调用、tool execute）都能安全获取当前会话信息，无并发竞态。
         await runWithRequestContext({ target: qualifiedTarget, accountId: account.accountId }, async () => {
-          const fallbackState = new CustomFallbackDispatchState();
-          const responseTimeout = CUSTOM_RESPONSE_TIMEOUT_MS; // 300秒超时（5分钟，覆盖长工具任务，避免过早误报）
-          const toolOnlyTimeout = CUSTOM_TOOL_ONLY_TIMEOUT_MS; // tool-only 兜底超时：90秒内没有 block 就兜底
-          const maxToolRenewals = CUSTOM_TOOL_ONLY_MAX_RENEWALS; // tool 续期上限，防止无限工具调用永远不触发兜底
-          let timeoutId: ReturnType<typeof setTimeout> | null = null;
-          let toolOnlyTimeoutId: ReturnType<typeof setTimeout> | null = null;
-          const recordFallbackEvent: CustomDispatchFallbackRecorder = createCustomDispatchFallbackRecorder({
+          const fallbackSession = createCustomDispatchFallbackSession({
             accountId: account.accountId,
             message: event,
             sessionKey: route.sessionKey,
             getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
             getQueueSnapshot: () => msgQueue.getSnapshot(peerId),
-            getDispatchSnapshot: () => fallbackState.snapshot(),
             log,
             sendAlert: (alert) => sendCustomFallbackAdminGroupAlert(alert),
+            sendGuardedMediaAuto,
+            sendErrorMessage,
           });
+          const fallbackState = fallbackSession.state;
+          const recordFallbackEvent = fallbackSession.recordFallbackEvent;
         try {
           const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
 
@@ -1116,25 +1105,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const debounceConfig = account.config?.deliverDebounce;
           let debouncer: DeliverDebouncer | null = null as DeliverDebouncer | null;
 
-          // tool-only 兜底：转发工具产生的实际内容（媒体/文本），而非生硬的提示语
-          const sendToolFallback = async (): Promise<void> => {
-            await sendCustomToolFallback({
-              accountId: account.accountId,
-              state: fallbackState,
-              recordFallbackEvent,
-              sendGuardedMediaAuto,
-              sendErrorMessage,
-              log,
-            });
-          };
-
-          const timeoutPromise = new Promise<void>((_, reject) => {
-            timeoutId = setTimeout(() => {
-              if (!fallbackState.hasBlockResponse) {
-                reject(new Error("Response timeout"));
-              }
-            }, responseTimeout);
-          });
+          const sendToolFallback = fallbackSession.sendToolFallback;
+          const timeoutPromise = fallbackSession.createResponseTimeoutPromise();
 
 
           const {
@@ -1178,10 +1150,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     accountId: account.accountId,
                     payload,
                     state: fallbackState,
-                    currentTimer: toolOnlyTimeoutId,
-                    setTimer: (timer) => { toolOnlyTimeoutId = timer; },
-                    toolOnlyTimeoutMs: toolOnlyTimeout,
-                    maxToolRenewals,
+                    currentTimer: fallbackSession.getToolOnlyTimer(),
+                    setTimer: fallbackSession.setToolOnlyTimer,
+                    toolOnlyTimeoutMs: fallbackSession.toolOnlyTimeoutMs,
+                    maxToolRenewals: fallbackSession.maxToolRenewals,
                     recordFallbackEvent,
                     sendGuardedMediaAuto,
                     sendToolFallback,
@@ -1201,17 +1173,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   },
                   state: fallbackState,
                   stopTyping: () => typing.stop(),
-                  clearResponseTimeout: () => {
-                    if (timeoutId) {
-                      clearTimeout(timeoutId);
-                      timeoutId = null;
-                    }
-                  },
+                  clearResponseTimeout: fallbackSession.clearResponseTimeout,
                   clearToolOnlyTimeout: () => {
-                    if (toolOnlyTimeoutId) {
-                      clearTimeout(toolOnlyTimeoutId);
-                      toolOnlyTimeoutId = null;
-                    }
+                    const timer = fallbackSession.getToolOnlyTimer();
+                    if (!timer) return;
+                    clearTimeout(timer);
+                    fallbackSession.setToolOnlyTimer(null);
                   },
                   log,
                 });
@@ -1275,10 +1242,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               onError: async (err: unknown) => {
                 log?.error(`[qqbot:${account.accountId}] Dispatch error: ${err}`);
                 fallbackState.markResponse();
-                if (timeoutId) {
-                  clearTimeout(timeoutId);
-                  timeoutId = null;
-                }
+                fallbackSession.clearResponseTimeout();
 
                 // 流式模式：委托给 streaming controller 处理错误
                 const streamingError = await handleCustomStreamingError({
@@ -1324,14 +1288,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           try {
             await Promise.race([dispatchPromise, timeoutPromise]);
           } catch (err) {
-            if (timeoutId) {
-              clearTimeout(timeoutId);
-              timeoutId = null;
-            }
+            fallbackSession.clearResponseTimeout();
             await handleCustomDispatchRaceFailure({
               accountId: account.accountId,
               err,
-              responseTimeoutMs: responseTimeout,
+              responseTimeoutMs: fallbackSession.responseTimeoutMs,
               state: fallbackState,
               recordFallbackEvent,
               sendErrorMessage,
@@ -1339,10 +1300,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             });
 
           } finally {
+            fallbackSession.clearResponseTimeout();
             await finalizeCustomDispatchGateway({
               accountId: account.accountId,
-              toolOnlyTimer: toolOnlyTimeoutId,
-              setToolOnlyTimer: (timer) => { toolOnlyTimeoutId = timer; },
+              toolOnlyTimer: fallbackSession.getToolOnlyTimer(),
+              setToolOnlyTimer: fallbackSession.setToolOnlyTimer,
               fallbackState,
               recordFallbackEvent,
               sendToolFallback,
