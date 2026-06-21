@@ -17,6 +17,10 @@ import {
   applyCustomTaskExecutionIntents,
   type CustomTaskExecutor,
 } from "./task-executor-adapter.js";
+import {
+  deliveriesFromCustomTaskNotifications,
+  type CustomTaskNotificationDelivery,
+} from "./task-notification-gateway-adapter.js";
 
 export type CustomSlashGatewayReply =
   | { kind: "text"; text: string }
@@ -40,6 +44,7 @@ export type CustomSlashGatewayResult =
       handled: true;
       reply?: CustomSlashGatewayReply;
       persist?: CustomSlashGatewayPersist;
+      taskNotificationDeliveries?: CustomTaskNotificationDelivery[];
       logs?: CustomSlashGatewayLog[];
     };
 
@@ -55,6 +60,7 @@ export function handleCustomSlashGatewayCommand(params: {
 }): CustomSlashGatewayResult {
   const logs: CustomSlashGatewayLog[] = [];
   const persist: CustomSlashGatewayPersist = {};
+  const taskNotificationDeliveries: CustomTaskNotificationDelivery[] = [];
   const applyTaskWorkspaceEffects = params.applyTaskWorkspaceEffects !== false;
 
   const customAuthCommand = handleCustomAuthCommand({
@@ -126,6 +132,7 @@ export function handleCustomSlashGatewayCommand(params: {
         intents: customTaskCommand.intents,
         executor: params.taskExecutor,
         applyWorkspaceEffects: applyTaskWorkspaceEffects,
+        notifyAudiences: customTaskCommand.change === "cancelled" ? ["peer"] : undefined,
         now: params.now,
       });
       if (execution.changed) {
@@ -136,11 +143,19 @@ export function handleCustomSlashGatewayCommand(params: {
           level: effect.kind === "error" ? "error" : "info",
           message: `custom task execution: kind=${effect.kind}${effect.taskId ? ` task=${effect.taskId}` : ""}${effect.runId ? ` run=${effect.runId}` : ""}${effect.message ? ` message=${effect.message}` : ""}`,
         });
+        if (effect.kind === "notify" && effect.notification && customTaskCommand.task) {
+          taskNotificationDeliveries.push(...deliveriesFromCustomTaskNotifications({
+            task: customTaskCommand.task,
+            notifications: [effect.notification],
+            passiveMessageId: params.message.messageId,
+          }));
+        }
       }
     }
     return handled({
       reply: customTaskCommand.reply ? { kind: "text", text: customTaskCommand.reply } : undefined,
       persist,
+      taskNotificationDeliveries,
       logs,
     });
   }
@@ -181,12 +196,14 @@ function logAuthIntents(intents: Parameters<typeof describeCustomAuthorizationIn
 function handled(params: {
   reply?: CustomSlashGatewayReply;
   persist?: CustomSlashGatewayPersist;
+  taskNotificationDeliveries?: CustomTaskNotificationDelivery[];
   logs?: CustomSlashGatewayLog[];
 }): CustomSlashGatewayResult {
   return {
     handled: true,
     ...(params.reply ? { reply: params.reply } : {}),
     ...(hasPersist(params.persist) ? { persist: params.persist } : {}),
+    ...(params.taskNotificationDeliveries?.length ? { taskNotificationDeliveries: params.taskNotificationDeliveries } : {}),
     ...(params.logs?.length ? { logs: params.logs } : {}),
   };
 }

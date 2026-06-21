@@ -9,6 +9,16 @@ export interface CustomTaskNotificationDelivery {
   audience: CustomTaskNotificationEffect["audience"];
 }
 
+export interface CustomTaskNotificationDeliveryResult {
+  delivery: CustomTaskNotificationDelivery;
+  status: "sent" | "failed" | "skipped";
+  reason?: string;
+}
+
+export type CustomTaskNotificationSendText = (
+  delivery: CustomTaskNotificationDelivery,
+) => Promise<void> | void;
+
 export function deliveryFromCustomTaskNotification(params: {
   task: CustomSandboxTask;
   notification: CustomTaskNotificationEffect;
@@ -49,6 +59,35 @@ export function deliveriesFromCustomTaskNotifications(params: {
     deliveries.push(delivery);
   }
   return deliveries;
+}
+
+export async function applyCustomTaskNotificationDeliveries(params: {
+  deliveries: CustomTaskNotificationDelivery[];
+  sendText: CustomTaskNotificationSendText;
+  allowUnanchored?: boolean;
+}): Promise<CustomTaskNotificationDeliveryResult[]> {
+  const results: CustomTaskNotificationDeliveryResult[] = [];
+  for (const delivery of params.deliveries) {
+    if (!params.allowUnanchored && !delivery.target.messageId) {
+      results.push({
+        delivery,
+        status: "skipped",
+        reason: "missing passive message anchor",
+      });
+      continue;
+    }
+    try {
+      await params.sendText(delivery);
+      results.push({ delivery, status: "sent" });
+    } catch (err) {
+      results.push({
+        delivery,
+        status: "failed",
+        reason: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+  return results;
 }
 
 function targetForAudience(params: {

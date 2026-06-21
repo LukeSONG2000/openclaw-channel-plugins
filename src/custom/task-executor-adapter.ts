@@ -68,6 +68,9 @@ export function applyCustomTaskExecutionIntents(params: {
   intents?: CustomTaskIntent[];
   executor?: CustomTaskExecutor;
   applyWorkspaceEffects?: boolean;
+  notifyAudiences?: CustomTaskNotificationAudience[];
+  includeWorkspaceInNotification?: boolean;
+  maxNotificationResultChars?: number;
   now?: number;
 }): CustomTaskExecutionApplyResult {
   const effects: CustomTaskExecutionEffect[] = [];
@@ -147,6 +150,21 @@ export function applyCustomTaskExecutionIntents(params: {
             taskId: intent.task.id,
             message: cancelled?.message,
           });
+        }
+        if (params.notifyAudiences?.length) {
+          for (const notification of notificationsForCustomTaskStatus({
+            task: intent.task,
+            audiences: params.notifyAudiences,
+            includeWorkspace: params.includeWorkspaceInNotification,
+            maxResultChars: params.maxNotificationResultChars,
+          })) {
+            effects.push({
+              kind: "notify",
+              taskId: intent.task.id,
+              message: notification.title,
+              notification,
+            });
+          }
         }
         continue;
       }

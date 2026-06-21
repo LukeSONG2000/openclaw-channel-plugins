@@ -28,7 +28,7 @@ import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
 import { parseFaceTags, parseRefIndices, buildAttachmentSummaries } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
-import { sendWithTokenRetry, sendErrorToTarget, handleStructuredPayload, type ReplyContext, type MessageTarget } from "./reply-dispatcher.js";
+import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload, type ReplyContext, type MessageTarget } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
 import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
@@ -67,6 +67,7 @@ import {
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
+import { applyCustomTaskNotificationDeliveries } from "./custom/task-notification-gateway-adapter.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -818,6 +819,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             await sendCustomSlashReply(customSlashCommand.reply);
           } catch (sendErr) {
             log?.error(`[qqbot:${account.accountId}] Failed to send custom slash command reply: ${sendErr}`);
+          }
+        }
+        if (customSlashCommand.taskNotificationDeliveries?.length) {
+          const results = await applyCustomTaskNotificationDeliveries({
+            deliveries: customSlashCommand.taskNotificationDeliveries,
+            sendText: async (delivery) => {
+              await sendTextToTarget({
+                target: delivery.target,
+                account,
+                cfg,
+                log,
+              }, delivery.text);
+            },
+          });
+          for (const result of results) {
+            const target = `${result.delivery.target.type}:${result.delivery.target.groupOpenid ?? result.delivery.target.channelId ?? result.delivery.target.senderId}`;
+            if (result.status === "sent") {
+              log?.info(`[qqbot:${account.accountId}] custom task notification sent: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target}`);
+            } else if (result.status === "skipped") {
+              log?.info(`[qqbot:${account.accountId}] custom task notification skipped: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
+            } else {
+              log?.error(`[qqbot:${account.accountId}] custom task notification failed: task=${result.delivery.taskId} audience=${result.delivery.audience} target=${target} reason=${result.reason}`);
+            }
           }
         }
         return;

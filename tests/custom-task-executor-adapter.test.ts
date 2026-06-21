@@ -95,6 +95,28 @@ try {
   assert.equal(heartbeat.changed, true);
   assert.equal(heartbeat.decision.task?.execution?.lastHeartbeatAt, 4_000);
 
+  const cancelRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
+  const cancelCreated = cancelRuntime.createTask({
+    accountId: "default",
+    peer,
+    actor,
+    prompt: "Cancel me",
+    now: 4_100,
+  });
+  const cancel = cancelRuntime.cancelTask({
+    taskId: cancelCreated.task!.id,
+    actor,
+    now: 4_200,
+  });
+  const cancelApply = applyCustomTaskExecutionIntents({
+    tasks: cancelRuntime,
+    intents: cancel.intents,
+    notifyAudiences: ["peer"],
+    applyWorkspaceEffects: false,
+    now: 4_300,
+  });
+  assert.equal(cancelApply.effects.some((effect) => effect.kind === "notify" && effect.notification?.text.includes("长任务已取消")), true);
+
   const completed = completeCustomTaskExecution({
     tasks: runtime,
     taskId,

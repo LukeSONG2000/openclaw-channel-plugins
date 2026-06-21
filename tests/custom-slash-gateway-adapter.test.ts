@@ -92,6 +92,24 @@ assert.equal(task.reply?.kind, "text");
 assert.equal(task.reply?.kind === "text" && task.reply.text.includes("长任务已创建"), true);
 assert.equal(Object.keys(taskRuntime.tasks.getState().tasks)[0], "qqbot-default-group-GROUP_OPENID-3000-1");
 
+const taskId = Object.keys(taskRuntime.tasks.getState().tasks)[0]!;
+const cancelTask = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...baseMessage, content: `/bot-task cancel ${taskId}`, messageId: "msg-cancel" },
+  rawContent: `/bot-task cancel ${taskId}`,
+  now: 3_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(cancelTask.handled, true);
+assert.equal(cancelTask.persist?.tasks, true);
+assert.equal(cancelTask.reply?.kind, "text");
+assert.equal(cancelTask.taskNotificationDeliveries?.length, 1);
+assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.type, "group");
+assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.messageId, "msg-cancel");
+assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.text.includes("长任务已取消"), true);
+
 const pollRuntime = createCustomMessageFlowRuntime();
 const poll = handleCustomSlashGatewayCommand({
   cfg,

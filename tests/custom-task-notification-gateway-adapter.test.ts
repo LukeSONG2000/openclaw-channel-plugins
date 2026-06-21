@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import {
+  applyCustomTaskNotificationDeliveries,
   deliveriesFromCustomTaskNotifications,
   deliveryFromCustomTaskNotification,
 } from "../src/custom/task-notification-gateway-adapter.js";
@@ -78,5 +79,38 @@ const deliveries = deliveriesFromCustomTaskNotifications({
 });
 assert.equal(deliveries.length, 2);
 assert.deepEqual(deliveries.map((item) => item.audience), ["peer", "owner"]);
+
+const sent: string[] = [];
+const deliveryResults = await applyCustomTaskNotificationDeliveries({
+  deliveries,
+  sendText: async (delivery) => {
+    sent.push(`${delivery.audience}:${delivery.target.type}`);
+  },
+});
+assert.equal(sent.length, 0);
+assert.deepEqual(deliveryResults.map((item) => item.status), ["skipped", "skipped"]);
+
+const anchoredDeliveries = deliveriesFromCustomTaskNotifications({
+  task,
+  notifications: [peerNotification],
+  passiveMessageId: "msg-2",
+});
+const anchoredResults = await applyCustomTaskNotificationDeliveries({
+  deliveries: anchoredDeliveries,
+  sendText: async (delivery) => {
+    sent.push(`${delivery.audience}:${delivery.target.type}:${delivery.target.messageId}`);
+  },
+});
+assert.equal(sent.includes("peer:group:msg-2"), true);
+assert.equal(anchoredResults[0]?.status, "sent");
+
+const failedResults = await applyCustomTaskNotificationDeliveries({
+  deliveries: anchoredDeliveries,
+  sendText: async () => {
+    throw new Error("send failed");
+  },
+});
+assert.equal(failedResults[0]?.status, "failed");
+assert.match(failedResults[0]?.reason ?? "", /send failed/);
 
 console.log("custom task notification gateway adapter tests passed");

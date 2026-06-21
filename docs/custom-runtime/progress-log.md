@@ -239,10 +239,18 @@ Added custom long-task notification gateway mapping:
 - Peer notifications map to the original task peer; owner notifications map to owner C2C; duplicate audience/target effects are deduped.
 - Added `tests/custom-task-notification-gateway-adapter.test.ts` for group, owner, C2C, channel, mismatch, and dedupe paths.
 
+Added custom long-task notification delivery application:
+
+- Added `applyCustomTaskNotificationDeliveries()` so gateway code can apply typed notification deliveries through a provided text sender without coupling task runtime to QQ APIs.
+- `src/custom/slash-gateway-adapter.ts` now returns task notification deliveries when task execution effects include `notify`.
+- `src/gateway.ts` applies those deliveries after custom slash replies, logging sent/skipped/failed outcomes.
+- `/bot-task cancel` now requests a peer notification effect, giving the task notification path an anchored command-flow integration.
+- Unanchored async deliveries are skipped by default until proactive send policy is explicitly wired for task-worker completion.
+
 Still intentionally open:
 
 - A real OpenClaw subagent/job executor is still pending until the runtime contract is confirmed.
-- Applying task notification deliveries through QQ send APIs, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
+- Unanchored async task completion notifications, workspace cleanup, timeout handling, and task-scoped execution permissions still need to be connected once the executor contract is confirmed.
 
 Added first custom interactive poll/card feature:
 
