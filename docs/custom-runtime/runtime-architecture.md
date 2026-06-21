@@ -1122,13 +1122,22 @@ Pure queue-bypass command policy:
 
 - Defines the urgent slash commands that must remain usable while a peer queue is blocked: `/stop`, `/approve`, `/new`, and `/compact`.
 - Matches the first slash command token only, so `/new reset` bypasses the queue but `/newspaper` does not.
-- Builds `urgent-queue-bypass` diagnostic events from gateway-provided queue snapshots.
-- Keeps the command list, peer mapping, and event construction testable outside `gateway.ts`; gateway still owns mention stripping, queue clearing, immediate execution, logging, and slash/framework dispatch.
+- Builds `urgent-queue-bypass` diagnostic events from injected queue snapshots.
+- Keeps the command list, peer mapping, and event construction testable outside `gateway.ts`; `src/custom/urgent-queue-bypass-gateway-adapter.ts` owns gateway queue callbacks.
 
 Boundary:
 
 - It is pure TypeScript and has no gateway, QQ API, queue, filesystem, or OpenClaw SDK dependency.
-- `gateway.ts` still owns mention stripping, queue snapshot/clearing, immediate execution, and final routing.
+- `gateway.ts` still owns mention stripping and final routing; queue snapshot/clearing/immediate execution are injected through the gateway adapter.
+
+### `src/custom/urgent-queue-bypass-gateway-adapter.ts`
+
+Gateway-side urgent queue bypass executor:
+
+- Checks normalized slash content with `src/custom/urgent-commands.ts`.
+- Reads the peer id and before/after queue snapshots through injected queue callbacks.
+- Clears queued work for the same peer, executes the urgent message immediately, and records a structured `urgent-queue-bypass` event through an injected fallback recorder.
+- Keeps `/new` and `/compact` recovery behavior isolated from normal custom slash routing so context-too-long/timeout incidents cannot block recovery commands behind the same peer queue.
 
 Current implemented safeguards:
 

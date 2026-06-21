@@ -983,3 +983,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only builds injected platform callbacks for text/card/admin-group/task-notification sends and delegates custom slash effect ordering to the adapter.
 - Reply send failures remain non-fatal for task notifications, preserving the previous behavior where a failed command reply does not prevent cancellation/async task notification copies.
 - Added `tests/custom-slash-effects-gateway-adapter.test.ts` for persistence callbacks, latest-config scene writes, reply failure isolation, task notification sent/skipped logging, and missing config API guardrails.
+
+抽出 urgent queue bypass gateway 执行层：
+
+- Added `src/custom/urgent-queue-bypass-gateway-adapter.ts` to own the gateway-side `/stop`、`/approve`、`/new`、`/compact` bypass sequence: detect command, snapshot queue, clear same-peer pending work, record `urgent-queue-bypass`, and execute immediately.
+- `gateway.ts` now only passes normalized slash content plus queue/fallback-record callbacks, keeping context-too-long/timeout recovery bypass separate from custom slash routing and official slash matching.
+- The pure `src/custom/urgent-commands.ts` still owns command-token policy and diagnostic event construction, while the new adapter owns queue side-effect ordering.
+- Added `tests/custom-urgent-queue-bypass-gateway-adapter.test.ts` for urgent execution, dropped-message diagnostics, non-urgent no-op behavior, and C2C peer label propagation.

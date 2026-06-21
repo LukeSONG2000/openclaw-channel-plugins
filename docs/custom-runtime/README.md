@@ -92,6 +92,7 @@ Out of scope for the first custom runtime:
 - `src/custom/reply-context-gateway-adapter.ts`: gateway-side reply anchor/target/context builder for normal and synthetic unread messages.
 - `src/custom/slash-reply-target.ts`: pure slash reply target resolution for C2C/group/guild-channel/channel-DM text replies.
 - `src/custom/urgent-commands.ts`: pure queue-bypass command policy for `/stop`, `/approve`, `/new`, and `/compact`.
+- `src/custom/urgent-queue-bypass-gateway-adapter.ts`: gateway-side urgent command queue bypass executor with queue snapshots, fallback diagnostics, and immediate execution callbacks.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/profile-list/binding-list/bind command adapter with gateway-owned config persistence.
 - `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash auth gate and typed effect merge layer.
 - `src/custom/slash-effects-gateway-adapter.ts`: gateway-side custom slash effect applier for logs, state/config persistence, reply delivery, and task notification results.
