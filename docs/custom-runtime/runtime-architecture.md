@@ -798,6 +798,22 @@ Current implementation status:
 - Builds the proactive guard source actor/message/timestamp metadata from the original queued message without importing proactive runtime state.
 - `gateway.ts` still owns actual sends, token retry, media auto-send, and proactive guard creation; this helper only shapes the context objects.
 
+### `src/custom/outbound-ref-index-gateway-adapter.ts`
+
+Gateway-side adapter for caching bot outbound `ref_idx` records.
+
+Current implementation status:
+
+- Registers the low-level QQ API `onMessageSent` hook once per gateway start.
+- Builds bot-authored ref-index entries with account id, content, timestamp, and attachment summaries.
+- Preserves media attachment metadata from outbound sends, including local path, basename filename, and public URL.
+- Preserves TTS voice source text as a voice transcript with `transcriptSource=tts`, so later quoted voice replies can recover the spoken content from the local ref-index cache.
+
+Important boundary:
+
+- The adapter does not send QQ messages or read/write the ref-index store directly. It receives the hook registrar and `setRefEntry()` side effect from the gateway boundary.
+- This keeps outbound quote/reference caching separate from message dispatch and media sending, which makes future ref-index persistence or TTL changes easier to test without starting a gateway.
+
 ### `src/custom/guarded-media-send-gateway-adapter.ts`
 
 Gateway-side helper for media auto-send operations that must pass the custom proactive guard.

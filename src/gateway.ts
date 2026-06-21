@@ -1,6 +1,5 @@
-import path from "node:path";
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
-import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, stopBackgroundTokenRefresh, onMessageSent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, stopBackgroundTokenRefresh, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -12,7 +11,7 @@ import {
   type HistoryEntry,
 } from "./group-history.js";
 
-import { setRefIndex, getRefIndex, formatRefEntryForAgent, formatMessageReferenceForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
+import { setRefIndex, getRefIndex, formatRefEntryForAgent, formatMessageReferenceForAgent, flushRefIndex } from "./ref-index-store.js";
 import { getFrameworkVersion } from "./slash-commands.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
 import { startImageServer, isImageServerRunning, type ImageServerConfig } from "./image-server.js";
@@ -50,6 +49,7 @@ import {
 } from "./custom/websocket-connection-gateway-adapter.js";
 import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
 import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
+import { registerCustomOutboundRefIndexGateway } from "./custom/outbound-ref-index-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -212,36 +212,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
   // 注册出站消息 refIdx 缓存钩子
   // 所有消息发送函数在拿到 QQ 回包后，如果含 ref_idx 则自动回调此处缓存
-  onMessageSent((refIdx, meta) => {
-    log?.info(`[qqbot:${account.accountId}] onMessageSent called: refIdx=${refIdx}, mediaType=${meta.mediaType}, ttsText=${meta.ttsText?.slice(0, 30)}`);
-    const attachments: RefAttachmentSummary[] = [];
-    if (meta.mediaType) {
-      const localPath = meta.mediaLocalPath;
-      // filename 取路径的 basename，如果没有路径信息则留空
-      const filename = localPath ? path.basename(localPath) : undefined;
-      const attachment: RefAttachmentSummary = {
-        type: meta.mediaType,
-        ...(localPath ? { localPath } : {}),
-        ...(filename ? { filename } : {}),
-        ...(meta.mediaUrl ? { url: meta.mediaUrl } : {}),
-      };
-      // 如果是语音消息且有 TTS 原文本，保存到 transcript 并标记来源为 tts
-      if (meta.mediaType === "voice" && meta.ttsText) {
-        attachment.transcript = meta.ttsText;
-        attachment.transcriptSource = "tts";
-        log?.info(`[qqbot:${account.accountId}] Saving voice transcript (TTS): ${meta.ttsText.slice(0, 50)}`);
-      }
-      attachments.push(attachment);
-    }
-    setRefIndex(refIdx, {
-      content: meta.text ?? "",
-      senderId: account.accountId,
-      senderName: account.accountId,
-      timestamp: Date.now(),
-      isBot: true,
-      ...(attachments.length > 0 ? { attachments } : {}),
-    });
-    log?.info(`[qqbot:${account.accountId}] Cached outbound refIdx: ${refIdx}, attachments=${JSON.stringify(attachments)}`);
+  registerCustomOutboundRefIndexGateway({
+    accountId: account.accountId,
+    setRefEntry: setRefIndex,
+    log,
   });
 
   // TTS 配置验证

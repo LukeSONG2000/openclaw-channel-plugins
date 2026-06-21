@@ -1209,3 +1209,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now creates `trySlashCommandOrEnqueue()` through this adapter instead of inlining every slash send/effect callback; `/stop`、`/approve`、`/new`、`/compact` 的入队前兜底顺序仍由 `slash-prequeue-gateway-adapter.ts` 保持。
 - The adapter keeps slash routing decisions separate from QQ transport effects, so recovery commands and interactive auth cards can be hardened without adding more direct send logic back into `gateway.ts`.
 - Added `tests/custom-slash-prequeue-handler-gateway-adapter.test.ts` for account/runtime/task binding, task/admin notifications, fallback event recording, C2C/group/channel/DM text sends, C2C/group keyboard sends, and file delivery wiring.
+
+抽出 outbound ref-index 网关适配器：
+
+- Added `src/custom/outbound-ref-index-gateway-adapter.ts` to own the low-level `onMessageSent` hook that caches bot outbound `ref_idx` records.
+- `gateway.ts` now registers the outbound reference cache through this adapter instead of building attachment summaries inline; this keeps quote/reference persistence separate from dispatch and media-send code.
+- The adapter preserves outbound media metadata (`localPath`, filename, URL) and stores TTS voice source text as a `tts` transcript so later quoted voice replies can recover spoken content.
+- Added `tests/custom-outbound-ref-index-gateway-adapter.test.ts` for attachment summary construction, TTS transcript preservation, hook registration, ref-index entry shape, and cache logging.
