@@ -636,6 +636,17 @@ Current implementation status:
 - Merges auth-stage and route-stage typed effects before returning to `gateway.ts`.
 - Leaves `gateway.ts` responsible for platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
 
+### `src/custom/slash-reply-delivery-gateway-adapter.ts`
+
+Gateway-side delivery helper for custom slash replies.
+
+Current implementation status:
+
+- Sends simple text replies through an injected text callback.
+- Sends keyboard replies through an injected keyboard callback and falls back to text on card-send failure.
+- Sends auth approval cards when `approvalText` + keyboard are available, falls back to denial text if the card send fails, and preserves management-group notification forwarding.
+- Keeps actual QQ token lookup, target resolution, and API calls in `gateway.ts`.
+
 ### `src/custom/slash-router.ts`
 
 Pluggable custom slash command route table.

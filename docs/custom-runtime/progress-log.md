@@ -969,3 +969,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates custom unread completion and legacy group-history clearing to the adapter, while still owning config-based history-limit resolution and runtime handles.
 - The adapter preserves the fallback path: if custom unread does not handle the dispatch, legacy pending group history is cleared with the resolved history limit.
 - Added `tests/custom-unread-completion-gateway-adapter.test.ts` for custom-handled persist/scheduler/log behavior, legacy clear fallback, and non-group no-op behavior.
+
+抽出 custom slash reply 投递：
+
+- Added `src/custom/slash-reply-delivery-gateway-adapter.ts` to own custom slash reply delivery branching for text, keyboard, and auth-approval replies.
+- `gateway.ts` still owns token lookup and QQ API calls through injected text/keyboard/admin-group callbacks, while fallback-to-text and management-group copy ordering live in the adapter.
+- Auth approval cards still fall back to denial text on card-send failure and continue forwarding approval requests to the bound management group with `source=slash`.
+- Added `tests/custom-slash-reply-delivery-gateway-adapter.test.ts` for text replies, keyboard fallback, auth approval card success/failure, admin-group notification forwarding, and no-card denial text.

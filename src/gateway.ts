@@ -83,7 +83,8 @@ import {
 } from "./custom/interaction-event-normalizer.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
-import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
+import { handleCustomSlashGatewayCommand } from "./custom/slash-gateway-adapter.js";
+import { deliverCustomSlashGatewayReply } from "./custom/slash-reply-delivery-gateway-adapter.js";
 import { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import {
   applyCustomTaskNotificationDeliveries,
@@ -874,37 +875,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }
       };
 
-      const sendCustomSlashReply = async (reply: CustomSlashGatewayReply): Promise<void> => {
-        if (reply.kind === "text") {
-          await sendSlashTextReply(reply.text);
-          return;
-        }
-        if (reply.kind === "keyboard") {
-          try {
-            await sendSlashKeyboardReply(reply.text, reply.keyboard);
-          } catch (sendErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom slash keyboard reply, falling back to text: ${sendErr}`);
-            await sendSlashTextReply(reply.text);
-          }
-          return;
-        }
-        if (reply.approvalText && reply.keyboard) {
-          try {
-            await sendSlashKeyboardReply(reply.approvalText, reply.keyboard);
-            if (reply.adminGroupNotification) {
-              await sendCustomAuthAdminGroupNotification({ ...reply.adminGroupNotification, source: "slash" });
-            }
-            return;
-          } catch (sendErr) {
-            log?.error(`[qqbot:${account.accountId}] Failed to send custom auth approval card, falling back to text: ${sendErr}`);
-          }
-        }
-        await sendSlashTextReply(reply.denialText);
-        if (reply.adminGroupNotification) {
-          await sendCustomAuthAdminGroupNotification({ ...reply.adminGroupNotification, source: "slash" });
-        }
-      };
-
       const customSlashCommand = handleCustomSlashGatewayCommand({
         cfg: cfg as any,
         accountId: account.accountId,
@@ -949,7 +919,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (customSlashCommand.persist?.deployConfirmations) persistCustomDeployConfirmationState();
         if (customSlashCommand.reply) {
           try {
-            await sendCustomSlashReply(customSlashCommand.reply);
+            await deliverCustomSlashGatewayReply({
+              accountId: account.accountId,
+              reply: customSlashCommand.reply,
+              sendText: sendSlashTextReply,
+              sendKeyboard: sendSlashKeyboardReply,
+              sendAdminGroupNotification: async (notification) => {
+                await sendCustomAuthAdminGroupNotification({ ...notification, source: "slash" });
+              },
+              log,
+            });
           } catch (sendErr) {
             log?.error(`[qqbot:${account.accountId}] Failed to send custom slash command reply: ${sendErr}`);
           }
