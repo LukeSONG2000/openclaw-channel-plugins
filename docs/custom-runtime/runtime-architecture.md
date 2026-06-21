@@ -396,6 +396,18 @@ Current implementation status:
 - Finalizes streaming after dispatch completion by calling `markFullyComplete()` / `onIdle()` and best-effort `abortStreaming()` on failure.
 - Keeps controller construction, streaming enablement config, and non-streaming static delivery in `gateway.ts`.
 
+### `src/custom/static-deliver-gateway-adapter.ts`
+
+Gateway-side executor for non-streaming/static deliver payloads.
+
+Current implementation status:
+
+- Owns the ordered static delivery pipeline: media-tag parsing/sending first, structured payload handling second, and plain reply sending last.
+- Creates a per-deliver single-use quote-ref consumer so media/plain sends keep the same reply-anchor semantics while `gateway.ts` no longer owns that closure.
+- Records outbound activity for media-tag and plain-send paths, while structured payloads keep using the injected record callback exactly as before.
+- Records block-delivered media before plain sends so late tool-media dedupe continues to work through `CustomFallbackDispatchState`.
+- Keeps actual `parseAndSendMediaTags()`, `handleStructuredPayload()`, and `sendPlainReply()` implementations injected by `gateway.ts` to avoid pulling QQ send APIs into the custom adapter.
+
 ### `src/custom/dispatch-failure-gateway-adapter.ts`
 
 Gateway-side orchestration helper for dispatch race failures.

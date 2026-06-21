@@ -130,6 +130,7 @@ import {
   handleCustomStreamingError,
   handleCustomStreamingPartialReply,
 } from "./custom/streaming-gateway-adapter.js";
+import { applyCustomStaticDeliverGateway } from "./custom/static-deliver-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
@@ -2028,55 +2029,23 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
                 // ============ 实际发送逻辑（可被 debouncer 包裹） ============
                 const executeDeliver = async (deliverPayload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, _deliverInfo: { kind: string }) => {
-                  // ============ 引用回复 ============
-                  const quoteRef = event.msgIdx;
-                  let quoteRefUsed = false;
-                  const consumeQuoteRef = (): string | undefined => {
-                    if (quoteRef && !quoteRefUsed) {
-                      quoteRefUsed = true;
-                      return quoteRef;
-                    }
-                    return undefined;
-                  };
-
-                  let replyText = deliverPayload.text ?? "";
-
-                  // ============ 媒体标签解析 + 发送 ============
-                  const mediaResult = await parseAndSendMediaTags(
-                    replyText, deliverEvent, deliverActx, sendWithRetry, consumeQuoteRef,
-                  );
-                  if (mediaResult.handled) {
-                    pluginRuntime.channel.activity.record({
+                  await applyCustomStaticDeliverGateway({
+                    deliverPayload,
+                    replyContext: replyCtx,
+                    deliverEvent,
+                    deliverAccountContext: deliverActx,
+                    sendWithRetry,
+                    quoteRef: event.msgIdx,
+                    toolMediaUrls: fallbackState.toolMediaUrls,
+                    recordBlockDeliveredMedia: (payloadToRecord) => fallbackState.recordBlockDeliveredMedia(payloadToRecord),
+                    recordOutboundActivity: () => pluginRuntime.channel.activity.record({
                       channel: "qqbot",
                       accountId: account.accountId,
                       direction: "outbound",
-                    });
-                    return;
-                  }
-                  replyText = mediaResult.normalizedText;
-
-                  // ============ 结构化载荷检测与分发 ============
-                  const recordOutboundActivity = () => pluginRuntime.channel.activity.record({
-                    channel: "qqbot",
-                    accountId: account.accountId,
-                    direction: "outbound",
-                  });
-                  const handled = await handleStructuredPayload(replyCtx, replyText, recordOutboundActivity);
-                  if (handled) return;
-
-                  // ============ 非结构化消息发送 ============
-                  // 记录 block deliver 处理的 mediaUrl，供 tool 后到时去重
-                  fallbackState.recordBlockDeliveredMedia(deliverPayload);
-
-                  await sendPlainReply(
-                    deliverPayload, replyText, deliverEvent, deliverActx,
-                    sendWithRetry, consumeQuoteRef, fallbackState.toolMediaUrls,
-                  );
-
-                  pluginRuntime.channel.activity.record({
-                    channel: "qqbot",
-                    accountId: account.accountId,
-                    direction: "outbound",
+                    }),
+                    parseAndSendMediaTags,
+                    handleStructuredPayload,
+                    sendPlainReply,
                   });
                 };
 

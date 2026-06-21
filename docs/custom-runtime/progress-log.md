@@ -941,3 +941,10 @@ Added configured scene binding inspection:
 - `gateway.ts` still constructs `StreamingController` and keeps non-streaming static delivery, but no longer inlines `onDeliver()` / `onError()` / `onPartialReply()` / `onIdle()` handling.
 - Streaming finalization now has a tested best-effort abort path when `onIdle()` fails, while degraded-to-static logging remains centralized in the adapter.
 - Added `tests/custom-streaming-gateway-adapter.test.ts` for handled/fallback/static deliver paths, error handling, partial replies, finalization, abort cleanup, and already-terminal fallback logging.
+
+抽出 static deliver 执行管线：
+
+- Added `src/custom/static-deliver-gateway-adapter.ts` to own the non-streaming/static delivery order: media tags, structured payloads, then plain replies.
+- `gateway.ts` now injects `parseAndSendMediaTags()`, `handleStructuredPayload()`, and `sendPlainReply()` into the adapter, preserving QQ send boundaries while removing quote-ref/activity/plain-send orchestration from the main dispatch callback.
+- The adapter keeps single-use quote-ref behavior per deliver payload and records block-delivered media before plain replies so post-block tool media dedupe still works.
+- Added `tests/custom-static-deliver-gateway-adapter.test.ts` for media-tag handled, structured handled, and plain-send paths including quote-ref consumption and outbound activity recording.
