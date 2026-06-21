@@ -155,6 +155,8 @@ function formatTaskCreated(task: CustomSandboxTask): string {
     `工作区：${task.workspace}`,
     ``,
     `已写入独立工作区并进入执行队列；当前版本会保持主对话可用，等待执行器认领。`,
+    ``,
+    formatTaskCommandHints(task, { includeCreate: false }),
   ].join("\n");
 }
 
@@ -163,6 +165,7 @@ function formatTaskList(tasks: CustomSandboxTask[]): string {
   const lines = [`🧪 当前会话长任务`, ``];
   for (const task of tasks) {
     lines.push(`- ${task.id} [${task.status}] ${task.title}`);
+    lines.push(`  ${cmdInput(`/bot-task status ${task.id}`, "查看")}`);
   }
   return lines.join("\n");
 }
@@ -180,11 +183,16 @@ function formatTaskStatus(task: CustomSandboxTask): string {
   ];
   if (task.result) lines.push(`结果：${task.result}`);
   if (task.error) lines.push(`错误：${task.error}`);
+  lines.push(``, formatTaskCommandHints(task, { includeCreate: true }));
   return lines.join("\n");
 }
 
 function formatTaskRequirementAdded(task: CustomSandboxTask): string {
-  return `✅ 已追加需求到 ${task.id}，当前追加需求数：${task.requirements.length}`;
+  return [
+    `✅ 已追加需求到 ${task.id}，当前追加需求数：${task.requirements.length}`,
+    ``,
+    formatTaskCommandHints(task, { includeCreate: false }),
+  ].join("\n");
 }
 
 function formatTaskCancelled(task: CustomSandboxTask): string {
@@ -214,4 +222,30 @@ function canReadTask(
   if (task.accountId !== accountId) return false;
   if (task.owner.id.toUpperCase() === actor.id.toUpperCase()) return true;
   return task.peer.kind === peer.kind && task.peer.id === peer.id;
+}
+
+function formatTaskCommandHints(task: CustomSandboxTask, options: { includeCreate: boolean }): string {
+  const commands = [
+    cmdInput(`/bot-task status ${task.id}`, "查看状态"),
+  ];
+  if (task.status === "queued" || task.status === "running") {
+    commands.push(cmdInput(`/bot-task add ${task.id} `, "追加需求"));
+    commands.push(cmdInput(`/bot-task cancel ${task.id}`, "取消任务"));
+  }
+  if (options.includeCreate) {
+    commands.push(cmdInput(`/bot-task create `, "新建长任务"));
+  }
+  return commands.join(" ");
+}
+
+function cmdInput(text: string, show: string): string {
+  return `<qqbot-cmd-input text="${escapeCmdAttr(text)}" show="${escapeCmdAttr(show)}"/>`;
+}
+
+function escapeCmdAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }

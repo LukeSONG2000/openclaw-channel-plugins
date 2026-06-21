@@ -42,6 +42,8 @@ const create = handleCustomTaskCommand({
 assert.equal(create.handled, true);
 assert.equal(create.changed, true);
 assert.equal(create.reply?.includes("长任务已创建"), true);
+assert.equal(create.reply?.includes(`<qqbot-cmd-input text="/bot-task status qqbot-default-group-GROUP_OPENID-1000-1" show="查看状态"/>`), true);
+assert.equal(create.reply?.includes(`<qqbot-cmd-input text="/bot-task add qqbot-default-group-GROUP_OPENID-1000-1 " show="追加需求"/>`), true);
 assert.equal(create.change, "created");
 assert.equal(create.intents?.[0]?.kind, "start-requested");
 
@@ -58,6 +60,7 @@ const list = handleCustomTaskCommand({
 assert.equal(list.handled, true);
 assert.equal(list.changed, undefined);
 assert.equal(list.reply?.includes(taskId), true);
+assert.equal(list.reply?.includes(`<qqbot-cmd-input text="/bot-task status ${taskId}" show="查看"/>`), true);
 
 const statusBySuffix = handleCustomTaskCommand({
   accountId: "default",
@@ -68,6 +71,8 @@ const statusBySuffix = handleCustomTaskCommand({
 });
 assert.equal(statusBySuffix.handled, true);
 assert.equal(statusBySuffix.reply?.includes("长任务状态"), true);
+assert.equal(statusBySuffix.reply?.includes(`<qqbot-cmd-input text="/bot-task cancel ${taskId}" show="取消任务"/>`), true);
+assert.equal(statusBySuffix.reply?.includes(`<qqbot-cmd-input text="/bot-task create " show="新建长任务"/>`), true);
 
 const otherGroupStatus = handleCustomTaskCommand({
   accountId: "default",
@@ -101,6 +106,7 @@ const add = handleCustomTaskCommand({
 assert.equal(add.handled, true);
 assert.equal(add.changed, true);
 assert.equal(add.reply?.includes("当前追加需求数：1"), true);
+assert.equal(add.reply?.includes(`<qqbot-cmd-input text="/bot-task status ${taskId}" show="查看状态"/>`), true);
 assert.equal(add.change, "requirement-added");
 assert.equal(add.requirement?.content, "Also persist it");
 
@@ -115,6 +121,19 @@ assert.equal(cancel.handled, true);
 assert.equal(cancel.changed, true);
 assert.equal(cancel.reply?.includes("已取消长任务"), true);
 assert.equal(cancel.change, "cancelled");
+
+const cancelledStatus = handleCustomTaskCommand({
+  accountId: "default",
+  tasks,
+  message,
+  rawContent: `/bot-task status ${taskId}`,
+  now: 5_500,
+});
+assert.equal(cancelledStatus.handled, true);
+assert.equal(cancelledStatus.reply?.includes("状态：cancelled"), true);
+assert.equal(cancelledStatus.reply?.includes(`show="追加需求"`), false);
+assert.equal(cancelledStatus.reply?.includes(`show="取消任务"`), false);
+assert.equal(cancelledStatus.reply?.includes("新建长任务"), true);
 
 const noMatch = handleCustomTaskCommand({
   accountId: "default",

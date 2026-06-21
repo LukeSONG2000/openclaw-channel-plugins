@@ -460,3 +460,10 @@ Hardened long-task status visibility:
 - A task is visible only under the same account and original peer, or to the task owner across peers.
 - If an ordinary user queries a task id from another group/DM, the adapter returns "not found or not current session" and does not expose workspace path, owner, prompt-derived title, result, or error.
 - Added tests for same-peer status, cross-peer denial, and owner cross-peer status access.
+
+Improved long-task follow-up ergonomics:
+
+- `/bot-task create`, `/bot-task list`, `/bot-task status`, and `/bot-task add` replies now include QQ command-input shortcuts for common follow-up actions.
+- Active tasks show status, append-requirement, and cancel shortcuts; completed/cancelled/failed tasks hide append/cancel shortcuts and keep only status/new-task actions.
+- Append shortcuts prefill `/bot-task add <taskId> ` without auto-sending, so group members can edit the new requirement before sending.
+- This keeps long-task follow-up outside the main AI queue while making status checks and requirement updates easier in group chat.

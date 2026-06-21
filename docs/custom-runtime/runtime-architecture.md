@@ -609,6 +609,7 @@ Current implementation status:
   - `/bot-task add <taskId> <追加需求>`
   - `/bot-task cancel <taskId>`
 - `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
+- Task create/list/status/add replies include QQ command-input shortcuts for status, append, cancel, and new-task actions where applicable. These shortcuts only prefill commands, so append still requires the user to edit the requirement text before sending.
 - Slash-command capability metadata gates task mutations through custom auth:
   - query/help/list/status use `system.status`
   - create/add/cancel use `codex.longTask`
