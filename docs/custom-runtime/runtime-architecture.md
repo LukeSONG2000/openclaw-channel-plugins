@@ -631,24 +631,19 @@ Important boundary:
 
 ### `src/custom/fallbacks.ts`
 
-Guards for known failure modes:
+Pure fallback policy helpers for known failure modes:
 
-- context too long
-- response timeout
-- tool-only no block deliver
-- late deliver after timeout
-- queue stuck
-- slash commands blocked by a running task
-- invalid/expired `msg_id`
-- config schema rejection
+- response timeout constants and user notice text
+- tool-only no-block timeout constants and no-output notice text
+- tool media send timeout constants
+- tool text fallback selection
+- model skip tokens such as `NO_REPLY` and `[SKIP]`
+- dispatch failure classification
 
-Minimum behavior:
+Boundary:
 
-- visible user notice
-- release queue
-- keep urgent slash commands working
-- log structured error with peer/session/run id
-- suggest `/new` or run an automatic session reset only when authorized and safe
+- It is pure TypeScript and has no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.
+- `gateway.ts` still owns queue release, timer lifecycle, logging, retry, and outbound sends.
 
 Current implemented safeguards:
 
@@ -657,6 +652,13 @@ Current implemented safeguards:
 - Response timeout sends a visible user notice and ignores late block/tool deliveries.
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
 - Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
+
+Still separate from the pure module:
+
+- context-too-long reset suggestions
+- queue-stuck telemetry
+- structured fallback events with peer/session/run id
+- config schema rejection formatting
 
 ### `src/custom/update-check.ts`
 

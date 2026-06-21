@@ -56,6 +56,12 @@ Added custom update check loop for the personal package:
 - `/bot-version` now labels available versions as custom package updates to avoid implying official auto-upgrade.
 - Added `tests/custom-update-check.test.ts` for default config, disabled mode, interval clamping, and update-available behavior.
 
+Extracted custom fallback policy helpers:
+
+- Added `src/custom/fallbacks.ts` for response timeout constants, tool-only fallback selection, no-output notices, model skip tokens, and dispatch failure classification.
+- `gateway.ts` now imports those helpers instead of carrying fallback magic numbers and user-facing timeout strings inline.
+- Added `tests/custom-fallbacks.test.ts` to lock the current timeout values, skip-token behavior, tool fallback text selection, and timeout classification.
+
 Extracted unread/follow-up message flow into pure runtime:
 
 - Added `src/custom/unread-runtime.ts` with no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.

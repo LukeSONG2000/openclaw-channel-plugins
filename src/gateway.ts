@@ -80,6 +80,17 @@ import {
   heartbeatCustomTaskExecution,
   type CustomTaskExecutionEffect,
 } from "./custom/task-executor-adapter.js";
+import {
+  CUSTOM_RESPONSE_TIMEOUT_MS,
+  CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS,
+  CUSTOM_TOOL_ONLY_MAX_RENEWALS,
+  CUSTOM_TOOL_ONLY_TIMEOUT_MS,
+  classifyCustomDispatchFailure,
+  formatCustomResponseTimeoutNotice,
+  formatCustomToolNoOutputNotice,
+  isCustomModelSkipOutput,
+  selectCustomToolFallbackText,
+} from "./custom/fallbacks.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -2041,9 +2052,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const toolMediaUrls: string[] = []; // 收集所有 tool deliver 媒体 URL
           let toolFallbackSent = false; // 兜底消息是否已发送（只发一次）
           const blockDeliveredMediaUrls = new Set<string>(); // block deliver 已处理的 mediaUrl，用于 tool 后到时去重
-          const responseTimeout = 300000; // 300秒超时（5分钟，覆盖长工具任务，避免过早误报）
-          const toolOnlyTimeout = 90000; // tool-only 兜底超时：90秒内没有 block 就兜底
-          const maxToolRenewals = 3; // tool 续期上限：最多续期 3 次（总等待 = 60s × 3 = 180s）
+          const responseTimeout = CUSTOM_RESPONSE_TIMEOUT_MS; // 300秒超时（5分钟，覆盖长工具任务，避免过早误报）
+          const toolOnlyTimeout = CUSTOM_TOOL_ONLY_TIMEOUT_MS; // tool-only 兜底超时：90秒内没有 block 就兜底
+          const maxToolRenewals = CUSTOM_TOOL_ONLY_MAX_RENEWALS; // tool 续期上限，防止无限工具调用永远不触发兜底
           let toolRenewalCount = 0; // 已续期次数
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
           let toolOnlyTimeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -2057,7 +2068,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             // 优先发送工具产出的媒体文件（TTS 语音、生成图片等）
             if (toolMediaUrls.length > 0) {
               log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding ${toolMediaUrls.length} media URL(s) from tool deliver(s)`);
-              const mediaTimeout = 45000; // 单个媒体发送超时 45s
+              const mediaTimeout = CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS; // 单个媒体发送超时 45s
               for (const mediaUrl of toolMediaUrls) {
                 try {
                   const result = await Promise.race([
@@ -2077,14 +2088,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             }
             // 其次转发工具产出的文本
             if (toolTexts.length > 0) {
-              const text = toolTexts.slice(-3).join("\n---\n").slice(0, 2000);
+              const text = selectCustomToolFallbackText(toolTexts) ?? "";
               log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding tool text (${text.length} chars)`);
               await sendErrorMessage(text);
               return;
             }
             // 既无媒体也无文本，发送可见提示并释放队列
             log?.info(`[qqbot:${account.accountId}] Tool fallback: no media or text collected from ${toolDeliverCount} tool deliver(s), sending timeout notice`);
-            await sendErrorMessage("工具这轮没产出能发的内容，我先不挡队列，后面的消息会继续处理。");
+            await sendErrorMessage(formatCustomToolNoOutputNotice());
           };
 
           const timeoutPromise = new Promise<void>((_, reject) => {
@@ -2219,7 +2230,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 }
 
                 const blockReplyText = (payload.text ?? "").trim();
-                if (event.type === "group" && (blockReplyText === "NO_REPLY" || blockReplyText === "[SKIP]")) {
+                if (event.type === "group" && isCustomModelSkipOutput(blockReplyText)) {
                   log?.info(`[qqbot:${account.accountId}] Model decided to skip group message (token=${blockReplyText}) from ${event.senderId}: ${event.content?.slice(0, 50)}`);
                   return;
                 }
@@ -2416,11 +2427,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               clearTimeout(timeoutId);
               timeoutId = null;
             }
-            dispatchTimedOut = String(err).includes("Response timeout");
+            dispatchTimedOut = classifyCustomDispatchFailure(err) === "response-timeout";
             log?.error(`[qqbot:${account.accountId}] Dispatch failed: ${err}${!hasResponse ? " (no response received)" : ""}`);
             if (dispatchTimedOut && !hasBlockResponse && !toolFallbackSent) {
               try {
-                await sendErrorMessage("这轮处理超时了，我先不挡队列，后面的消息会继续处理。");
+                await sendErrorMessage(formatCustomResponseTimeoutNotice());
                 hasResponse = true;
               } catch (sendErr) {
                 log?.error(`[qqbot:${account.accountId}] Failed to send response-timeout notice: ${sendErr}`);

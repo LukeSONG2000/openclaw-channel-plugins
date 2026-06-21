@@ -4,6 +4,14 @@
 
 Deploy the custom fork as the only active QQBot channel in the OpenClaw instance.
 
+Operational model:
+
+- The server runs the custom package, not the official package.
+- The production instance must not auto-update the QQBot connector.
+- Official upstream updates are reviewed locally first; they are not pulled directly into the deployed OpenClaw instance.
+- If an upstream change is worth adopting, merge or cherry-pick it into `custom-runtime`, validate it, then publish a new personal package version.
+- The OpenClaw instance automatically checks only the personal package for newer custom versions, then waits for admin approval before installation.
+
 Do not run both the official QQBot plugin and the custom QQBot plugin against the same bot credentials. That risks:
 
 - duplicate gateway connections
@@ -173,6 +181,8 @@ Keep rollback backups until the custom runtime has survived at least one day of 
 
 Official upstream updates:
 
+Official releases are input for local review only; they are not the server's update source.
+
 1. Fetch upstream locally. This only updates local git refs; it does not affect the deployed OpenClaw instance:
 
 ```bash
@@ -198,7 +208,7 @@ Custom runtime updates:
 
 - The OpenClaw instance checks only `@lukesong/openclaw-qqbot` unless overridden.
 - The gateway logs available custom updates automatically; `/bot-version` and `/bot-upgrade` show the same custom package source on demand.
-- Admin explicitly approves install.
+- Admin reviews the detected custom version and explicitly approves install.
 - Server backs up current plugin before update.
 
 ## Release Checklist
