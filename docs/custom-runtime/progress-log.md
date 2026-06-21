@@ -766,3 +766,10 @@ Added configured scene binding inspection:
 - 矩阵覆盖 C2C、群聊、频道、频道私信、互动按钮、主动消息接收/拒收、机器人入/退群、频道删除诊断事件。
 - 明确区分“本地归一化已覆盖”“服务器持久数据已观察”“官方文档存在但本环境未观测”“仍需实测”，避免后续策略误依赖尚未在部署环境验证的字段。
 - `runtime-architecture.md` 改为引用该字段矩阵作为 QQ 事件字段依赖的权威检查点；本轮未 SSH、未部署、未触碰服务器。
+
+抽出 QueuedMessage 身份映射边界：
+
+- Added `src/custom/queued-message-context.ts` as the shared pure mapper from gateway `QueuedMessage` values to custom `peer` / `actor` identities.
+- Auth、scene、task、poll、game、deploy 和 urgent fallback diagnostics 现在直接复用该 mapper，避免为了拿 peer/actor 而依赖 `auth-gateway-adapter.ts`。
+- `auth-gateway-adapter.ts` 暂时保留 re-export 兼容已有调用；新 adapter 应直接从 `queued-message-context.ts` 导入。
+- Added `tests/custom-queued-message-context.test.ts` for C2C/group/guild/channel-DM peer mapping, queue-peer fallback, actor mapping, and prefix stripping.

@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
-import { toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
+import { toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./config.js";
 import {
   formatCustomPeerKey,

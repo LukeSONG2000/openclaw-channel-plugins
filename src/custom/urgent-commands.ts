@@ -1,5 +1,6 @@
 import type { QueuedMessage } from "../message-queue.js";
 import { buildCustomFallbackEvent, type CustomFallbackEvent } from "./fallbacks.js";
+import { toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import type { CustomActor, CustomPeer } from "./types.js";
 
 const CUSTOM_URGENT_QUEUE_BYPASS_COMMAND_SET = new Set([
@@ -42,16 +43,14 @@ export function resolveCustomUrgentQueueBypassCommand(content: string | null | u
 }
 
 export function resolveCustomUrgentQueuePeer(msg: QueuedMessage, queuePeerId: string): CustomPeer {
-  if (msg.type === "group") {
-    return { kind: "group", id: msg.groupOpenid ?? stripQueuePeerPrefix(queuePeerId) };
-  }
-  if (msg.type === "guild") {
-    return { kind: "channel", id: msg.channelId ?? stripQueuePeerPrefix(queuePeerId) };
-  }
+  const peer = toCustomPeerFromQueuedMessage(msg, { queuePeerId });
   if (msg.type === "dm") {
-    return { kind: "dm", id: msg.senderId, label: msg.senderName };
+    return { ...peer, label: msg.senderName };
   }
-  return { kind: "c2c", id: msg.senderId, label: msg.senderName };
+  if (msg.type === "c2c") {
+    return { ...peer, label: msg.senderName };
+  }
+  return peer;
 }
 
 export function buildCustomUrgentQueueBypassEvent(params: BuildCustomUrgentQueueBypassEventParams): CustomFallbackEvent {
@@ -85,9 +84,4 @@ function firstSlashCommandToken(content: string | null | undefined): string | nu
   const trimmed = (content ?? "").trim();
   if (!trimmed.startsWith("/")) return null;
   return trimmed.split(/\s+/, 1)[0]?.toLowerCase() ?? null;
-}
-
-function stripQueuePeerPrefix(queuePeerId: string): string {
-  const idx = queuePeerId.indexOf(":");
-  return idx >= 0 ? queuePeerId.slice(idx + 1) : queuePeerId;
 }

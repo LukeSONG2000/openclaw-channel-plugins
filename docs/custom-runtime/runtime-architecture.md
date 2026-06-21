@@ -319,6 +319,18 @@ Current implementation status:
 - Does not enqueue, persist known users, mutate proactive budget state, or send replies. `gateway.ts` applies the returned effects.
 - Field-level receive coverage and verification status are tracked in `docs/custom-runtime/qqbot-message-flow.md` under `Normalized Event Field Matrix`; that table is the authoritative checklist before custom policy depends on a QQ event field.
 
+### `src/custom/queued-message-context.ts`
+
+Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.
+
+Current implementation status:
+
+- Converts queued C2C/group/guild/channel-DM messages into `CustomPeer` without importing auth, scene, task, poll, or game runtimes.
+- Converts queued sender metadata into `CustomActor` for auth, poll, game, task, deploy, and fallback adapters.
+- Provides the queue peer prefix fallback used by urgent queue-bypass diagnostics when a queued group/channel message is missing the platform peer field.
+- Keeps channel-DM peer mapping on the existing sender-id behavior for compatibility; `docs/custom-runtime/qqbot-message-flow.md` still marks channel-DM custom scene behavior as unaudited.
+- `src/custom/auth-gateway-adapter.ts` re-exports the mapper for compatibility, but new custom adapters should import it directly from `queued-message-context.ts` to avoid depending on auth internals.
+
 ### `src/custom/interaction-event-normalizer.ts`
 
 Gateway-side normalizer for QQ `INTERACTION_CREATE` button/config events.

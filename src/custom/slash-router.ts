@@ -15,10 +15,8 @@ import {
   applyCustomTaskExecutionIntents,
   type CustomTaskExecutor,
 } from "./task-executor-adapter.js";
-import {
-  buildCustomAuthAdminGroupNotification,
-  toCustomPeerFromQueuedMessage,
-} from "./auth-gateway-adapter.js";
+import { buildCustomAuthAdminGroupNotification } from "./auth-gateway-adapter.js";
+import { toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import {
   deliveriesFromCustomTaskNotifications,
   type CustomTaskNotificationDelivery,

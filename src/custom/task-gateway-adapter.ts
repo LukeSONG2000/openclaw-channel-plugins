@@ -1,6 +1,6 @@
 import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
-import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
+import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import type { CustomSandboxTask, CustomTaskIntent, CustomTaskRequirement, CustomTaskSandboxRuntimeState } from "./types.js";
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
 import type { CustomTaskSandboxConfig } from "./task-sandbox.js";

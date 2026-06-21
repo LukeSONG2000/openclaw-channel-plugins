@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
-import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
+import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomDeployConfirmationRuntime, normalizeDeployCommand } from "./deploy-confirmation.js";
 import {

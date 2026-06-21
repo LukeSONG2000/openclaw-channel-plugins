@@ -8,6 +8,10 @@ import {
   type CustomAuthorizationRuntime,
 } from "./auth.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
+import {
+  toCustomActorFromQueuedMessage,
+  toCustomPeerFromQueuedMessage,
+} from "./queued-message-context.js";
 import type {
   CustomActor,
   CustomAuthorizationApprovalRequest,
@@ -19,6 +23,11 @@ import type {
   CustomPeer,
 } from "./types.js";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
+
+export {
+  toCustomActorFromQueuedMessage,
+  toCustomPeerFromQueuedMessage,
+} from "./queued-message-context.js";
 
 export interface CustomSlashAuthorizationDecision {
   enabled: boolean;
@@ -38,39 +47,6 @@ export interface CustomDispatchAuthorizationDecision {
   actor?: CustomActor;
   result?: CustomAuthorizationCheckResult;
   reason?: "runtime_disabled" | "allowed" | "denied";
-}
-
-export function toCustomPeerFromQueuedMessage(message: QueuedMessage): CustomPeer {
-  if (message.type === "group") {
-    return {
-      kind: "group",
-      id: message.groupOpenid ?? "unknown",
-    };
-  }
-  if (message.type === "guild") {
-    return {
-      kind: "channel",
-      id: message.channelId ?? "unknown",
-    };
-  }
-  if (message.type === "dm") {
-    return {
-      kind: "dm",
-      id: message.senderId,
-    };
-  }
-  return {
-    kind: "c2c",
-    id: message.senderId,
-  };
-}
-
-export function toCustomActorFromQueuedMessage(message: QueuedMessage): CustomActor {
-  return {
-    id: message.senderId,
-    label: message.senderName,
-    isBot: message.senderIsBot,
-  };
 }
 
 export function resolveCustomDispatchCapability(params: {

@@ -4,7 +4,7 @@ import { isCustomRuntimeAdmin, type CustomAuthorizationCheckResult, type CustomA
 import {
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
-} from "./auth-gateway-adapter.js";
+} from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
 import { evaluateCustomTaskPeerAccess, formatCustomTaskOutOfScope } from "./task-access.js";
 import type { CustomActor, CustomPeer, CustomSandboxTask, CustomTaskSandboxRuntimeState } from "./types.js";

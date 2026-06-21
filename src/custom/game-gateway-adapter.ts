@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { QueuedMessage } from "../message-queue.js";
-import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
+import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomGameRuntime } from "./game.js";
 import type { CustomActor, CustomGuessGame, CustomPeer } from "./types.js";
