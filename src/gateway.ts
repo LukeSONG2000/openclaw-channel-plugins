@@ -1,16 +1,15 @@
-import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
+import type { ResolvedQQBotAccount } from "./types.js";
 import { clearTokenCache, stopBackgroundTokenRefresh } from "./api.js";
-import { loadSession } from "./session-store.js";
 import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { getApprovalHandler } from "./approval-handler.js";
-import { setRefIndex, flushRefIndex } from "./ref-index-store.js";
+import { flushRefIndex } from "./ref-index-store.js";
 import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { handleStructuredPayload } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
-import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
+import { sendStartupGreetings } from "./admin-resolver.js";
 import { sendTextToTarget } from "./reply-dispatcher.js";
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
@@ -20,12 +19,11 @@ import {
 } from "./custom/websocket-connection-gateway-adapter.js";
 import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
 import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
-import { registerCustomOutboundRefIndexGateway } from "./custom/outbound-ref-index-gateway-adapter.js";
-import { runQQBotGatewayStartupPreflight } from "./custom/startup-preflight-gateway-adapter.js";
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gateway-adapter.js";
 import { createCustomConnectionHandlersGateway } from "./custom/connection-handlers-gateway-adapter.js";
 import { createCustomGatewayAccountServices } from "./custom/gateway-account-services-gateway-adapter.js";
+import { startQQBotGatewayStartup } from "./custom/gateway-startup-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -103,46 +101,6 @@ const _pendingFirstReady = new Set<string>();
 export async function startGateway(ctx: GatewayContext): Promise<void> {
   const { account, abortSignal, cfg, onReady, onError, log } = ctx;
 
-  if (!account.appId || !account.clientSecret) {
-    throw new Error("QQBot not configured (missing appId or clientSecret)");
-  }
-
-  // 安全网：捕获 approval-handler / SDK 内部 WS 握手异步错误（如 403），避免进程崩溃
-  const wsUncaughtHandler = (err: Error) => {
-    if (err.message?.includes("Unexpected server response")) {
-      log?.error(`[qqbot:${account.accountId}] Caught WS handshake error (non-fatal): ${err.message}`);
-      // 不重新抛出，防止进程退出
-    } else {
-      // 非 WS 握手错误，重新抛出交给上层处理
-      throw err;
-    }
-  };
-  process.on("uncaughtException", wsUncaughtHandler);
-  abortSignal.addEventListener("abort", () => {
-    process.removeListener("uncaughtException", wsUncaughtHandler);
-  }, { once: true });
-
-  await runQQBotGatewayStartupPreflight({
-    account,
-    cfg,
-    getRuntime: getQQBotRuntime,
-    log,
-  });
-
-  // 注册出站消息 refIdx 缓存钩子
-  // 所有消息发送函数在拿到 QQ 回包后，如果含 ref_idx 则自动回调此处缓存
-  registerCustomOutboundRefIndexGateway({
-    accountId: account.accountId,
-    setRefEntry: setRefIndex,
-    log,
-  });
-
-  // ============ Transport 模式标记 ============
-  const transportMode: TransportMode = account.config.transport ?? "websocket";
-  if (transportMode === "webhook") {
-    log?.info(`[qqbot:${account.accountId}] Using webhook transport mode`);
-  }
-
   let customUnreadScheduler: CustomUnreadScheduler | null = null;
   let customTaskExecutor: CustomTaskCommandExecutor | null = null;
   const lifecycle = createQQBotGatewayLifecycle({
@@ -158,14 +116,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     },
     log,
   });
-  // 标记此 account 为待发问候（进程重启时 Set 里已有，断线重连不会重新加入）
-  _pendingFirstReady.add(account.accountId);
 
-  const adminCtx: AdminResolverContext = { accountId: account.accountId, appId: account.appId, clientSecret: account.clientSecret, log };
-
-  // ============ P1-2: 尝试从持久化存储恢复 Session ============
-  // 传入当前 appId，如果 appId 已变更（换了机器人），旧 session 自动失效
-  lifecycle.restoreSession(loadSession(account.accountId, account.appId));
+  const startup = await startQQBotGatewayStartup({
+    account,
+    cfg,
+    abortSignal,
+    restoreSession: lifecycle.restoreSession,
+    markPendingFirstReady: () => { _pendingFirstReady.add(account.accountId); },
+    getRuntime: getQQBotRuntime,
+    log,
+  });
+  const transportMode = startup.transportMode;
+  const adminCtx = startup.adminContext;
 
   // ============ 审批 Handler ============
   const approvalHandler = startQQBotApprovalHandlerGateway({

@@ -100,6 +100,22 @@ Important boundary:
 - The adapter does not start WebSocket/Webhook transports and does not create per-connection message/interaction handlers; `connection-handlers-gateway-adapter.ts` handles connection-scoped wiring.
 - It keeps account-scoped state and queue setup out of `gateway.ts`, while leaving abort cleanup and deployment decisions explicit at the outer gateway layer.
 
+### `src/custom/gateway-startup-gateway-adapter.ts`
+
+Gateway-side startup bootstrap for one QQBot account.
+
+Current implementation status:
+
+- Validates that the resolved account has `appId` and `clientSecret` before any transport work starts.
+- Registers the existing non-fatal WebSocket handshake error guard and removes it on abort; ordinary uncaught exceptions are still rethrown.
+- Runs the startup preflight adapter, registers the outbound `ref_idx` cache hook, resolves/logs the configured transport mode, marks the account as pending first READY/RESUMED greeting, restores the persisted WebSocket session, and returns the `AdminResolverContext` used by startup greetings.
+- Keeps startup setup injectable for tests: preflight, ref-index registration, session load/restore, process-like uncaught handler, and pending-READY marker can be faked without starting OpenClaw or QQ connections.
+
+Important boundary:
+
+- The adapter does not create message queues, runtime services, approval handlers, or transports. Those remain in account-services, approval-handler, lifecycle, connection-handlers, and transport adapters.
+- It preserves the existing startup safety semantics while keeping `gateway.ts` focused on composing the outer lifecycle.
+
 ### `src/custom/types.ts`
 
 Stable custom types:

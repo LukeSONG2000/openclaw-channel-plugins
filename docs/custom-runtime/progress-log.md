@@ -1273,3 +1273,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now receives a compact account-services bundle (`queue`, `state`, `runtime`, `buildProactiveGuard`, `adminGroupNotifications`, `updateCheck`, `trySlashCommandOrEnqueue`) instead of constructing each service inline.
 - The adapter preserves management-group sends through the same proactive guard and keeps update checks manual/notification-only; it also keeps slash auth admin-group copies marked with `source="slash"`.
 - Added `tests/custom-gateway-account-services-gateway-adapter.test.ts` for queue/state factories, restored-auth logging, proactive guard persistence, admin notification/update-check binding, task-executor getter wiring, and slash prequeue execution.
+
+抽出 gateway startup 网关启动层：
+
+- Added `src/custom/gateway-startup-gateway-adapter.ts` to own startup credential validation, non-fatal WS handshake error guard registration, startup preflight, outbound ref-index hook registration, transport mode resolution/logging, first READY marker, session restore, and startup greeting admin context creation.
+- `gateway.ts` now creates the lifecycle controller first, then delegates startup bootstrap to the adapter before approval/account services setup; this keeps process/session/preflight/ref-index setup out of the main gateway file.
+- The adapter preserves previous safety semantics: `Unexpected server response` errors are logged as non-fatal, ordinary uncaught exceptions are rethrown, Webhook transport mode is logged, and stale session handling remains delegated to `loadSession()`.
+- Added `tests/custom-gateway-startup-gateway-adapter.test.ts` for successful bootstrap ordering, ref-index callback binding, Webhook logging, session restore, process guard disposal on abort, missing-credential failure, and ordinary-error rethrow behavior.
