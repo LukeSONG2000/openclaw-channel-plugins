@@ -43,6 +43,8 @@ assert.equal(getSlashCommandCapability("/bot-fallback list 5"), "system.status")
 assert.equal(getSlashCommandCapability("/bot-fallback summary 20"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-fallback clear"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-fallback clear --force"), "config.write");
+assert.equal(getSlashCommandCapability("/bot-queue"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-queue status"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread status 5"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread summary 5"), "system.status");

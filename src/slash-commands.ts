@@ -460,6 +460,26 @@ registerCommand({
 });
 
 /**
+ * /bot-queue — custom runtime queue status command.
+ *
+ * The gateway handles this command with the live message queue snapshot before
+ * normal slash command matching. This registry entry only provides help text
+ * and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-queue",
+  description: "查看当前会话队列状态",
+  capability: "system.status",
+  usage: [
+    `/bot-queue`,
+    `/bot-queue status`,
+    ``,
+    `查看当前会话的队列 pending、活跃用户数和活跃处理时长；不展示缓存消息正文。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
+/**
  * /bot-unread — custom runtime unread/follow-up/sleep-digest status command.
  *
  * The gateway handles this command against the live custom runtime before

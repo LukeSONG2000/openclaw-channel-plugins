@@ -337,6 +337,8 @@ Initial slash command capability mapping:
 - `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
 - `/bot-scene`: `system.status`; `set`/`bind` or direct scene names require `config.write`
 - `/bot-fallback`: `system.status`; `clear`/`reset` require `config.write`
+- `/bot-queue`: `system.status`
+- `/bot-unread`: `system.status`
 
 Text approval commands:
 
@@ -359,7 +361,7 @@ Gateway-side custom slash command orchestration layer.
 Current implementation status:
 
 - Runs before official plugin slash command matching.
-- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-fallback`, `/bot-task`, and `/bot-poll` through one adapter entry point.
+- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, and `/bot-poll` through one adapter entry point.
 - Returns typed side-effect descriptions instead of sending QQ messages directly:
   - text reply
   - keyboard reply
@@ -731,6 +733,7 @@ Current implemented safeguards:
 - Fallback events include a queue snapshot: total pending, active users, max concurrency, sender pending, sender active age, and max active age.
 - Recent fallback events are persisted under `~/.openclaw/qqbot/data/custom-fallback-events/events-<accountId>.json` with a bounded ring buffer.
 - Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
+- `/bot-queue` reads a live queue snapshot for the current peer, so users/admins can check pending and active durations before or after a fallback event is written.
 
 ### `src/custom/fallback-event-store.ts`
 
@@ -770,9 +773,26 @@ Authorization:
 Still separate from the pure module:
 
 - automatic session reset after context-too-long errors
-- queue-stuck telemetry
 - admin notification cards for repeated fallback events
 - config schema rejection formatting
+
+### `src/custom/queue-status-gateway-adapter.ts`
+
+Read-only adapter for live queue health.
+
+Implemented commands:
+
+- `/bot-queue`
+- `/bot-queue status`
+- `/bot-queue help`
+
+Behavior:
+
+- Requires `system.status` through slash-command metadata.
+- Receives `peerId` and `QueueSnapshot` from `gateway.ts`; it does not import `src/message-queue.ts` or own queue state.
+- Reports current-session pending count, global pending count, active user concurrency, sender active duration, and longest active duration.
+- Adds QQ command-input shortcuts for `/compact` and `/new` only when the current peer has pending or active work.
+- Does not display queued message bodies, unread snapshots, or cached chat content.
 
 ### `src/custom/update-check.ts`
 

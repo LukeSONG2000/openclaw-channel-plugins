@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
+import type { QueueSnapshot } from "../slash-commands.js";
 import type { InlineKeyboard } from "../types.js";
 import {
   buildCustomAuthApprovalKeyboard,
@@ -13,6 +14,7 @@ import {
 } from "./auth-gateway-adapter.js";
 import { handleCustomFallbackCommand } from "./fallback-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
+import { handleCustomQueueStatusCommand } from "./queue-status-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { handleCustomSceneCommand } from "./scene-gateway-adapter.js";
 import { checkCustomTaskCommandAuthorization } from "./task-auth-gateway-adapter.js";
@@ -68,6 +70,10 @@ export function handleCustomSlashGatewayCommand(params: {
   message: QueuedMessage;
   rawContent: string;
   now?: number;
+  queueStatus?: {
+    peerId: string;
+    snapshot: QueueSnapshot;
+  };
   applyTaskWorkspaceEffects?: boolean;
   taskExecutor?: CustomTaskExecutor;
 }): CustomSlashGatewayResult {
@@ -173,6 +179,19 @@ export function handleCustomSlashGatewayCommand(params: {
   if (customFallbackCommand.handled) {
     return handled({
       reply: customFallbackCommand.reply ? { kind: "text", text: customFallbackCommand.reply } : undefined,
+      persist,
+      logs,
+    });
+  }
+
+  const customQueueStatusCommand = handleCustomQueueStatusCommand({
+    rawContent: params.rawContent,
+    peerId: params.queueStatus?.peerId ?? "unknown",
+    snapshot: params.queueStatus?.snapshot,
+  });
+  if (customQueueStatusCommand.handled) {
+    return handled({
+      reply: customQueueStatusCommand.reply ? { kind: "text", text: customQueueStatusCommand.reply } : undefined,
       persist,
       logs,
     });

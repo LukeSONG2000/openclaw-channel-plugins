@@ -954,6 +954,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         runtime: customMessageFlow,
         message: msg,
         rawContent: content,
+        queueStatus: {
+          peerId,
+          snapshot: msgQueue.getSnapshot(peerId),
+        },
         taskExecutor: customTaskExecutor ?? undefined,
       });
       if (customSlashCommand.handled) {

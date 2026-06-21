@@ -257,6 +257,35 @@ assert.equal(fallbackStatus.persist, undefined);
 assert.equal(fallbackStatus.reply?.kind, "text");
 assert.equal(fallbackStatus.reply?.kind === "text" && fallbackStatus.reply.text.includes("最近兜底事件"), true);
 
+const queueStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-queue" },
+  rawContent: "/bot-queue",
+  now: 6_100,
+  queueStatus: {
+    peerId: "group:GROUP_OPENID",
+    snapshot: {
+      totalPending: 7,
+      activeUsers: 2,
+      maxConcurrentUsers: 10,
+      senderPending: 3,
+      senderActiveMs: 12_000,
+      maxActiveMs: 44_000,
+    },
+  },
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(queueStatus.handled, true);
+assert.equal(queueStatus.persist, undefined);
+assert.equal(queueStatus.reply?.kind, "text");
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("当前会话：group:GROUP_OPENID"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("本会话待处理：3"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("全局待处理：7"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("本会话活跃：12s"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
+
 const unreadRuntime = createCustomMessageFlowRuntime();
 unreadRuntime.unread.recordNonMention({
   message: {

@@ -507,3 +507,12 @@ Added `/bot-unread` runtime status command:
 - The command is read-only, requires `system.status` through slash capability metadata, and is routed by `src/custom/slash-gateway-adapter.ts` before normal AI dispatch.
 - Output uses `inspectCustomUnreadRuntimeState()` and shows peer/pending/snapshot/timer counts plus per-peer timestamps; it does not include cached message bodies.
 - Added tests for parser/status output, custom slash gateway routing, and slash capability mapping.
+
+Added `/bot-queue` live queue status command:
+
+- Added `src/custom/queue-status-gateway-adapter.ts` for `/bot-queue`, `/bot-queue status`, and `/bot-queue help`.
+- The command is read-only, requires `system.status` through slash capability metadata, and is routed by `src/custom/slash-gateway-adapter.ts` before unread/task/poll handling.
+- `gateway.ts` injects the current `MessageQueue.getSnapshot(peerId)` result, so the adapter can show current-session pending count, global pending count, active user concurrency, sender active duration, and max active duration without importing queue internals into `src/custom`.
+- When the current peer has pending or active work, output includes QQ command-input shortcuts for `/compact` and `/new`; idle output avoids recovery shortcuts.
+- Output deliberately contains only queue counters and durations, not queued message bodies or cached unread content.
+- Added tests for parser/status/help output, recovery shortcuts, custom slash gateway routing, and slash capability mapping.

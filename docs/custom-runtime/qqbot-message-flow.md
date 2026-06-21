@@ -371,6 +371,7 @@ Current custom runtime behavior:
 - Response timeout and context-too-long fallbacks leave `/compact` and `/new` available even when the same peer has an active blocked run.
 - Timeout/no-output/context notices and `/bot-fallback` outputs include QQ command-input shortcuts for `/compact`, `/new`, and `/bot-fallback summary 20` as appropriate, so recovery does not require manually typing slash commands during degraded sessions.
 - `/bot-fallback summary` can be used after a timeout/context incident to confirm whether a recovery command hit the urgent queue-bypass path.
+- `/bot-queue` can be used before or after a degraded session to inspect the current peer queue snapshot: peer pending, global pending, active concurrency, and active processing age. It is read-only and does not expose cached message bodies.
 
 ## Open Items
 
