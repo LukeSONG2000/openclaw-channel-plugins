@@ -726,6 +726,7 @@ Current implemented safeguards:
 - Response timeout sends a visible user notice and ignores late block/tool deliveries.
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
 - Context/token limit errors send a visible recovery notice that suggests `/compact` first and `/new` if needed.
+- Timeout/no-output/context notices include QQ command-input shortcuts so users can trigger `/compact`, `/new`, or `/bot-fallback summary 20` without manually typing slash commands while the chat is in a degraded state.
 - Fallback paths emit structured log events with account, peer, actor, session key, run/message id, response state, and tool-deliver counts.
 - Fallback events include a queue snapshot: total pending, active users, max concurrency, sender pending, sender active age, and max active age.
 - Recent fallback events are persisted under `~/.openclaw/qqbot/data/custom-fallback-events/events-<accountId>.json` with a bounded ring buffer.
@@ -763,6 +764,7 @@ Authorization:
 - Summary output also reports the longest sender-active/max-active durations observed in recent fallback events.
 - List/status output expands urgent queue-bypass events with command, dropped queued-message count, queue peer id, after-clear pending counts, and active peer duration.
 - Summary output includes an urgent queue-bypass count so admins can verify whether `/new` or `/compact` recovery commands actually reached the queue bypass path.
+- List/status and summary output append QQ command-input shortcuts for `/compact` and `/new`.
 - Clearing events requires `config.write` and an explicit `--force`.
 
 Still separate from the pure module:

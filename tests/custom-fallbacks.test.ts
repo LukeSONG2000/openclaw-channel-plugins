@@ -25,10 +25,16 @@ assert.equal(isCustomModelSkipOutput("NO_REPLY please"), false);
 assert.equal(isCustomModelSkipOutput(""), false);
 assert.equal(isCustomModelSkipOutput(undefined), false);
 
-assert.equal(formatCustomResponseTimeoutNotice(), "这轮处理超时了，我先不挡队列，后面的消息会继续处理。");
-assert.equal(formatCustomToolNoOutputNotice(), "工具这轮没产出能发的内容，我先不挡队列，后面的消息会继续处理。");
+assert.match(formatCustomResponseTimeoutNotice(), /这轮处理超时/);
+assert.match(formatCustomResponseTimeoutNotice(), /qqbot-cmd-input text="\/bot-fallback summary 20"/);
+assert.match(formatCustomResponseTimeoutNotice(), /qqbot-cmd-input text="\/compact"/);
+assert.match(formatCustomResponseTimeoutNotice(), /qqbot-cmd-input text="\/new"/);
+assert.match(formatCustomToolNoOutputNotice(), /工具这轮没产出/);
+assert.match(formatCustomToolNoOutputNotice(), /qqbot-cmd-input text="\/bot-fallback summary 20"/);
+assert.match(formatCustomToolNoOutputNotice(), /qqbot-cmd-input text="\/compact"/);
 assert.match(formatCustomContextTooLongNotice(), /\/compact/);
 assert.match(formatCustomContextTooLongNotice(), /\/new/);
+assert.match(formatCustomContextTooLongNotice(), /qqbot-cmd-input text="\/bot-fallback summary 20"/);
 
 assert.equal(selectCustomToolFallbackText([]), null);
 assert.equal(selectCustomToolFallbackText(["  ", "\n"]), null);

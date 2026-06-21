@@ -79,6 +79,12 @@ Added context-too-long fallback classification:
 - `gateway.ts` sends a visible recovery notice that points users to `/compact` and `/new` while releasing the message queue.
 - The fallback deliberately does not auto-reset sessions yet; automatic reset remains a later policy decision because it can discard context.
 
+Improved fallback recovery shortcuts:
+
+- Response-timeout, tool-no-output, and context-too-long user notices now include QQ `<qqbot-cmd-input>` shortcuts for `/compact`, `/new`, and `/bot-fallback summary 20` as appropriate.
+- `/bot-fallback list` and `/bot-fallback summary` append recovery shortcuts for `/compact` and `/new`, so users/admins can inspect an incident and immediately trigger the queue-bypass recovery path without typing slash commands manually.
+- Added fallback tests to lock the command-input recovery hints.
+
 Added structured fallback event logs:
 
 - `src/custom/fallbacks.ts` now builds `custom-fallback` event objects for timeout, context-too-long, late-deliver, and tool-only fallback paths.

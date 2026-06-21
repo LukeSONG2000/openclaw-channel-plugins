@@ -164,6 +164,8 @@ assert.equal(result.reply?.includes("response-timeout"), true);
 assert.equal(result.reply?.includes("group:GROUP_OPENID"), true);
 assert.equal(result.reply?.includes("RUN_ID"), true);
 assert.equal(result.reply?.includes("queue：pending=4, active=1/2, senderPending=3"), true);
+assert.equal(result.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
+assert.equal(result.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
 
 const urgentList = handleCustomFallbackCommand({
   accountId: "default",
@@ -205,6 +207,8 @@ assert.equal(summary.reply?.includes("context-too-long: 1"), true);
 assert.equal(summary.reply?.includes("tool-fallback-text: 1"), true);
 assert.equal(summary.reply?.includes("urgent-queue-bypass: 1"), true);
 assert.equal(summary.reply?.includes("最新：2026-06-21T00:03:00.000Z urgent-queue-bypass"), true);
+assert.equal(summary.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
+assert.equal(summary.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
 
 const empty = handleCustomFallbackCommand({
   accountId: "default",

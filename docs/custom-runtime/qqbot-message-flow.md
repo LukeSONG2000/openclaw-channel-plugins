@@ -369,6 +369,7 @@ Current custom runtime behavior:
 - Custom auth supports temporary grants through text commands and C2C/group inline cards. Requests created outside `customRuntime.adminGroup` are also copied to that management group when configured, and the copy is treated as a guarded proactive group send.
 - Custom poll commands provide the first lightweight interactive-card feature on top of the same C2C/group inline keyboard send paths.
 - Response timeout and context-too-long fallbacks leave `/compact` and `/new` available even when the same peer has an active blocked run.
+- Timeout/no-output/context notices and `/bot-fallback` outputs include QQ command-input shortcuts for `/compact`, `/new`, and `/bot-fallback summary 20` as appropriate, so recovery does not require manually typing slash commands during degraded sessions.
 - `/bot-fallback summary` can be used after a timeout/context incident to confirm whether a recovery command hit the urgent queue-bypass path.
 
 ## Open Items

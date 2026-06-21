@@ -62,15 +62,35 @@ export function isCustomModelSkipOutput(text: string | null | undefined): boolea
 }
 
 export function formatCustomResponseTimeoutNotice(): string {
-  return CUSTOM_RESPONSE_TIMEOUT_NOTICE;
+  return [
+    CUSTOM_RESPONSE_TIMEOUT_NOTICE,
+    "",
+    "可直接点下面的恢复命令：",
+    commandInput("/bot-fallback summary 20", "查看兜底摘要"),
+    commandInput("/compact", "压缩上下文"),
+    commandInput("/new", "新会话"),
+  ].join("\n");
 }
 
 export function formatCustomToolNoOutputNotice(): string {
-  return CUSTOM_TOOL_NO_OUTPUT_NOTICE;
+  return [
+    CUSTOM_TOOL_NO_OUTPUT_NOTICE,
+    "",
+    "可直接点下面的恢复命令：",
+    commandInput("/bot-fallback summary 20", "查看兜底摘要"),
+    commandInput("/compact", "压缩上下文"),
+  ].join("\n");
 }
 
 export function formatCustomContextTooLongNotice(): string {
-  return CUSTOM_CONTEXT_TOO_LONG_NOTICE;
+  return [
+    CUSTOM_CONTEXT_TOO_LONG_NOTICE,
+    "",
+    "建议先压缩；如果仍失败，再开新会话：",
+    commandInput("/compact", "压缩上下文"),
+    commandInput("/new", "新会话"),
+    commandInput("/bot-fallback summary 20", "查看兜底摘要"),
+  ].join("\n");
 }
 
 export function selectCustomToolFallbackText(
@@ -159,6 +179,18 @@ function isCustomContextTooLongErrorText(errText: string): boolean {
     /reduce.*context/,
     /上下文.*(过长|超长|太长)/,
   ].some((pattern) => pattern.test(normalized));
+}
+
+function commandInput(text: string, show: string): string {
+  return `<qqbot-cmd-input text="${escapeCommandInputAttr(text)}" show="${escapeCommandInputAttr(show)}"/>`;
+}
+
+function escapeCommandInputAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
 
 function pruneUndefinedDeep<T>(value: T): T {

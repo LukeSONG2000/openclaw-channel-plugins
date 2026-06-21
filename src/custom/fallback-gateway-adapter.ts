@@ -156,6 +156,7 @@ function formatCustomFallbackList(events: CustomFallbackEvent[], limit: number):
       ...(event.reason ? [`  reason：${truncate(event.reason, 120)}`] : []),
     );
   }
+  lines.push(``, ...formatRecoveryShortcuts());
   return lines.join("\n");
 }
 
@@ -206,6 +207,7 @@ function formatCustomFallbackSummary(events: CustomFallbackEvent[], limit: numbe
       `最新：${formatEventTime(latest.at)} ${latest.kind}`,
     );
   }
+  lines.push(``, ...formatRecoveryShortcuts());
   return lines.join("\n");
 }
 
@@ -276,4 +278,24 @@ function maxNumber(events: CustomFallbackEvent[], key: string): number | null {
 
 function truncate(text: string, maxChars: number): string {
   return text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text;
+}
+
+function formatRecoveryShortcuts(): string[] {
+  return [
+    `恢复命令：`,
+    commandInput("/compact", "压缩上下文"),
+    commandInput("/new", "新会话"),
+  ];
+}
+
+function commandInput(text: string, show: string): string {
+  return `<qqbot-cmd-input text="${escapeCommandInputAttr(text)}" show="${escapeCommandInputAttr(show)}"/>`;
+}
+
+function escapeCommandInputAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
 }
