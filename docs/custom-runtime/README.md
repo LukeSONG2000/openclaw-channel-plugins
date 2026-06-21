@@ -106,6 +106,7 @@ Out of scope for the first custom runtime:
 - `src/custom/group-prompt-context.ts`: pure group prompt context helper for sender label, group subject, group intro/behavior prompt merge, and QQBot system prompt merging.
 - `src/custom/guarded-media-send-gateway-adapter.ts`: gateway-side guarded media auto-send helper for proactive media guard checks, send callbacks, logging, and budget commits.
 - `src/custom/inbound-event-gateway-adapter.ts`: gateway-side inbound event dispatcher for normalized messages, proactive acceptance, group robot events, delete diagnostics, and interaction handoff.
+- `src/custom/inbound-event-handler-gateway-adapter.ts`: gateway-side binding layer that turns shared WebSocket/Webhook event fanout into a per-account handler with known-user, queue, proactive-budget, persistence, and interaction callbacks wired once.
 - `src/custom/typing-keepalive-gateway-adapter.ts`: gateway-side C2C input-notify starter with token refresh retry and keepalive stop handle.
 - `src/custom/inbound-preparation-gateway-adapter.ts`: gateway-side inbound preparation orchestrator for attachment processing, user-content normalization, quote/ref-index caching, body envelope formatting, inbound media context, and voice summary logging.
 - `src/custom/agent-context-gateway-adapter.ts`: gateway-side agent context orchestrator for current-message body, unread history injection, agent-body length logging, and final inbound context payload finalization.

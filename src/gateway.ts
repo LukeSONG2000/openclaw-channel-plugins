@@ -1,7 +1,7 @@
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
 import { getAccessToken, sendGroupMessage, clearTokenCache, stopBackgroundTokenRefresh, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession } from "./session-store.js";
-import { recordKnownUser, flushKnownUsers } from "./known-users.js";
+import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { QQBotApprovalHandler, registerApprovalHandler, unregisterApprovalHandler, getApprovalHandler } from "./approval-handler.js";
@@ -22,7 +22,6 @@ import { createCustomAdminGroupNotificationServiceGateway } from "./custom/admin
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
-import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
   startCustomUpdateCheckLoop,
 } from "./custom/update-check.js";
@@ -38,6 +37,7 @@ import { runQQBotGatewayStartupPreflight } from "./custom/startup-preflight-gate
 import { createCustomInteractionCreateHandlerGateway } from "./custom/interaction-create-handler-gateway-adapter.js";
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 import { createCustomMessageHandlerGateway } from "./custom/message-handler-gateway-adapter.js";
+import { createCustomInboundEventHandlerGateway } from "./custom/inbound-event-handler-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -406,22 +406,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       });
 
       // ============ 统一事件分发（WebSocket/Webhook 共用） ============
+      const inboundEventHandler = createCustomInboundEventHandlerGateway({
+        accountId: account.accountId,
+        runtime: customMessageFlow,
+        enqueueMessage: trySlashCommandOrEnqueue,
+        persistProactiveBudgetState: persistCustomProactiveBudgetState,
+        handleInteraction: async (event) => {
+          await handleInteraction(event);
+        },
+        log,
+      });
       const dispatchInboundEvent = async (t: string, d: unknown): Promise<void> => {
-        await dispatchCustomInboundGatewayEvent({
-          eventType: t,
-          data: d,
-          accountId: account.accountId,
-          recordKnownUser,
-          enqueueMessage: trySlashCommandOrEnqueue,
-          setProactiveAcceptance: (acceptance) => {
-            customMessageFlow.proactiveBudget.setAcceptance(acceptance);
-          },
-          persistProactiveBudgetState: persistCustomProactiveBudgetState,
-          handleInteraction: async (event) => {
-            await handleInteraction(event);
-          },
-          log,
-        });
+        await inboundEventHandler(t, d);
       };
 
       // ============ Webhook 模式：共享 handleMessage，不走 WS ============

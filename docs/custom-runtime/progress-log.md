@@ -1245,3 +1245,10 @@ Added configured scene binding inspection:
 - The adapter preserves existing stop behavior from disabled scenes and group/context gates before dispatch, while avoiding direct `channel.ts` imports so standalone adapter tests do not require the OpenClaw runtime package.
 - Added `tests/custom-message-handler-gateway-adapter.test.ts` for ingress/context/dispatch sequencing, queue snapshot binding, activity recording, typing cleanup, and ingress stop short-circuiting.
 - 同步复核新增初始化目标：首次初始化仍必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`，本轮复跑 `tests/custom-onboarding.test.ts` 通过；写入管理群时继续默认绑定 `system-admin` 场景并保留已有显式 scene override。
+
+抽出 inbound event handler 网关绑定层：
+
+- Added `src/custom/inbound-event-handler-gateway-adapter.ts` to turn the shared WebSocket/Webhook inbound event fanout into a per-account handler with known-user recording, prequeue enqueueing, proactive acceptance updates, persistence, and interaction handoff wired once.
+- `gateway.ts` now constructs this handler beside the message and interaction handlers, then adapts its diagnostic return value to the transport `Promise<void>` callback contract.
+- The lower-level `inbound-event-gateway-adapter.ts` still owns event normalization effects; the new binding layer only connects those effects to the live account runtime and persistence callbacks.
+- Added `tests/custom-inbound-event-handler-gateway-adapter.test.ts` for C2C message enqueue/known-user binding, group proactive rejection persistence, and injectable dispatcher wiring.

@@ -451,6 +451,22 @@ Current implementation status:
 - Logs message delete diagnostics through the dedicated delete inspector.
 - Normalizes `INTERACTION_CREATE` for logging and hands the raw interaction event to the existing interaction handler with async error logging.
 
+### `src/custom/inbound-event-handler-gateway-adapter.ts`
+
+Gateway-side binding layer for per-account inbound event fanout.
+
+Current implementation status:
+
+- Builds the `(eventType, data) => ...` handler shared by WebSocket and Webhook transports.
+- Wires `inbound-event-gateway-adapter.ts` to gateway-owned side effects once per connection: known-user persistence, slash/prequeue enqueueing, proactive acceptance updates, proactive-budget persistence, and interactive-card handling.
+- Keeps proactive acceptance writes on the live per-account `CustomProactiveBudgetRuntime`, so C2C/group receive/reject events update the same state used by guarded proactive sends.
+- Lets tests inject the lower-level dispatcher, making transport fanout binding testable without a WebSocket, Webhook server, or OpenClaw runtime.
+
+Important boundary:
+
+- The handler does not normalize QQ events itself and does not start transports; those remain in the normalizer/dispatcher and WebSocket/Webhook adapters.
+- It keeps `gateway.ts` from knowing individual inbound event effect callbacks while preserving a small wrapper that adapts the returned diagnostic result to the transport `Promise<void>` contract.
+
 ### `src/custom/gateway-lifecycle-gateway-adapter.ts`
 
 Gateway-side connection lifecycle controller shared by WebSocket and Webhook startup paths.
