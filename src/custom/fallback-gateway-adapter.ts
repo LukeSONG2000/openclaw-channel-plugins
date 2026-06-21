@@ -151,6 +151,7 @@ function formatCustomFallbackList(events: CustomFallbackEvent[], limit: number):
       `  响应：hasResponse=${event.hasResponse === undefined ? "unknown" : event.hasResponse ? "yes" : "no"}, block=${event.hasBlockResponse === undefined ? "unknown" : event.hasBlockResponse ? "yes" : "no"}`,
       `  tool：deliver=${event.toolDeliverCount ?? 0}, text=${event.toolTextCount ?? 0}, media=${event.toolMediaCount ?? 0}`,
       ...formatQueueDetails(event),
+      ...formatUrgentDetails(event),
       ...(event.timeoutMs ? [`  timeoutMs：${event.timeoutMs}`] : []),
       ...(event.reason ? [`  reason：${truncate(event.reason, 120)}`] : []),
     );
@@ -233,6 +234,21 @@ function formatQueueDetails(event: CustomFallbackEvent): string[] {
 function numberDetail(event: CustomFallbackEvent, key: string): number | null {
   const value = event.details?.[key];
   return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function stringDetail(event: CustomFallbackEvent, key: string): string | null {
+  const value = event.details?.[key];
+  return typeof value === "string" && value ? value : null;
+}
+
+function formatUrgentDetails(event: CustomFallbackEvent): string[] {
+  if (event.kind !== "urgent-queue-bypass") return [];
+  const command = stringDetail(event, "command") ?? "?";
+  const queuePeerId = stringDetail(event, "queuePeerId") ?? "?";
+  const dropped = numberDetail(event, "droppedQueuedMessages");
+  const afterTotal = numberDetail(event, "queueAfterTotalPending");
+  const afterSender = numberDetail(event, "queueAfterSenderPending");
+  return [`  urgent：command=${command}, dropped=${dropped ?? "?"}, queuePeer=${queuePeerId}, afterPending=${afterTotal ?? "?"}, afterSenderPending=${afterSender ?? "?"}`];
 }
 
 function maxNumber(events: CustomFallbackEvent[], key: string): number | null {

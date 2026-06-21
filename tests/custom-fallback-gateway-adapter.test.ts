@@ -162,6 +162,18 @@ assert.equal(result.reply?.includes("group:GROUP_OPENID"), true);
 assert.equal(result.reply?.includes("RUN_ID"), true);
 assert.equal(result.reply?.includes("queue：pending=4, active=1/2, senderPending=3"), true);
 
+const urgentList = handleCustomFallbackCommand({
+  accountId: "default",
+  message,
+  rawContent: "/bot-fallback list 1",
+  store: {
+    loadEvents: () => [urgentEvent],
+  },
+});
+assert.equal(urgentList.handled, true);
+assert.equal(urgentList.reply?.includes("urgent-queue-bypass"), true);
+assert.equal(urgentList.reply?.includes("urgent：command=/compact, dropped=2, queuePeer=group:GROUP_OPENID, afterPending=6, afterSenderPending=0"), true);
+
 let summaryLimit = 0;
 const summary = handleCustomFallbackCommand({
   accountId: "default",
