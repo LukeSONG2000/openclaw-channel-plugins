@@ -34,11 +34,12 @@ bash ./scripts/upgrade-via-npm.sh --version <version>
 # Run directly if you already have config
 bash ./scripts/upgrade-via-source.sh
 
-# First install / first-time config (appid and secret are required)
-bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
+# First install / first-time config (appid/secret plus custom runtime anchors are required)
+bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret \
+  --admins admin_openid --admin-group group_openid
 ```
 
-> Note: For first-time installation, you must provide `appid` and `secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`); for subsequent upgrades with existing config, run `bash ./scripts/upgrade-via-source.sh` directly.
+> Note: For first-time installation, you must provide `appid` and `secret` (or set `QQBOT_APPID` / `QQBOT_SECRET`) and bind `customRuntime.admins` plus `customRuntime.adminGroup` (or set `QQBOT_CUSTOM_ADMINS` / `QQBOT_CUSTOM_ADMIN_GROUP`). For subsequent upgrades with existing config, run `bash ./scripts/upgrade-via-source.sh` directly.
 
 ---
 

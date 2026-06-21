@@ -8,6 +8,7 @@
 #   .\upgrade-via-npm.ps1 -Version <version>                 # upgrade to specific version
 #   .\upgrade-via-npm.ps1 -SelfVersion                       # upgrade to local package.json version
 #   .\upgrade-via-npm.ps1 -AppId <appid> -Secret <secret>    # configure on first install
+#   .\upgrade-via-npm.ps1 -Admins <openid,...> -AdminGroup <group_openid>
 #   .\upgrade-via-npm.ps1 -NoRestart                         # file replacement only (for hot-upgrade)
 
 param(
@@ -15,6 +16,8 @@ param(
     [switch]$SelfVersion,
     [string]$AppId = "",
     [string]$Secret = "",
+    [string]$Admins = "",
+    [string]$AdminGroup = "",
     [switch]$NoRestart,
     [string]$Tag = "",
     [string]$Pkg = "",
@@ -53,6 +56,8 @@ if ($Help) {
     Write-Host "  -Pkg [scope/name]    Custom npm package (e.g. ryantest/openclaw-qqbot)"
     Write-Host "  -AppId [appid]       QQ bot appid (required on first install)"
     Write-Host "  -Secret [secret]     QQ bot secret (required on first install)"
+    Write-Host "  -Admins [ids]        customRuntime admin openids, comma-separated"
+    Write-Host "  -AdminGroup [id]     customRuntime management group_openid"
     exit 0
 }
 
@@ -79,6 +84,14 @@ if ((-not $AppId) -and (-not $Secret) -and $env:QQBOT_TOKEN) {
     $parts = $env:QQBOT_TOKEN -split ":", 2
     $AppId = $parts[0]
     $Secret = $parts[1]
+}
+if (-not $Admins) {
+    if ($env:QQBOT_CUSTOM_ADMINS) { $Admins = $env:QQBOT_CUSTOM_ADMINS }
+    elseif ($env:QQBOT_ADMINS) { $Admins = $env:QQBOT_ADMINS }
+}
+if (-not $AdminGroup) {
+    if ($env:QQBOT_CUSTOM_ADMIN_GROUP) { $AdminGroup = $env:QQBOT_CUSTOM_ADMIN_GROUP }
+    elseif ($env:QQBOT_ADMIN_GROUP) { $AdminGroup = $env:QQBOT_ADMIN_GROUP }
 }
 
 # Detect CLI
@@ -431,6 +444,35 @@ if ($AppId -and $Secret) {
 } elseif ($AppId -or $Secret) {
     Write-Host ""
     Write-Host "[WARN] -AppId and -Secret must be provided together" -ForegroundColor Yellow
+}
+
+$CONFIG_FILE = Join-Path (Join-Path $HOME_DIR ".$CMD") "$CMD.json"
+$InitScript = Join-Path $TARGET_DIR "scripts" "apply-custom-runtime-init.mjs"
+if (($Admins -or $AdminGroup) -and (Test-Path $CONFIG_FILE) -and (Test-Path $InitScript)) {
+    Write-Host ""
+    Write-Host "[Config] Writing customRuntime admins and management group..."
+    $initArgs = @($InitScript, "--config", $CONFIG_FILE)
+    if ($Admins) { $initArgs += @("--admins", $Admins) }
+    if ($AdminGroup) { $initArgs += @("--admin-group", $AdminGroup) }
+    try {
+        & node @initArgs
+        if ($LASTEXITCODE -eq 0) {
+            Write-Host "  customRuntime initialization binding saved"
+        } else {
+            Write-Host "  [WARN] customRuntime initialization binding failed" -ForegroundColor Yellow
+        }
+    } catch {
+        Write-Host "  [WARN] customRuntime initialization binding failed: $_" -ForegroundColor Yellow
+    }
+} elseif ((Test-Path $CONFIG_FILE) -and (Test-Path $InitScript)) {
+    Write-Host ""
+    Write-Host "[Config] Checking customRuntime initialization binding..."
+    try {
+        & node $InitScript --config $CONFIG_FILE --status-only --require-ready
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  [WARN] customRuntime admins or management group not bound; use -Admins and -AdminGroup for first initialization" -ForegroundColor Yellow
+        }
+    } catch {}
 }
 
 # [5/5] Restart gateway

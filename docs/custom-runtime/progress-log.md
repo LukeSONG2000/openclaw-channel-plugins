@@ -412,6 +412,13 @@ Added custom runtime admin initialization anchors:
 - `/bot-auth status` now reports bound admins, bound management group, and whether initialization is complete or missing `admins`/`adminGroup`.
 - Updated docs and tests for admin-group binding, onboarding status output, and approval-request propagation.
 
+Closed the install-script initialization gap:
+
+- Added `scripts/apply-custom-runtime-init.mjs` as the shared helper for writing and inspecting `channels.qqbot.customRuntime.admins` plus `adminGroup`.
+- `scripts/upgrade-via-npm.sh`, `scripts/upgrade-via-source.sh`, and `scripts/upgrade-via-npm.ps1` now accept `--admins` / `--admin-group`; environment fallbacks are `QQBOT_CUSTOM_ADMINS` / `QQBOT_CUSTOM_ADMIN_GROUP`.
+- When no admin binding arguments are supplied, install scripts print the current binding status and warn when initialization is incomplete, so `appid`/`secret` alone no longer looks like a complete custom runtime setup.
+- Added `tests/custom-runtime-init-script.test.mjs` and updated install/upgrade docs with first-install examples that include admin and management-group binding.
+
 Wired approval requests to the management group:
 
 - Added a pure `buildCustomAuthAdminGroupNotification()` helper that creates a management-group approval notification only when the request has `adminGroup` and the source peer is not already that group.

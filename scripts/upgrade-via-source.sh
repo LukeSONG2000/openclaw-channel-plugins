@@ -36,6 +36,8 @@ cd "$PROJ_DIR"
 APPID=""
 SECRET=""
 MARKDOWN=""
+CUSTOM_ADMINS=""
+CUSTOM_ADMIN_GROUP=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -51,6 +53,16 @@ while [[ $# -gt 0 ]]; do
             MARKDOWN="$2"
             shift 2
             ;;
+        --admin|--admins)
+            [ -z "$2" ] && echo "❌ $1 需要参数" && exit 1
+            CUSTOM_ADMINS="${CUSTOM_ADMINS:+$CUSTOM_ADMINS,}$2"
+            shift 2
+            ;;
+        --admin-group|--adminGroup)
+            [ -z "$2" ] && echo "❌ $1 需要参数" && exit 1
+            CUSTOM_ADMIN_GROUP="$2"
+            shift 2
+            ;;
         -h|--help)
             echo "用法: $0 [选项]"
             echo ""
@@ -58,6 +70,8 @@ while [[ $# -gt 0 ]]; do
             echo "  --appid <appid>       QQ机器人 appid"
             echo "  --secret <secret>     QQ机器人 secret"
             echo "  --markdown <yes|no>   是否启用 markdown 消息格式（默认: no）"
+            echo "  --admins <openid,...> customRuntime 管理员 openid（多个用逗号分隔）"
+            echo "  --admin-group <openid> customRuntime 管理群 group_openid"
             echo "  -h, --help            显示帮助信息"
             echo ""
             echo "也可以通过环境变量设置:"
@@ -65,6 +79,8 @@ while [[ $# -gt 0 ]]; do
             echo "  QQBOT_SECRET          QQ机器人 secret"
             echo "  QQBOT_TOKEN           QQ机器人 token (appid:secret)"
             echo "  QQBOT_MARKDOWN        是否启用 markdown（yes/no）"
+            echo "  QQBOT_CUSTOM_ADMINS   customRuntime 管理员 openid"
+            echo "  QQBOT_CUSTOM_ADMIN_GROUP customRuntime 管理群 group_openid"
             echo ""
             echo "不带参数时，将使用已有配置直接启动。"
             echo ""
@@ -83,6 +99,8 @@ done
 APPID="${APPID:-$QQBOT_APPID}"
 SECRET="${SECRET:-$QQBOT_SECRET}"
 MARKDOWN="${MARKDOWN:-$QQBOT_MARKDOWN}"
+CUSTOM_ADMINS="${CUSTOM_ADMINS:-${QQBOT_CUSTOM_ADMINS:-$QQBOT_ADMINS}}"
+CUSTOM_ADMIN_GROUP="${CUSTOM_ADMIN_GROUP:-${QQBOT_CUSTOM_ADMIN_GROUP:-$QQBOT_ADMIN_GROUP}}"
 
 echo "========================================="
 echo "  qqbot 一键更新启动脚本"
@@ -950,6 +968,21 @@ case "$start_choice" in
                     fs.writeFileSync(process.env._CFG, JSON.stringify(cfg, null, 4) + "\n");
                 ' 2>&1 || echo "  ⚠️  配置写入失败"
                 echo "  ✅ 已恢复 channels.qqbot 配置（含 token/markdown）"
+
+                _init_script="$PROJ_DIR/scripts/apply-custom-runtime-init.mjs"
+                if [ -f "$_init_script" ]; then
+                    if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ]; then
+                        echo "  写入 customRuntime 管理员和管理群..."
+                        _init_args=(--config "$_target_cfg")
+                        [ -n "$CUSTOM_ADMINS" ] && _init_args+=(--admins "$CUSTOM_ADMINS")
+                        [ -n "$CUSTOM_ADMIN_GROUP" ] && _init_args+=(--admin-group "$CUSTOM_ADMIN_GROUP")
+                        node "$_init_script" "${_init_args[@]}" || echo "  ⚠️  customRuntime 初始化绑定写入失败"
+                    else
+                        node "$_init_script" --config "$_target_cfg" --status-only --require-ready || \
+                            echo "  ⚠️  未绑定 customRuntime 管理员或管理群；首次初始化建议使用 --admins 和 --admin-group"
+                    fi
+                fi
+
                 _need_reload=1
                 # 清空暂存变量，防止 EXIT trap 重复恢复
                 _QQBOT_CHANNEL_STASH=""
@@ -1037,6 +1070,21 @@ case "$start_choice" in
                 fs.writeFileSync(process.env._CFG, JSON.stringify(cfg, null, 4) + "\n");
             ' 2>/dev/null || true
             echo "  已恢复 channels.qqbot 配置"
+
+            _init_script="$PROJ_DIR/scripts/apply-custom-runtime-init.mjs"
+            if [ -f "$_init_script" ]; then
+                if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ]; then
+                    echo "  写入 customRuntime 管理员和管理群..."
+                    _init_args=(--config "$_STASH_CFG")
+                    [ -n "$CUSTOM_ADMINS" ] && _init_args+=(--admins "$CUSTOM_ADMINS")
+                    [ -n "$CUSTOM_ADMIN_GROUP" ] && _init_args+=(--admin-group "$CUSTOM_ADMIN_GROUP")
+                    node "$_init_script" "${_init_args[@]}" || echo "  ⚠️  customRuntime 初始化绑定写入失败"
+                else
+                    node "$_init_script" --config "$_STASH_CFG" --status-only --require-ready || \
+                        echo "  ⚠️  未绑定 customRuntime 管理员或管理群；首次初始化建议使用 --admins 和 --admin-group"
+                fi
+            fi
+
             _QQBOT_CHANNEL_STASH=""
         fi
         echo ""

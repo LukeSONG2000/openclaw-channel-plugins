@@ -12,6 +12,7 @@
 #   upgrade-via-npm.sh --version <version>                # 升级到指定版本
 #   upgrade-via-npm.sh --self-version                     # 升级到当前仓库 package.json 版本
 #   upgrade-via-npm.sh --appid <appid> --secret <secret>  # 首次安装时配置 appid/secret
+#   upgrade-via-npm.sh --admins <openid,...> --admin-group <group_openid>
 #   upgrade-via-npm.sh --no-restart                       # 只做文件替换，不重启 gateway
 #   upgrade-via-npm.sh --timeout 600                      # 自定义安装超时时间（秒）
 
@@ -526,6 +527,8 @@ PLUGIN_ID="openclaw-qqbot"
 TARGET_VERSION=""
 APPID=""
 SECRET=""
+CUSTOM_ADMINS=""
+CUSTOM_ADMIN_GROUP=""
 NO_RESTART=false
 DISABLE_BUILTIN=true
 INSTALL_TIMEOUT=1000
@@ -545,11 +548,14 @@ print_usage() {
   --pkg <scope/name>    指定 npm 包名
   --appid <appid>       QQ机器人 appid
   --secret <secret>     QQ机器人 secret
+  --admins <openid,...> customRuntime 管理员 openid（多个用逗号分隔）
+  --admin-group <openid> customRuntime 管理群 group_openid
   --no-restart          只做文件替换，不重启 gateway
   --disable-builtin     额外删除内置冲突插件目录（配置禁用默认执行）
   --timeout <秒>        自定义安装超时（默认1000）
 
 环境变量: QQBOT_APPID / QQBOT_SECRET / QQBOT_TOKEN (appid:secret)
+          QQBOT_CUSTOM_ADMINS / QQBOT_CUSTOM_ADMIN_GROUP
 EOF
 }
 
@@ -559,6 +565,8 @@ while [[ $# -gt 0 ]]; do
         --self-version) [ -z "$LOCAL_VERSION" ] && echo "❌ 无法读取版本" && exit 1; TARGET_VERSION="$LOCAL_VERSION"; shift ;;
         --appid) [ -z "$2" ] && echo "❌ --appid 需要参数" && exit 1; APPID="$2"; shift 2 ;;
         --secret) [ -z "$2" ] && echo "❌ --secret 需要参数" && exit 1; SECRET="$2"; shift 2 ;;
+        --admin|--admins) [ -z "$2" ] && echo "❌ $1 需要参数" && exit 1; CUSTOM_ADMINS="${CUSTOM_ADMINS:+$CUSTOM_ADMINS,}$2"; shift 2 ;;
+        --admin-group|--adminGroup) [ -z "$2" ] && echo "❌ $1 需要参数" && exit 1; CUSTOM_ADMIN_GROUP="$2"; shift 2 ;;
         --pkg) [ -z "$2" ] && echo "❌ --pkg 需要参数" && exit 1; _p="$2"; [[ "$_p" != @* ]] && _p="@$_p"; PKG_NAME="$_p"; shift 2 ;;
         --no-restart) NO_RESTART=true; shift ;;
         --disable-builtin) DISABLE_BUILTIN=true; shift ;;
@@ -575,6 +583,8 @@ APPID="${APPID:-$QQBOT_APPID}"; SECRET="${SECRET:-$QQBOT_SECRET}"
 if [ -z "$APPID" ] && [ -z "$SECRET" ] && [ -n "$QQBOT_TOKEN" ]; then
     APPID="${QQBOT_TOKEN%%:*}"; SECRET="${QQBOT_TOKEN#*:}"
 fi
+CUSTOM_ADMINS="${CUSTOM_ADMINS:-${QQBOT_CUSTOM_ADMINS:-$QQBOT_ADMINS}}"
+CUSTOM_ADMIN_GROUP="${CUSTOM_ADMIN_GROUP:-${QQBOT_CUSTOM_ADMIN_GROUP:-$QQBOT_ADMIN_GROUP}}"
 
 # 检测 openclaw
 command -v openclaw &>/dev/null || { echo "❌ 未找到 openclaw"; exit 1; }
@@ -1033,6 +1043,37 @@ if [ -n "$APPID" ] && [ -n "$SECRET" ]; then
     fi
 elif [ -n "$APPID" ] || [ -n "$SECRET" ]; then
     echo ""; echo "⚠️  --appid 和 --secret 必须同时提供"
+fi
+
+if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ]; then
+    echo ""
+    echo "[配置] 写入 customRuntime 管理员和管理群..."
+    if [ ! -f "$CONFIG_FILE" ]; then
+        echo "  ❌ 配置文件不存在，请手动编辑 $CONFIG_FILE"
+    else
+        INIT_SCRIPT="$TARGET_DIR/scripts/apply-custom-runtime-init.mjs"
+        [ ! -f "$INIT_SCRIPT" ] && INIT_SCRIPT="$PROJECT_DIR/scripts/apply-custom-runtime-init.mjs"
+        if [ -f "$INIT_SCRIPT" ]; then
+            _init_args=(--config "$CONFIG_FILE")
+            [ -n "$CUSTOM_ADMINS" ] && _init_args+=(--admins "$CUSTOM_ADMINS")
+            [ -n "$CUSTOM_ADMIN_GROUP" ] && _init_args+=(--admin-group "$CUSTOM_ADMIN_GROUP")
+            if node "$INIT_SCRIPT" "${_init_args[@]}"; then
+                echo "  ✅ customRuntime 初始化绑定写入成功"
+            else
+                echo "  ❌ customRuntime 初始化绑定写入失败"
+            fi
+        else
+            echo "  ❌ 缺少初始化辅助脚本: $INIT_SCRIPT"
+        fi
+    fi
+else
+    INIT_SCRIPT="$TARGET_DIR/scripts/apply-custom-runtime-init.mjs"
+    if [ -f "$CONFIG_FILE" ] && [ -f "$INIT_SCRIPT" ]; then
+        echo ""
+        echo "[配置] 检查 customRuntime 初始化绑定..."
+        node "$INIT_SCRIPT" --config "$CONFIG_FILE" --status-only --require-ready || \
+            echo "  ⚠️  未绑定管理员或管理群；首次初始化建议使用 --admins 和 --admin-group"
+    fi
 fi
 
 # ============================================================================

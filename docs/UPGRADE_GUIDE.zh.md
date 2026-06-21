@@ -34,11 +34,12 @@ bash ./scripts/upgrade-via-npm.sh --version <version>
 # 已有配置时可直接执行
 bash ./scripts/upgrade-via-source.sh
 
-# 首次安装/首次配置（必须提供 appid 和 secret）
-bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret
+# 首次安装/首次配置（必须提供 appid/secret，并绑定管理员和管理群）
+bash ./scripts/upgrade-via-source.sh --appid your_appid --secret your_secret \
+  --admins admin_openid --admin-group group_openid
 ```
 
-> 注意：首次安装必须设置 `appid` 和 `secret`（或设置环境变量 `QQBOT_APPID` / `QQBOT_SECRET`）；后续升级如已有配置可直接执行 `bash ./scripts/upgrade-via-source.sh`。
+> 注意：首次安装必须设置 `appid` 和 `secret`（或设置环境变量 `QQBOT_APPID` / `QQBOT_SECRET`），并绑定 `customRuntime.admins` 与 `customRuntime.adminGroup`（或设置 `QQBOT_CUSTOM_ADMINS` / `QQBOT_CUSTOM_ADMIN_GROUP`）。后续升级如已有配置可直接执行 `bash ./scripts/upgrade-via-source.sh`。
 
 ---
 

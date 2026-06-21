@@ -291,7 +291,8 @@ Toggle group @trigger behavior at runtime — changes persist instantly, no rest
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/tencent-connect/openclaw-qqbot/main/scripts/upgrade-via-npm.sh \
-  | bash -s -- --appid YOUR_APPID --secret YOUR_SECRET
+  | bash -s -- --appid YOUR_APPID --secret YOUR_SECRET \
+      --admins ADMIN_OPENID --admin-group GROUP_OPENID
 ```
 
 One command does it all: download script → cleanup old plugins → install → configure channel → restart service. Once done, open QQ and start chatting!
@@ -305,10 +306,12 @@ One command does it all: download script → cleanup old plugins → install →
 
 ```bash
 # Via npm
-bash ./scripts/upgrade-via-npm.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-via-npm.sh --appid YOUR_APPID --secret YOUR_SECRET \
+  --admins ADMIN_OPENID --admin-group GROUP_OPENID
 
 # Or via source
-bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
+bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET \
+  --admins ADMIN_OPENID --admin-group GROUP_OPENID
 ```
 
 **Common flags:**
@@ -316,11 +319,12 @@ bash ./scripts/upgrade-via-source.sh --appid YOUR_APPID --secret YOUR_SECRET
 | Flag | Description |
 |------|-------------|
 | `--appid <id> --secret <secret>` | Configure channel (required for first install, or to change credentials) |
+| `--admins <openid,...> --admin-group <group_openid>` | Bind customRuntime administrators and management group during initialization |
 | `--version <version>` | Install a specific version (npm script only) |
 | `--self-version` | Install the version from local `package.json` (npm script only) |
 | `-h` / `--help` | Show full usage |
 
-> Environment variables `QQBOT_APPID` / `QQBOT_SECRET` are also supported.
+> Environment variables `QQBOT_APPID` / `QQBOT_SECRET` and `QQBOT_CUSTOM_ADMINS` / `QQBOT_CUSTOM_ADMIN_GROUP` are also supported.
 
 **Option C: Manual Install / Upgrade**
 
