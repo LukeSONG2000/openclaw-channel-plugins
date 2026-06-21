@@ -15,7 +15,7 @@ import {
 } from "./group-history.js";
 
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, formatMessageReferenceForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
-import { matchSlashCommand, getFrameworkVersion, type SlashCommandContext, type SlashCommandFileResult, type SlashCommandDelegateResult } from "./slash-commands.js";
+import { getFrameworkVersion } from "./slash-commands.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
 import { startImageServer, isImageServerRunning, type ImageServerConfig } from "./image-server.js";
 import { resolveTTSConfig } from "./utils/audio-convert.js";
@@ -81,8 +81,6 @@ import {
   parseLegacyApprovalInteractionButton,
 } from "./custom/interaction-event-normalizer.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
-import { handleCustomSlashGatewayCommand } from "./custom/slash-gateway-adapter.js";
-import { applyCustomSlashGatewayEffects } from "./custom/slash-effects-gateway-adapter.js";
 import { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { applyCustomTaskAsyncStatusGateway } from "./custom/task-execution-effects-gateway-adapter.js";
 import {
@@ -138,8 +136,7 @@ import {
   type CustomUpdateCheckResult,
 } from "./custom/update-check.js";
 import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-gateway-adapter.js";
-import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
-import { applyCustomUrgentQueueBypass } from "./custom/urgent-queue-bypass-gateway-adapter.js";
+import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
 import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
 
 // ============ Interaction 处理 ============
@@ -634,20 +631,40 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // /approve  — 审批决策，必须在 agent 等待审批时立即执行，否则死锁
   // /new 和 /compact — 上下文异常或超长时必须能绕过队列，恢复客户端可操作性
   const trySlashCommandOrEnqueue = async (msg: QueuedMessage): Promise<void> => {
-    const rawContent = (msg.content ?? "").trim();
-    const content = msg.type === "group" && msg.mentions?.length
-      ? (stripMentionText(rawContent, msg.mentions as any) ?? rawContent).trim()
-      : rawContent;
-    if (!content.startsWith("/")) {
-      msgQueue.enqueue(msg);
-      return;
-    }
-
-    const urgentBypass = applyCustomUrgentQueueBypass({
-      accountId: account.accountId,
-      content,
+    await handleCustomSlashPrequeueGateway({
+      cfg: cfg as any,
+      account: {
+        accountId: account.accountId,
+        appId: account.appId,
+        accountConfig: account.config,
+      },
+      runtime: customMessageFlow,
       message: msg,
       queue: msgQueue,
+      effects: {
+        getConfigApi: () => getQQBotRuntime().config as {
+          loadConfig?: () => Record<string, unknown>;
+          writeConfigFile: (cfg: unknown) => Promise<void>;
+        },
+        persistAuthState: persistCustomAuthState,
+        persistTaskState: persistCustomTaskState,
+        persistPollState: persistCustomPollState,
+        persistGameState: persistCustomGameState,
+        persistDeployConfirmationState: persistCustomDeployConfirmationState,
+        sendAdminGroupNotification: async (notification) => {
+          await sendCustomAuthAdminGroupNotification({ ...notification, source: "slash" });
+        },
+        sendTaskNotificationText: async (delivery) => {
+          await sendTextToTarget({
+            target: delivery.target,
+            account,
+            cfg,
+            log,
+          }, delivery.text);
+        },
+      },
+      taskExecutor: customTaskExecutor ?? undefined,
+      stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
       recordFallbackEvent: (event) => {
         recordCustomFallbackEventGateway({
           accountId: account.accountId,
@@ -655,40 +672,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           log,
         });
       },
-      log,
-    });
-    if (urgentBypass.handled) {
-      return;
-    }
-
-    const receivedAt = Date.now();
-    const peerId = msgQueue.getMessagePeerId(msg);
-
-    const cmdCtx: SlashCommandContext = {
-      type: msg.type,
-      senderId: msg.senderId,
-      senderName: msg.senderName,
-      messageId: msg.messageId,
-      eventTimestamp: msg.timestamp,
-      receivedAt,
-      rawContent: content,
-      args: "",
-      channelId: msg.channelId,
-      groupOpenid: msg.groupOpenid,
-      accountId: account.accountId,
-      appId: account.appId,
-      accountConfig: account.config,
-      queueSnapshot: msgQueue.getSnapshot(peerId),
-    };
-
-    try {
-      const sendSlashTextReply = async (text: string): Promise<void> => {
+      sendText: async (target, text) => {
         const token = await getAccessToken(account.appId, account.clientSecret);
-        const target = resolveCustomSlashReplyTarget(msg);
-        if (!target) {
-          log?.error(`[qqbot:${account.accountId}] Unable to resolve slash reply target for ${msg.type} message ${msg.messageId}`);
-          return;
-        }
         if (target.kind === "c2c") {
           await sendC2CMessage(token, target.userOpenid, text, target.msgId);
         } else if (target.kind === "group") {
@@ -698,135 +683,27 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         } else {
           await sendDmMessage(token, target.guildId, text, target.msgId);
         }
-      };
-
-      const sendSlashKeyboardReply = async (text: string, keyboard?: import("./types.js").InlineKeyboard): Promise<void> => {
-        if (!keyboard) {
-          await sendSlashTextReply(text);
-          return;
-        }
+      },
+      sendKeyboard: async (target, text, keyboard) => {
         const token = await getAccessToken(account.appId, account.clientSecret);
-        if (msg.type === "c2c") {
-          await sendC2CMessageWithInlineKeyboard(token, msg.senderId, text, keyboard, msg.messageId);
-        } else if (msg.type === "group" && msg.groupOpenid) {
-          await sendGroupMessageWithInlineKeyboard(token, msg.groupOpenid, text, keyboard, msg.messageId);
+        if (target.kind === "c2c") {
+          await sendC2CMessageWithInlineKeyboard(token, target.userOpenid, text, keyboard, target.msgId);
         } else {
-          await sendSlashTextReply(text);
+          await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.msgId);
         }
-      };
-
-      const customSlashCommand = handleCustomSlashGatewayCommand({
-        cfg: cfg as any,
-        accountId: account.accountId,
-        runtime: customMessageFlow,
-        message: msg,
-        rawContent: content,
-        queueStatus: {
-          peerId,
-          snapshot: msgQueue.getSnapshot(peerId),
-        },
-        taskExecutor: customTaskExecutor ?? undefined,
-      });
-      if (customSlashCommand.handled) {
-        await applyCustomSlashGatewayEffects({
-          accountId: account.accountId,
-          cfg: cfg as any,
-          result: customSlashCommand,
-          getConfigApi: () => getQQBotRuntime().config as {
-            loadConfig?: () => Record<string, unknown>;
-            writeConfigFile: (cfg: unknown) => Promise<void>;
-          },
-          persistAuthState: persistCustomAuthState,
-          persistTaskState: persistCustomTaskState,
-          persistPollState: persistCustomPollState,
-          persistGameState: persistCustomGameState,
-          persistDeployConfirmationState: persistCustomDeployConfirmationState,
-          sendText: sendSlashTextReply,
-          sendKeyboard: sendSlashKeyboardReply,
-          sendAdminGroupNotification: async (notification) => {
-            await sendCustomAuthAdminGroupNotification({ ...notification, source: "slash" });
-          },
-          sendTaskNotificationText: async (delivery) => {
-            await sendTextToTarget({
-              target: delivery.target,
-              account,
-              cfg,
-              log,
-            }, delivery.text);
-          },
-          log,
-        });
-        return;
-      }
-
-      const reply = await matchSlashCommand(cmdCtx);
-      if (reply === null) {
-        // 不是插件级指令，正常入队交给框架
-        msgQueue.enqueue(msg);
-        return;
-      }
-
-      // 委托给 AI 模型：用加工后的 prompt 替换原始消息入队
-      const isDelegateResult = typeof reply === "object" && reply !== null && "delegatePrompt" in reply;
-      if (isDelegateResult) {
-        const delegatePrompt = (reply as SlashCommandDelegateResult).delegatePrompt;
-        log?.info(`[qqbot:${account.accountId}] Slash command delegated to AI: ${content.slice(0, 40)}`);
-        msg.content = delegatePrompt;
-        msgQueue.enqueue(msg);
-        return;
-      }
-
-      // 命中插件级指令，直接回复
-      log?.info(`[qqbot:${account.accountId}] Slash command matched: ${content}, replying directly`);
-      const token = await getAccessToken(account.appId, account.clientSecret);
-
-      // 解析回复：纯文本 or 带文件的结果
-      const isFileResult = typeof reply === "object" && reply !== null && "filePath" in reply;
-      const replyText = isFileResult ? (reply as SlashCommandFileResult).text : reply as string;
-      const replyFile = isFileResult ? (reply as SlashCommandFileResult).filePath : null;
-
-      // 先发送文本回复
-      const slashReplyTarget = resolveCustomSlashReplyTarget(msg);
-      if (!slashReplyTarget) {
-        log?.error(`[qqbot:${account.accountId}] Unable to resolve slash reply target for ${msg.type} message ${msg.messageId}`);
-        return;
-      }
-      if (slashReplyTarget.kind === "c2c") {
-        await sendC2CMessage(token, slashReplyTarget.userOpenid, replyText, slashReplyTarget.msgId);
-      } else if (slashReplyTarget.kind === "group") {
-        await sendGroupMessage(token, slashReplyTarget.groupOpenid, replyText, slashReplyTarget.msgId);
-      } else if (slashReplyTarget.kind === "channel") {
-        await sendChannelMessage(token, slashReplyTarget.channelId, replyText, slashReplyTarget.msgId);
-      } else {
-        await sendDmMessage(token, slashReplyTarget.guildId, replyText, slashReplyTarget.msgId);
-      }
-
-      // 如果有文件需要发送
-      if (replyFile) {
-        try {
-          const mediaTarget = resolveCustomSlashReplyMediaTarget(msg);
-          if (!mediaTarget) {
-            log?.error(`[qqbot:${account.accountId}] Slash command file result is not supported for ${msg.type} message ${msg.messageId}`);
-            return;
-          }
-          const mediaCtx: MediaTargetContext = {
-            targetType: mediaTarget.targetType,
-            targetId: mediaTarget.targetId,
-            account,
-            replyToId: msg.messageId,
-            logPrefix: `[qqbot:${account.accountId}]`,
-          };
-          await sendDocument(mediaCtx, replyFile);
-          log?.info(`[qqbot:${account.accountId}] Slash command file sent: ${replyFile}`);
-        } catch (fileErr) {
-          log?.error(`[qqbot:${account.accountId}] Failed to send slash command file: ${fileErr}`);
-        }
-      }
-    } catch (err) {
-      log?.error(`[qqbot:${account.accountId}] Slash command error: ${err}`);
-      // 出错时回退到正常入队
-      msgQueue.enqueue(msg);
-    }
+      },
+      sendFile: async (mediaTarget, filePath, message) => {
+        const mediaCtx: MediaTargetContext = {
+          targetType: mediaTarget.targetType,
+          targetId: mediaTarget.targetId,
+          account,
+          replyToId: message.messageId,
+          logPrefix: `[qqbot:${account.accountId}]`,
+        };
+        await sendDocument(mediaCtx, filePath);
+      },
+      log,
+    });
   };
 
   abortSignal.addEventListener("abort", () => {

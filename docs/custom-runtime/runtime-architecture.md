@@ -671,7 +671,25 @@ Current implementation status:
 - Applies custom slash authorization for plugin-level and custom commands.
 - Delegates authorized custom runtime commands to `src/custom/slash-router.ts`.
 - Merges auth-stage and route-stage typed effects before returning to `gateway.ts`.
-- Leaves `src/custom/slash-effects-gateway-adapter.ts` to apply typed effects, while `gateway.ts` still owns platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
+- Leaves `src/custom/slash-prequeue-gateway-adapter.ts` to run prequeue command orchestration and `src/custom/slash-effects-gateway-adapter.ts` to apply typed effects.
+
+### `src/custom/slash-prequeue-gateway-adapter.ts`
+
+Gateway-side prequeue slash command orchestrator.
+
+Current implementation status:
+
+- Normalizes group slash content after removing bot mentions, preserving `/command` use when a user sends `@bot /command`.
+- Runs urgent queue bypass before any custom or official slash matching so `/stop`, `/approve`, `/new`, and `/compact` remain usable during blocked peer queues.
+- Runs custom runtime slash commands before official plugin slash commands and applies their typed effects through `src/custom/slash-effects-gateway-adapter.ts`.
+- Falls through to official plugin slash command matching, preserving the three existing outcomes: enqueue unknown slash messages, delegate selected commands to the AI by replacing `message.content`, or reply directly.
+- Resolves slash reply targets and file media targets inside the adapter while keeping token lookup and QQ send APIs behind injected callbacks.
+
+Important boundary:
+
+- This adapter does not own QQ credentials, access tokens, or media upload implementation.
+- It does not mutate persistent state directly; persistence still flows through injected effect callbacks.
+- It centralizes slash prequeue ordering so gateway queue recovery paths and custom auth command paths do not drift apart.
 
 ### `src/custom/slash-effects-gateway-adapter.ts`
 

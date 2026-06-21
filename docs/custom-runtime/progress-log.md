@@ -1033,3 +1033,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates `drop_other_mention`、`skip_no_mention` 和 mention ingress/catch-up metadata extraction to the adapter, removing the local custom unread/legacy history closures from the group gate path.
 - The adapter preserves the previous fallback boundary: custom unread handles scene-enabled peers first; peers without custom unread still write legacy pending history with attachment summaries.
 - Added `tests/custom-group-ingress-gateway-adapter.test.ts` for custom unread skipped messages, legacy fallback with attachments, mention catch-up metadata, and disabled-runtime no-op behavior.
+
+抽出 slash prequeue 网关编排层：
+
+- Added `src/custom/slash-prequeue-gateway-adapter.ts` to own slash 入队前编排：群聊 mention 清理后的 `/command` 识别、紧急命令绕队列、custom slash effect 应用、官方 slash 匹配、delegate 入队和文件回复目标解析。
+- `gateway.ts` now injects token-based QQ text/keyboard/file send callbacks and state persistence callbacks into the adapter, removing the inline slash command try/catch flow from the main gateway body.
+- The adapter preserves ordering: `/stop`、`/approve`、`/new`、`/compact` 先于 custom slash 和官方 slash，custom slash 先于官方插件命令，未知 slash 继续入队交给框架。
+- Added `tests/custom-slash-prequeue-gateway-adapter.test.ts` for non-slash enqueue, urgent bypass, custom slash reply, official slash null/delegate/text/file replies, mention-stripped commands, and error fallback enqueue.
