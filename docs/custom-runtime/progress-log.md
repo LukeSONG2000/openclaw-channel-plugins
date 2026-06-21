@@ -1266,3 +1266,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now creates one connection handler bundle after `beginConnect()` and only keeps the transport-level choice between Webhook and WebSocket, reducing repeated wiring of runtime slices, persistence callbacks, and per-connection group history state.
 - The adapter returns the active task executor and unread scheduler so the existing lifecycle controller can still dispose them on reconnect/abort without owning message-flow details.
 - Added `tests/custom-connection-handlers-gateway-adapter.test.ts` for runtime-service factory wiring, message/interaction/inbound handler composition, scheduler closure binding, and inbound interaction handoff.
+
+抽出 account services 网关启动绑定层：
+
+- Added `src/custom/gateway-account-services-gateway-adapter.ts` to own account-scoped startup wiring for the message queue, custom message-flow state controller, proactive guard builder, admin-group notification service, custom update check loop, and slash prequeue handler.
+- `gateway.ts` now receives a compact account-services bundle (`queue`, `state`, `runtime`, `buildProactiveGuard`, `adminGroupNotifications`, `updateCheck`, `trySlashCommandOrEnqueue`) instead of constructing each service inline.
+- The adapter preserves management-group sends through the same proactive guard and keeps update checks manual/notification-only; it also keeps slash auth admin-group copies marked with `source="slash"`.
+- Added `tests/custom-gateway-account-services-gateway-adapter.test.ts` for queue/state factories, restored-auth logging, proactive guard persistence, admin notification/update-check binding, task-executor getter wiring, and slash prequeue execution.

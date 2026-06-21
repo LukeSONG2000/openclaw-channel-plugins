@@ -62,6 +62,7 @@ Out of scope for the first custom runtime:
 - `src/custom/auth.ts`: scene/capability authorization runtime, admin/admin-group binding inspection, temporary grants, and approval request intents.
 - `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command and ordinary dispatch authorization checks.
 - `src/custom/approval-handler-gateway-adapter.ts`: gateway-side binding layer for the legacy OpenClaw approval handler start/register/stop/unregister lifecycle.
+- `src/custom/gateway-account-services-gateway-adapter.ts`: gateway-side account bootstrap for queue, custom state, proactive guard, admin-group notifications, update checks, and slash prequeue handling.
 - `src/custom/admin-group-notification-service-gateway-adapter.ts`: gateway-side management-group notification service for auth copies, repeated-fallback alerts, custom update prompts, proactive guard injection, and shared cooldown state.
 - `src/custom/dispatch-authorization-gateway-adapter.ts`: gateway-side ordinary-dispatch auth orchestration for checks, intent persistence/logging, denial delivery, and admin-group copies.
 - `src/custom/dispatch-auth-delivery-gateway-adapter.ts`: gateway-facing delivery helper for ordinary-dispatch auth denials, approval cards, text fallback, and management-group copy intent.

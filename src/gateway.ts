@@ -1,29 +1,19 @@
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
-import { getAccessToken, sendGroupMessage, clearTokenCache, stopBackgroundTokenRefresh, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { clearTokenCache, stopBackgroundTokenRefresh } from "./api.js";
 import { loadSession } from "./session-store.js";
 import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { getApprovalHandler } from "./approval-handler.js";
 import { setRefIndex, flushRefIndex } from "./ref-index-store.js";
-import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
 import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { handleStructuredPayload } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendTextToTarget } from "./reply-dispatcher.js";
-import { resolveCustomRuntimeConfig } from "./custom/config.js";
-import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
-import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
-import { createCustomAdminGroupNotificationServiceGateway } from "./custom/admin-group-notification-service-gateway-adapter.js";
-import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
-import {
-  startCustomUpdateCheckLoop,
-} from "./custom/update-check.js";
-import { createCustomSlashPrequeueHandlerGateway } from "./custom/slash-prequeue-handler-gateway-adapter.js";
 import {
   isQQBotGatewayWebSocketClosable,
   startQQBotWebSocketConnectionGateway,
@@ -35,6 +25,7 @@ import { runQQBotGatewayStartupPreflight } from "./custom/startup-preflight-gate
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gateway-adapter.js";
 import { createCustomConnectionHandlersGateway } from "./custom/connection-handlers-gateway-adapter.js";
+import { createCustomGatewayAccountServices } from "./custom/gateway-account-services-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -183,20 +174,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     log,
   });
 
-  // ============ 消息队列（复用 createMessageQueue，内置群消息合并/淘汰策略） ============
-  const msgQueue = createMessageQueue({
-    accountId: account.accountId,
-    log,
+  const accountServices = createCustomGatewayAccountServices({
+    account,
+    cfg,
     isAborted: () => lifecycle.isAborted(),
-  });
-  const customState = createCustomMessageFlowStateController({
-    accountId: account.accountId,
+    getTaskExecutor: () => customTaskExecutor ?? undefined,
+    stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
+    getConfigApi: () => getQQBotRuntime().config as {
+      loadConfig?: () => Record<string, unknown>;
+      writeConfigFile: (cfg: unknown) => Promise<void>;
+    },
     log,
   });
-  const customMessageFlow = customState.runtime;
-  for (const item of describeCustomAuthorizationIntents(customState.restoredAuthIntents)) {
-    log?.info(`[qqbot:${account.accountId}] custom auth restore: ${item}`);
-  }
+  const msgQueue = accountServices.queue;
+  const customState = accountServices.state;
+  const customMessageFlow = accountServices.runtime;
   const persistCustomAuthState = customState.persistAuthState;
   const persistCustomProactiveBudgetState = customState.persistProactiveBudgetState;
   const persistCustomTaskState = customState.persistTaskState;
@@ -204,79 +196,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomGameState = customState.persistGameState;
   const persistCustomDeployConfirmationState = customState.persistDeployConfirmationState;
   const persistCustomUnreadState = customState.persistUnreadState;
-
-  const isCustomRuntimeEnabled = (): boolean =>
-    resolveCustomRuntimeConfig(cfg as any).enabled === true;
-
-  const buildCustomProactiveGuard = (source?: {
-    actor?: { id: string; label?: string; isBot?: boolean };
-    messageId?: string;
-    timestamp?: number;
-  }) => ({
-    proactiveGuard: createCustomProactiveGatewayGuard({
-      cfg: cfg as any,
-      accountId: account.accountId,
-      budget: customMessageFlow.proactiveBudget,
-      persistBudgetState: persistCustomProactiveBudgetState,
-      log,
-      actor: source?.actor,
-      sourceMessageId: source?.messageId,
-      sourceTimestamp: source?.timestamp,
-    }),
-  });
-
-  const customAdminGroupNotifications = createCustomAdminGroupNotificationServiceGateway({
-    accountId: account.accountId,
-    getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
-    buildProactiveGuard: () => buildCustomProactiveGuard().proactiveGuard,
-    log,
-    sendText: async (groupOpenid, text) => {
-      const token = await getAccessToken(account.appId, account.clientSecret);
-      await sendGroupMessage(token, groupOpenid, text);
-    },
-    sendKeyboard: async (groupOpenid, text, keyboard) => {
-      const token = await getAccessToken(account.appId, account.clientSecret);
-      await sendGroupMessageWithInlineKeyboard(token, groupOpenid, text, keyboard);
-    },
-  });
-
-  // 后台二开版本检查：只检查个人包更新，不自动安装。
-  const customUpdateCheck = startCustomUpdateCheckLoop({
-    accountId: account.accountId,
-    accountConfig: account.config,
-    log,
-    onUpdateAvailable: customAdminGroupNotifications.sendUpdateAvailableNotification,
-  });
-
-  // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
-  // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
-  // /stop     — 停止当前 agent run，清空队列
-  // /approve  — 审批决策，必须在 agent 等待审批时立即执行，否则死锁
-  // /new 和 /compact — 上下文异常或超长时必须能绕过队列，恢复客户端可操作性
-  const slashPrequeueHandler = createCustomSlashPrequeueHandlerGateway({
-    cfg: cfg as any,
-    account,
-    runtime: customMessageFlow,
-    queue: msgQueue,
-    getTaskExecutor: () => customTaskExecutor ?? undefined,
-    stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
-    getConfigApi: () => getQQBotRuntime().config as {
-      loadConfig?: () => Record<string, unknown>;
-      writeConfigFile: (cfg: unknown) => Promise<void>;
-    },
-    persistAuthState: persistCustomAuthState,
-    persistTaskState: persistCustomTaskState,
-    persistPollState: persistCustomPollState,
-    persistGameState: persistCustomGameState,
-    persistDeployConfirmationState: persistCustomDeployConfirmationState,
-    sendAdminGroupNotification: async (notification) => {
-      await customAdminGroupNotifications.sendAuthAdminGroupNotification({ ...notification, source: "slash" });
-    },
-    log,
-  });
-  const trySlashCommandOrEnqueue = async (msg: QueuedMessage): Promise<void> => {
-    await slashPrequeueHandler(msg);
-  };
+  const buildCustomProactiveGuard = accountServices.buildProactiveGuard;
+  const isCustomRuntimeEnabled = accountServices.isCustomRuntimeEnabled;
+  const customAdminGroupNotifications = accountServices.adminGroupNotifications;
+  const customUpdateCheck = accountServices.updateCheck;
+  const trySlashCommandOrEnqueue = accountServices.trySlashCommandOrEnqueue;
 
   lifecycle.registerAbort(abortSignal, () => {
     // P1-1: 停止后台 Token 刷新

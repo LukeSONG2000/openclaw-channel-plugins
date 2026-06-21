@@ -83,6 +83,23 @@ Important boundary:
 - The adapter owns custom runtime service wiring, but it does not own QQ token acquisition, proactive-send policy, or text delivery; `gateway.ts` injects `sendTaskStatusText()` so all unanchored task notifications still pass through the existing proactive guard.
 - It does not create or persist the top-level runtime state; `src/custom/message-flow-state.ts` remains responsible for loading/saving auth, unread, proactive budget, task, poll, game, and deploy-confirmation state.
 
+### `src/custom/gateway-account-services-gateway-adapter.ts`
+
+Gateway-side account bootstrap for long-lived per-account custom services.
+
+Current implementation status:
+
+- Creates the per-account message queue and custom message-flow state controller, then logs restored authorization intents with the existing operational message shape.
+- Builds the custom proactive guard from the live runtime, current config, source metadata, and proactive-budget persistence callback.
+- Creates the admin-group notification service and binds its text/keyboard sends to QQ group send APIs with token lookup while still passing every unanchored management push through the proactive guard.
+- Starts the custom fork update checker and routes update-available notifications to the bound management group service without auto-installing anything.
+- Creates the slash prequeue handler with queue, runtime slices, persistence callbacks, task-executor getter, config API getter, mention stripping, and management-group auth notification forwarding.
+
+Important boundary:
+
+- The adapter does not start WebSocket/Webhook transports and does not create per-connection message/interaction handlers; `connection-handlers-gateway-adapter.ts` handles connection-scoped wiring.
+- It keeps account-scoped state and queue setup out of `gateway.ts`, while leaving abort cleanup and deployment decisions explicit at the outer gateway layer.
+
 ### `src/custom/types.ts`
 
 Stable custom types:
