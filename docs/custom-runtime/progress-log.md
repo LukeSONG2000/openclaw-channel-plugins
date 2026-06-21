@@ -1280,3 +1280,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now creates the lifecycle controller first, then delegates startup bootstrap to the adapter before approval/account services setup; this keeps process/session/preflight/ref-index setup out of the main gateway file.
 - The adapter preserves previous safety semantics: `Unexpected server response` errors are logged as non-fatal, ordinary uncaught exceptions are rethrown, Webhook transport mode is logged, and stale session handling remains delegated to `loadSession()`.
 - Added `tests/custom-gateway-startup-gateway-adapter.test.ts` for successful bootstrap ordering, ref-index callback binding, Webhook logging, session restore, process guard disposal on abort, missing-credential failure, and ordinary-error rethrow behavior.
+
+抽出 gateway transport runner 绑定层：
+
+- Added `src/custom/gateway-transport-runner-gateway-adapter.ts` to select Webhook vs WebSocket after a connection handler bundle is prepared and bind the shared message processor, inbound event fanout, startup greeting, ready/error callbacks, first-READY marker, approval unregister callback, and lifecycle callbacks into the chosen transport.
+- `gateway.ts` now delegates both Webhook and WebSocket transport parameter wiring to the runner; it keeps only the outer connection preparation and failure retry catch around handler setup.
+- The runner preserves Webhook-specific `setConnecting(false)` / approval unregister behavior and WebSocket-specific intents, heartbeat/session, reconnect, quick-disconnect, and rate-limit parameters.
+- Added `tests/custom-gateway-transport-runner-gateway-adapter.test.ts` for Webhook and WebSocket branch wiring with fake transports, lifecycle callbacks, message processing, event dispatch, startup greeting, and reconnect callback propagation.

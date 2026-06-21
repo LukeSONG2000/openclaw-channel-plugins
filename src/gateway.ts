@@ -9,21 +9,19 @@ import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { handleStructuredPayload } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
-import { sendStartupGreetings } from "./admin-resolver.js";
 import { sendTextToTarget } from "./reply-dispatcher.js";
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import {
   isQQBotGatewayWebSocketClosable,
-  startQQBotWebSocketConnectionGateway,
 } from "./custom/websocket-connection-gateway-adapter.js";
 import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
-import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gateway-adapter.js";
 import { createCustomConnectionHandlersGateway } from "./custom/connection-handlers-gateway-adapter.js";
 import { createCustomGatewayAccountServices } from "./custom/gateway-account-services-gateway-adapter.js";
 import { startQQBotGatewayStartup } from "./custom/gateway-startup-gateway-adapter.js";
+import { startQQBotGatewayTransportRunner } from "./custom/gateway-transport-runner-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -179,7 +177,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     approvalHandler.dispose();
   });
 
-  const cleanup = lifecycle.cleanup;
   const scheduleReconnect = (customDelay?: number) => {
     lifecycle.scheduleReconnect(() => connect(), customDelay);
   };
@@ -256,56 +253,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       const handleMessage = connectionHandlers.handleMessage;
       const dispatchInboundEvent = connectionHandlers.dispatchInboundEvent;
 
-      // ============ Webhook 模式：共享 handleMessage，不走 WS ============
-      if (transportMode === "webhook") {
-        lifecycle.setConnecting(false);
-        await startQQBotWebhookTransportGateway({
-          account,
-          abortSignal,
-          startMessageProcessor: () => msgQueue.startProcessor(handleMessage),
-          dispatchInboundEvent,
-          onReady: (payload) => onReady?.(payload),
-          onError: (error) => onError?.(error),
-          isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
-          markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
-          sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
-          unregisterApprovalHandler: () => approvalHandler.unregister(),
-          log,
-        });
-        return; // webhook transport 结束，不继续 WS 逻辑
-      }
-
-      await startQQBotWebSocketConnectionGateway({
-        accountId: account.accountId,
-        appId: account.appId,
-        clientSecret: account.clientSecret,
+      await startQQBotGatewayTransportRunner({
+        account,
+        abortSignal,
+        transportMode,
+        lifecycle,
+        messageQueue: msgQueue,
+        handleMessage,
+        dispatchInboundEvent,
+        adminContext: adminCtx,
+        isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
+        markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
+        unregisterApprovalHandler: () => approvalHandler.unregister(),
+        scheduleReconnect,
+        onReady: (payload) => onReady?.(payload),
+        onError: (error) => onError?.(error),
         intents: FULL_INTENTS,
         intentsDesc: FULL_INTENTS_DESC,
-        isAborted: lifecycle.isAborted,
-        getSessionState: lifecycle.getSessionState,
-        setLastSeq: lifecycle.setLastSeq,
-        setSessionId: lifecycle.setSessionId,
-        setShouldRefreshToken: lifecycle.setShouldRefreshToken,
-        setCurrentWebSocket: lifecycle.setCurrentWebSocket,
-        setConnecting: lifecycle.setConnecting,
-        setReconnectAttempts: lifecycle.setReconnectAttempts,
-        setLastConnectTime: lifecycle.setLastConnectTime,
-        getLastConnectTime: lifecycle.getLastConnectTime,
-        getQuickDisconnectCount: lifecycle.getQuickDisconnectCount,
-        setQuickDisconnectCount: lifecycle.setQuickDisconnectCount,
         quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
         maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
         rateLimitDelayMs: RATE_LIMIT_DELAY,
-        startMessageProcessor: () => msgQueue.startProcessor(handleMessage),
-        resetHeartbeat: lifecycle.resetHeartbeat,
-        isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
-        markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
-        onReady: (payload) => onReady?.(payload),
-        sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
-        dispatchInboundEvent,
-        cleanup,
-        scheduleReconnect,
-        onError: (err) => onError?.(err),
         log,
       });
 

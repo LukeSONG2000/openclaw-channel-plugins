@@ -550,6 +550,22 @@ Important boundary:
 - The controller does not know QQ tokens, OpenClaw runtime internals, message queues, or persistence stores. `gateway.ts` injects cleanup side effects such as runtime-service disposal, token refresh stopping, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler stop.
 - It keeps transport lifecycle state testable without opening a real WebSocket or starting Webhook transport.
 
+### `src/custom/gateway-transport-runner-gateway-adapter.ts`
+
+Gateway-side transport runner for one prepared connection attempt.
+
+Current implementation status:
+
+- Selects Webhook or WebSocket from the resolved `transportMode`.
+- Binds the shared queued-message processor, inbound event dispatcher, first READY/RESUMED marker, startup greeting sender, ready/error callbacks, approval-handler unregister callback, and lifecycle callbacks into the selected transport adapter.
+- Keeps Webhook-specific behavior (`setConnecting(false)`, no WebSocket open, unregister approval handler after transport returns) and WebSocket-specific behavior (intents, reconnect parameters, heartbeat/session callbacks) behind one connection runner boundary.
+- Lets tests inject fake Webhook/WebSocket starters, fake lifecycle callbacks, and fake message/event handlers so transport selection is covered without QQ network access.
+
+Important boundary:
+
+- The runner does not create the message handler bundle and does not classify WebSocket close codes; `connection-handlers-gateway-adapter.ts`, `websocket-connection-gateway-adapter.ts`, and `websocket-close-gateway-adapter.ts` keep those responsibilities.
+- `gateway.ts` still owns the outer try/catch around connection preparation so connection-handler setup failures can reuse the existing connection-failure retry path.
+
 ### `src/custom/websocket-reconnect-policy.ts`
 
 Pure WebSocket reconnect/close policy for the official QQ Gateway transport.
