@@ -374,6 +374,17 @@ Current implementation status:
 - Accepts injected `sendWithTokenRetry()` and `sendErrorToTarget()` callbacks for deterministic tests while defaulting to `reply-dispatcher.ts` at runtime.
 - Keeps actual QQ sends, token refresh behavior, and reply-dispatcher retry semantics outside the custom runtime core; the helper only wires per-message parameters.
 
+### `src/custom/dispatch-failure-gateway-adapter.ts`
+
+Gateway-side orchestration helper for dispatch race failures.
+
+Current implementation status:
+
+- Classifies `Promise.race([dispatch, timeout])` failures as response-timeout, context-too-long, or other using the shared fallback policy.
+- Records the matching structured fallback event and sends the visible recovery notice for response-timeout/context-too-long only when no block response or tool fallback has already handled the user.
+- Marks dispatch timeout and response state through an injected state interface, keeping `CustomFallbackDispatchState` as the source of truth while removing notice orchestration from `gateway.ts`.
+- Leaves timer clearing and actual text delivery callbacks in `gateway.ts`, so OpenClaw/QQ sends stay at the boundary.
+
 ### `src/custom/outbound-deliver-context.ts`
 
 Pure helper for constructing outbound delivery contexts used by media-tag parsing and normal reply delivery.

@@ -913,3 +913,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now stores/clears only the current tool-only timer handle; tool deliver collection, block-media dedupe, renewal-limit checks, timeout event recording, completion-no-block recording, and fallback callback triggering live in the adapter.
 - The adapter still receives guarded media send and `sendToolFallback()` as injected callbacks, so QQ sends, proactive budget, token retry, and visible fallback notices remain outside the pure state tracker.
 - Added `tests/custom-tool-deliver-gateway-adapter.test.ts` for timer start, timeout callback, renewal, renewal limit, post-block media forwarding, media dedupe, already-sent fallback, and dispatch-complete no-block behavior.
+
+抽出 dispatch race failure 兜底编排：
+
+- Added `src/custom/dispatch-failure-gateway-adapter.ts` to handle `Promise.race([dispatch, timeout])` failures for response-timeout and context-too-long.
+- `gateway.ts` now clears the timeout handle locally, then delegates fallback event recording, recovery notice sending, and response/timeout state marking to the adapter.
+- The adapter skips duplicate notices when a block response or tool fallback already handled the user, preserving queue recovery without double-sending fallback text.
+- Added `tests/custom-dispatch-failure-gateway-adapter.test.ts` for timeout notices, context-too-long notices, block/tool-fallback skips, send failures, and other ignored errors.

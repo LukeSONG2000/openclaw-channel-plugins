@@ -104,9 +104,9 @@ import {
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
   classifyCustomDispatchFailure,
   formatCustomContextTooLongNotice,
-  formatCustomResponseTimeoutNotice,
   isCustomModelSkipOutput,
 } from "./custom/fallbacks.js";
+import { handleCustomDispatchRaceFailure } from "./custom/dispatch-failure-gateway-adapter.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
 import {
@@ -2177,35 +2177,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               clearTimeout(timeoutId);
               timeoutId = null;
             }
-            const dispatchFailureKind = classifyCustomDispatchFailure(err);
-            if (dispatchFailureKind === "response-timeout") {
-              fallbackState.markDispatchTimedOut();
-            }
-            log?.error(`[qqbot:${account.accountId}] Dispatch failed: ${err}${!fallbackState.hasResponse ? " (no response received)" : ""}`);
-            if (fallbackState.dispatchTimedOut && !fallbackState.hasBlockResponse && !fallbackState.toolFallbackSent) {
-              recordFallbackEvent({
-                kind: "response-timeout",
-                reason: String(err),
-                timeoutMs: responseTimeout,
-              });
-              try {
-                await sendErrorMessage(formatCustomResponseTimeoutNotice());
-                fallbackState.markResponse();
-              } catch (sendErr) {
-                log?.error(`[qqbot:${account.accountId}] Failed to send response-timeout notice: ${sendErr}`);
-              }
-            } else if (dispatchFailureKind === "context-too-long" && !fallbackState.hasBlockResponse && !fallbackState.toolFallbackSent) {
-              recordFallbackEvent({
-                kind: "context-too-long",
-                reason: String(err),
-              });
-              try {
-                await sendErrorMessage(formatCustomContextTooLongNotice());
-                fallbackState.markResponse();
-              } catch (sendErr) {
-                log?.error(`[qqbot:${account.accountId}] Failed to send context-too-long notice: ${sendErr}`);
-              }
-            }
+            await handleCustomDispatchRaceFailure({
+              accountId: account.accountId,
+              err,
+              responseTimeoutMs: responseTimeout,
+              state: fallbackState,
+              recordFallbackEvent,
+              sendErrorMessage,
+              log,
+            });
 
           } finally {
             // 清理 tool-only 兜底定时器
