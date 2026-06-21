@@ -96,6 +96,7 @@ import {
   type CustomFallbackEventKind,
   type CustomFallbackEventInputDetails,
 } from "./custom/fallbacks.js";
+import { appendCustomFallbackEvent } from "./custom/fallback-event-store.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import type { CustomPeer } from "./custom/types.js";
 
@@ -2071,7 +2072,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             timeoutMs?: number;
             details?: CustomFallbackEventInputDetails;
           }) => {
-            log?.info(formatCustomFallbackEventLog(buildCustomFallbackEvent({
+            const fallbackEvent = buildCustomFallbackEvent({
               kind: params.kind,
               accountId: account.accountId,
               peer: fallbackPeer,
@@ -2091,7 +2092,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               hasResponse,
               hasBlockResponse,
               details: params.details,
-            })));
+            });
+            log?.info(formatCustomFallbackEventLog(fallbackEvent));
+            if (!appendCustomFallbackEvent(account.accountId, fallbackEvent)) {
+              log?.error(`[qqbot:${account.accountId}] Failed to persist custom fallback event: kind=${fallbackEvent.kind} runId=${fallbackEvent.runId ?? ""}`);
+            }
           };
         try {
           const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);

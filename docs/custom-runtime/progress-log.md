@@ -72,7 +72,9 @@ Added structured fallback event logs:
 
 - `src/custom/fallbacks.ts` now builds `custom-fallback` event objects for timeout, context-too-long, late-deliver, and tool-only fallback paths.
 - `gateway.ts` logs those events with account, peer, actor, session key, run/message id, response state, and tool-deliver counts.
-- The event layer is log-only for now; future persistence or admin notification cards can reuse the same pure event shape.
+- Added `src/custom/fallback-event-store.ts` for bounded JSON persistence of recent fallback events under `~/.openclaw/qqbot/data/custom-fallback-events/events-<accountId>.json`.
+- `gateway.ts` appends fallback events to that ring buffer while keeping the user-visible fallback behavior unchanged.
+- Future admin notification cards can reuse the same pure event shape.
 
 Extracted unread/follow-up message flow into pure runtime:
 
