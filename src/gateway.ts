@@ -108,14 +108,7 @@ import {
 import { applyCustomStaticDeliverGateway } from "./custom/static-deliver-gateway-adapter.js";
 import { dispatchCustomDebouncedDeliver } from "./custom/deliver-debounce-gateway-adapter.js";
 import { finalizeCustomDispatchGateway } from "./custom/dispatch-finalize-gateway-adapter.js";
-import {
-  buildCustomInboundMediaContext,
-  formatCustomInboundVoiceSummary,
-} from "./custom/inbound-media-context.js";
-import {
-  buildCustomCurrentRefIndexRecord,
-  resolveCustomQuoteReferenceContext,
-} from "./custom/message-reference-context.js";
+import { prepareCustomInboundMessageGateway } from "./custom/inbound-preparation-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
   buildCustomUpdateAvailableNotification,
@@ -960,17 +953,40 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           systemPrompts.push(buildCustomSceneSystemPrompt(customSceneState));
         }
         
-        // 处理附件（图片等）- 下载到本地供 openclaw 访问
-        const processed = await processAttachments(event.attachments, { appId: account.appId, peerId, cfg, log });
-        const { attachmentInfo, imageUrls, imageMediaTypes, voiceAttachmentPaths, voiceAttachmentUrls, voiceAsrReferTexts, voiceTranscripts, voiceTranscriptSources, attachmentLocalPaths } = processed;
-        const inboundMedia = buildCustomInboundMediaContext({
-          imageUrls,
-          imageMediaTypes,
-          voiceAttachmentPaths,
-          voiceAttachmentUrls,
-          voiceAsrReferTexts,
-          voiceTranscriptSources,
+        const inboundPrepared = await prepareCustomInboundMessageGateway({
+          cfg,
+          account: {
+            accountId: account.accountId,
+            appId: account.appId,
+          },
+          event,
+          peerId,
+          isGroupChat,
+          envelopeOptions,
+          inputNotifyRefIdx: typing.inputNotifyRefIdx,
+          processAttachments,
+          formatVoiceText,
+          parseFaceTags,
+          stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
+          getRefEntry: getRefIndex,
+          setRefEntry: setRefIndex,
+          formatRefEntry: formatRefEntryForAgent,
+          formatMessageReference: (ref) =>
+            formatMessageReferenceForAgent(ref, { appId: account.appId, peerId, cfg, log }),
+          formatInboundEnvelope: (input) =>
+            pluginRuntime.channel.reply.formatInboundEnvelope(input as Parameters<typeof pluginRuntime.channel.reply.formatInboundEnvelope>[0]),
+          log,
         });
+        const {
+          processed,
+          inboundMedia,
+          userContent,
+          body,
+          quoteRef,
+        } = inboundPrepared;
+        const {
+          voiceTranscriptSources,
+        } = processed;
         const {
           uniqueVoicePaths,
           uniqueVoiceUrls,
@@ -979,85 +995,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           localMediaPaths,
           localMediaTypes,
           remoteMediaUrls,
-          remoteMediaTypes,
         } = inboundMedia;
-        
-        // 语音转录文本注入到用户消息中
-        const voiceText = formatVoiceText(voiceTranscripts);
         const hasAsrReferFallback = inboundMedia.hasAsrReferFallback;
 
-        // 解析 QQ 表情标签，将 <faceType=...,ext="base64"> 替换为 【表情: 中文名】
-        const parsedContent = parseFaceTags(event.content);
-        let userContent = voiceText
-          ? (parsedContent.trim() ? `${parsedContent}\n${voiceText}` : voiceText) + attachmentInfo
-          : parsedContent + attachmentInfo;
-
-        // 统一处理 <@member_openid> → @username / 移除 @bot mention
-        if (event.type === "group" && event.mentions?.length) {
-          userContent = stripMentionText(userContent, event.mentions as any) ?? userContent;
-        } else if (event.mentions?.length) {
-          for (const m of event.mentions) {
-            if (m.member_openid && m.username) {
-              userContent = userContent.replace(new RegExp(`<@${m.member_openid}>`, "g"), `@${m.username}`);
-            }
-          }
-        }
-
-        const quoteRef = await resolveCustomQuoteReferenceContext({
-          event,
-          getRefEntry: getRefIndex,
-          formatRefEntry: formatRefEntryForAgent,
-          formatMessageReference: (ref) =>
-            formatMessageReferenceForAgent(ref, { appId: account.appId, peerId, cfg, log }),
-        });
-        for (const quoteLog of quoteRef.logs) {
-          log?.info(`[qqbot:${account.accountId}] ${quoteLog}`);
-        }
-
-        // 2. 缓存当前消息自身的 msgIdx（供将来被引用时查找）
-        // 优先使用推送事件中的 msgIdx（来自 message_scene.ext），否则使用 InputNotify 返回的 refIdx
-        // input notify refIdx 在这里才 await，此时附件下载等工作已并行完成
-        const inputNotifyRefIdx = await typing.inputNotifyRefIdx;
-        const currentRefRecord = buildCustomCurrentRefIndexRecord({
-          event,
-          inputNotifyRefIdx,
-          parsedContent,
-          attachmentLocalPaths,
-          voiceTranscripts,
-          voiceTranscriptSources,
-        });
-        if (currentRefRecord) {
-          setRefIndex(currentRefRecord.refIdx, currentRefRecord.entry);
-          log?.info(`[qqbot:${account.accountId}] Cached msgIdx=${currentRefRecord.refIdx} for future reference (source: ${currentRefRecord.source})`);
-        }
-
-        // Body: 展示用的用户原文（Web UI 看到的）
-        const body = pluginRuntime.channel.reply.formatInboundEnvelope({
-          channel: "qqbot",
-          from: event.senderName ?? event.senderId,
-          timestamp: new Date(event.timestamp).getTime(),
-          body: userContent,
-          chatType: isGroupChat ? "group" : "direct",
-          sender: {
-            id: event.senderId,
-            name: event.senderName,
-          },
-          envelope: envelopeOptions,
-          ...(imageUrls.length > 0 ? { imageUrls } : {}),
-        });
-        
-        // BodyForAgent: AI 实际看到的完整上下文（动态数据 + 系统提示 + 用户输入）
-
-        // 构建媒体附件纯数据描述（图片 + 语音统一列出）
-        const voiceSummary = formatCustomInboundVoiceSummary({
-          media: inboundMedia,
-          voiceAttachmentPaths,
-          voiceAttachmentUrls,
-          voiceTranscriptCount: voiceTranscripts.length,
-        });
-        if (voiceSummary) {
-          log?.info(`[qqbot:${account.accountId}] ${voiceSummary}`);
-        }
         // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
         const qualifiedTarget = messageRoute.requestTarget;
 

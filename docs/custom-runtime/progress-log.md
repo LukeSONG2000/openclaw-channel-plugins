@@ -1047,3 +1047,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects QQ/OpenClaw policy resolvers, history-limit lookup, ref-index lookup, scheduler/persist callbacks, and logs into the adapter; the main message path only consumes stop/continue plus returned group context fields.
 - The adapter preserves previous behavior for `drop_other_mention`、`skip_no_mention`、unauthorized control commands, custom unread catch-up, and legacy history fallback while making the full group gate decision testable outside `gateway.ts`.
 - Added `tests/custom-group-dispatch-gateway-adapter.test.ts` for non-group pass-through, group-policy stop, legacy skip history, unauthorized control command stop, and mention-triggered custom unread catch-up prompt context.
+
+抽出 inbound preparation 网关准备层：
+
+- Added `src/custom/inbound-preparation-gateway-adapter.ts` to own inbound message preparation before group gate/agent-body construction: attachment processing, media context, face/voice/attachment user-content normalization, quote resolution, current ref-index caching, body envelope formatting, and voice summary logging.
+- `gateway.ts` now injects attachment processing, mention stripping, quote/ref formatters, ref-index cache writes, and framework envelope formatting into the adapter, keeping QQ/OpenClaw runtime ownership at the boundary while removing another inline preparation block from the main message path.
+- The adapter preserves delayed InputNotify `refIdx` behavior: attachment/quote preparation can proceed first, then the adapter awaits the ref id only when writing the current message reference cache.
+- Added `tests/custom-inbound-preparation-gateway-adapter.test.ts` for group mention stripping with voice/attachment text, C2C mention-name replacement, quote diagnostics, msgIdx/InputNotify ref cache writes, media dynamic context, and voice summary logging.

@@ -551,6 +551,23 @@ Current implementation status:
 - Accepts injected sub-message formatting and envelope callbacks, so face/mention/attachment parsing and framework envelope formatting remain at the gateway boundary.
 - The returned initial `agentBody` is then passed through `src/custom/unread-context.ts` for custom/legacy history injection before `finalizeInboundContext()`.
 
+### `src/custom/inbound-preparation-gateway-adapter.ts`
+
+Gateway-side inbound message preparation orchestrator.
+
+Current implementation status:
+
+- Runs attachment processing through an injected callback and converts the result into `src/custom/inbound-media-context.ts` media/dynamic-context fields.
+- Normalizes user-visible content by applying face parsing, voice transcript injection, attachment info, group bot-mention stripping, and direct-message mention name replacement.
+- Resolves quote context through `src/custom/message-reference-context.ts`, logs quote diagnostics, awaits the delayed InputNotify ref id, and writes the current message ref-index entry through an injected cache callback.
+- Builds the framework-visible inbound envelope body through an injected formatter while preserving image URL forwarding for the Web UI.
+- Logs voice summary counters after media context construction and returns all fields needed by group gate, agent-body construction, and `finalizeInboundContext()`.
+
+Important boundary:
+
+- It does not own attachment download implementation, QQ tokens, or framework formatting; those remain injected gateway/runtime callbacks.
+- It keeps the media/quote/ref-index preparation path testable without starting a gateway or touching network/filesystem.
+
 ### `src/custom/inbound-context-payload.ts`
 
 Pure helper for building the object passed into the OpenClaw `finalizeInboundContext()` boundary.
