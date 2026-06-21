@@ -61,6 +61,12 @@ Remove or quarantine from the QQBot core connector:
 
 Recommendation: expose image generation as a skill/tool that the agent can call, with its own queue, timeout, proxy handling, and result delivery.
 
+Current fork status:
+
+- The custom fork keeps normal QQ image/media receive and send code in core.
+- The custom fork does not hardcode `codex-image-gen`, `/home/PPfavorite/.openclaw/workspace/skills/codex-image-gen`, `127.0.0.1:7897`, or direct child-process image generation in `src/gateway.ts`.
+- `tests/no-core-image-generation-coupling.test.ts` scans QQBot connector core files so prompt-interception style image generation does not silently re-enter future updates.
+
 ## Current Server Config Findings
 
 Server `openclaw.json` has:

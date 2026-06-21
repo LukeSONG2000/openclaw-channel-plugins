@@ -33,6 +33,12 @@ Still intentionally not ported:
 
 These need to be extracted into `src/custom` instead of being re-woven into `gateway.ts`.
 
+Added an async image-generation boundary check:
+
+- Confirmed the custom fork keeps ordinary image/media receive-send support while leaving prompt interception and image-generation orchestration out of QQBot core.
+- Added `tests/no-core-image-generation-coupling.test.ts` to guard against hardcoded `codex-image-gen`, proxy settings, child-process generation, and prompt-interception patterns returning to connector core files.
+- Future image generation should be exposed as a separate skill/tool with its own queue, timeout, proxy, and result-delivery policy.
+
 Added custom release/update guardrails:
 
 - Changed package identity to `@lukesong/openclaw-qqbot@1.7.2-luke.1` while keeping OpenClaw plugin id `openclaw-qqbot`.

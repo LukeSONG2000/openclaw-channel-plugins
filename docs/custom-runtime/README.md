@@ -26,6 +26,9 @@ Core custom behavior:
 Out of scope for the first custom runtime:
 
 - Async image generation embedded in `gateway.ts`. Treat it as a separate skill/tool integration, not core connector behavior.
+  - Ordinary image/media receive and send paths remain in QQBot core.
+  - Prompt interception, proxy setup, child process orchestration, and hardcoded skill paths must stay out of core.
+  - `tests/no-core-image-generation-coupling.test.ts` guards this boundary.
 - Broad refactors of official API wrappers unless needed for safety, retry, or observability.
 
 ## Evidence Files
