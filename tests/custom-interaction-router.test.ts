@@ -18,7 +18,7 @@ const cfg = {
   },
 } as any;
 
-assert.deepEqual(getDefaultCustomInteractionRoutes().map((route) => route.name), ["auth", "poll", "game"]);
+assert.deepEqual(getDefaultCustomInteractionRoutes().map((route) => route.name), ["auth", "poll", "game", "deploy"]);
 
 const unknown = routeCustomInteractionButton({
   cfg,
@@ -27,6 +27,27 @@ const unknown = routeCustomInteractionButton({
   actor: { id: "USER_OPENID" },
 });
 assert.deepEqual(unknown, { handled: false });
+
+const created = runtime.deployConfirmations.create({
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  creator: { id: "ADMIN_OPENID", label: "Admin" },
+  command: "/bot-upgrade --latest",
+  now: 1_000,
+});
+assert.equal(created.allowed, true);
+const deploy = routeCustomInteractionButton({
+  cfg,
+  accountId: "default",
+  runtime,
+  buttonData: `custom-deploy:${created.confirmation!.id}:confirm`,
+  actor: { id: "ADMIN_OPENID", label: "Admin" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  now: 2_000,
+});
+assert.equal(deploy.handled, true);
+assert.equal(deploy.handled && deploy.persist?.deployConfirmations, true);
+assert.equal(deploy.handled && deploy.reply?.includes("已确认部署操作"), true);
 
 const customRoute: CustomInteractionRoute = {
   name: "custom-confirm",

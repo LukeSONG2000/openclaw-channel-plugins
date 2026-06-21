@@ -322,7 +322,7 @@ Added first custom interactive poll/card feature:
 Still intentionally open:
 
 - Custom poll cards need validation on the actual deployed bot after installing the custom package.
-- Broader task cards, scene switch cards, deploy confirmation cards, and lightweight games remain future increments.
+- Broader task cards, scene switch cards, deploy confirmation execution handoff, and richer lightweight games remain future increments.
 
 Started reducing custom gateway coupling:
 
@@ -641,13 +641,24 @@ Added configured scene binding inspection:
 
 - Added `src/custom/interaction-router.ts` as the ordered route table for callback-card payloads.
 - `src/custom/interaction-gateway-adapter.ts` now stays as a thin gateway boundary: normalize QQ source fields, call the router, and return typed reply/persist/log effects.
-- Auth, poll, and game callback payloads still behave the same, but future deploy confirmation cards or richer game callbacks can be added as routes without widening `gateway.ts`.
+- Auth, poll, game, and deploy-confirmation callback payloads are routed without widening `gateway.ts`.
 - Added `tests/custom-interaction-router.test.ts` for default route order, unknown payload fallback, custom route injection, and first-handled short circuit behavior.
 
 抽出自定义 slash 命令路由表：
 
-- Added `src/custom/slash-router.ts` as the ordered route table for scene/fallback/queue/unread/task/poll/game commands.
+- Added `src/custom/slash-router.ts` as the ordered route table for scene/fallback/queue/unread/task/poll/game/deploy commands.
 - `src/custom/slash-gateway-adapter.ts` now focuses on `/bot-auth`, task-scoped auth, general slash auth, and merging typed effects returned by the router.
-- Task workspace effects, task notification deliveries, scene config persistence intents, and poll/game persistence flags are now produced from the route layer after authorization has passed.
+- Task workspace effects, task notification deliveries, scene config persistence intents, and poll/game/deploy-confirmation persistence flags are now produced from the route layer after authorization has passed.
 - Future custom slash commands can be added as routes without widening `gateway.ts` or the authorization gate.
 - Added `tests/custom-slash-router.test.ts` for default route order, unknown command fallback, custom route injection, first-handled short circuit behavior, and a real `/bot-game guess` route.
+
+加入安全部署确认卡骨架：
+
+- Added `src/custom/deploy-confirmation.ts` as a pure local confirmation runtime for guarded `/bot-upgrade ...` commands.
+- Added `src/custom/deploy-confirmation-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations/deploy-confirmations-<accountId>.json`.
+- Added `src/custom/deploy-confirmation-gateway-adapter.ts` to parse `/bot-deploy confirm /bot-upgrade ...`, list/status confirmations, and handle `custom-deploy:<confirmationId>:confirm|cancel` callbacks.
+- `/bot-deploy` is auth-gated through slash capability metadata: list/status/help require `deploy.check`, while confirm/plan require `deploy.apply`.
+- Confirmation buttons only record `confirmed` or `cancelled` state and send a safety reply. They do not execute hot reload, restart the gateway, or call `/bot-upgrade`; after confirmation the admin must manually send the confirmed `/bot-upgrade ...` command in private chat after backup.
+- Gateway restores and persists deploy-confirmation state alongside auth/proactive/task/poll/game/unread state, and interaction callbacks persist only when they mutate confirmation state.
+- Callback visibility follows the same safe account/peer rule used by poll/game cards: original peer can interact, the creator can inspect/interact across peers, and ordinary cross-peer replay gets a generic not-current-session response.
+- Added tests for deploy confirmation runtime, store, gateway adapter, slash/interaction routers, slash gateway auth gating, message-flow state restore/persist, interaction persistence, and slash capability mapping.

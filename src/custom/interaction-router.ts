@@ -5,6 +5,7 @@ import {
 } from "./auth-gateway-adapter.js";
 import { handleCustomGameInteraction } from "./game-gateway-adapter.js";
 import { handleCustomPollInteraction } from "./poll-gateway-adapter.js";
+import { handleCustomDeployInteraction } from "./deploy-confirmation-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import type { CustomPeer } from "./types.js";
 
@@ -17,6 +18,7 @@ export interface CustomInteractionGatewayPersist {
   auth?: boolean;
   polls?: boolean;
   games?: boolean;
+  deployConfirmations?: boolean;
 }
 
 export interface CustomInteractionGatewayLog {
@@ -36,7 +38,7 @@ export type CustomInteractionGatewayResult =
 export interface CustomInteractionRouterContext {
   cfg: OpenClawConfig;
   accountId?: string;
-  runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls" | "games">;
+  runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls" | "games" | "deployConfirmations">;
   buttonData: string;
   actor: CustomInteractionActor;
   sourcePeer?: CustomPeer;
@@ -52,6 +54,7 @@ const DEFAULT_CUSTOM_INTERACTION_ROUTES: readonly CustomInteractionRoute[] = [
   { name: "auth", handle: routeCustomAuthInteraction },
   { name: "poll", handle: routeCustomPollInteraction },
   { name: "game", handle: routeCustomGameInteraction },
+  { name: "deploy", handle: routeCustomDeployInteraction },
 ];
 
 export function getDefaultCustomInteractionRoutes(): readonly CustomInteractionRoute[] {
@@ -129,6 +132,23 @@ function routeCustomGameInteraction(ctx: CustomInteractionRouterContext): Custom
   });
 }
 
+function routeCustomDeployInteraction(ctx: CustomInteractionRouterContext): CustomInteractionGatewayResult {
+  const deployResult = handleCustomDeployInteraction({
+    accountId: ctx.accountId,
+    confirmations: ctx.runtime.deployConfirmations,
+    buttonData: ctx.buttonData,
+    actorId: ctx.actor.id,
+    actorLabel: ctx.actor.label,
+    sourcePeer: ctx.sourcePeer,
+    now: ctx.now,
+  });
+  if (!deployResult.handled) return { handled: false };
+  return handled({
+    reply: deployResult.reply,
+    persist: deployResult.changed ? { deployConfirmations: true } : undefined,
+  });
+}
+
 function handled(params: {
   reply?: string;
   persist?: CustomInteractionGatewayPersist;
@@ -143,5 +163,5 @@ function handled(params: {
 }
 
 function hasPersist(persist?: CustomInteractionGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.polls || persist?.games);
+  return Boolean(persist?.auth || persist?.polls || persist?.games || persist?.deployConfirmations);
 }

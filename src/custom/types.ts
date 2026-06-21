@@ -297,3 +297,22 @@ export interface CustomGuessGame {
 export interface CustomGameRuntimeState {
   guessGames: Record<string, CustomGuessGame>;
 }
+
+export type CustomDeployConfirmationStatus = "pending" | "confirmed" | "cancelled" | "expired";
+
+export interface CustomDeployConfirmation {
+  id: string;
+  accountId: string;
+  peer: CustomPeer;
+  creator: CustomActor;
+  command: string;
+  status: CustomDeployConfirmationStatus;
+  createdAt: number;
+  expiresAt: number;
+  resolvedBy?: CustomActor;
+  resolvedAt?: number;
+}
+
+export interface CustomDeployConfirmationRuntimeState {
+  confirmations: Record<string, CustomDeployConfirmation>;
+}

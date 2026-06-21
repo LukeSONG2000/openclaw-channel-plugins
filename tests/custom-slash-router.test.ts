@@ -23,12 +23,12 @@ const cfg = {
       customRuntime: {
         enabled: true,
         scenes: {
-          "qqbot:group:GROUP_OPENID": {
-            scene: "chat",
-            capabilities: ["chat.send", "system.status", "game.interact", "codex.longTask", "config.write"],
-          },
+        "qqbot:group:GROUP_OPENID": {
+          scene: "chat",
+          capabilities: ["chat.send", "system.status", "game.interact", "codex.longTask", "config.write", "deploy.check", "deploy.apply"],
         },
       },
+    },
     },
   },
 } as any;
@@ -41,6 +41,7 @@ assert.deepEqual(getDefaultCustomSlashRoutes().map((route) => route.name), [
   "task",
   "poll",
   "game",
+  "deploy",
 ]);
 
 const unknown = routeCustomSlashCommand({
@@ -66,6 +67,20 @@ assert.equal(game.handled, true);
 assert.equal(game.handled && game.persist?.games, true);
 assert.equal(game.handled && game.reply?.kind, "keyboard");
 assert.equal(Object.keys(runtime.games.getState().guessGames)[0], "guess-default-group-GROUP_OPENID-1000-1");
+
+const deploy = routeCustomSlashCommand({
+  cfg,
+  accountId: "default",
+  runtime,
+  message: { ...message, content: "/bot-deploy confirm /bot-upgrade --latest" },
+  rawContent: "/bot-deploy confirm /bot-upgrade --latest",
+  now: 2_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deploy.handled, true);
+assert.equal(deploy.handled && deploy.persist?.deployConfirmations, true);
+assert.equal(deploy.handled && deploy.reply?.kind, "keyboard");
+assert.equal(Object.keys(runtime.deployConfirmations.getState().confirmations)[0], "deploy-default-group-GROUP_OPENID-2000-1");
 
 const routeOrder: string[] = [];
 const first: CustomSlashRoute = {

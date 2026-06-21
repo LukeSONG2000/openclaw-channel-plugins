@@ -3,6 +3,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import type { QueueSnapshot } from "../slash-commands.js";
 import type { InlineKeyboard } from "../types.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
+import { handleCustomDeployCommand } from "./deploy-confirmation-gateway-adapter.js";
 import { handleCustomFallbackCommand } from "./fallback-gateway-adapter.js";
 import { handleCustomGameCommand } from "./game-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
@@ -43,6 +44,7 @@ export interface CustomSlashGatewayPersist {
   tasks?: boolean;
   polls?: boolean;
   games?: boolean;
+  deployConfirmations?: boolean;
 }
 
 export interface CustomSlashGatewayLog {
@@ -88,6 +90,7 @@ const DEFAULT_CUSTOM_SLASH_ROUTES: readonly CustomSlashRoute[] = [
   { name: "task", handle: routeCustomTaskCommand },
   { name: "poll", handle: routeCustomPollCommand },
   { name: "game", handle: routeCustomGameCommand },
+  { name: "deploy", handle: routeCustomDeployCommand },
 ];
 
 export function getDefaultCustomSlashRoutes(): readonly CustomSlashRoute[] {
@@ -250,6 +253,22 @@ function routeCustomGameCommand(ctx: CustomSlashRouterContext): CustomSlashGatew
   });
 }
 
+function routeCustomDeployCommand(ctx: CustomSlashRouterContext): CustomSlashGatewayResult {
+  const command = handleCustomDeployCommand({
+    cfg: ctx.cfg,
+    accountId: ctx.accountId,
+    confirmations: ctx.runtime.deployConfirmations,
+    message: ctx.message,
+    rawContent: ctx.rawContent,
+    now: ctx.now,
+  });
+  if (!command.handled) return { handled: false };
+  return handled({
+    reply: command.reply ? replyFromTextAndKeyboard(command.reply, command.keyboard) : undefined,
+    persist: command.changed ? { deployConfirmations: true } : undefined,
+  });
+}
+
 export function buildCustomSlashHandledResult(params: {
   reply?: CustomSlashGatewayReply;
   persist?: CustomSlashGatewayPersist;
@@ -283,5 +302,5 @@ export function hasCustomSlashPersist(persist?: CustomSlashGatewayPersist): bool
 }
 
 function hasPersist(persist?: CustomSlashGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.config || persist?.tasks || persist?.polls || persist?.games);
+  return Boolean(persist?.auth || persist?.config || persist?.tasks || persist?.polls || persist?.games || persist?.deployConfirmations);
 }

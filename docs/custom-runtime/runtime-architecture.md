@@ -56,7 +56,7 @@ Owns the per-account custom runtime lifecycle and persistence boundary.
 Current implementation status:
 
 - Creates a `CustomMessageFlowRuntime` for one QQBot account.
-- Restores auth, proactive budget, task sandbox, poll, game, and unread state from their stores.
+- Restores auth, proactive budget, task sandbox, poll, game, deploy-confirmation, and unread state from their stores.
 - Exposes small persist callbacks for each state area plus `persistAllState()`.
 - Returns restored auth intents so the gateway can keep the existing authorization logging behavior.
 - Keeps store module imports out of `gateway.ts`, reducing gateway coupling to custom state internals.
@@ -386,7 +386,8 @@ Current implementation status:
   - task
   - poll
   - game
-- Routes `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, `/bot-poll`, and `/bot-game` after the auth gate has allowed the command.
+  - deploy
+- Routes `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, `/bot-poll`, `/bot-game`, and `/bot-deploy` after the auth gate has allowed the command.
 - Returns typed side-effect descriptions instead of sending QQ messages directly:
   - text reply
   - keyboard reply
@@ -441,11 +442,13 @@ Current implementation status:
   - auth
   - poll
   - game
+  - deploy
 - Routes `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` to the per-account auth runtime.
 - Routes `custom-poll:<pollId>:vote:<1-4>` to the per-account poll runtime.
 - Routes `custom-game:<gameId>:guess:<1-4>` to the per-account game runtime.
+- Routes `custom-deploy:<confirmationId>:confirm|cancel` to the per-account deploy-confirmation runtime.
 - Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
-- Allows future deploy confirmation cards, richer game callbacks, or admin cards to register as additional routes without widening `gateway.ts`.
+- Allows future richer game callbacks or admin cards to register as additional routes without widening `gateway.ts`.
 
 Important boundary:
 

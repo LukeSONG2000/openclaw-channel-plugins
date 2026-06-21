@@ -14,6 +14,11 @@ import {
   type CustomGameStoreOptions,
 } from "./game-store.js";
 import {
+  loadCustomDeployConfirmationState,
+  saveCustomDeployConfirmationState,
+  type CustomDeployConfirmationStoreOptions,
+} from "./deploy-confirmation-store.js";
+import {
   loadCustomProactiveBudgetState,
   saveCustomProactiveBudgetState,
   type CustomProactiveBudgetStoreOptions,
@@ -41,6 +46,7 @@ export interface CustomMessageFlowStateStoreOptions {
   tasks?: CustomTaskSandboxStoreOptions;
   polls?: CustomPollStoreOptions;
   games?: CustomGameStoreOptions;
+  deployConfirmations?: CustomDeployConfirmationStoreOptions;
   unread?: CustomUnreadStoreOptions;
 }
 
@@ -52,6 +58,7 @@ export interface CustomMessageFlowStateController {
   persistTaskState: () => void;
   persistPollState: () => void;
   persistGameState: () => void;
+  persistDeployConfirmationState: () => void;
   persistUnreadState: () => void;
   persistAllState: () => void;
 }
@@ -98,6 +105,12 @@ export function createCustomMessageFlowStateController(params: {
     log?.info(`[qqbot:${accountId}] Restored custom game state: guessGames=${Object.keys(restoredGameState.guessGames).length}`);
   }
 
+  const restoredDeployConfirmationState = loadCustomDeployConfirmationState(accountId, storeOptions?.deployConfirmations);
+  if (restoredDeployConfirmationState) {
+    runtime.deployConfirmations.loadState(restoredDeployConfirmationState);
+    log?.info(`[qqbot:${accountId}] Restored custom deploy confirmation state: confirmations=${Object.keys(restoredDeployConfirmationState.confirmations).length}`);
+  }
+
   const restoredUnreadState = loadCustomUnreadState(accountId, storeOptions?.unread);
   if (restoredUnreadState) {
     runtime.unread.loadState(restoredUnreadState);
@@ -119,6 +132,9 @@ export function createCustomMessageFlowStateController(params: {
   const persistGameState = (): void => {
     saveCustomGameState(accountId, runtime.games.getState(), storeOptions?.games);
   };
+  const persistDeployConfirmationState = (): void => {
+    saveCustomDeployConfirmationState(accountId, runtime.deployConfirmations.getState(), storeOptions?.deployConfirmations);
+  };
   const persistUnreadState = (): void => {
     saveCustomUnreadState(accountId, runtime.unread.getState(), storeOptions?.unread);
   };
@@ -131,6 +147,7 @@ export function createCustomMessageFlowStateController(params: {
     persistTaskState,
     persistPollState,
     persistGameState,
+    persistDeployConfirmationState,
     persistUnreadState,
     persistAllState: () => {
       persistAuthState();
@@ -138,6 +155,7 @@ export function createCustomMessageFlowStateController(params: {
       persistTaskState();
       persistPollState();
       persistGameState();
+      persistDeployConfirmationState();
       persistUnreadState();
     },
   };

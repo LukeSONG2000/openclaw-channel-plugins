@@ -438,6 +438,28 @@ registerCommand({
 });
 
 /**
+ * /bot-deploy — custom runtime deploy confirmation cards.
+ *
+ * The gateway handles this command against the live custom runtime before
+ * normal slash command matching. This registry entry only provides help text
+ * and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-deploy",
+  description: "创建和查看自定义部署确认卡",
+  capability: (request) => slashDeployCapability(request.args),
+  usage: [
+    `/bot-deploy confirm /bot-upgrade --latest`,
+    `/bot-deploy confirm /bot-upgrade --version <version>`,
+    `/bot-deploy list`,
+    `/bot-deploy status <confirmationId>`,
+    ``,
+    `创建部署确认卡；确认按钮只记录确认状态，不会自动执行热更新。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
+/**
  * /bot-scene — custom runtime scene binding command.
  *
  * The gateway handles this command against the live config object before
@@ -2736,6 +2758,17 @@ function slashGameCapability(args: string): SlashCommandCapability {
     return "game.interact";
   }
   return "game.interact";
+}
+
+function slashDeployCapability(args: string): SlashCommandCapability {
+  const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+    return "deploy.check";
+  }
+  if (action === "confirm" || action === "plan") {
+    return "deploy.apply";
+  }
+  return "deploy.apply";
 }
 
 function slashSceneCapability(args: string): SlashCommandCapability {

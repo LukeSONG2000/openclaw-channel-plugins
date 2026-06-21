@@ -19,7 +19,7 @@ export type {
 export function handleCustomInteractionGatewayButton(params: {
   cfg: OpenClawConfig;
   accountId?: string;
-  runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls" | "games">;
+  runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls" | "games" | "deployConfirmations">;
   buttonData: string;
   actor: CustomInteractionActor;
   sourcePeer?: CustomPeer;

@@ -16,7 +16,7 @@ const cfg = {
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
-            capabilities: ["chat.send", "system.status", "game.interact", "codex.longTask"],
+            capabilities: ["chat.send", "system.status", "game.interact", "codex.longTask", "deploy.check", "deploy.apply"],
           },
         },
       },
@@ -194,6 +194,33 @@ assert.equal(gameGuess.handled, true);
 assert.equal(gameGuess.persist?.games, true);
 assert.equal(gameGuess.reply?.includes("猜对了"), true);
 assert.equal(gameRuntime.games.getGuessGame(gameId)?.winner?.id, "PLAYER_OPENID");
+
+const deployRuntime = createCustomMessageFlowRuntime();
+const deployCreate = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: deployRuntime,
+  message: { ...message, content: "/bot-deploy confirm /bot-upgrade --latest" },
+  rawContent: "/bot-deploy confirm /bot-upgrade --latest",
+  now: 5_800,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deployCreate.handled, true);
+const confirmationId = Object.keys(deployRuntime.deployConfirmations.getState().confirmations)[0]!;
+assert.equal(confirmationId, "deploy-default-group-GROUP_OPENID-5800-1");
+const deployConfirm = handleCustomInteractionGatewayButton({
+  cfg,
+  accountId: "default",
+  runtime: deployRuntime,
+  buttonData: `custom-deploy:${confirmationId}:confirm`,
+  actor: { id: "ADMIN_OPENID", label: "Admin" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  now: 5_900,
+});
+assert.equal(deployConfirm.handled, true);
+assert.equal(deployConfirm.persist?.deployConfirmations, true);
+assert.equal(deployConfirm.reply?.includes("请管理员在私聊中手动发送该命令"), true);
+assert.equal(deployRuntime.deployConfirmations.get(confirmationId)?.status, "confirmed");
 
 assert.deepEqual(resolveCustomInteractionSourcePeer({ groupOpenid: "GROUP_OPENID" }), {
   kind: "group",

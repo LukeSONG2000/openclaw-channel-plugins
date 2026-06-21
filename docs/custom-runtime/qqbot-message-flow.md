@@ -349,6 +349,18 @@ Current custom game cards:
 - Game state persists under `~/.openclaw/qqbot/data/custom-games/games-<accountId>.json`.
 - Custom auth gates game mutations through `game.interact`; list/status use `system.status`.
 
+Current custom deploy confirmation cards:
+
+- `/bot-deploy confirm /bot-upgrade --latest` and `/bot-deploy confirm /bot-upgrade --version <version>` create a pending deployment confirmation in the per-account custom runtime.
+- `/bot-deploy list` and `/bot-deploy status <confirmationId>` inspect current-session confirmation state.
+- C2C/group creation and pending status replies use inline callback buttons when available; channel/DM paths fall back to text.
+- Button data prefix: `custom-deploy:<confirmationId>:confirm|cancel`.
+- Button callbacks are acknowledged before local state mutation, then the bot sends a short confirmation/cancellation/status reply.
+- Confirmation buttons never execute hot reload or restart the gateway. After a card is confirmed, an admin must manually send the confirmed `/bot-upgrade ...` command in private chat after backup.
+- Callback source fields use the same custom peer mapping as polls/games. Mutations only apply from the original account/peer, except that the confirmation creator may inspect/interact across peers.
+- Deploy confirmation state persists under `~/.openclaw/qqbot/data/custom-deploy-confirmations/deploy-confirmations-<accountId>.json`.
+- Custom auth gates help/list/status through `deploy.check`; creating confirmations through confirm/plan requires `deploy.apply`.
+
 Current custom task cards:
 
 - `/bot-task create`, `/bot-task status`, `/bot-task add`, and `/bot-task cancel` replies can include inline command keyboards for C2C/group sends.
@@ -364,7 +376,7 @@ Potential future uses:
 
 - Richer task status cards with live progress/details once a real OpenClaw subagent executor contract is wired.
 - Richer lightweight games now that callback ACK, state storage, and the first guess-number game are wired.
-- Admin-only deployment/update confirmation cards.
+- Richer deployment/update approval workflows that execute only after a separate explicit admin action and backup gate.
 
 ## Current Group/DM Logic
 
@@ -396,6 +408,7 @@ Current custom runtime behavior:
 - Long-task status and mutation commands share the same task access boundary: original-peer members may inspect status, owner/admin/task-scoped grants can mutate, and cross-peer ordinary members get a generic not-current-session response without an auth request.
 - Long-task creation resolves sandbox policy from `customRuntime.tasks` plus the current scene's `tasks` override, so dev-lab/admin/chat groups can use different workspace roots and active-task limits while sharing the same per-account runtime.
 - Custom poll and game commands provide lightweight interactive-card features on top of the same C2C/group inline keyboard send paths.
+- Custom deploy confirmation commands provide an admin-gated safety card for `/bot-upgrade ...`; the card records confirmation state but does not auto-run upgrades.
 - Response timeout and context-too-long fallbacks leave `/compact` and `/new` available even when the same peer has an active blocked run.
 - Timeout/no-output/context notices and `/bot-fallback` outputs include QQ command-input shortcuts for `/compact`, `/new`, and `/bot-fallback summary 20` as appropriate, so recovery does not require manually typing slash commands during degraded sessions.
 - `/bot-fallback summary` can be used after a timeout/context incident to confirm whether a recovery command hit the urgent queue-bypass path.

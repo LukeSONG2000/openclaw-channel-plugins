@@ -27,7 +27,7 @@ const cfg = {
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
-            capabilities: ["chat.send", "system.status", "codex.longTask", "game.interact", "config.write"],
+            capabilities: ["chat.send", "system.status", "codex.longTask", "game.interact", "config.write", "deploy.check", "deploy.apply"],
             tasks: {
               workspaceRoot: "/tmp/group-slash-tasks",
               maxActiveTasksPerPeer: 1,
@@ -323,6 +323,40 @@ assert.equal(sceneBindings.persist, undefined);
 assert.equal(sceneBindings.reply?.kind, "text");
 assert.equal(sceneBindings.reply?.kind === "text" && sceneBindings.reply.text.includes("已配置自定义场景绑定"), true);
 assert.equal(sceneBindings.reply?.kind === "text" && sceneBindings.reply.text.includes("qqbot:group:GROUP_OPENID"), true);
+
+const deployRuntime = createCustomMessageFlowRuntime();
+const deploy = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: deployRuntime,
+  message: { ...baseMessage, content: "/bot-deploy confirm /bot-upgrade --latest" },
+  rawContent: "/bot-deploy confirm /bot-upgrade --latest",
+  now: 5_800,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deploy.handled, true);
+assert.equal(deploy.persist?.deployConfirmations, true);
+assert.equal(deploy.reply?.kind, "keyboard");
+assert.equal(deploy.reply?.kind === "keyboard" && deploy.reply.text.includes("不会自动执行热更新"), true);
+assert.equal(Object.keys(deployRuntime.deployConfirmations.getState().confirmations)[0], "deploy-default-group-GROUP_OPENID-5800-1");
+
+const deployDeniedRuntime = createCustomMessageFlowRuntime();
+const deployDenied = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: deployDeniedRuntime,
+  message: { ...baseMessage, content: "/bot-deploy confirm /bot-upgrade --latest" },
+  rawContent: "/bot-deploy confirm /bot-upgrade --latest",
+  now: 5_900,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deployDenied.handled, true);
+assert.equal(deployDenied.persist?.auth, true);
+assert.equal(deployDenied.persist?.deployConfirmations, undefined);
+assert.equal(deployDenied.reply?.kind, "auth-approval");
+if (deployDenied.reply?.kind !== "auth-approval") throw new Error("expected deploy auth approval reply");
+assert.equal(deployDenied.reply.denialText.includes("需要能力：deploy.apply"), true);
+assert.deepEqual(deployDeniedRuntime.deployConfirmations.getState().confirmations, {});
 
 const fallbackStatus = handleCustomSlashGatewayCommand({
   cfg,

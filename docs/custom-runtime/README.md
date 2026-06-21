@@ -67,8 +67,11 @@ Out of scope for the first custom runtime:
 - `src/custom/urgent-commands.ts`: pure queue-bypass command policy for `/stop`, `/approve`, `/new`, and `/compact`.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/profile-list/binding-list/bind command adapter with gateway-owned config persistence.
 - `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash auth gate and typed effect merge layer.
-- `src/custom/slash-router.ts`: pluggable custom slash route table for scene, fallback, queue, unread, task, poll, and game commands.
-- `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and future confirmation cards.
+- `src/custom/slash-router.ts`: pluggable custom slash route table for scene, fallback, queue, unread, task, poll, game, and deploy-confirmation commands.
+- `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and deploy-confirmation cards.
+- `src/custom/deploy-confirmation.ts`: pure safety confirmation runtime for guarded deployment/update decisions; it records confirm/cancel state but never executes upgrades.
+- `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
+- `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter for deployment confirmation cards.
 - `src/custom/game.ts`: pure lightweight game runtime for interactive cards.
 - `src/custom/game-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-games`.
 - `src/custom/game-gateway-adapter.ts`: `/bot-game` command and `custom-game:` button callback adapter.
