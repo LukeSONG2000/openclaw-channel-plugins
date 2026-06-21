@@ -1,10 +1,7 @@
 import type { ResolvedQQBotAccount } from "./types.js";
-import { stopBackgroundTokenRefresh } from "./api.js";
-import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { getApprovalHandler } from "./approval-handler.js";
-import { flushRefIndex } from "./ref-index-store.js";
 import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { handleStructuredPayload, sendTextToTarget } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
@@ -19,6 +16,7 @@ import { startQQBotGatewayStartup } from "./custom/gateway-startup-gateway-adapt
 import { runQQBotGatewayConnectAttempt } from "./custom/gateway-connect-attempt-gateway-adapter.js";
 import { createQQBotGatewayPlatformServices } from "./custom/gateway-platform-services-gateway-adapter.js";
 import { createQQBotGatewayRuntimeServiceHandles } from "./custom/gateway-runtime-service-handles-gateway-adapter.js";
+import { registerQQBotGatewayAbortCleanup } from "./custom/gateway-abort-cleanup-gateway-adapter.js";
 
 // QQ Bot intents - 按权限级别分组
 const INTENTS = {
@@ -133,19 +131,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const customUpdateCheck = accountServices.updateCheck;
   const trySlashCommandOrEnqueue = accountServices.trySlashCommandOrEnqueue;
 
-  lifecycle.registerAbort(abortSignal, () => {
-    // P1-1: 停止后台 Token 刷新
-    stopBackgroundTokenRefresh(account.appId);
-    // P1-3: 保存已知用户数据
-    flushKnownUsers();
-    // P1-4: 保存引用索引数据
-    flushRefIndex();
-    // 保存自定义消息流状态
-    customState.persistAllState();
-    // 停止后台二开版本检查
-    customUpdateCheck.stop();
-    // 停止审批 handler
-    approvalHandler.dispose();
+  registerQQBotGatewayAbortCleanup({
+    account,
+    abortSignal,
+    lifecycle,
+    customState,
+    updateCheck: customUpdateCheck,
+    approvalHandler,
+    log,
   });
 
   const scheduleReconnect = (customDelay?: number) => {

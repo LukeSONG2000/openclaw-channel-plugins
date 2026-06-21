@@ -6,6 +6,8 @@ import {
   applyCustomRuntimeInitializationToConfig,
   applyCustomRuntimeAdminGroupSceneBinding,
   inspectCustomRuntimeInitialization,
+  findLikelyRawQQNumericAdminIds,
+  isLikelyRawQQNumericId,
   normalizeCustomRuntimeAdminGroup,
   normalizeCustomRuntimeAdminList,
   runCli,
@@ -16,6 +18,10 @@ assert.equal(normalizeCustomRuntimeAdminGroup("GROUP_OPENID"), "qqbot:group:GROU
 assert.equal(normalizeCustomRuntimeAdminGroup("group:GROUP_OPENID"), "qqbot:group:GROUP_OPENID");
 assert.equal(normalizeCustomRuntimeAdminGroup("qqbot:group:GROUP_OPENID"), "qqbot:group:GROUP_OPENID");
 assert.equal(normalizeCustomRuntimeAdminGroup("qqbot:c2c:USER_OPENID"), undefined);
+assert.equal(isLikelyRawQQNumericId("945739251"), true);
+assert.equal(isLikelyRawQQNumericId("group:945739251"), true);
+assert.equal(isLikelyRawQQNumericId("GROUP_OPENID"), false);
+assert.deepEqual(findLikelyRawQQNumericAdminIds("1137586795,ADMIN_OPENID,1137586795"), ["1137586795"]);
 
 const original = {
   channels: {
@@ -81,6 +87,15 @@ const missingPath = path.join(tmpDir, "missing.json");
 fs.writeFileSync(missingPath, JSON.stringify({ channels: { qqbot: {} } }, null, 2));
 const missingCode = await runCli(["--config", missingPath, "--status-only", "--require-ready"], {});
 assert.equal(missingCode, 2);
+
+await assert.rejects(
+  () => runCli(["--config", missingPath, "--admins", "1137586795", "--admin-group", "CLI_GROUP"], {}),
+  /not raw QQ number/,
+);
+await assert.rejects(
+  () => runCli(["--config", missingPath, "--admins", "CLI_ADMIN", "--admin-group", "945739251"], {}),
+  /not raw QQ group number/,
+);
 
 fs.rmSync(tmpDir, { recursive: true, force: true });
 

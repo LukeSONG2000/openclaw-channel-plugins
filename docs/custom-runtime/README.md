@@ -32,6 +32,13 @@ Out of scope for the first custom runtime:
   - `tests/no-core-image-generation-coupling.test.ts` guards this boundary.
 - Broad refactors of official API wrappers unless needed for safety, retry, or observability.
 
+## Initialization Binding Form
+
+- `customRuntime.admins` must contain QQBot platform `user_openid` / `member_openid` values, not raw QQ numbers.
+- `customRuntime.adminGroup` must contain QQBot `group_openid`; `GROUP_OPENID`, `group:GROUP_OPENID`, and `qqbot:group:GROUP_OPENID` normalize to `qqbot:group:GROUP_OPENID`.
+- Raw human aliases such as QQ `1137586795` or group `945739251` are useful labels only. They are not present in current event/storage evidence and are rejected by setup/preflight when they look like 5-13 digit raw numeric ids.
+- If only raw QQ aliases are known, the next binding UX should be challenge-based: the console prints a one-time code, the admin sends `/bot-init-bind <code>` in the target C2C/group, and the gateway writes the openids captured from that inbound event.
+
 ## Evidence Files
 
 - Server snapshot: `/Users/lukesong/Work/Workspace/laptop/openclaw-plugin-compare-20260621/server-current/openclaw-qqbot`
@@ -97,6 +104,7 @@ Out of scope for the first custom runtime:
 - `src/custom/message-handler-gateway-adapter.ts`: gateway-side per-account message handler binding layer that wires ingress -> context -> dispatch with QQ/OpenClaw callbacks injected once.
 - `src/custom/connection-handlers-gateway-adapter.ts`: gateway-side per-connection handler bundle that creates runtime services, message handling, interaction handling, and inbound event fanout together.
 - `src/custom/gateway-lifecycle-gateway-adapter.ts`: gateway-side connection lifecycle controller for reconnect state, abort handling, session state, heartbeat timer reset, WebSocket cleanup, and runtime-service disposal.
+- `src/custom/gateway-abort-cleanup-gateway-adapter.ts`: gateway-side abort cleanup runner for token refresh, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler disposal.
 - `src/custom/gateway-runtime-service-handles-gateway-adapter.ts`: gateway-side mutable handle holder for the active task executor and unread scheduler across reconnects and abort cleanup.
 - `src/custom/gateway-connect-attempt-gateway-adapter.ts`: gateway-side connection-attempt runner that gates concurrent connects, prepares token refresh, creates handlers, starts transport, and routes setup failures to reconnect handling.
 - `src/custom/websocket-close-gateway-adapter.ts`: gateway-side WebSocket close/connection-failure adapter for applying reconnect policy, session/token side effects, cleanup, and retry scheduling.

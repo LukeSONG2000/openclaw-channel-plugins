@@ -4,6 +4,7 @@ import { pathToFileURL } from "node:url";
 
 const ADMIN_ENV_KEYS = ["QQBOT_CUSTOM_ADMINS", "QQBOT_ADMINS"];
 const ADMIN_GROUP_ENV_KEYS = ["QQBOT_CUSTOM_ADMIN_GROUP", "QQBOT_ADMIN_GROUP"];
+const LIKELY_RAW_QQ_NUMERIC_ID_PATTERN = /^[1-9]\d{4,12}$/;
 
 export function normalizeCustomRuntimeAdminList(raw) {
   const values = Array.isArray(raw)
@@ -40,6 +41,40 @@ export function normalizeCustomRuntimeAdminGroup(raw) {
     return openid ? `qqbot:group:${openid}` : undefined;
   }
   return `qqbot:group:${value}`;
+}
+
+export function isLikelyRawQQNumericId(raw) {
+  const value = stripCustomRuntimeBindingPrefix(String(raw ?? "").trim());
+  return LIKELY_RAW_QQ_NUMERIC_ID_PATTERN.test(value);
+}
+
+export function findLikelyRawQQNumericAdminIds(raw) {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(/[\s,;，；]+/g)
+      : raw === null || raw === undefined
+        ? []
+        : [raw];
+
+  const seen = new Set();
+  const matches = [];
+  for (const value of values) {
+    const candidate = String(value ?? "").trim();
+    if (!candidate || !isLikelyRawQQNumericId(candidate)) continue;
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    matches.push(candidate);
+  }
+  return matches;
+}
+
+function stripCustomRuntimeBindingPrefix(value) {
+  if (value.startsWith("qqbot:group:")) return value.slice("qqbot:group:".length).trim();
+  if (value.startsWith("group:")) return value.slice("group:".length).trim();
+  if (value.startsWith("qqbot:c2c:")) return value.slice("qqbot:c2c:".length).trim();
+  if (value.startsWith("c2c:")) return value.slice("c2c:".length).trim();
+  return value;
 }
 
 export function inspectCustomRuntimeInitialization(cfg) {
@@ -113,6 +148,13 @@ export async function runCli(argv = process.argv.slice(2), env = process.env) {
 
   const admins = normalizeCustomRuntimeAdminList(args.admins);
   const adminGroup = normalizeCustomRuntimeAdminGroup(args.adminGroup);
+  const numericAdmins = findLikelyRawQQNumericAdminIds(args.admins);
+  if (args.hasAdminInput && numericAdmins.length > 0) {
+    throw new Error(`custom runtime admins must use QQBot user_openid/member_openid, not raw QQ number: ${numericAdmins.join(", ")}`);
+  }
+  if (args.hasAdminGroupInput && isLikelyRawQQNumericId(args.adminGroup)) {
+    throw new Error("custom runtime admin group must use QQBot group_openid, not raw QQ group number");
+  }
   if (args.hasAdminInput && admins.length === 0) {
     throw new Error("custom runtime admins cannot be empty");
   }
@@ -264,8 +306,8 @@ function usage() {
     "  node scripts/apply-custom-runtime-init.mjs --config <openclaw.json> --admins <openid,...> --admin-group <group_openid>",
     "",
     "Options:",
-    "  --admins, --admin <openid,...>       Bind one or more custom runtime admins",
-    "  --admin-group <group_openid>         Bind the management QQ group",
+    "  --admins, --admin <openid,...>       Bind one or more QQBot user_openid/member_openid admins",
+    "  --admin-group <group_openid>         Bind the management QQBot group_openid",
     "  --enable-custom-runtime              Set customRuntime.enabled=true",
     "  --disable-custom-runtime             Set customRuntime.enabled=false",
     "  --status-only                        Print current binding status without writing",

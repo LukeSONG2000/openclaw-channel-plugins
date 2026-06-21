@@ -79,6 +79,25 @@ assert.equal(missingAnchors.ok, false);
 assert.equal(missingAnchors.findings.some((item) => item.code === "custom_runtime_admins_missing"), true);
 assert.equal(missingAnchors.findings.some((item) => item.code === "custom_runtime_admin_group_missing"), true);
 
+const rawNumericAnchors = inspectCustomRuntimeDeployPreflight({
+  cfg: {
+    channels: {
+      qqbot: {
+        appId: "APPID",
+        clientSecret: "SECRET",
+        customRuntime: {
+          enabled: true,
+          admins: ["1137586795"],
+          adminGroup: "945739251",
+        },
+      },
+    },
+  },
+});
+assert.equal(rawNumericAnchors.ok, false);
+assert.equal(rawNumericAnchors.findings.some((item) => item.code === "custom_runtime_admins_raw_qq_number"), true);
+assert.equal(rawNumericAnchors.findings.some((item) => item.code === "custom_runtime_admin_group_raw_qq_number"), true);
+
 const unsafeCfg = {
   channels: {
     qqbot: {

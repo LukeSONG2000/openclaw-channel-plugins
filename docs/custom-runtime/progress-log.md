@@ -1308,3 +1308,17 @@ Added configured scene binding inspection:
 - `gateway.ts` now passes stable handle callbacks into account services, lifecycle cleanup, and connect-attempt wiring instead of mutating `customTaskExecutor` / `customUnreadScheduler` locals directly.
 - The handle holder clears stale references before disposal and still attempts both unread-scheduler and task-executor disposal if one throws, reducing reconnect/abort residue risk without changing who creates the services.
 - Added `tests/custom-gateway-runtime-service-handles-gateway-adapter.test.ts` for handle getters, replacement, idempotent cleanup, disposal order, error propagation, and stale-reference clearing.
+
+核实并加固初始化绑定形式：
+
+- 已核实 QQBot 官方唯一身份机制和本地服务器证据：C2C 管理员只能可靠使用 `user_openid`，群内管理员使用 `member_openid`，管理群使用 `group_openid`；原始 QQ 号 / QQ 群号只是人类别名，不能作为鉴权或发送目标 key。
+- `src/onboarding.ts` 和 `scripts/apply-custom-runtime-init.mjs` now reject likely raw numeric QQ ids in `customRuntime.admins` / `customRuntime.adminGroup`, preventing values like `1137586795` or `945739251` from being written as if they were openids.
+- `scripts/preflight-custom-runtime-deploy.mjs` now reports blockers when an existing config contains likely raw numeric admin/adminGroup anchors, so unsafe bindings are caught before deployment.
+- 文档补充显式绑定形式和后续对话式绑定要求：如果只知道 QQ 号/群号，应由控制台生成一次性 code，让管理员在目标 C2C/群里发送绑定命令，再从 inbound event 捕获 `user_openid` / `member_openid` / `group_openid` 写入配置。
+
+抽出 gateway abort cleanup 网关中止清理层：
+
+- Added `src/custom/gateway-abort-cleanup-gateway-adapter.ts` to own abort cleanup side effects: stop token refresh, flush known users/ref-index, persist all custom runtime state, stop update checks, and dispose the approval handler.
+- `gateway.ts` now registers abort cleanup through this adapter instead of keeping the shutdown sequence inline.
+- Cleanup attempts every step even when one step throws, logging per-step failures so custom-state persistence or approval disposal is not skipped by an earlier flush failure.
+- Added `tests/custom-gateway-abort-cleanup-gateway-adapter.test.ts` for ordered cleanup, failure isolation, and lifecycle registration wiring.

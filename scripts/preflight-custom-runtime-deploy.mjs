@@ -4,6 +4,8 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
+  findLikelyRawQQNumericAdminIds,
+  isLikelyRawQQNumericId,
   normalizeCustomRuntimeAdminGroup,
   normalizeCustomRuntimeAdminList,
 } from "./apply-custom-runtime-init.mjs";
@@ -113,6 +115,13 @@ export function inspectCustomRuntimeDeployPreflight(params) {
   const runtime = objectOrEmpty(qqbot?.customRuntime);
   const admins = normalizeCustomRuntimeAdminList(runtime.admins);
   const adminGroup = normalizeCustomRuntimeAdminGroup(runtime.adminGroup);
+  const rawNumericAdmins = findLikelyRawQQNumericAdminIds(runtime.admins);
+  if (rawNumericAdmins.length > 0) {
+    findings.push(blocker("custom_runtime_admins_raw_qq_number", "customRuntime.admins 包含疑似原始 QQ 号；必须使用 QQBot user_openid/member_openid。", rawNumericAdmins.join(", ")));
+  }
+  if (isLikelyRawQQNumericId(runtime.adminGroup)) {
+    findings.push(blocker("custom_runtime_admin_group_raw_qq_number", "customRuntime.adminGroup 是疑似原始 QQ 群号；必须使用 QQBot group_openid。"));
+  }
   if (admins.length === 0) {
     findings.push(blocker("custom_runtime_admins_missing", "初始化未绑定 customRuntime.admins；部署前必须至少绑定一个管理员 openid。"));
   }

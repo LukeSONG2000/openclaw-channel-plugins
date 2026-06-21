@@ -19,6 +19,7 @@ import {
   normalizeCustomRuntimeAdminGroup,
   normalizeCustomRuntimeAdminList,
   resolveCustomRuntimeConfig,
+  validateCustomRuntimeAdminBindingIdentifiers,
 } from "./custom/config.js";
 
 // 内部类型（用于类型安全）
@@ -100,13 +101,15 @@ export function validateQQBotCustomRuntimeInitializationInput(input: {
   admins?: unknown;
   adminGroup?: unknown;
 }): string | null {
+  const identifierError = validateCustomRuntimeAdminBindingIdentifiers(input);
+  if (identifierError) return `QQBot initialization requires platform openids: ${identifierError}. If you only know a raw QQ number/group number, bind by sending a setup challenge in that chat.`;
   const admins = normalizeCustomRuntimeAdminList(input.admins);
   if (admins.length === 0) {
-    return "QQBot initialization requires customRuntime admins; provide customRuntimeAdmins/admins or QQBOT_CUSTOM_ADMINS";
+    return "QQBot initialization requires customRuntime admins; provide QQBot user_openid/member_openid via customRuntimeAdmins/admins or QQBOT_CUSTOM_ADMINS";
   }
   const adminGroup = normalizeCustomRuntimeAdminGroup(input.adminGroup);
   if (!adminGroup) {
-    return "QQBot initialization requires customRuntime adminGroup; provide customRuntimeAdminGroup/adminGroup or QQBOT_CUSTOM_ADMIN_GROUP";
+    return "QQBot initialization requires customRuntime adminGroup; provide QQBot group_openid via customRuntimeAdminGroup/adminGroup or QQBOT_CUSTOM_ADMIN_GROUP";
   }
   return null;
 }
@@ -344,7 +347,9 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
       customAdmins = normalizeCustomRuntimeAdminList(await prompter.text({
         message: "请输入 customRuntime 管理员 openid（多个用逗号分隔）",
         placeholder: "例如: ADMIN_MEMBER_OPENID",
-        validate: (value: string) => normalizeCustomRuntimeAdminList(value).length ? undefined : "至少需要绑定一个管理员 openid",
+        validate: (value: string) =>
+          validateCustomRuntimeAdminBindingIdentifiers({ admins: value })
+          ?? (normalizeCustomRuntimeAdminList(value).length ? undefined : "至少需要绑定一个管理员 user_openid/member_openid"),
       }));
     }
 
@@ -352,7 +357,9 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
       customAdminGroup = normalizeCustomRuntimeAdminGroup(await prompter.text({
         message: "请输入 customRuntime 管理群 group_openid",
         placeholder: "例如: 5C1152CA05D191171B05E6997791C3F5",
-        validate: (value: string) => normalizeCustomRuntimeAdminGroup(value) ? undefined : "管理群 group_openid 不能为空",
+        validate: (value: string) =>
+          validateCustomRuntimeAdminBindingIdentifiers({ adminGroup: value })
+          ?? (normalizeCustomRuntimeAdminGroup(value) ? undefined : "管理群 group_openid 不能为空"),
       }));
     }
 

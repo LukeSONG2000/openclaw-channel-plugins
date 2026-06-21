@@ -124,6 +124,14 @@ assert.equal(validateQQBotCustomRuntimeInitializationInput(setupInput), null);
 assert.equal(validateQQBotCustomRuntimeInitializationInput(resolveQQBotCustomRuntimeInitializationInput({
   customRuntimeAdminGroup: "ADMIN_GROUP_OPENID",
 }, {}))?.includes("customRuntime admins"), true);
+assert.equal(validateQQBotCustomRuntimeInitializationInput(resolveQQBotCustomRuntimeInitializationInput({
+  customRuntimeAdmins: "1137586795",
+  customRuntimeAdminGroup: "ADMIN_GROUP_OPENID",
+}, {}))?.includes("not raw QQ number"), true);
+assert.equal(validateQQBotCustomRuntimeInitializationInput(resolveQQBotCustomRuntimeInitializationInput({
+  customRuntimeAdmins: "ADMIN_OPENID",
+  customRuntimeAdminGroup: "945739251",
+}, {}))?.includes("not raw QQ group number"), true);
 
 const setupCfg = applyQQBotCustomRuntimeInitialization({ channels: {} } as any, setupInput);
 const setupRuntime = resolveCustomRuntimeConfig(setupCfg as any);

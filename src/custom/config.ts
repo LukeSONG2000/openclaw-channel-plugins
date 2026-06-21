@@ -12,6 +12,7 @@ const DEFAULT_RUNTIME_CONFIG: Required<Pick<CustomRuntimeConfig, "enabled" | "de
   enabled: false,
   defaultScene: "default-dm",
 };
+const LIKELY_RAW_QQ_NUMERIC_ID_PATTERN = /^[1-9]\d{4,12}$/;
 
 function qqbotChannelConfig(cfg: OpenClawConfig): Record<string, unknown> {
   return ((cfg.channels?.qqbot ?? {}) as Record<string, unknown>);
@@ -58,9 +59,57 @@ export function normalizeCustomRuntimeAdminList(raw: unknown): string[] {
   return admins;
 }
 
+export function isLikelyRawQQNumericId(raw: unknown): boolean {
+  const value = stripCustomRuntimeBindingPrefix(String(raw ?? "").trim());
+  return LIKELY_RAW_QQ_NUMERIC_ID_PATTERN.test(value);
+}
+
+export function findLikelyRawQQNumericAdminIds(raw: unknown): string[] {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(/[\s,;，；]+/g)
+      : raw === null || raw === undefined
+        ? []
+        : [raw];
+
+  const seen = new Set<string>();
+  const matches: string[] = [];
+  for (const value of values) {
+    const candidate = String(value ?? "").trim();
+    if (!candidate || !isLikelyRawQQNumericId(candidate)) continue;
+    if (seen.has(candidate)) continue;
+    seen.add(candidate);
+    matches.push(candidate);
+  }
+  return matches;
+}
+
+export function validateCustomRuntimeAdminBindingIdentifiers(input: {
+  admins?: unknown;
+  adminGroup?: unknown;
+}): string | null {
+  const numericAdmins = findLikelyRawQQNumericAdminIds(input.admins);
+  if (numericAdmins.length > 0) {
+    return `customRuntime admins must use QQBot user_openid/member_openid, not raw QQ number: ${numericAdmins.join(", ")}`;
+  }
+  if (input.adminGroup !== undefined && input.adminGroup !== null && isLikelyRawQQNumericId(input.adminGroup)) {
+    return "customRuntime adminGroup must use QQBot group_openid, not raw QQ group number";
+  }
+  return null;
+}
+
 export function normalizeCustomRuntimeAdminGroup(raw: unknown): string | undefined {
   if (raw === null || raw === undefined) return undefined;
   return resolveCustomAdminGroupKey(String(raw).trim());
+}
+
+function stripCustomRuntimeBindingPrefix(value: string): string {
+  if (value.startsWith("qqbot:group:")) return value.slice("qqbot:group:".length).trim();
+  if (value.startsWith("group:")) return value.slice("group:".length).trim();
+  if (value.startsWith("qqbot:c2c:")) return value.slice("qqbot:c2c:".length).trim();
+  if (value.startsWith("c2c:")) return value.slice("c2c:".length).trim();
+  return value;
 }
 
 export function applyCustomRuntimeAdminGroupSceneBinding(

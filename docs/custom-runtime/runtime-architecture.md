@@ -438,7 +438,8 @@ Current implementation status:
 - Unauthorized ordinary dispatch requests receive a visible denial message and can create the same approval-card request in C2C/group.
 - QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
 - Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
-- QQBot initialization requires both `customRuntime.admins` and `customRuntime.adminGroup`; onboarding, `qqbotPlugin.setup.validateInput` / `applyAccountConfig`, and install scripts write these anchors before the runtime is enabled. `adminGroup` accepts either a raw QQ `group_openid` or `qqbot:group:<group_openid>` and is normalized to a peer key.
+- QQBot initialization requires both `customRuntime.admins` and `customRuntime.adminGroup`; onboarding, `qqbotPlugin.setup.validateInput` / `applyAccountConfig`, and install scripts write these anchors before the runtime is enabled. `admins` must be QQBot `user_openid` / `member_openid`; `adminGroup` accepts QQBot `group_openid`, `group:<group_openid>`, or `qqbot:group:<group_openid>` and is normalized to a peer key.
+- Raw human QQ numbers / QQ group numbers are not valid policy anchors. Initialization validation and deploy preflight reject likely 5-13 digit raw numeric ids such as `1137586795` or `945739251`; if only those human aliases are known, use a challenge-message binding flow in the target C2C/group so the gateway can capture `user_openid`, `member_openid`, and `group_openid` from the inbound event.
 - Initializing `customRuntime.adminGroup` also creates a default `system-admin` scene binding for that group when no binding exists yet, so the management group immediately has status/query/deploy-check semantics without granting high-risk mutation capabilities.
 - `scripts/apply-custom-runtime-init.mjs` is the shared installer helper for writing and inspecting those anchors. `upgrade-via-npm.sh`, `upgrade-via-source.sh`, and `upgrade-via-npm.ps1` accept `--admins`/`--admin-group` or `QQBOT_CUSTOM_ADMINS`/`QQBOT_CUSTOM_ADMIN_GROUP`; without them they report the missing initialization anchors instead of silently treating appid/secret as complete setup.
 - `/bot-auth status` reports whether the admin binding is complete. Missing admins or admin group means authorization still blocks high-risk actions, but approval requests have no reliable management anchor.
@@ -456,8 +457,8 @@ Policy inputs:
 - command/tool name
 - temporary grants
 - admin bindings:
-  - `customRuntime.admins`: member/user openids allowed to approve grants and run high-risk capabilities
-  - `customRuntime.adminGroup`: management group peer for auth requests, system push, deployment checks, and operational alerts
+  - `customRuntime.admins`: QQBot `member_openid` / `user_openid` values allowed to approve grants and run high-risk capabilities
+  - `customRuntime.adminGroup`: QQBot management group peer (`qqbot:group:<group_openid>`) for auth requests, system push, deployment checks, and operational alerts
 
 Suggested capabilities:
 
@@ -565,6 +566,21 @@ Important boundary:
 
 - The controller does not know QQ tokens, OpenClaw runtime internals, message queues, or persistence stores. `gateway.ts` injects cleanup side effects such as runtime-service disposal, token refresh stopping, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler stop.
 - It keeps transport lifecycle state testable without opening a real WebSocket or starting Webhook transport.
+
+### `src/custom/gateway-abort-cleanup-gateway-adapter.ts`
+
+Gateway-side abort cleanup runner for one QQBot account.
+
+Current implementation status:
+
+- Registers the abort cleanup callback through the lifecycle controller and owns the ordered side effects that used to sit inline in `gateway.ts`: stop background token refresh, flush known users, flush ref-index records, persist all custom runtime state, stop custom update checks, and dispose the approval handler.
+- Runs every cleanup step even if an earlier step throws, logging per-step failures so abort does not skip custom-state persistence or approval-handler disposal because a cache flush failed.
+- Keeps the cleanup sequence dependency-injectable for tests without needing an active WebSocket, QQ token, OpenClaw runtime, or filesystem-backed stores.
+
+Important boundary:
+
+- The adapter does not own lifecycle state or runtime-service disposal; `gateway-lifecycle-gateway-adapter.ts` still performs transport/runtime-service cleanup before invoking this registered abort callback.
+- It is process-shutdown/restart hygiene only; deployment backup/rollback remains in the deploy scripts and is not triggered here.
 
 ### `src/custom/gateway-runtime-service-handles-gateway-adapter.ts`
 
