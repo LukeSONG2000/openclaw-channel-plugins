@@ -14,10 +14,19 @@ export interface MessageTarget {
   groupOpenid?: string;
 }
 
+export type ReplyTextPrepareDecision =
+  | { allowed: true; commit?: () => void }
+  | { allowed: false; reason: string };
+
 export interface ReplyContext {
   target: MessageTarget;
   account: ResolvedQQBotAccount;
   cfg: unknown;
+  prepareUnanchoredTextSend?: (params: {
+    targetType: "c2c" | "group";
+    targetId: string;
+    text: string;
+  }) => ReplyTextPrepareDecision;
   log?: {
     info: (msg: string) => void;
     error: (msg: string) => void;
@@ -60,6 +69,10 @@ export async function sendTextToTarget(
   refIdx?: string,
 ): Promise<void> {
   const { target, account } = ctx;
+  const prepareDecision = prepareUnanchoredTextSend(ctx, text);
+  if (!prepareDecision.allowed) {
+    throw new Error(prepareDecision.reason);
+  }
   await sendWithTokenRetry(account.appId, account.clientSecret, async (token) => {
     if (target.type === "c2c") {
       await sendC2CMessage(token, target.senderId, text, target.messageId, refIdx);
@@ -71,6 +84,19 @@ export async function sendTextToTarget(
       await sendC2CMessage(token, target.senderId, text, target.messageId, refIdx);
     }
   }, ctx.log, account.accountId);
+  prepareDecision.commit?.();
+}
+
+function prepareUnanchoredTextSend(ctx: ReplyContext, text: string): ReplyTextPrepareDecision {
+  const { target } = ctx;
+  if (!ctx.prepareUnanchoredTextSend || target.messageId) return { allowed: true };
+  if (target.type === "c2c") {
+    return ctx.prepareUnanchoredTextSend({ targetType: "c2c", targetId: target.senderId, text });
+  }
+  if (target.type === "group" && target.groupOpenid) {
+    return ctx.prepareUnanchoredTextSend({ targetType: "group", targetId: target.groupOpenid, text });
+  }
+  return { allowed: true };
 }
 
 function cloneTargetWithoutReplyAnchor(target: ReplyContext["target"]): ReplyContext["target"] {

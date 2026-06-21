@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { CustomPeer, CustomRuntimeConfig, CustomSceneConfig } from "./types.js";
+import { resolveCustomAdminGroupKey } from "./auth.js";
 import {
   formatCustomPeerKey,
   resolveCustomScene,
@@ -31,6 +32,66 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     unread: runtime.unread,
     proactive: runtime.proactive,
     tasks: runtime.tasks,
+  };
+}
+
+export function normalizeCustomRuntimeAdminList(raw: unknown): string[] {
+  const values = Array.isArray(raw)
+    ? raw
+    : typeof raw === "string"
+      ? raw.split(/[\s,;，；]+/g)
+      : raw === null || raw === undefined
+        ? []
+        : [raw];
+
+  const seen = new Set<string>();
+  const admins: string[] = [];
+  for (const value of values) {
+    const admin = String(value ?? "").trim();
+    if (!admin) continue;
+    const key = admin.toUpperCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    admins.push(admin);
+  }
+  return admins;
+}
+
+export function normalizeCustomRuntimeAdminGroup(raw: unknown): string | undefined {
+  if (raw === null || raw === undefined) return undefined;
+  return resolveCustomAdminGroupKey(String(raw).trim());
+}
+
+export function applyCustomRuntimeAdminBindingsToConfig(
+  cfg: OpenClawConfig,
+  input: {
+    admins?: unknown;
+    adminGroup?: unknown;
+    enabled?: boolean;
+  },
+): OpenClawConfig {
+  const qqbot = qqbotChannelConfig(cfg);
+  const currentRuntime = qqbot.customRuntime;
+  const runtime = currentRuntime && typeof currentRuntime === "object" && !Array.isArray(currentRuntime)
+    ? { ...(currentRuntime as Record<string, unknown>) }
+    : {};
+
+  const admins = normalizeCustomRuntimeAdminList(input.admins);
+  const adminGroup = normalizeCustomRuntimeAdminGroup(input.adminGroup);
+
+  if (admins.length > 0) runtime.admins = admins;
+  if (adminGroup) runtime.adminGroup = adminGroup;
+  if (typeof input.enabled === "boolean") runtime.enabled = input.enabled;
+
+  return {
+    ...cfg,
+    channels: {
+      ...cfg.channels,
+      qqbot: {
+        ...qqbot,
+        customRuntime: runtime,
+      },
+    },
   };
 }
 

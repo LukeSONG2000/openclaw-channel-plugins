@@ -222,7 +222,7 @@ Current send matrix:
 
 | Capability | C2C | Group | Guild channel | Channel DM | Notes |
 | --- | --- | --- | --- | --- | --- |
-| Plain text | `sendC2CMessage` | `sendGroupMessage` | `sendChannelMessage` | `sendDmMessage` | C2C/group include `msg_seq`; passive sends include `msg_id` when available |
+| Plain text | `sendC2CMessage` | `sendGroupMessage` | `sendChannelMessage` | `sendDmMessage` | C2C/group include `msg_seq`; passive sends include `msg_id` when available; local reply dispatcher requires the proactive guard hook before unanchored C2C/group text sends |
 | Markdown text | `sendC2CMessage` when `markdownSupport=true` | `sendGroupMessage` when `markdownSupport=true` | not via current wrapper | not via current wrapper | Local C2C/group body uses `msg_type=2` and `markdown.content` |
 | Inline keyboard/cards | `sendC2CMessageWithInlineKeyboard` | `sendGroupMessageWithInlineKeyboard` | not wired for custom runtime | not wired for custom runtime | Auth approvals and polls use this path; text fallback commands remain required |
 | Image | `sendC2CImageMessage` | `sendGroupImageMessage` | skipped or text fallback in current outbound code | not audited | Uses rich media upload, then `msg_type=7` media send |
@@ -312,6 +312,7 @@ Current custom runtime behavior:
 
 - Unread/follow-up/sleep-digest state is extracted into `src/custom/unread-runtime.ts` and wired through `src/custom/unread-gateway-adapter.ts`.
 - Custom runtime defaults off unless `channels.qqbot.customRuntime.enabled=true`.
+- QQBot initialization binds `customRuntime.admins` and `customRuntime.adminGroup`; onboarding status remains incomplete until both management anchors are present.
 - Synthetic digest messages use `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
 - Synthetic digest sends use proactive/unanchored group sends and should therefore be guarded by proactive budget/policy.
 - Mention replies can trigger unread catch-up after the direct reply.

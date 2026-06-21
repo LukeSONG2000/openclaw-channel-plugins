@@ -178,6 +178,7 @@ Current implementation status:
 - Persists state under `~/.openclaw/qqbot/data/custom-proactive-budget/budget-<accountId>.json`.
 - Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
 - The same guard now covers media tag queues, Base64 image sends, local/payload media auto-routing, and tool fallback/immediate media forwarding.
+- `src/reply-dispatcher.ts` exposes a small `prepareUnanchoredTextSend` hook. Gateway reply helpers use it for C2C/group text sends with no real `messageId`, covering error fallbacks, structured-payload captions, admin-group auth notifications, and long-task notifications without importing custom runtime internals into the dispatcher.
 
 Example:
 
@@ -233,7 +234,7 @@ Current implementation status:
 - Unauthorized ordinary dispatch requests receive a visible denial message and can create the same approval-card request in C2C/group.
 - QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
 - Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
-- Runtime initialization requires both `customRuntime.admins` and `customRuntime.adminGroup` when the custom runtime is enabled. `adminGroup` accepts either a raw QQ `group_openid` or `qqbot:group:<group_openid>` and is normalized to a peer key.
+- QQBot initialization requires both `customRuntime.admins` and `customRuntime.adminGroup`; onboarding/setup writes these anchors before the runtime is enabled. `adminGroup` accepts either a raw QQ `group_openid` or `qqbot:group:<group_openid>` and is normalized to a peer key.
 - `/bot-auth status` reports whether the admin binding is complete. Missing admins or admin group means authorization still blocks high-risk actions, but approval requests have no reliable management anchor.
 - Approval request records carry the normalized management group key so approval cards, text fallbacks, and future system push/deploy notifications can share the same target.
 - When an approval request is created outside the bound management group, the gateway best-effort copies the approval card/text to `customRuntime.adminGroup`. This copy is an unanchored group send, so it passes through the same proactive acceptance/budget guard before any QQ send API call.

@@ -12,6 +12,13 @@ import type {
   OpenClawConfig,
 } from "openclaw/plugin-sdk";
 import { DEFAULT_ACCOUNT_ID, listQQBotAccountIds, resolveQQBotAccount } from "./config.js";
+import { inspectCustomAdminBindings } from "./custom/auth.js";
+import {
+  applyCustomRuntimeAdminBindingsToConfig,
+  normalizeCustomRuntimeAdminGroup,
+  normalizeCustomRuntimeAdminList,
+  resolveCustomRuntimeConfig,
+} from "./custom/config.js";
 
 // 内部类型（用于类型安全）
 interface QQBotChannelConfig {
@@ -59,6 +66,68 @@ function resolveDefaultQQBotAccountId(cfg: OpenClawConfig): string {
   return ids[0] ?? DEFAULT_ACCOUNT_ID;
 }
 
+function qqbotChannelConfig(cfg: OpenClawConfig): Record<string, unknown> {
+  return ((cfg.channels?.qqbot ?? {}) as Record<string, unknown>);
+}
+
+function envValue(name: string, env: Record<string, string | undefined> | undefined = process.env): string | undefined {
+  return env?.[name]?.trim() || undefined;
+}
+
+function inputValue(input: Record<string, unknown> | undefined, names: string[]): unknown {
+  for (const name of names) {
+    const value = input?.[name];
+    if (value !== undefined && value !== null && String(value).trim()) return value;
+  }
+  return undefined;
+}
+
+const CUSTOM_RUNTIME_ADMIN_INPUT_KEYS = ["customRuntimeAdmins", "customAdmins", "admins"];
+const CUSTOM_RUNTIME_ADMIN_GROUP_INPUT_KEYS = ["customRuntimeAdminGroup", "customAdminGroup", "adminGroup"];
+
+export function resolveQQBotCustomRuntimeInitializationInput(
+  input?: Record<string, unknown>,
+  env?: Record<string, string | undefined>,
+): { admins?: unknown; adminGroup?: unknown } {
+  return {
+    admins: inputValue(input, CUSTOM_RUNTIME_ADMIN_INPUT_KEYS) ?? envValue("QQBOT_CUSTOM_ADMINS", env) ?? envValue("QQBOT_ADMINS", env),
+    adminGroup: inputValue(input, CUSTOM_RUNTIME_ADMIN_GROUP_INPUT_KEYS) ?? envValue("QQBOT_CUSTOM_ADMIN_GROUP", env) ?? envValue("QQBOT_ADMIN_GROUP", env),
+  };
+}
+
+export function validateQQBotCustomRuntimeInitializationInput(input: {
+  admins?: unknown;
+  adminGroup?: unknown;
+}): string | null {
+  const admins = normalizeCustomRuntimeAdminList(input.admins);
+  if (admins.length === 0) {
+    return "QQBot initialization requires customRuntime admins; provide customRuntimeAdmins/admins or QQBOT_CUSTOM_ADMINS";
+  }
+  const adminGroup = normalizeCustomRuntimeAdminGroup(input.adminGroup);
+  if (!adminGroup) {
+    return "QQBot initialization requires customRuntime adminGroup; provide customRuntimeAdminGroup/adminGroup or QQBOT_CUSTOM_ADMIN_GROUP";
+  }
+  return null;
+}
+
+export function applyQQBotCustomRuntimeInitialization(
+  cfg: OpenClawConfig,
+  input: {
+    admins?: unknown;
+    adminGroup?: unknown;
+    enabled?: boolean;
+  },
+): OpenClawConfig {
+  const admins = normalizeCustomRuntimeAdminList(input.admins);
+  const adminGroup = normalizeCustomRuntimeAdminGroup(input.adminGroup);
+  if (admins.length === 0 && !adminGroup && typeof input.enabled !== "boolean") return cfg;
+  return applyCustomRuntimeAdminBindingsToConfig(cfg, {
+    admins,
+    adminGroup,
+    enabled: input.enabled,
+  });
+}
+
 /**
  * QQBot Onboarding Adapter
  */
@@ -71,12 +140,18 @@ export const qqbotOnboardingAdapter: ChannelOnboardingAdapter = {
       const account = resolveQQBotAccount(cfg, accountId);
       return Boolean(account.appId && account.clientSecret);
     });
+    const adminBindings = inspectCustomAdminBindings(resolveCustomRuntimeConfig(cfg));
+    const adminBindingsReady = adminBindings.admins.length > 0 && Boolean(adminBindings.adminGroup);
 
     return {
       channel: "qqbot" as any,
-      configured,
-statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecret"}`],
-      selectionHint: configured ? "已配置" : "支持 QQ 群聊和私聊（流式消息）",
+      configured: configured && adminBindingsReady,
+      statusLines: [
+        `QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecret"}`,
+        `Custom Runtime 管理员: ${adminBindings.admins.length ? adminBindings.admins.join(", ") : "未绑定"}`,
+        `Custom Runtime 管理群: ${adminBindings.adminGroup ?? "未绑定"}`,
+      ],
+      selectionHint: configured && adminBindingsReady ? "已配置" : "需要 AppID/Secret、管理员和管理群",
       quickstartScore: configured ? 1 : 20,
     };
   },
@@ -125,7 +200,8 @@ statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecr
           "1) 打开 QQ 开放平台: https://q.qq.com/",
           "2) 创建机器人应用，获取 AppID 和 ClientSecret",
           "3) 在「开发设置」中添加沙箱成员（测试阶段）",
-          "4) 你也可以设置环境变量 QQBOT_APP_ID 和 QQBOT_CLIENT_SECRET",
+          "4) 准备管理员 member/user openid 和管理群 group_openid",
+          "5) 你也可以设置环境变量 QQBOT_APP_ID、QQBOT_CLIENT_SECRET、QQBOT_CUSTOM_ADMINS、QQBOT_CUSTOM_ADMIN_GROUP",
           "",
           "文档: https://bot.q.qq.com/wiki/",
           "",
@@ -213,6 +289,33 @@ statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecr
       ).trim();
     }
 
+    const existingBindings = inspectCustomAdminBindings(resolveCustomRuntimeConfig(next));
+    const configuredBindings = resolveQQBotCustomRuntimeInitializationInput(ctx.input as Record<string, unknown> | undefined);
+
+    let customAdmins = normalizeCustomRuntimeAdminList(configuredBindings.admins ?? existingBindings.admins);
+    let customAdminGroup = normalizeCustomRuntimeAdminGroup(configuredBindings.adminGroup ?? existingBindings.adminGroup);
+
+    if (customAdmins.length === 0) {
+      customAdmins = normalizeCustomRuntimeAdminList(await prompter.text({
+        message: "请输入 customRuntime 管理员 openid（多个用逗号分隔）",
+        placeholder: "例如: ADMIN_MEMBER_OPENID",
+        validate: (value: string) => normalizeCustomRuntimeAdminList(value).length ? undefined : "至少需要绑定一个管理员 openid",
+      }));
+    }
+
+    if (!customAdminGroup) {
+      customAdminGroup = normalizeCustomRuntimeAdminGroup(await prompter.text({
+        message: "请输入 customRuntime 管理群 group_openid",
+        placeholder: "例如: 5C1152CA05D191171B05E6997791C3F5",
+        validate: (value: string) => normalizeCustomRuntimeAdminGroup(value) ? undefined : "管理群 group_openid 不能为空",
+      }));
+    }
+
+    next = applyQQBotCustomRuntimeInitialization(next, {
+      admins: customAdmins,
+      adminGroup: customAdminGroup,
+    });
+
     // 默认允许所有人执行命令（用户无感知）
     const allowFrom: string[] = resolvedAccount.config?.allowFrom ?? ["*"];
 
@@ -230,6 +333,7 @@ statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecr
             qqbot: {
               ...existingQQBot,
               enabled: true,
+              customRuntime: qqbotChannelConfig(next).customRuntime,
               appId,
               clientSecret,
               markdownSupport,
@@ -249,6 +353,7 @@ statusLines: [`QQ Bot: ${configured ? "已配置" : "需要 AppID 和 ClientSecr
             qqbot: {
               ...existingQQBot,
               enabled: true,
+              customRuntime: qqbotChannelConfig(next).customRuntime,
               accounts: {
                 ...existingAccounts,
                 [accountId]: {

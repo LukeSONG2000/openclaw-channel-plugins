@@ -1158,22 +1158,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             && (delivery.target.type === "c2c" || delivery.target.type === "group"),
           sendText: async (delivery) => {
             const proactive = buildCustomProactiveGuard();
-            const proactiveDecision = !delivery.target.messageId
-              && (delivery.target.type === "c2c" || delivery.target.type === "group")
-              ? proactive.proactiveGuard({
-                  targetType: delivery.target.type,
-                  targetId: delivery.target.type === "group" ? delivery.target.groupOpenid! : delivery.target.senderId,
-                  text: delivery.text,
-                })
-              : { allowed: true as const };
-            if (!proactiveDecision.allowed) throw new Error(proactiveDecision.reason);
             await sendTextToTarget({
               target: delivery.target,
               account,
               cfg,
               log,
+              prepareUnanchoredTextSend: proactive.proactiveGuard,
             }, delivery.text);
-            proactiveDecision.commit?.();
           },
         });
         for (const result of results) {
@@ -1947,7 +1938,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           channelId: event.channelId,
           groupOpenid: event.groupOpenid,
         };
-        const replyCtx: ReplyContext = { target: replyTarget, account, cfg, log };
+        const replyProactive = buildCustomProactiveGuard();
+        const replyCtx: ReplyContext = {
+          target: replyTarget,
+          account,
+          cfg,
+          log,
+          prepareUnanchoredTextSend: replyProactive.proactiveGuard,
+        };
 
         // 简化的 token 重试包装（使用 reply-dispatcher 的通用实现）
         const sendWithRetry = <T>(sendFn: (token: string) => Promise<T>) =>

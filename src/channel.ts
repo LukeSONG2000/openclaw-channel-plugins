@@ -11,6 +11,11 @@ import { DEFAULT_ACCOUNT_ID, listQQBotAccountIds, resolveQQBotAccount, applyQQBo
 import { sendText, sendMedia, resolveUserFacingMediaError } from "./outbound.js";
 import { startGateway } from "./gateway.js";
 import { qqbotOnboardingAdapter } from "./onboarding.js";
+import {
+  applyQQBotCustomRuntimeInitialization,
+  resolveQQBotCustomRuntimeInitializationInput,
+  validateQQBotCustomRuntimeInitializationInput,
+} from "./onboarding.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { saveCredentialBackup, loadCredentialBackup } from "./credential-backup.js";
 import { initApiConfig } from "./api.js";
@@ -188,7 +193,7 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
       if (!input.token && !input.tokenFile && !input.useEnv) {
         return "QQBot requires --token (format: appId:clientSecret) or --use-env";
       }
-      return null;
+      return validateQQBotCustomRuntimeInitializationInput(resolveQQBotCustomRuntimeInitializationInput(input as Record<string, unknown>));
     },
     applyAccountConfig: ({ cfg, accountId, input }) => {
       let appId = "";
@@ -202,13 +207,17 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
         }
       }
 
-      return applyQQBotAccountConfig(cfg, accountId, {
+      const nextCfg = applyQQBotAccountConfig(cfg, accountId, {
         appId,
         clientSecret,
         clientSecretFile: input.tokenFile,
         name: input.name,
         imageServerBaseUrl: (input as Record<string, unknown>).imageServerBaseUrl as string | undefined,
       }) as OpenClawConfig;
+      const inputRecord = input as Record<string, unknown>;
+      return applyQQBotCustomRuntimeInitialization(nextCfg, {
+        ...resolveQQBotCustomRuntimeInitializationInput(inputRecord),
+      });
     },
   },
   // Messaging 配置：用于解析目标地址

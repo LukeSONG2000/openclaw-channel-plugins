@@ -395,10 +395,11 @@ Added task-scoped mutation authorization:
 Added custom runtime admin initialization anchors:
 
 - Added `customRuntime.adminGroup` beside `customRuntime.admins`; the runtime normalizes raw QQ `group_openid`, `group:<openid>`, and `qqbot:group:<openid>` into a stable management peer key.
+- QQBot onboarding now treats admin and management-group binding as part of initial configuration: it can read CLI input or `QQBOT_CUSTOM_ADMINS` / `QQBOT_CUSTOM_ADMIN_GROUP`, prompts for missing values, and writes them under `channels.qqbot.customRuntime`.
 - Added `inspectCustomAdminBindings()` so adapters can detect whether custom runtime initialization has both administrators and a management group.
 - Authorization approval requests now carry the normalized management group key, and approval card text displays it for operational clarity.
 - `/bot-auth status` now reports bound admins, bound management group, and whether initialization is complete or missing `admins`/`adminGroup`.
-- Updated docs and tests for admin-group binding, status output, and approval-request propagation.
+- Updated docs and tests for admin-group binding, onboarding status output, and approval-request propagation.
 
 Wired approval requests to the management group:
 
@@ -407,6 +408,13 @@ Wired approval requests to the management group:
 - `gateway.ts` best-effort sends those management-group approval cards/text and also copies ordinary dispatch authorization requests to the management group.
 - Management-group copies are unanchored group sends, so the gateway applies the custom proactive acceptance/budget guard before calling QQ send APIs and records budget only after a successful send.
 - Expanded auth/slash gateway tests for notification creation, source-group dedupe, and missing-admin-group behavior.
+
+Hardened reply-dispatcher unanchored text sends:
+
+- Added `prepareUnanchoredTextSend` to `ReplyContext` so `src/reply-dispatcher.ts` can explicitly guard C2C/group text sends that have no passive `messageId` anchor.
+- Gateway injects the existing custom proactive acceptance/budget guard into reply contexts, covering error fallbacks, structured-payload confirmation/captions, admin-group auth notifications, and task notifications that share `sendTextToTarget()`.
+- Removed the hand-rolled task-notification guard branch in favor of the shared reply-dispatcher hook.
+- Added `tests/reply-dispatcher-proactive-guard.test.ts` to prove anchored replies skip the guard, unanchored C2C/group sends call it, blocked sends do not hit the API, and commits run only after successful sends.
 
 Still intentionally open:
 
