@@ -899,3 +899,10 @@ Added configured scene binding inspection:
 
 - 已确认当前分支把首次初始化必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup` 作为硬约束：`src/onboarding.ts` 的 setup/onboarding 校验、`scripts/apply-custom-runtime-init.mjs`、README/升级文档、preflight 均已覆盖。
 - 本轮复跑 `tests/custom-onboarding.test.ts` 通过，继续保持“缺管理员或管理群=未完整初始化”的目标；管理群写入时仍默认绑定 `system-admin` 场景且保留已有 scene override。
+
+抽出 tool-only fallback 发送适配器：
+
+- Added `src/custom/tool-fallback-gateway-adapter.ts` to own the gateway-side fallback delivery order for tool-only runs: media first, then selected text, then no-output notice.
+- `gateway.ts` now delegates `sendToolFallback()` to the adapter and only passes current fallback state plus injected media/text send callbacks, keeping QQ API/token retry at the boundary.
+- The adapter records the concrete fallback event (`tool-fallback-media` / `tool-fallback-text` / `tool-fallback-no-output`) through the existing dispatch fallback recorder and preserves per-media timeout/error logging.
+- Added `tests/custom-tool-fallback-gateway-adapter.test.ts` for media forwarding, media timeout, text fallback selection, and no-output notice behavior.

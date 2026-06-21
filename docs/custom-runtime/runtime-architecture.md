@@ -1116,6 +1116,17 @@ Current implementation status:
 - Keeps snapshot producers, visible user notices, and final QQ delivery in `gateway.ts`; the adapter owns dispatch record assembly, persistence, and alert-trigger glue.
 - Urgent queue bypass and dispatch fallback paths now share this recorder instead of each importing fallback store helpers in `gateway.ts`.
 
+### `src/custom/tool-fallback-gateway-adapter.ts`
+
+Gateway-side sender for tool-only fallback content.
+
+Current implementation status:
+
+- Chooses the fallback delivery path in the same order as the previous inline gateway code: collected tool media first, then collected tool text, then a visible no-output notice.
+- Records the concrete `tool-fallback-media`, `tool-fallback-text`, or `tool-fallback-no-output` event through the injected dispatch fallback recorder.
+- Wraps each media send with the configured media timeout and logs send errors without failing the whole fallback path.
+- Keeps actual QQ sends behind injected callbacks, so the adapter does not import token retry, reply-dispatcher, or QQ API functions.
+
 ### `src/custom/fallback-alerts.ts`
 
 Pure repeated-fallback alert policy for management-group operational notices.

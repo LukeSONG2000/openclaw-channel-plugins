@@ -100,15 +100,12 @@ import {
 } from "./custom/task-executor-adapter.js";
 import {
   CUSTOM_RESPONSE_TIMEOUT_MS,
-  CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
   classifyCustomDispatchFailure,
   formatCustomContextTooLongNotice,
   formatCustomResponseTimeoutNotice,
-  formatCustomToolNoOutputNotice,
   isCustomModelSkipOutput,
-  selectCustomToolFallbackText,
 } from "./custom/fallbacks.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
@@ -117,6 +114,7 @@ import {
   recordCustomFallbackEventGateway,
   type CustomDispatchFallbackRecorder,
 } from "./custom/fallback-record-gateway-adapter.js";
+import { sendCustomToolFallback } from "./custom/tool-fallback-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
@@ -1874,50 +1872,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
           // tool-only 兜底：转发工具产生的实际内容（媒体/文本），而非生硬的提示语
           const sendToolFallback = async (): Promise<void> => {
-            // 优先发送工具产出的媒体文件（TTS 语音、生成图片等）
-            if (fallbackState.toolMediaUrls.length > 0) {
-              recordFallbackEvent({
-                kind: "tool-fallback-media",
-                reason: "tool produced media but no block deliver was available",
-              });
-              log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding ${fallbackState.toolMediaUrls.length} media URL(s) from tool deliver(s)`);
-              const mediaTimeout = CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS; // 单个媒体发送超时 45s
-              for (const mediaUrl of fallbackState.toolMediaUrls) {
-                try {
-                  const result = await Promise.race([
-                    sendGuardedMediaAuto(mediaUrl, "Tool fallback media"),
-                    new Promise<{ channel: string; error: string }>((resolve) =>
-                      setTimeout(() => resolve({ channel: "qqbot", error: `Tool fallback media send timeout (${mediaTimeout / 1000}s)` }), mediaTimeout)
-                    ),
-                  ]);
-                  if (result.error) {
-                    log?.error(`[qqbot:${account.accountId}] Tool fallback sendMedia error: ${result.error}`);
-                  }
-                } catch (err) {
-                  log?.error(`[qqbot:${account.accountId}] Tool fallback sendMedia failed: ${err}`);
-                }
-              }
-              return;
-            }
-            // 其次转发工具产出的文本
-            if (fallbackState.toolTexts.length > 0) {
-              const text = selectCustomToolFallbackText(fallbackState.toolTexts) ?? "";
-              recordFallbackEvent({
-                kind: "tool-fallback-text",
-                reason: "tool produced text but no block deliver was available",
-                details: { fallbackTextChars: text.length },
-              });
-              log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding tool text (${text.length} chars)`);
-              await sendErrorMessage(text);
-              return;
-            }
-            // 既无媒体也无文本，发送可见提示并释放队列
-            recordFallbackEvent({
-              kind: "tool-fallback-no-output",
-              reason: "tool-only run produced no user-sendable media or text",
+            await sendCustomToolFallback({
+              accountId: account.accountId,
+              state: fallbackState,
+              recordFallbackEvent,
+              sendGuardedMediaAuto,
+              sendErrorMessage,
+              log,
             });
-            log?.info(`[qqbot:${account.accountId}] Tool fallback: no media or text collected from ${fallbackState.toolDeliverCount} tool deliver(s), sending timeout notice`);
-            await sendErrorMessage(formatCustomToolNoOutputNotice());
           };
 
           const timeoutPromise = new Promise<void>((_, reject) => {
