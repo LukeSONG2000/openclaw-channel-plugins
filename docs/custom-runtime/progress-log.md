@@ -1202,3 +1202,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates both WebSocket and Webhook transport callback binding while keeping shared `handleMessage` and `dispatchInboundEvent` as the message-flow core.
 - The adapter preserves the existing Webhook behavior: `onReady({ transport: "webhook" })`, first-startup greeting consumption, `onError` forwarding, background token refresh stop, and approval-handler unregister after the Webhook transport returns.
 - Added `tests/custom-webhook-transport-gateway-adapter.test.ts` for event dispatch, ready/greeting side effects, error forwarding, token-refresh lifecycle, and approval-handler cleanup.
+
+抽出 slash prequeue handler 绑定层：
+
+- Added `src/custom/slash-prequeue-handler-gateway-adapter.ts` to bind the slash prequeue orchestrator to a live QQBot account, runtime, queue, persistence callbacks, task executor getter, fallback recorder, task notification sender, QQ text/keyboard senders, and file delivery.
+- `gateway.ts` now creates `trySlashCommandOrEnqueue()` through this adapter instead of inlining every slash send/effect callback; `/stop`、`/approve`、`/new`、`/compact` 的入队前兜底顺序仍由 `slash-prequeue-gateway-adapter.ts` 保持。
+- The adapter keeps slash routing decisions separate from QQ transport effects, so recovery commands and interactive auth cards can be hardened without adding more direct send logic back into `gateway.ts`.
+- Added `tests/custom-slash-prequeue-handler-gateway-adapter.test.ts` for account/runtime/task binding, task/admin notifications, fallback event recording, C2C/group/channel/DM text sends, C2C/group keyboard sends, and file delivery wiring.

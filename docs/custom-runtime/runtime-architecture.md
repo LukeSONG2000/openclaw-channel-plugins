@@ -1079,6 +1079,23 @@ Important boundary:
 - It does not mutate persistent state directly; persistence still flows through injected effect callbacks.
 - It centralizes slash prequeue ordering so gateway queue recovery paths and custom auth command paths do not drift apart.
 
+### `src/custom/slash-prequeue-handler-gateway-adapter.ts`
+
+Gateway-side binding layer for slash prequeue handling.
+
+Current implementation status:
+
+- Creates the per-account `trySlashCommandOrEnqueue()` handler by binding `slash-prequeue-gateway-adapter.ts` to the live account, runtime, queue, task executor getter, and persistence callbacks.
+- Owns QQ text reply routing for slash replies across C2C, group, guild channel, and channel-DM targets.
+- Owns C2C/group inline keyboard sending for custom auth approval cards and interactive command replies.
+- Owns slash file delivery through the QQBot document sender and records fallback events with the current account id.
+- Owns task-notification text delivery and management-group notification forwarding while keeping queue/control ordering in the underlying prequeue adapter.
+
+Important boundary:
+
+- This adapter does not decide whether a message is a slash command, urgent recovery command, custom command, or official command; that remains in `slash-prequeue-gateway-adapter.ts`.
+- `gateway.ts` now wires this handler once, so future `/new`/`/compact` recovery hardening can evolve without duplicating QQ send and persistence side effects in the main transport file.
+
 ### `src/custom/slash-effects-gateway-adapter.ts`
 
 Gateway-side effect applier for handled custom slash commands.

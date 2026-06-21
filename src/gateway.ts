@@ -1,6 +1,6 @@
 import path from "node:path";
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
-import { getAccessToken, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, stopBackgroundTokenRefresh, onMessageSent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, stopBackgroundTokenRefresh, onMessageSent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -20,7 +20,7 @@ import { resolveTTSConfig } from "./utils/audio-convert.js";
 import { processAttachments, formatVoiceText } from "./inbound-attachments.js";
 import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 
-import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
+import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
@@ -35,16 +35,13 @@ import { handleCustomInteractionCreateGateway } from "./custom/interaction-creat
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
-import {
-  recordCustomFallbackEventGateway,
-} from "./custom/fallback-record-gateway-adapter.js";
 import { runCustomMessageContextGateway } from "./custom/message-context-gateway-adapter.js";
 import { runCustomMessageDispatchGateway } from "./custom/message-dispatch-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
   startCustomUpdateCheckLoop,
 } from "./custom/update-check.js";
-import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
+import { createCustomSlashPrequeueHandlerGateway } from "./custom/slash-prequeue-handler-gateway-adapter.js";
 import { runCustomMessageIngressGateway } from "./custom/message-ingress-gateway-adapter.js";
 import {
   isQQBotGatewayWebSocketClosable,
@@ -387,80 +384,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // /stop     — 停止当前 agent run，清空队列
   // /approve  — 审批决策，必须在 agent 等待审批时立即执行，否则死锁
   // /new 和 /compact — 上下文异常或超长时必须能绕过队列，恢复客户端可操作性
+  const slashPrequeueHandler = createCustomSlashPrequeueHandlerGateway({
+    cfg: cfg as any,
+    account,
+    runtime: customMessageFlow,
+    queue: msgQueue,
+    getTaskExecutor: () => customTaskExecutor ?? undefined,
+    stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
+    getConfigApi: () => getQQBotRuntime().config as {
+      loadConfig?: () => Record<string, unknown>;
+      writeConfigFile: (cfg: unknown) => Promise<void>;
+    },
+    persistAuthState: persistCustomAuthState,
+    persistTaskState: persistCustomTaskState,
+    persistPollState: persistCustomPollState,
+    persistGameState: persistCustomGameState,
+    persistDeployConfirmationState: persistCustomDeployConfirmationState,
+    sendAdminGroupNotification: async (notification) => {
+      await customAdminGroupNotifications.sendAuthAdminGroupNotification({ ...notification, source: "slash" });
+    },
+    log,
+  });
   const trySlashCommandOrEnqueue = async (msg: QueuedMessage): Promise<void> => {
-    await handleCustomSlashPrequeueGateway({
-      cfg: cfg as any,
-      account: {
-        accountId: account.accountId,
-        appId: account.appId,
-        accountConfig: account.config,
-      },
-      runtime: customMessageFlow,
-      message: msg,
-      queue: msgQueue,
-      effects: {
-        getConfigApi: () => getQQBotRuntime().config as {
-          loadConfig?: () => Record<string, unknown>;
-          writeConfigFile: (cfg: unknown) => Promise<void>;
-        },
-        persistAuthState: persistCustomAuthState,
-        persistTaskState: persistCustomTaskState,
-        persistPollState: persistCustomPollState,
-        persistGameState: persistCustomGameState,
-        persistDeployConfirmationState: persistCustomDeployConfirmationState,
-        sendAdminGroupNotification: async (notification) => {
-          await customAdminGroupNotifications.sendAuthAdminGroupNotification({ ...notification, source: "slash" });
-        },
-        sendTaskNotificationText: async (delivery) => {
-          await sendTextToTarget({
-            target: delivery.target,
-            account,
-            cfg,
-            log,
-          }, delivery.text);
-        },
-      },
-      taskExecutor: customTaskExecutor ?? undefined,
-      stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
-      recordFallbackEvent: (event) => {
-        recordCustomFallbackEventGateway({
-          accountId: account.accountId,
-          event,
-          log,
-        });
-      },
-      sendText: async (target, text) => {
-        const token = await getAccessToken(account.appId, account.clientSecret);
-        if (target.kind === "c2c") {
-          await sendC2CMessage(token, target.userOpenid, text, target.msgId);
-        } else if (target.kind === "group") {
-          await sendGroupMessage(token, target.groupOpenid, text, target.msgId);
-        } else if (target.kind === "channel") {
-          await sendChannelMessage(token, target.channelId, text, target.msgId);
-        } else {
-          await sendDmMessage(token, target.guildId, text, target.msgId);
-        }
-      },
-      sendKeyboard: async (target, text, keyboard) => {
-        const token = await getAccessToken(account.appId, account.clientSecret);
-        if (target.kind === "c2c") {
-          await sendC2CMessageWithInlineKeyboard(token, target.userOpenid, text, keyboard, target.msgId);
-        } else {
-          await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.msgId);
-        }
-      },
-      sendFile: async (mediaTarget, filePath, message) => {
-        const mediaCtx: MediaTargetContext = {
-          targetType: mediaTarget.targetType,
-          targetId: mediaTarget.targetId,
-          account,
-          replyToId: message.messageId,
-          logPrefix: `[qqbot:${account.accountId}]`,
-        };
-        await sendDocument(mediaCtx, filePath);
-      },
-      log,
-    });
+    await slashPrequeueHandler(msg);
   };
 
   abortSignal.addEventListener("abort", () => {
