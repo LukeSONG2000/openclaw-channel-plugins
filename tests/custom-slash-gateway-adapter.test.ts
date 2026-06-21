@@ -189,6 +189,7 @@ assert.equal(deniedTaskAdd.reply.approvalText?.includes(`任务：${ownerTaskId}
 assert.equal(deniedTaskAdd.reply.approvalText?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
 assert.equal(deniedTaskAdd.reply.adminGroupNotification, null);
 assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.render_data?.label, "允许此任务");
+assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.action?.data?.endsWith(":allow-task"), true);
 
 const taskRequestId = Object.keys(taskAuthRuntime.auth.getState().requests)[0]!;
 const approveTask = handleCustomSlashGatewayCommand({

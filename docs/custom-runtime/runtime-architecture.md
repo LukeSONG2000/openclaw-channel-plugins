@@ -322,7 +322,7 @@ Current implementation status:
 - Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
 - Provides admin-only read views for pending approval requests and active temporary grants through `/bot-auth requests [数量]` and `/bot-auth grants [数量]`; these views show ids, actor/peer ids, capabilities, expiry, and command hints, but not raw message bodies.
 - Builds QQ inline keyboard approval cards for new unauthorized C2C/group slash-command requests.
-- Handles `custom-auth:<requestId>:allow-once|allow-count|allow-timed|deny` button callbacks through the same per-account auth runtime.
+- Handles `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` button callbacks through the same per-account auth runtime; `allow-task` is accepted only for approval requests that carry a task id.
 - Logs approval/grant intents in the gateway for observability.
 
 Initial slash command capability mapping:
@@ -405,7 +405,7 @@ Gateway-side custom button interaction orchestration layer.
 Current implementation status:
 
 - Handles custom inline keyboard button payloads after QQ interaction ACK.
-- Routes `custom-auth:<requestId>:allow-once|allow-count|allow-timed|deny` to the per-account auth runtime.
+- Routes `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` to the per-account auth runtime.
 - Routes `custom-poll:<pollId>:vote:<1-4>` to the per-account poll runtime.
 - Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
 - Leaves `gateway.ts` responsible for the platform ACK, reply target selection, QQ send APIs, and legacy official approval buttons.

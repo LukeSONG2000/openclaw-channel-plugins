@@ -16,7 +16,7 @@ const cfg = {
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
-            capabilities: ["chat.send", "system.status", "game.interact"],
+            capabilities: ["chat.send", "system.status", "game.interact", "codex.longTask"],
           },
         },
       },
@@ -91,6 +91,40 @@ const timedAuth = handleCustomInteractionGatewayButton({
 assert.equal(timedAuth.handled, true);
 assert.equal(timedAuth.persist?.auth, true);
 assert.equal(timedAuth.reply?.includes("已批准临时授权"), true);
+
+const taskRuntime = createCustomMessageFlowRuntime();
+const taskCreate = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...message, senderId: "OWNER_OPENID", senderName: "Owner", content: "/bot-task create Long job" },
+  rawContent: "/bot-task create Long job",
+  now: 3_700,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(taskCreate.handled, true);
+const taskId = Object.keys(taskRuntime.tasks.getState().tasks)[0]!;
+const taskDenied = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...message, content: `/bot-task add ${taskId} extra detail` },
+  rawContent: `/bot-task add ${taskId} extra detail`,
+  now: 3_800,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(taskDenied.handled, true);
+assert.equal(taskDenied.reply?.kind, "auth-approval");
+const taskAuth = handleCustomInteractionGatewayButton({
+  cfg,
+  runtime: taskRuntime,
+  buttonData: "custom-auth:authreq-3800-1:allow-task",
+  actor: { id: "ADMIN_OPENID", label: "Admin" },
+  now: 3_900,
+});
+assert.equal(taskAuth.handled, true);
+assert.equal(taskAuth.persist?.auth, true);
+assert.equal(Object.values(taskRuntime.auth.getState().grants).some((grant) => grant.taskId === taskId), true);
 
 const pollRuntime = createCustomMessageFlowRuntime();
 const poll = handleCustomSlashGatewayCommand({

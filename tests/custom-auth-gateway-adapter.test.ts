@@ -1,5 +1,7 @@
 import assert from "node:assert";
 import { CustomAuthorizationRuntime } from "../src/custom/auth.js";
+import { checkCustomTaskCommandAuthorization } from "../src/custom/task-auth-gateway-adapter.js";
+import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 import {
   buildCustomAuthApprovalKeyboard,
   buildCustomAuthAdminGroupNotification,
@@ -403,6 +405,10 @@ assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-ti
   requestId: "authreq-10000-1",
   decision: "allow-timed",
 });
+assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-task"), {
+  requestId: "authreq-10000-1",
+  decision: "allow-task",
+});
 assert.equal(parseCustomAuthButtonData("approve:abc:allow-once"), null);
 
 const nonAdminButton = handleCustomAuthInteraction({
@@ -495,5 +501,61 @@ const timedGrantExpired = checkCustomSlashAuthorization({
   now: 622_000,
 });
 assert.equal(timedGrantExpired.allowed, false);
+
+const normalTaskAuth = new CustomAuthorizationRuntime();
+const normalTaskDenied = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: normalTaskAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 28_000,
+});
+const normalTaskRequest = firstCustomAuthApprovalRequest(normalTaskDenied.result?.intents ?? []);
+if (!normalTaskRequest) throw new Error("expected normal custom auth request");
+const normalTaskDecision = handleCustomAuthInteraction({
+  cfg: authCfg,
+  auth: normalTaskAuth,
+  buttonData: `custom-auth:${normalTaskRequest.id}:allow-task`,
+  actorId: "ADMIN_OPENID",
+  now: 29_000,
+});
+assert.equal(normalTaskDecision.handled, true);
+assert.equal(normalTaskDecision.reply?.includes("不是任务级申请"), true);
+
+const taskAuth = new CustomAuthorizationRuntime();
+const taskRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: "/tmp/openclaw-qqbot-auth-card-task" });
+const task = taskRuntime.createTask({
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  actor: { id: "OWNER_OPENID", label: "Owner" },
+  prompt: "Build task auth card",
+  now: 30_000,
+}).task!;
+const taskDenied = checkCustomTaskCommandAuthorization({
+  cfg: authCfg,
+  accountId: "default",
+  auth: taskAuth,
+  tasks: taskRuntime,
+  message: memberGroupMessage,
+  rawContent: `/bot-task add ${task.id} extra requirement`,
+  now: 30_500,
+});
+assert.equal(taskDenied.allowed, false);
+const taskRequest = firstCustomAuthApprovalRequest(taskDenied.result?.intents ?? []);
+if (!taskRequest) throw new Error("expected task custom auth request");
+const taskKeyboard = buildCustomAuthApprovalKeyboard(taskRequest);
+assert.equal(taskKeyboard.content?.rows[0]?.buttons[0]?.render_data?.label, "允许此任务");
+assert.equal(taskKeyboard.content?.rows[0]?.buttons[0]?.action?.data, `custom-auth:${taskRequest.id}:allow-task`);
+const taskButton = handleCustomAuthInteraction({
+  cfg: authCfg,
+  auth: taskAuth,
+  buttonData: `custom-auth:${taskRequest.id}:allow-task`,
+  actorId: "ADMIN_OPENID",
+  now: 31_000,
+});
+assert.equal(taskButton.handled, true);
+assert.equal(taskButton.intent?.kind, "approval-resolved");
+assert.equal(taskButton.intent?.kind === "approval-resolved" && taskButton.intent.grant?.taskId, task.id);
+assert.equal(taskButton.intent?.kind === "approval-resolved" && taskButton.intent.grant?.remainingUses, undefined);
 
 console.log("custom auth gateway adapter tests passed");

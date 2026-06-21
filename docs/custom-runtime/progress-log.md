@@ -578,3 +578,9 @@ Added configured scene binding inspection:
 - `buildCustomAuthApprovalKeyboard()` 现在在 C2C/群聊授权卡片中渲染“允许10分钟”按钮，按钮 payload 为 `custom-auth:<requestId>:allow-timed`。
 - `handleCustomAuthInteraction()` 原有的 timed grant 处理路径得到卡片入口覆盖，管理员点击后会创建 10 分钟临时授权；任意时长仍可用 `/bot-auth allow-timed <requestId> <时长>` 文本命令。
 - 扩展 `tests/custom-auth-gateway-adapter.test.ts` 和 `tests/custom-interaction-gateway-adapter.test.ts`，覆盖卡片 payload、10 分钟过期时间和 gateway interaction 持久化标记。
+
+对齐长任务授权卡片与 task-scoped grant：
+
+- 长任务追加/取消触发的授权申请卡片现在使用 `custom-auth:<requestId>:allow-task`，不再用普通 `allow-once` payload 承载“允许此任务”的文案。
+- `handleCustomAuthInteraction()` 对 `allow-task` 增加 request 校验：只有带 `taskId` 的申请能生成 task-scoped grant，普通申请即使被手动改 payload 也会返回可见错误。
+- 扩展 auth、slash gateway、interaction gateway 测试，覆盖 task 卡片 payload、task grant 写入，以及普通申请误用 `allow-task` 的拒绝路径。

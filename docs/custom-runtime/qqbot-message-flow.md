@@ -323,7 +323,8 @@ Local types support `InlineKeyboard` and `INTERACTION_CREATE`:
 Current custom auth cards:
 
 - Button data prefix: `custom-auth:<requestId>:...`.
-- Supported decisions: allow once, allow 3 times, allow 10 minutes, deny.
+- Supported decisions: allow once, allow 3 times, allow 10 minutes, allow this task, deny.
+- Task-scoped approval cards use `allow-task` only when the approval request carries a task id; ordinary auth requests cannot be converted into task grants by editing button data.
 - Text fallback: `/bot-auth approve <requestId> once|count N|timed 10m` or `/bot-auth deny <requestId>`.
 
 Current custom poll cards:

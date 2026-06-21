@@ -261,7 +261,7 @@ export interface CustomAuthAdminGroupNotification {
   requestId: string;
 }
 
-type CustomAuthButtonDecision = "allow-once" | "allow-count" | "allow-timed" | "deny";
+type CustomAuthButtonDecision = "allow-once" | "allow-count" | "allow-timed" | "allow-task" | "deny";
 
 export interface CustomAuthButtonPayload {
   requestId: string;
@@ -486,7 +486,7 @@ export function buildCustomAuthApprovalKeyboard(request: CustomAuthorizationAppr
               "allow_once",
               isTaskRequest ? "允许此任务" : "允许一次",
               isTaskRequest ? "已允许此任务" : "已允许一次",
-              `custom-auth:${requestId}:allow-once`,
+              `custom-auth:${requestId}:${isTaskRequest ? "allow-task" : "allow-once"}`,
               1,
             ),
             makeBtn("allow_count", "允许3次", "已允许3次", `custom-auth:${requestId}:allow-count`, 1),
@@ -521,7 +521,7 @@ export function buildCustomAuthAdminGroupNotification(params: {
 }
 
 export function parseCustomAuthButtonData(buttonData: string): CustomAuthButtonPayload | null {
-  const m = buttonData.match(/^custom-auth:([^:]+):(allow-once|allow-count|allow-timed|deny)$/i);
+  const m = buttonData.match(/^custom-auth:([^:]+):(allow-once|allow-count|allow-timed|allow-task|deny)$/i);
   if (!m) return null;
   return {
     requestId: m[1]!,
@@ -564,8 +564,21 @@ export function handleCustomAuthInteraction(params: {
     };
   }
 
+  if (payload.decision === "allow-task") {
+    const state = params.auth.getState();
+    const requestId = findPendingRequestId(Object.keys(state.requests), payload.requestId);
+    if (requestId && !state.requests[requestId]?.taskId) {
+      return {
+        handled: true,
+        reply: `⚠️ 授权申请不是任务级申请，不能按任务授权：${requestId}`,
+      };
+    }
+  }
+
   const command: CustomAuthCommand = payload.decision === "deny"
     ? { kind: "resolve", requestId: payload.requestId, approved: false }
+    : payload.decision === "allow-task"
+      ? { kind: "resolve", requestId: payload.requestId, approved: true, grantUse: "task" }
     : payload.decision === "allow-count"
       ? { kind: "resolve", requestId: payload.requestId, approved: true, grantUse: "count", grantCount: 3 }
       : payload.decision === "allow-timed"
