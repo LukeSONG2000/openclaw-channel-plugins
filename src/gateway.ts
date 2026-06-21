@@ -32,8 +32,6 @@ import { runWithRequestContext } from "./request-context.js";
 import { resolveCustomRuntimeConfig } from "./custom/config.js";
 import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
 import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
-import type { CustomAgentRoute } from "./custom/route.js";
-import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
 import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
 import { applyCustomGroupDispatchGateway } from "./custom/group-dispatch-gateway-adapter.js";
 import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
@@ -55,9 +53,8 @@ import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gatewa
 import {
   startCustomUpdateCheckLoop,
 } from "./custom/update-check.js";
-import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-gateway-adapter.js";
 import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
-import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
+import { runCustomMessageIngressGateway } from "./custom/message-ingress-gateway-adapter.js";
 import {
   handleQQBotWebSocketCloseGateway,
   handleQQBotWebSocketConnectionFailureGateway,
@@ -588,56 +585,31 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       // 处理收到的消息
       const handleMessage = async (event: QueuedMessage) => {
 
-        log?.debug?.(`[qqbot:${account.accountId}] Received message: ${JSON.stringify(event)}`);
-        log?.info(`[qqbot:${account.accountId}] Processing message from ${event.senderId}: ${event.content}`);
-        if (event.attachments?.length) {
-          log?.info(`[qqbot:${account.accountId}] Attachments: ${event.attachments.length}`);
-        }
-
-        pluginRuntime.channel.activity.record({
-          channel: "qqbot",
-          accountId: account.accountId,
-          direction: "inbound",
-        });
-
-        // 发送输入状态提示 + 启动自动续期（仅 C2C 私聊有效）。
-        // refIdx 通过 Promise 延迟获取，在真正需要时再 await。
-        const typing = startCustomC2CInputNotifyKeepAlive({
-          accountId: account.accountId,
-          message: event,
+        const ingress = runCustomMessageIngressGateway({
+          account,
+          event,
+          cfg,
           getToken: () => getAccessToken(account.appId, account.clientSecret),
           clearTokenCache: () => clearTokenCache(account.appId),
-          log,
-        });
-
-        const messageRoute = resolveCustomGatewayMessageRouteContext(event);
-        const { isGroupChat, peerId, routePeer } = messageRoute;
-
-        const baseRoute = pluginRuntime.channel.routing.resolveAgentRoute({
-          cfg,
-          channel: "qqbot",
-          accountId: account.accountId,
-          peer: routePeer,
-        }) as CustomAgentRoute;
-
-        const sceneRoute = applyCustomSceneRouteGateway({
-          cfg: cfg as any,
-          accountId: account.accountId,
-          senderId: event.senderId,
-          baseRoute,
-          routePeer,
-          customScenePeer: messageRoute.customScenePeer,
+          recordInboundActivity: () => pluginRuntime.channel.activity.record({
+            channel: "qqbot",
+            accountId: account.accountId,
+            direction: "inbound",
+          }),
+          resolveBaseRoute: (input) => pluginRuntime.channel.routing.resolveAgentRoute(input) as any,
           routing: pluginRuntime.channel.routing,
           customRuntimeEnabled: isCustomRuntimeEnabled(),
-          accountSystemPrompt: account.systemPrompt,
+          resolveEnvelopeOptions: (config) => pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(config),
           log,
         });
-        if (sceneRoute.action === "stop") {
+        if (ingress.action === "stop") {
           return;
         }
-        const route = sceneRoute.route;
-
-        const envelopeOptions = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
+        const typing = ingress.typing;
+        const messageRoute = ingress.messageRoute;
+        const { isGroupChat, peerId } = messageRoute;
+        const route = ingress.route;
+        const envelopeOptions = ingress.envelopeOptions;
 
         // 组装消息体
         // 静态系统提示已移至 skills/qqbot-remind/SKILL.md 和 skills/qqbot-media/SKILL.md
@@ -646,7 +618,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // ============ 用户标识信息 ============
         
         // 收集额外的系统提示（如果配置了账户级别的 systemPrompt）
-        const systemPrompts = sceneRoute.systemPrompts;
+        const systemPrompts = ingress.systemPrompts;
         
         const inboundPrepared = await prepareCustomInboundMessageGateway({
           cfg,

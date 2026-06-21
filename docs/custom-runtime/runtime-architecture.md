@@ -191,6 +191,23 @@ Important boundary:
 - The adapter does not decide framework routing, account lookup, config reloads, message parsing, or QQ send behavior.
 - `gateway.ts` still owns the initial OpenClaw route resolution and passes only the route/scene inputs needed by this custom layer.
 
+### `src/custom/message-ingress-gateway-adapter.ts`
+
+Gateway-side setup adapter for the start of each queued message pipeline.
+
+Current implementation status:
+
+- Logs the received `QueuedMessage`, attachment count, and records inbound channel activity through an injected callback.
+- Starts the C2C/channel-DM input-notify keepalive and returns the same `typing` handle consumed by downstream dispatch/auth/fallback paths.
+- Resolves `gateway-message-routing.ts` context, calls the injected framework route resolver, applies `scene-route-gateway-adapter.ts`, and returns a stop result for disabled scenes.
+- Resolves framework envelope format options through an injected callback so inbound preparation can continue without gateway repeating route/envelope setup inline.
+- Returns route, message-route, typing, scene prompts, and envelope options as one ingress bundle for the rest of `handleMessage`.
+
+Important boundary:
+
+- The adapter does not parse attachments, build agent context, authorize commands, or dispatch replies. It only owns the ingress setup before custom group dispatch and inbound message preparation.
+- QQ token access for input-notify, channel activity recording, framework routing, and envelope formatting remain injected from `gateway.ts`.
+
 ### `src/custom/proactive-budget.ts`
 
 Owns local proactive/unanchored text-send budget for custom runtime paths.

@@ -1166,3 +1166,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates `ws.on("close")` and connection setup catch handling to the adapter, leaving only local state setters and process-owned callbacks at the connector boundary.
 - The adapter composes `websocket-reconnect-policy.ts`, so close-code classification stays pure while session clearing, token-refresh flags, quick-disconnect counters, cleanup, and retry scheduling stay gateway-owned.
 - Added `tests/custom-websocket-close-gateway-adapter.test.ts` for invalid-token refresh, session reset, rate-limit delay, bot offline stop, quick-disconnect backoff, and connection setup retry classification.
+
+抽出 message ingress 网关适配器：
+
+- Added `src/custom/message-ingress-gateway-adapter.ts` to own the first stage of each queued message pipeline: inbound logs/activity, C2C input-notify keepalive, gateway route context, framework base route lookup, custom scene route application, and envelope option resolution.
+- `gateway.ts` now receives an ingress bundle with `typing`, `messageRoute`, `route`, `systemPrompts`, and `envelopeOptions`, then continues with inbound attachment/body preparation and dispatch-specific logic.
+- The adapter keeps QQ token access, channel activity recording, framework routing, and envelope formatting injected from `gateway.ts`, preserving the connector boundary while thinning the message pipeline entry point.
+- Added `tests/custom-message-ingress-gateway-adapter.test.ts` for group ingress logging/activity, route peer resolution, scene prompt propagation, envelope option forwarding, and disabled-scene stop behavior.
