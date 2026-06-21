@@ -353,6 +353,17 @@ Current implementation status:
 - Carries the injected unanchored-text proactive guard through the context without importing QQ send APIs or proactive runtime state.
 - `gateway.ts` still owns token retry helpers, error-message sends, and platform delivery calls; this adapter only builds the context object.
 
+### `src/custom/dispatch-authorization-gateway-adapter.ts`
+
+Gateway-side orchestration helper for ordinary message dispatch authorization.
+
+Current implementation status:
+
+- Runs `checkCustomDispatchAuthorization()` and logs/restores authorization intents with the same formatting as the gateway path.
+- Persists auth state when approval/grant intents are emitted, preserving request durability before any denial delivery happens.
+- Delegates visible denial/card/text fallback to `dispatch-auth-delivery-gateway-adapter.ts` and forwards admin-group notification intents with `source=dispatch`.
+- Returns a `shouldStop` flag so `gateway.ts` can stop typing and exit the current dispatch without owning auth orchestration details.
+
 ### `src/custom/dispatch-send-helpers-gateway-adapter.ts`
 
 Gateway-side helper factory for ordinary-dispatch send callbacks.

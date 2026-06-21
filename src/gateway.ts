@@ -74,11 +74,8 @@ import {
 } from "./custom/unread-context.js";
 import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
-import {
-  checkCustomDispatchAuthorization,
-  describeCustomAuthorizationIntents,
-} from "./custom/auth-gateway-adapter.js";
-import { applyCustomDispatchAuthDenialDelivery } from "./custom/dispatch-auth-delivery-gateway-adapter.js";
+import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
+import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import {
@@ -1803,38 +1800,25 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           log,
         });
 
-        const dispatchAuth = checkCustomDispatchAuthorization({
+        const dispatchAuth = await applyCustomDispatchAuthorizationGateway({
           cfg: cfg as any,
           auth: customMessageFlow.auth,
           message: event,
           rawContent: userContent,
+          accountId: account.accountId,
+          persistAuthState: persistCustomAuthState,
+          sendText: sendErrorMessage,
+          sendApprovalCard: async (target, text, keyboard) => sendWithRetry(async (token) => {
+            if (target.kind === "c2c") {
+              await sendC2CMessageWithInlineKeyboard(token, target.userOpenid, text, keyboard, target.messageId);
+            } else {
+              await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.messageId);
+            }
+          }),
+          notifyAdminGroup: sendCustomAuthAdminGroupNotification,
+          log,
         });
-        if (dispatchAuth.enabled && dispatchAuth.result?.intents.length) {
-          for (const item of describeCustomAuthorizationIntents(dispatchAuth.result.intents)) {
-            log?.info(`[qqbot:${account.accountId}] custom auth: ${item}`);
-          }
-          persistCustomAuthState();
-        }
-        if (dispatchAuth.enabled && dispatchAuth.reason === "denied") {
-          log?.info(`[qqbot:${account.accountId}] Message dispatch denied by custom auth: capability=${dispatchAuth.capability} sender=${event.senderId}`);
-          const denialDelivery = await applyCustomDispatchAuthDenialDelivery({
-            decision: dispatchAuth,
-            message: event,
-            sendText: sendErrorMessage,
-            sendApprovalCard: async (target, text, keyboard) => sendWithRetry(async (token) => {
-              if (target.kind === "c2c") {
-                await sendC2CMessageWithInlineKeyboard(token, target.userOpenid, text, keyboard, target.messageId);
-              } else {
-                await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.messageId);
-              }
-            }),
-            log: {
-              error: (msg) => log?.error(`[qqbot:${account.accountId}] ${msg}`),
-            },
-          });
-          if (denialDelivery.adminGroupNotification) {
-            await sendCustomAuthAdminGroupNotification({ ...denialDelivery.adminGroupNotification, source: "dispatch" });
-          }
+        if (dispatchAuth.shouldStop) {
           typing.keepAlive?.stop();
           return;
         }

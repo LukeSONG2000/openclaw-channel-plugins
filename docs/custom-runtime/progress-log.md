@@ -880,3 +880,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates token-retry/error-message helper construction, while still owning actual approval card sends, fallback notices, media-tag delivery, and plain reply side effects.
 - The adapter accepts injected `sendWithTokenRetry()` and `sendErrorToTarget()` callbacks for tests, but defaults to `reply-dispatcher.ts` at runtime.
 - Added `tests/custom-dispatch-send-helpers-gateway-adapter.test.ts` for bound credential/log/account arguments, token forwarding, and ReplyContext error-send routing.
+
+抽出普通 dispatch 鉴权编排：
+
+- Added `src/custom/dispatch-authorization-gateway-adapter.ts` to orchestrate ordinary message dispatch authorization, auth-intent logging/persistence, denial delivery, and management-group notification forwarding.
+- `gateway.ts` now delegates the auth check + denial branch and only reacts to the returned `shouldStop` flag by stopping typing and exiting the current message.
+- The adapter still receives gateway-owned send callbacks for visible text, approval cards, and admin-group copies, so QQ API sends and token retry remain at the gateway boundary.
+- Added `tests/custom-dispatch-authorization-gateway-adapter.test.ts` for approval-card denial, text fallback after card failure, admin-group `source=dispatch` forwarding, persistence/logging, and runtime-disabled pass-through.
