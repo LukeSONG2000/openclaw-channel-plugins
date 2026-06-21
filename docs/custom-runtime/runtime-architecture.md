@@ -425,6 +425,22 @@ Temporary grants:
 
 When unauthorized use is detected, generate an approval request to bound admins. Prefer an inline keyboard if available; otherwise send a text approval command.
 
+### `src/custom/approval-handler-gateway-adapter.ts`
+
+Gateway-side binding layer for the legacy OpenClaw approval handler lifecycle.
+
+Current implementation status:
+
+- Creates the `QQBotApprovalHandler` for a live account, registers it under the account id, starts it asynchronously, and logs startup failures with the existing gateway message.
+- Exposes idempotent `stop()`, `unregister()`, and `dispose()` helpers so abort cleanup and Webhook transport shutdown no longer call the raw approval registry directly.
+- Keeps the existing legacy approval lookup available to `interaction-create-handler-gateway-adapter.ts` through the registry, preserving compatibility with `approve:<approvalId>:...` buttons while custom auth/poll/game/deploy cards remain in the custom interaction router.
+- Lets tests inject a fake handler plus register/unregister callbacks, so lifecycle behavior is covered without loading OpenClaw gateway-runtime modules or opening QQ connections.
+
+Important boundary:
+
+- The adapter does not decide custom authorization and does not build `customRuntime` approval requests; those remain in `auth.ts`, `auth-gateway-adapter.ts`, and `dispatch-auth-delivery-gateway-adapter.ts`.
+- It only owns the legacy framework approval bridge required for existing exec/plugin approval cards.
+
 ### `src/custom/inbound-event-normalizer.ts`
 
 Gateway-side normalizer for QQ inbound event shapes.

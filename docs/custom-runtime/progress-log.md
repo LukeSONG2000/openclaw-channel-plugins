@@ -1252,3 +1252,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now constructs this handler beside the message and interaction handlers, then adapts its diagnostic return value to the transport `Promise<void>` callback contract.
 - The lower-level `inbound-event-gateway-adapter.ts` still owns event normalization effects; the new binding layer only connects those effects to the live account runtime and persistence callbacks.
 - Added `tests/custom-inbound-event-handler-gateway-adapter.test.ts` for C2C message enqueue/known-user binding, group proactive rejection persistence, and injectable dispatcher wiring.
+
+抽出 approval handler 网关绑定层：
+
+- Added `src/custom/approval-handler-gateway-adapter.ts` to own the legacy OpenClaw `QQBotApprovalHandler` creation, registry binding, async start error logging, stop, unregister, and dispose lifecycle.
+- `gateway.ts` now uses the adapter for approval-handler startup and abort cleanup, while `interaction-create-handler-gateway-adapter.ts` can still resolve the registered legacy handler for `approve:<approvalId>:...` buttons.
+- Webhook transport shutdown now receives an account-bound unregister callback from the adapter instead of importing the raw registry operation in `gateway.ts`.
+- Added `tests/custom-approval-handler-gateway-adapter.test.ts` for handler construction, register/start ordering, idempotent stop/unregister, startup-error logging, and dispose behavior.

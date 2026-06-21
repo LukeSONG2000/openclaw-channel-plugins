@@ -4,7 +4,7 @@ import { loadSession } from "./session-store.js";
 import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
-import { QQBotApprovalHandler, registerApprovalHandler, unregisterApprovalHandler, getApprovalHandler } from "./approval-handler.js";
+import { getApprovalHandler } from "./approval-handler.js";
 import type { HistoryEntry } from "./group-history.js";
 import { setRefIndex, flushRefIndex } from "./ref-index-store.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
@@ -38,6 +38,7 @@ import { createCustomInteractionCreateHandlerGateway } from "./custom/interactio
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 import { createCustomMessageHandlerGateway } from "./custom/message-handler-gateway-adapter.js";
 import { createCustomInboundEventHandlerGateway } from "./custom/inbound-event-handler-gateway-adapter.js";
+import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -180,16 +181,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   lifecycle.restoreSession(loadSession(account.accountId, account.appId));
 
   // ============ 审批 Handler ============
-  const approvalHandler = new QQBotApprovalHandler({
-    accountId: account.accountId,
-    appId: account.appId,
-    clientSecret: account.clientSecret,
-    cfg: cfg as any,
+  const approvalHandler = startQQBotApprovalHandlerGateway({
+    account,
+    cfg,
     log,
-  });
-  registerApprovalHandler(account.accountId, approvalHandler);
-  approvalHandler.start().catch((err) => {
-    log?.error(`[qqbot:${account.accountId}] approval-handler: uncaught start error: ${err}`);
   });
 
   // ============ 消息队列（复用 createMessageQueue，内置群消息合并/淘汰策略） ============
@@ -299,8 +294,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     // 停止后台二开版本检查
     customUpdateCheck.stop();
     // 停止审批 handler
-    void approvalHandler.stop();
-    unregisterApprovalHandler(account.accountId);
+    approvalHandler.dispose();
   });
 
   const cleanup = lifecycle.cleanup;
@@ -433,7 +427,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
           markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
           sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
-          unregisterApprovalHandler,
+          unregisterApprovalHandler: () => approvalHandler.unregister(),
           log,
         });
         return; // webhook transport 结束，不继续 WS 逻辑
