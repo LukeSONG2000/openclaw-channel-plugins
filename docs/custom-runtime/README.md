@@ -54,6 +54,7 @@ Out of scope for the first custom runtime:
 - `node scripts/inspect-message-evidence.mjs /path/to/data --samples`: same summary with redacted shape samples; it reports presence/shape flags instead of raw message text or openids.
 - `node scripts/inspect-upstream-updates.mjs`: fetch/read-only Markdown review of official `upstream/main` against `custom-runtime`; it never merges, installs, or deploys.
 - `node scripts/inspect-upstream-updates.mjs --no-fetch --output /tmp/qqbot-upstream-review.md`: generate the same review from existing local refs.
+- `node scripts/preflight-custom-runtime-deploy.mjs --config ~/.openclaw/openclaw.json --require-ready`: read-only deployment preflight for admin/admin-group anchors, personal update source, upgrade safety, and duplicate/legacy QQBot plugin risks.
 
 ## Current Implementation Modules
 
@@ -85,5 +86,6 @@ Out of scope for the first custom runtime:
 - `src/custom/unread-gateway-adapter.ts`: effect bridge between unread runtime and gateway queue/history types.
 - `src/custom/unread-status-gateway-adapter.ts`: `/bot-unread` read-only status adapter for unread/follow-up/sleep-digest inspection.
 - `scripts/apply-custom-runtime-init.mjs`: shared installer helper for binding `customRuntime.admins`, `customRuntime.adminGroup`, and the default management-group `system-admin` scene during initialization.
+- `scripts/preflight-custom-runtime-deploy.mjs`: read-only safety checker before custom runtime deploy/update; it fails readiness when management anchors, QQBot credentials, personal update source, or duplicate plugin constraints are unsafe.
 - `src/gateway.ts`: executes custom runtime effects, persists scene/config intents, and applies plugin slash command auth checks when `channels.qqbot.customRuntime.enabled` is true; default remains off.
 - `src/message-queue.ts`: honors `_noMerge` so synthetic catch-up messages keep their snapshots.

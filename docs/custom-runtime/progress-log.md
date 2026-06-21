@@ -678,3 +678,11 @@ Added configured scene binding inspection:
 - It never merges, cherry-picks, installs, restarts, or touches the deployed OpenClaw instance; it only prints or writes Markdown.
 - Current fetched state on 2026-06-21: `custom-runtime` is 92 commits ahead of `upstream/main` and 0 commits behind, so no official upstream merge is needed right now.
 - Added `tests/upstream-review-script.test.mjs` for count parsing, name-status parsing, risk classification, CLI args, and Markdown output.
+
+加入二开部署前只读预检：
+
+- Added `scripts/preflight-custom-runtime-deploy.mjs` to inspect an OpenClaw config snapshot without writing config, installing packages, restarting gateway, or contacting the server.
+- `--require-ready` exits `2` when blocking deploy risks exist: missing QQBot credentials, missing `customRuntime.admins`, missing `customRuntime.adminGroup`, official update package source, or active duplicate/legacy QQBot plugin entries.
+- The preflight also warns on `customRuntime.enabled=false`, missing management-group scene binding, `upgradeMode=hot-reload`, `allowUpgradePkgOverride=true`, missing/disabled `customUpdateCheck`, and leftover official/legacy QQBot extension directories under `~/.openclaw/extensions`.
+- JSON output is available for future deployment checklists or OpenClaw admin cards; text output is Chinese and explicitly states the script is read-only.
+- Added `tests/custom-runtime-deploy-preflight.test.mjs` for package-source classification, duplicate plugin detection, management-anchor blockers, extension-dir warnings, CLI JSON output, and `--require-ready` exit code.

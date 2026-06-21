@@ -66,6 +66,46 @@ Behavior:
 - `--pkg` is rejected unless `allowUpgradePkgOverride=true`; keep it disabled on the production instance so the bot cannot be accidentally switched back to the official `@tencent-connect/openclaw-qqbot` package.
 - Hot reload downloads the upgrade script from the personal `custom-runtime` branch by default. Override `QQBOT_UPGRADE_SCRIPT_URL` only for manual emergency maintenance.
 
+## Read-Only Preflight Before Deploy Or Update
+
+Before replacing the server QQBot package, and before any later custom update, run the local/read-only preflight against the target config snapshot:
+
+```bash
+node scripts/preflight-custom-runtime-deploy.mjs \
+  --config ~/.openclaw/openclaw.json \
+  --home ~/.openclaw \
+  --require-ready
+```
+
+For automation or a deploy checklist, use JSON output:
+
+```bash
+node scripts/preflight-custom-runtime-deploy.mjs \
+  --config ~/.openclaw/openclaw.json \
+  --home ~/.openclaw \
+  --json \
+  --require-ready
+```
+
+The preflight never writes config, installs packages, restarts the gateway, or contacts the remote instance. `--require-ready` exits `2` when blockers exist.
+
+Blockers include:
+
+- missing `channels.qqbot` credentials
+- missing `customRuntime.admins`
+- missing `customRuntime.adminGroup`
+- `channels.qqbot.upgradePkg` pointing at official QQBot packages
+- active duplicate/legacy QQBot plugin entries under `plugins.entries` or `plugins.installs`
+
+Warnings include:
+
+- `customRuntime.enabled` not set to `true`
+- management group without a scene binding
+- `upgradeMode=hot-reload`
+- `allowUpgradePkgOverride=true`
+- missing/disabled `customUpdateCheck`
+- legacy official QQBot package directories still present under `~/.openclaw/extensions`
+
 ## Server Backup Before First Deploy
 
 Before replacing server QQBot:
