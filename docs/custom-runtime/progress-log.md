@@ -636,3 +636,10 @@ Added configured scene binding inspection:
 - 当前分支已有 `src/onboarding.ts` / `scripts/apply-custom-runtime-init.mjs` 初始化路径，首次配置必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`。
 - `qqbotPlugin.setup.validateInput` 缺管理员或管理群会返回初始化错误；交互式 onboarding 会提示补齐两者。
 - 写入管理群时仍自动为该群创建默认 `system-admin` scene 绑定，保留已有显式 scene override。
+
+抽出自定义互动卡路由表：
+
+- Added `src/custom/interaction-router.ts` as the ordered route table for callback-card payloads.
+- `src/custom/interaction-gateway-adapter.ts` now stays as a thin gateway boundary: normalize QQ source fields, call the router, and return typed reply/persist/log effects.
+- Auth, poll, and game callback payloads still behave the same, but future deploy confirmation cards or richer game callbacks can be added as routes without widening `gateway.ts`.
+- Added `tests/custom-interaction-router.test.ts` for default route order, unknown payload fallback, custom route injection, and first-handled short circuit behavior.

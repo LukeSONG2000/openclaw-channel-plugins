@@ -400,19 +400,35 @@ Boundary:
 
 ### `src/custom/interaction-gateway-adapter.ts`
 
-Gateway-side custom button interaction orchestration layer.
+Gateway-side custom button interaction adapter.
 
 Current implementation status:
 
 - Handles custom inline keyboard button payloads after QQ interaction ACK.
+- Delegates custom callback payloads to `src/custom/interaction-router.ts`.
+- Keeps QQ event source-peer normalization near the gateway boundary.
+- Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
+- Leaves `gateway.ts` responsible for the platform ACK, reply target selection, QQ send APIs, and legacy official approval buttons.
+
+### `src/custom/interaction-router.ts`
+
+Pluggable custom callback-card route table.
+
+Current implementation status:
+
+- Owns the ordered custom route list for callback buttons:
+  - auth
+  - poll
+  - game
 - Routes `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` to the per-account auth runtime.
 - Routes `custom-poll:<pollId>:vote:<1-4>` to the per-account poll runtime.
 - Routes `custom-game:<gameId>:guess:<1-4>` to the per-account game runtime.
 - Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
-- Leaves `gateway.ts` responsible for the platform ACK, reply target selection, QQ send APIs, and legacy official approval buttons.
+- Allows future deploy confirmation cards, richer game callbacks, or admin cards to register as additional routes without widening `gateway.ts`.
 
 Important boundary:
 
+- The router has no QQ API dependency and does not ACK interactions.
 - Config query/update interactions still stay in `gateway.ts` because they are part of the official connector protocol.
 - Legacy approval buttons with `approve:<approvalId>:...` still stay in `gateway.ts` because they are tied to the existing `approval-handler`.
 
