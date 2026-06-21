@@ -102,8 +102,11 @@ import {
   CUSTOM_RESPONSE_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
-  isCustomModelSkipOutput,
 } from "./custom/fallbacks.js";
+import {
+  handleCustomLateDispatchDeliver,
+  prepareCustomBlockDeliver,
+} from "./custom/dispatch-deliver-gateway-adapter.js";
 import {
   handleCustomDispatchCallbackFailure,
   handleCustomDispatchRaceFailure,
@@ -1937,17 +1940,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             dispatcherOptions: {
               responsePrefix: messagesConfig.responsePrefix,
               deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
-                if (fallbackState.dispatchTimedOut) {
-                  recordFallbackEvent({
-                    kind: "late-deliver-after-timeout",
-                    reason: "deliver callback arrived after response timeout",
-                    details: {
-                      deliverKind: info.kind,
-                      textChars: payload.text?.length ?? 0,
-                      mediaCount: (payload.mediaUrls?.length ?? 0) + (payload.mediaUrl ? 1 : 0),
-                    },
-                  });
-                  log?.info(`[qqbot:${account.accountId}] Late deliver ignored after response timeout, kind: ${info.kind}`);
+                const lateDeliver = handleCustomLateDispatchDeliver({
+                  accountId: account.accountId,
+                  dispatchTimedOut: fallbackState.dispatchTimedOut,
+                  payload,
+                  info,
+                  recordFallbackEvent,
+                  log,
+                });
+                if (lateDeliver.kind === "late-ignored") {
                   return;
                 }
                 fallbackState.markResponse();
@@ -1972,26 +1973,33 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   return;
                 }
 
-                const blockReplyText = (payload.text ?? "").trim();
-                if (event.type === "group" && isCustomModelSkipOutput(blockReplyText)) {
-                  log?.info(`[qqbot:${account.accountId}] Model decided to skip group message (token=${blockReplyText}) from ${event.senderId}: ${event.content?.slice(0, 50)}`);
-                  return;
-                }
-
                 // 收到 block 回复，清除所有超时定时器
-                fallbackState.markBlockResponse();
-                // 收到真正回复，立即停止输入状态续期（让 "输入中" 尽快消失）
-                typing.keepAlive?.stop();
-                if (timeoutId) {
-                  clearTimeout(timeoutId);
-                  timeoutId = null;
-                }
-                if (toolOnlyTimeoutId) {
-                  clearTimeout(toolOnlyTimeoutId);
-                  toolOnlyTimeoutId = null;
-                }
-                if (fallbackState.toolDeliverCount > 0) {
-                  log?.info(`[qqbot:${account.accountId}] Block deliver after ${fallbackState.toolDeliverCount} tool deliver(s)`);
+                const blockDeliver = prepareCustomBlockDeliver({
+                  accountId: account.accountId,
+                  payload,
+                  event: {
+                    type: event.type,
+                    senderId: event.senderId,
+                    content: event.content,
+                  },
+                  state: fallbackState,
+                  stopTyping: () => typing.keepAlive?.stop(),
+                  clearResponseTimeout: () => {
+                    if (timeoutId) {
+                      clearTimeout(timeoutId);
+                      timeoutId = null;
+                    }
+                  },
+                  clearToolOnlyTimeout: () => {
+                    if (toolOnlyTimeoutId) {
+                      clearTimeout(toolOnlyTimeoutId);
+                      toolOnlyTimeoutId = null;
+                    }
+                  },
+                  log,
+                });
+                if (blockDeliver.kind === "model-skip") {
+                  return;
                 }
 
                 // ============ 流式模式处理 ============

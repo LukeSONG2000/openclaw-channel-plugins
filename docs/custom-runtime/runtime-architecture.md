@@ -374,6 +374,17 @@ Current implementation status:
 - Accepts injected `sendWithTokenRetry()` and `sendErrorToTarget()` callbacks for deterministic tests while defaulting to `reply-dispatcher.ts` at runtime.
 - Keeps actual QQ sends, token refresh behavior, and reply-dispatcher retry semantics outside the custom runtime core; the helper only wires per-message parameters.
 
+### `src/custom/dispatch-deliver-gateway-adapter.ts`
+
+Gateway-side preflight helper for dispatch deliver callbacks.
+
+Current implementation status:
+
+- Records and ignores late deliver callbacks after response timeout, preserving the existing `late-deliver-after-timeout` fallback event details.
+- Applies group-only model-skip token detection before block state is marked, so `NO_REPLY` / `[SKIP]` still suppresses visible group replies without affecting C2C.
+- Marks block response state, stops typing, clears response/tool-only timers, and logs prior tool-deliver counts through injected callbacks.
+- Keeps streaming, debouncing, media-tag parsing, structured-payload handling, and final QQ sends in `gateway.ts`.
+
 ### `src/custom/dispatch-failure-gateway-adapter.ts`
 
 Gateway-side orchestration helper for dispatch race failures.

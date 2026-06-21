@@ -927,3 +927,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates framework runtime module notices, context-too-long fallback records, AI auth/process error logs, and best-effort outer failure notices to the adapter.
 - The framework/runtime-module recovery text is centralized, avoiding duplicated `root-alias.cjs` handling in both callback and outer catch paths.
 - Expanded `tests/custom-dispatch-failure-gateway-adapter.test.ts` for callback framework errors, callback context-too-long, auth-only logs, outer framework notices, outer context notice failures, and ignored ordinary processing errors.
+
+抽出 dispatch deliver 前置处理：
+
+- Added `src/custom/dispatch-deliver-gateway-adapter.ts` to own late-deliver-after-timeout recording, group model-skip checks, block-response state marking, typing stop, and response/tool timer cleanup.
+- `gateway.ts` now delegates deliver preflight before streaming/debounce/plain-send handling, so the main dispatch callback keeps only tool/streaming/send boundaries.
+- The adapter keeps QQ/OpenClaw sends out of scope and uses injected timer/typing callbacks, preserving the gateway-owned side-effect boundary.
+- Added `tests/custom-dispatch-deliver-gateway-adapter.test.ts` for late deliver diagnostics, normal block readiness, group skip tokens, and C2C skip-token non-suppression.
