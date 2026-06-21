@@ -37,7 +37,7 @@ Out of scope for the first custom runtime:
 - `customRuntime.admins` must contain QQBot platform `user_openid` / `member_openid` values, not raw QQ numbers.
 - `customRuntime.adminGroup` must contain QQBot `group_openid`; `GROUP_OPENID`, `group:GROUP_OPENID`, and `qqbot:group:GROUP_OPENID` normalize to `qqbot:group:GROUP_OPENID`.
 - Raw human aliases such as QQ `1137586795` or group `945739251` are useful labels only. They are not present in current event/storage evidence and are rejected by setup/preflight when they look like 5-13 digit raw numeric ids.
-- If only raw QQ aliases are known, the next binding UX should be challenge-based: the console prints a one-time code, the admin sends `/bot-init-bind <code>` in the target C2C/group, and the gateway writes the openids captured from that inbound event.
+- If only raw QQ aliases are known, use challenge-based binding: stage `customRuntime.initBind.code` with `node scripts/apply-custom-runtime-init.mjs --init-bind-code <code>` or the upgrade script `--init-bind-code <code>`, then have the admin send `/bot-init-bind <code>` in the target C2C/group. The gateway writes the `user_openid` / `member_openid` / `group_openid` captured from that inbound event and clears the challenge.
 
 ## Evidence Files
 
@@ -90,6 +90,7 @@ Out of scope for the first custom runtime:
 - `src/custom/streaming-gateway-adapter.ts`: gateway-side streaming deliver/error/partial/finalize orchestration around `StreamingController`.
 - `src/custom/static-deliver-gateway-adapter.ts`: gateway-side static deliver executor for media tags, structured payloads, plain replies, quote refs, and outbound activity.
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
+- `src/custom/init-bind-gateway-adapter.ts`: one-time `/bot-init-bind <code>` conversation binding that captures QQBot openids from C2C/group inbound events for first-time admin/admin-group initialization.
 - `src/custom/fallback-alerts.ts`: pure repeated-fallback alert policy for management-group operational notices.
 - `src/custom/fallback-event-store.ts`: bounded JSON persistence for recent custom fallback events.
 - `src/custom/fallback-gateway-adapter.ts`: `/bot-fallback` status command adapter for recent fallback events.

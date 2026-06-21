@@ -9,6 +9,7 @@
 #   .\upgrade-via-npm.ps1 -SelfVersion                       # upgrade to local package.json version
 #   .\upgrade-via-npm.ps1 -AppId <appid> -Secret <secret>    # configure on first install
 #   .\upgrade-via-npm.ps1 -Admins <openid,...> -AdminGroup <group_openid>
+#   .\upgrade-via-npm.ps1 -InitBindCode <code>               # conversation-bind admin/group on first install
 #   .\upgrade-via-npm.ps1 -NoRestart                         # file replacement only (for hot-upgrade)
 
 param(
@@ -18,6 +19,9 @@ param(
     [string]$Secret = "",
     [string]$Admins = "",
     [string]$AdminGroup = "",
+    [string]$InitBindCode = "",
+    [string]$InitBindTtlMs = "",
+    [switch]$EnableRuntimeAfterInitBind,
     [switch]$NoRestart,
     [string]$Tag = "",
     [string]$Pkg = "",
@@ -58,6 +62,9 @@ if ($Help) {
     Write-Host "  -Secret [secret]     QQ bot secret (required on first install)"
     Write-Host "  -Admins [ids]        customRuntime admin openids, comma-separated"
     Write-Host "  -AdminGroup [id]     customRuntime management group_openid"
+    Write-Host "  -InitBindCode [code] Stage one-time /bot-init-bind [code] conversation binding"
+    Write-Host "  -InitBindTtlMs [ms]  Conversation binding TTL, default 600000"
+    Write-Host "  -EnableRuntimeAfterInitBind  Enable customRuntime after conversation binding completes"
     exit 0
 }
 
@@ -92,6 +99,14 @@ if (-not $Admins) {
 if (-not $AdminGroup) {
     if ($env:QQBOT_CUSTOM_ADMIN_GROUP) { $AdminGroup = $env:QQBOT_CUSTOM_ADMIN_GROUP }
     elseif ($env:QQBOT_ADMIN_GROUP) { $AdminGroup = $env:QQBOT_ADMIN_GROUP }
+}
+if (-not $InitBindCode) {
+    if ($env:QQBOT_CUSTOM_INIT_BIND_CODE) { $InitBindCode = $env:QQBOT_CUSTOM_INIT_BIND_CODE }
+    elseif ($env:QQBOT_INIT_BIND_CODE) { $InitBindCode = $env:QQBOT_INIT_BIND_CODE }
+}
+if (-not $InitBindTtlMs) { $InitBindTtlMs = $env:QQBOT_CUSTOM_INIT_BIND_TTL_MS }
+if (-not $EnableRuntimeAfterInitBind -and $env:QQBOT_CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND -eq "true") {
+    $EnableRuntimeAfterInitBind = $true
 }
 
 # Detect CLI
@@ -448,12 +463,15 @@ if ($AppId -and $Secret) {
 
 $CONFIG_FILE = Join-Path (Join-Path $HOME_DIR ".$CMD") "$CMD.json"
 $InitScript = Join-Path $TARGET_DIR "scripts" "apply-custom-runtime-init.mjs"
-if (($Admins -or $AdminGroup) -and (Test-Path $CONFIG_FILE) -and (Test-Path $InitScript)) {
+if (($Admins -or $AdminGroup -or $InitBindCode) -and (Test-Path $CONFIG_FILE) -and (Test-Path $InitScript)) {
     Write-Host ""
-    Write-Host "[Config] Writing customRuntime admins and management group..."
+    Write-Host "[Config] Writing customRuntime initialization binding..."
     $initArgs = @($InitScript, "--config", $CONFIG_FILE)
     if ($Admins) { $initArgs += @("--admins", $Admins) }
     if ($AdminGroup) { $initArgs += @("--admin-group", $AdminGroup) }
+    if ($InitBindCode) { $initArgs += @("--init-bind-code", $InitBindCode) }
+    if ($InitBindTtlMs) { $initArgs += @("--init-bind-ttl-ms", $InitBindTtlMs) }
+    if ($EnableRuntimeAfterInitBind) { $initArgs += @("--enable-runtime-after-init-bind") }
     try {
         & node @initArgs
         if ($LASTEXITCODE -eq 0) {
@@ -470,7 +488,7 @@ if (($Admins -or $AdminGroup) -and (Test-Path $CONFIG_FILE) -and (Test-Path $Ini
     try {
         & node $InitScript --config $CONFIG_FILE --status-only --require-ready
         if ($LASTEXITCODE -ne 0) {
-            Write-Host "  [WARN] customRuntime admins or management group not bound; use -Admins and -AdminGroup for first initialization" -ForegroundColor Yellow
+            Write-Host "  [WARN] customRuntime admins or management group not bound; use -Admins/-AdminGroup or -InitBindCode for first initialization" -ForegroundColor Yellow
         }
     } catch {}
 }

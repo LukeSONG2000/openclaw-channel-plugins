@@ -109,6 +109,32 @@ if (dmDenied.reply?.kind !== "auth-approval") throw new Error("expected dm auth 
 assert.equal(dmDenied.reply.adminGroupNotification?.groupOpenid, "GROUP_OPENID");
 assert.equal(dmDenied.reply.adminGroupNotification?.requestId, "authreq-2500-1");
 
+const initBind = handleCustomSlashGatewayCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          initBind: { code: "BIND123", expiresAt: 3_000, enableRuntimeOnComplete: true },
+        },
+      },
+    },
+  } as any,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-init-bind BIND123" },
+  rawContent: "/bot-init-bind BIND123",
+  now: 2_600,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(initBind.handled, true);
+assert.equal(initBind.persist?.initBind?.adminGroup, "qqbot:group:GROUP_OPENID");
+assert.deepEqual(initBind.persist?.initBind?.admins, ["MEMBER_OPENID"]);
+assert.equal(initBind.persist?.initBind?.clearInitBind, true);
+assert.equal(initBind.persist?.initBind?.enableRuntime, true);
+assert.equal(initBind.reply?.kind, "text");
+assert.equal(initBind.reply?.kind === "text" && initBind.reply.text.includes("group_openid"), true);
+
 const taskRuntime = createCustomMessageFlowRuntime();
 const task = handleCustomSlashGatewayCommand({
   cfg,

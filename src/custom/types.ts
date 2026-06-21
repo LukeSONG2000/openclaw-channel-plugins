@@ -85,6 +85,14 @@ export interface CustomRuntimeConfig {
   proactive?: CustomProactiveConfig;
   tasks?: CustomTaskRuntimeConfig;
   fallbackAlerts?: CustomFallbackAlertConfig;
+  initBind?: CustomRuntimeInitBindConfig;
+}
+
+export interface CustomRuntimeInitBindConfig {
+  code?: string;
+  createdAt?: number;
+  expiresAt?: number;
+  enableRuntimeOnComplete?: boolean;
 }
 
 export interface CustomUnreadConfig {

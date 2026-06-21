@@ -1322,3 +1322,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now registers abort cleanup through this adapter instead of keeping the shutdown sequence inline.
 - Cleanup attempts every step even when one step throws, logging per-step failures so custom-state persistence or approval disposal is not skipped by an earlier flush failure.
 - Added `tests/custom-gateway-abort-cleanup-gateway-adapter.test.ts` for ordered cleanup, failure isolation, and lifecycle registration wiring.
+
+落地对话式初始化绑定：
+
+- Added `src/custom/init-bind-gateway-adapter.ts` and routed `/bot-init-bind <code>` before normal custom slash commands so a fresh instance can capture QQBot openids without already having admin anchors.
+- `scripts/apply-custom-runtime-init.mjs` can now stage `customRuntime.initBind` with `--init-bind-code` / `QQBOT_CUSTOM_INIT_BIND_CODE`, TTL, and optional `--enable-runtime-after-init-bind`; source/npm upgrade scripts pass those options through, and status output reports pending conversation binding.
+- 群聊发送绑定命令会写入管理员 `member_openid`、管理群 `group_openid`、默认 `system-admin` scene，并清除一次性 challenge；单聊发送会写入 `user_openid`，若管理群尚未存在则提示继续在目标管理群发送同一命令。
+- Added focused tests for init-bind parsing/expiry/C2C/group completion, slash routing persistence, config write effects, and CLI challenge staging.

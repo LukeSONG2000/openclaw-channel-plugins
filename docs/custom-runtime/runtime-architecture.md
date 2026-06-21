@@ -223,6 +223,18 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 
 Scene `agentId` overrides OpenClaw route selection after the base route resolves; the custom layer rebuilds `sessionKey` with the framework routing helper so agent binding and session storage stay aligned. `/bot-scene status` and `/bot-scene bindings` expose the current override so group/DM routing can be audited without opening `openclaw.json`.
 
+### `src/custom/init-bind-gateway-adapter.ts`
+
+Gateway-side first-time binding command for QQBot openids.
+
+Current implementation status:
+
+- Routes `/bot-init-bind <code>` before other custom slash commands; it is intentionally not a registered framework slash command, so the pre-route auth gate does not require an already-bound admin.
+- Reads `channels.qqbot.customRuntime.initBind` and verifies the one-time code and optional expiry.
+- In C2C, captures `message.senderId` as `user_openid` for `customRuntime.admins`; if an admin group already exists, the challenge completes, otherwise the reply instructs the operator to send the same command in the target management group.
+- In group chat, captures `message.senderId` as `member_openid` and `message.groupOpenid` as `group_openid`, writes `customRuntime.admins` / `customRuntime.adminGroup`, creates the default `system-admin` scene for the group, clears `initBind`, and can enable the runtime when the staged challenge requests it.
+- `slash-effects-gateway-adapter.ts` persists the config mutation through the runtime config API, so the command stays pure and testable.
+
 ### `src/custom/scene-route-gateway-adapter.ts`
 
 Gateway-side scene route setup before inbound message preparation.
@@ -439,9 +451,9 @@ Current implementation status:
 - QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
 - Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
 - QQBot initialization requires both `customRuntime.admins` and `customRuntime.adminGroup`; onboarding, `qqbotPlugin.setup.validateInput` / `applyAccountConfig`, and install scripts write these anchors before the runtime is enabled. `admins` must be QQBot `user_openid` / `member_openid`; `adminGroup` accepts QQBot `group_openid`, `group:<group_openid>`, or `qqbot:group:<group_openid>` and is normalized to a peer key.
-- Raw human QQ numbers / QQ group numbers are not valid policy anchors. Initialization validation and deploy preflight reject likely 5-13 digit raw numeric ids such as `1137586795` or `945739251`; if only those human aliases are known, use a challenge-message binding flow in the target C2C/group so the gateway can capture `user_openid`, `member_openid`, and `group_openid` from the inbound event.
+- Raw human QQ numbers / QQ group numbers are not valid policy anchors. Initialization validation and deploy preflight reject likely 5-13 digit raw numeric ids such as `1137586795` or `945739251`; if only those human aliases are known, use `/bot-init-bind <code>` in the target C2C/group so the gateway can capture `user_openid`, `member_openid`, and `group_openid` from the inbound event.
 - Initializing `customRuntime.adminGroup` also creates a default `system-admin` scene binding for that group when no binding exists yet, so the management group immediately has status/query/deploy-check semantics without granting high-risk mutation capabilities.
-- `scripts/apply-custom-runtime-init.mjs` is the shared installer helper for writing and inspecting those anchors. `upgrade-via-npm.sh`, `upgrade-via-source.sh`, and `upgrade-via-npm.ps1` accept `--admins`/`--admin-group` or `QQBOT_CUSTOM_ADMINS`/`QQBOT_CUSTOM_ADMIN_GROUP`; without them they report the missing initialization anchors instead of silently treating appid/secret as complete setup.
+- `scripts/apply-custom-runtime-init.mjs` is the shared installer helper for writing and inspecting those anchors. It accepts direct `--admins`/`--admin-group` openids, or stages conversation binding with `--init-bind-code <code>` / `QQBOT_CUSTOM_INIT_BIND_CODE`; without completed anchors it reports missing initialization fields instead of silently treating appid/secret as complete setup.
 - `/bot-auth status` reports whether the admin binding is complete. Missing admins or admin group means authorization still blocks high-risk actions, but approval requests have no reliable management anchor.
 - Approval request records carry the normalized management group key so approval cards, text fallbacks, and future system push/deploy notifications can share the same target.
 - When an approval request is created outside the bound management group, the gateway best-effort copies the approval card/text to `customRuntime.adminGroup`. This copy is an unanchored group send, so it passes through the same proactive acceptance/budget guard before any QQ send API call.

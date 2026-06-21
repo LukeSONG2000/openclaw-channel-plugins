@@ -1,5 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import type { CustomPeer, CustomRuntimeConfig, CustomSceneConfig } from "./types.js";
+import type { CustomPeer, CustomRuntimeConfig, CustomRuntimeInitBindConfig, CustomSceneConfig } from "./types.js";
 import { resolveCustomAdminGroupKey } from "./auth.js";
 import {
   formatCustomPeerKey,
@@ -34,6 +34,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     proactive: runtime.proactive,
     tasks: runtime.tasks,
     fallbackAlerts: runtime.fallbackAlerts,
+    initBind: normalizeCustomRuntimeInitBindConfig(runtime.initBind),
   };
 }
 
@@ -104,12 +105,87 @@ export function normalizeCustomRuntimeAdminGroup(raw: unknown): string | undefin
   return resolveCustomAdminGroupKey(String(raw).trim());
 }
 
+export function normalizeCustomRuntimeInitBindCode(raw: unknown): string | undefined {
+  const value = String(raw ?? "").trim();
+  if (!value) return undefined;
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$/.test(value) ? value : undefined;
+}
+
+export function normalizeCustomRuntimeInitBindConfig(raw: unknown): CustomRuntimeInitBindConfig | undefined {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const input = raw as CustomRuntimeInitBindConfig;
+  const code = normalizeCustomRuntimeInitBindCode(input.code);
+  if (!code) return undefined;
+  return {
+    code,
+    createdAt: finiteNumberOrUndefined(input.createdAt),
+    expiresAt: finiteNumberOrUndefined(input.expiresAt),
+    enableRuntimeOnComplete: input.enableRuntimeOnComplete === true,
+  };
+}
+
+export function applyCustomRuntimeInitBindChallengeToConfig(
+  cfg: OpenClawConfig,
+  input: {
+    code: string;
+    createdAt?: number;
+    expiresAt?: number;
+    enableRuntimeOnComplete?: boolean;
+  },
+): OpenClawConfig {
+  const code = normalizeCustomRuntimeInitBindCode(input.code);
+  if (!code) return cfg;
+  const qqbot = qqbotChannelConfig(cfg);
+  const runtime = qqbot.customRuntime && typeof qqbot.customRuntime === "object" && !Array.isArray(qqbot.customRuntime)
+    ? { ...(qqbot.customRuntime as Record<string, unknown>) }
+    : {};
+  runtime.initBind = {
+    code,
+    createdAt: input.createdAt,
+    expiresAt: input.expiresAt,
+    enableRuntimeOnComplete: input.enableRuntimeOnComplete === true,
+  };
+  return {
+    ...cfg,
+    channels: {
+      ...cfg.channels,
+      qqbot: {
+        ...qqbot,
+        customRuntime: runtime,
+      },
+    },
+  };
+}
+
+export function clearCustomRuntimeInitBindChallengeFromConfig(cfg: OpenClawConfig): OpenClawConfig {
+  const qqbot = qqbotChannelConfig(cfg);
+  if (!qqbot.customRuntime || typeof qqbot.customRuntime !== "object" || Array.isArray(qqbot.customRuntime)) return cfg;
+  const runtime = { ...(qqbot.customRuntime as Record<string, unknown>) };
+  delete runtime.initBind;
+  return {
+    ...cfg,
+    channels: {
+      ...cfg.channels,
+      qqbot: {
+        ...qqbot,
+        customRuntime: runtime,
+      },
+    },
+  };
+}
+
 function stripCustomRuntimeBindingPrefix(value: string): string {
   if (value.startsWith("qqbot:group:")) return value.slice("qqbot:group:".length).trim();
   if (value.startsWith("group:")) return value.slice("group:".length).trim();
   if (value.startsWith("qqbot:c2c:")) return value.slice("qqbot:c2c:".length).trim();
   if (value.startsWith("c2c:")) return value.slice("c2c:".length).trim();
   return value;
+}
+
+function finiteNumberOrUndefined(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 export function applyCustomRuntimeAdminGroupSceneBinding(

@@ -3,11 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import {
+  applyCustomRuntimeInitBindChallengeToConfig,
   applyCustomRuntimeInitializationToConfig,
   applyCustomRuntimeAdminGroupSceneBinding,
   inspectCustomRuntimeInitialization,
   findLikelyRawQQNumericAdminIds,
   isLikelyRawQQNumericId,
+  normalizeCustomRuntimeInitBindCode,
   normalizeCustomRuntimeAdminGroup,
   normalizeCustomRuntimeAdminList,
   runCli,
@@ -22,6 +24,9 @@ assert.equal(isLikelyRawQQNumericId("945739251"), true);
 assert.equal(isLikelyRawQQNumericId("group:945739251"), true);
 assert.equal(isLikelyRawQQNumericId("GROUP_OPENID"), false);
 assert.deepEqual(findLikelyRawQQNumericAdminIds("1137586795,ADMIN_OPENID,1137586795"), ["1137586795"]);
+assert.equal(normalizeCustomRuntimeInitBindCode("BIND_123"), "BIND_123");
+assert.equal(normalizeCustomRuntimeInitBindCode("bad"), undefined);
+assert.equal(normalizeCustomRuntimeInitBindCode("bad code"), undefined);
 
 const original = {
   channels: {
@@ -61,6 +66,19 @@ const status = inspectCustomRuntimeInitialization(applied);
 assert.equal(status.ready, true);
 assert.deepEqual(status.missing, []);
 
+const stagedBind = applyCustomRuntimeInitBindChallengeToConfig(original, {
+  code: "BIND123",
+  createdAt: 1_000,
+  expiresAt: 2_000,
+  enableRuntimeOnComplete: true,
+});
+assert.deepEqual(stagedBind.channels.qqbot.customRuntime.initBind, {
+  code: "BIND123",
+  createdAt: 1_000,
+  expiresAt: 2_000,
+  enableRuntimeOnComplete: true,
+});
+
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "qqbot-custom-init-"));
 const configPath = path.join(tmpDir, "openclaw.json");
 fs.writeFileSync(configPath, JSON.stringify({ channels: { qqbot: { appId: "APPID" } } }, null, 2));
@@ -79,6 +97,24 @@ const written = JSON.parse(fs.readFileSync(configPath, "utf8"));
 assert.deepEqual(written.channels.qqbot.customRuntime.admins, ["CLI_ADMIN"]);
 assert.equal(written.channels.qqbot.customRuntime.adminGroup, "qqbot:group:CLI_GROUP");
 assert.equal(written.channels.qqbot.customRuntime.scenes["qqbot:group:CLI_GROUP"].scene, "system-admin");
+
+const bindConfigPath = path.join(tmpDir, "openclaw-init-bind.json");
+fs.writeFileSync(bindConfigPath, JSON.stringify({ channels: { qqbot: { appId: "APPID" } } }, null, 2));
+const bindCode = await runCli([
+  "--config",
+  bindConfigPath,
+  "--init-bind-code",
+  "BIND123",
+  "--init-bind-ttl-ms",
+  "1000",
+  "--enable-runtime-after-init-bind",
+  "--json",
+], {});
+assert.equal(bindCode, 0);
+const bindWritten = JSON.parse(fs.readFileSync(bindConfigPath, "utf8"));
+assert.equal(bindWritten.channels.qqbot.customRuntime.initBind.code, "BIND123");
+assert.equal(bindWritten.channels.qqbot.customRuntime.initBind.enableRuntimeOnComplete, true);
+assert.equal(bindWritten.channels.qqbot.customRuntime.initBind.expiresAt - bindWritten.channels.qqbot.customRuntime.initBind.createdAt, 1000);
 
 const readyCode = await runCli(["--config", configPath, "--status-only", "--require-ready"], {});
 assert.equal(readyCode, 0);

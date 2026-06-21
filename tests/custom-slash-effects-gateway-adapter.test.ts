@@ -113,6 +113,51 @@ assert.equal(infoLogs.some((line) => line.includes("custom runtime config persis
 assert.equal(infoLogs.some((line) => line.includes("custom task notification sent")), true);
 assert.equal(infoLogs.some((line) => line.includes("custom task notification skipped")), true);
 
+let initBindWrittenConfig: any = null;
+const initBindLogs: string[] = [];
+const initBindCfg = {
+  channels: {
+    qqbot: {
+      customRuntime: {
+        enabled: false,
+        initBind: { code: "BIND123", expiresAt: 2_000, enableRuntimeOnComplete: true },
+      },
+    },
+  },
+} as any;
+const initBindEffect = await applyCustomSlashGatewayEffects({
+  accountId: "default",
+  cfg: initBindCfg,
+  result: {
+    handled: true,
+    persist: {
+      initBind: {
+        admins: ["MEMBER_OPENID"],
+        adminGroup: "GROUP_OPENID",
+        clearInitBind: true,
+        enableRuntime: true,
+      },
+    },
+  },
+  getConfigApi: () => ({
+    loadConfig: () => initBindCfg,
+    writeConfigFile: async (cfg) => { initBindWrittenConfig = cfg; },
+  }),
+  sendText: async () => {},
+  sendKeyboard: async () => { throw new Error("unexpected keyboard"); },
+  log: {
+    info: (message) => initBindLogs.push(message),
+    error: () => {},
+  },
+});
+assert.equal(initBindEffect.configPersisted, true);
+assert.deepEqual(initBindWrittenConfig.channels.qqbot.customRuntime.admins, ["MEMBER_OPENID"]);
+assert.equal(initBindWrittenConfig.channels.qqbot.customRuntime.adminGroup, "qqbot:group:GROUP_OPENID");
+assert.equal(initBindWrittenConfig.channels.qqbot.customRuntime.enabled, true);
+assert.equal(initBindWrittenConfig.channels.qqbot.customRuntime.initBind, undefined);
+assert.equal(initBindWrittenConfig.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "system-admin");
+assert.equal(initBindLogs.some((line) => line.includes("custom runtime init binding persisted")), true);
+
 const failedReplyTaskTexts: string[] = [];
 const failedReplyErrors: string[] = [];
 const failedReply = await applyCustomSlashGatewayEffects({

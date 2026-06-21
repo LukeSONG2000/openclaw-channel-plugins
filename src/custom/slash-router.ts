@@ -6,6 +6,7 @@ import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { handleCustomDeployCommand } from "./deploy-confirmation-gateway-adapter.js";
 import { handleCustomFallbackCommand } from "./fallback-gateway-adapter.js";
 import { handleCustomGameCommand } from "./game-gateway-adapter.js";
+import { handleCustomInitBindCommand, type CustomInitBindConfigPersist } from "./init-bind-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
 import { handleCustomQueueStatusCommand } from "./queue-status-gateway-adapter.js";
 import { handleCustomSceneCommand } from "./scene-gateway-adapter.js";
@@ -39,6 +40,7 @@ export type CustomSlashGatewayReply =
 export interface CustomSlashGatewayPersist {
   auth?: boolean;
   config?: { sceneKey: string; sceneConfig: CustomSceneConfig };
+  initBind?: CustomInitBindConfigPersist;
   tasks?: boolean;
   polls?: boolean;
   games?: boolean;
@@ -81,6 +83,7 @@ export interface CustomSlashRoute {
 }
 
 const DEFAULT_CUSTOM_SLASH_ROUTES: readonly CustomSlashRoute[] = [
+  { name: "init-bind", handle: routeCustomInitBindCommand },
   { name: "scene", handle: routeCustomSceneCommand },
   { name: "fallback", handle: routeCustomFallbackCommand },
   { name: "queue", handle: routeCustomQueueStatusCommand },
@@ -103,6 +106,21 @@ export function routeCustomSlashCommand(
     if (result.handled) return result;
   }
   return { handled: false };
+}
+
+function routeCustomInitBindCommand(ctx: CustomSlashRouterContext): CustomSlashGatewayResult {
+  const command = handleCustomInitBindCommand({
+    cfg: ctx.cfg,
+    message: ctx.message,
+    rawContent: ctx.rawContent,
+    now: ctx.now,
+  });
+  if (!command.handled) return { handled: false };
+  return handled({
+    reply: { kind: "text", text: command.reply },
+    persist: command.persist ? { initBind: command.persist } : undefined,
+    logs: command.log ? [{ level: "info", message: command.log }] : undefined,
+  });
 }
 
 function routeCustomSceneCommand(ctx: CustomSlashRouterContext): CustomSlashGatewayResult {
@@ -300,5 +318,5 @@ export function hasCustomSlashPersist(persist?: CustomSlashGatewayPersist): bool
 }
 
 function hasPersist(persist?: CustomSlashGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.config || persist?.tasks || persist?.polls || persist?.games || persist?.deployConfirmations);
+  return Boolean(persist?.auth || persist?.config || persist?.initBind || persist?.tasks || persist?.polls || persist?.games || persist?.deployConfirmations);
 }

@@ -4,7 +4,9 @@ import { pathToFileURL } from "node:url";
 
 const ADMIN_ENV_KEYS = ["QQBOT_CUSTOM_ADMINS", "QQBOT_ADMINS"];
 const ADMIN_GROUP_ENV_KEYS = ["QQBOT_CUSTOM_ADMIN_GROUP", "QQBOT_ADMIN_GROUP"];
+const INIT_BIND_CODE_ENV_KEYS = ["QQBOT_CUSTOM_INIT_BIND_CODE", "QQBOT_INIT_BIND_CODE"];
 const LIKELY_RAW_QQ_NUMERIC_ID_PATTERN = /^[1-9]\d{4,12}$/;
+const DEFAULT_INIT_BIND_TTL_MS = 10 * 60 * 1000;
 
 export function normalizeCustomRuntimeAdminList(raw) {
   const values = Array.isArray(raw)
@@ -88,6 +90,7 @@ export function inspectCustomRuntimeInitialization(cfg) {
     enabled: runtime?.enabled === true,
     admins,
     adminGroup,
+    initBind: normalizeCustomRuntimeInitBindConfig(runtime?.initBind),
     missing,
     ready: missing.length === 0,
   };
@@ -116,6 +119,54 @@ export function applyCustomRuntimeInitializationToConfig(cfg, input) {
       },
     },
   };
+}
+
+export function applyCustomRuntimeInitBindChallengeToConfig(cfg, input) {
+  const code = normalizeCustomRuntimeInitBindCode(input.code);
+  if (!code) return cfg;
+  const channels = objectOrEmpty(cfg.channels);
+  const qqbot = objectOrEmpty(channels.qqbot);
+  const runtime = { ...getQQBotCustomRuntime(cfg) };
+  runtime.initBind = {
+    code,
+    createdAt: input.createdAt,
+    expiresAt: input.expiresAt,
+    enableRuntimeOnComplete: input.enableRuntimeOnComplete === true,
+  };
+  return {
+    ...cfg,
+    channels: {
+      ...channels,
+      qqbot: {
+        ...qqbot,
+        customRuntime: runtime,
+      },
+    },
+  };
+}
+
+export function normalizeCustomRuntimeInitBindCode(raw) {
+  const value = String(raw ?? "").trim();
+  if (!value) return undefined;
+  return /^[A-Za-z0-9][A-Za-z0-9_-]{3,63}$/.test(value) ? value : undefined;
+}
+
+export function normalizeCustomRuntimeInitBindConfig(raw) {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return undefined;
+  const code = normalizeCustomRuntimeInitBindCode(raw.code);
+  if (!code) return undefined;
+  return {
+    code,
+    createdAt: finiteNumberOrUndefined(raw.createdAt),
+    expiresAt: finiteNumberOrUndefined(raw.expiresAt),
+    enableRuntimeOnComplete: raw.enableRuntimeOnComplete === true,
+  };
+}
+
+function finiteNumberOrUndefined(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const number = Number(value);
+  return Number.isFinite(number) ? number : undefined;
 }
 
 export function applyCustomRuntimeAdminGroupSceneBinding(runtime, adminGroup) {
@@ -148,6 +199,10 @@ export async function runCli(argv = process.argv.slice(2), env = process.env) {
 
   const admins = normalizeCustomRuntimeAdminList(args.admins);
   const adminGroup = normalizeCustomRuntimeAdminGroup(args.adminGroup);
+  const initBindCode = normalizeCustomRuntimeInitBindCode(args.initBindCode);
+  if (args.hasInitBindCodeInput && !initBindCode) {
+    throw new Error("custom runtime init bind code must be 4-64 chars: letters, numbers, _ or -");
+  }
   const numericAdmins = findLikelyRawQQNumericAdminIds(args.admins);
   if (args.hasAdminInput && numericAdmins.length > 0) {
     throw new Error(`custom runtime admins must use QQBot user_openid/member_openid, not raw QQ number: ${numericAdmins.join(", ")}`);
@@ -164,14 +219,23 @@ export async function runCli(argv = process.argv.slice(2), env = process.env) {
 
   const cfg = readJsonConfig(args.configPath);
   const shouldWrite = !args.statusOnly
-    && (admins.length > 0 || Boolean(adminGroup) || typeof args.enabled === "boolean");
-  const next = shouldWrite
+    && (admins.length > 0 || Boolean(adminGroup) || typeof args.enabled === "boolean" || Boolean(initBindCode));
+  let next = shouldWrite
     ? applyCustomRuntimeInitializationToConfig(cfg, {
       admins,
       adminGroup,
       enabled: args.enabled,
     })
     : cfg;
+  if (shouldWrite && initBindCode) {
+    const createdAt = args.now ?? Date.now();
+    next = applyCustomRuntimeInitBindChallengeToConfig(next, {
+      code: initBindCode,
+      createdAt,
+      expiresAt: createdAt + args.initBindTtlMs,
+      enableRuntimeOnComplete: args.enableRuntimeOnInitBindComplete,
+    });
+  }
 
   if (shouldWrite) {
     fs.writeFileSync(args.configPath, `${JSON.stringify(next, null, 4)}\n`);
@@ -210,11 +274,15 @@ function parseCliArgs(argv, env) {
   let adminGroup;
   let configPath;
   let enabled;
+  let initBindCode;
+  let initBindTtlMs = DEFAULT_INIT_BIND_TTL_MS;
+  let enableRuntimeOnInitBindComplete = false;
   let statusOnly = false;
   let requireReady = false;
   let json = false;
   let help = false;
   let hasAdminGroupInput = false;
+  let hasInitBindCodeInput = false;
 
   for (let i = 0; i < argv.length; i += 1) {
     const arg = argv[i];
@@ -249,6 +317,18 @@ function parseCliArgs(argv, env) {
       enabled = true;
     } else if (arg === "--disable-custom-runtime") {
       enabled = false;
+    } else if (arg === "--init-bind-code") {
+      initBindCode = readValue();
+      hasInitBindCodeInput = true;
+    } else if (arg.startsWith("--init-bind-code=")) {
+      initBindCode = arg.slice("--init-bind-code=".length);
+      hasInitBindCodeInput = true;
+    } else if (arg === "--init-bind-ttl-ms") {
+      initBindTtlMs = Number(readValue());
+    } else if (arg.startsWith("--init-bind-ttl-ms=")) {
+      initBindTtlMs = Number(arg.slice("--init-bind-ttl-ms=".length));
+    } else if (arg === "--enable-runtime-after-init-bind") {
+      enableRuntimeOnInitBindComplete = true;
     } else if (arg === "--status-only") {
       statusOnly = true;
     } else if (arg === "--require-ready") {
@@ -262,10 +342,18 @@ function parseCliArgs(argv, env) {
 
   const envAdmins = firstEnv(env, ADMIN_ENV_KEYS);
   const envAdminGroup = firstEnv(env, ADMIN_GROUP_ENV_KEYS);
+  const envInitBindCode = firstEnv(env, INIT_BIND_CODE_ENV_KEYS);
   const admins = adminInputs.length > 0 ? adminInputs.join(",") : envAdmins;
   if (!hasAdminGroupInput && envAdminGroup !== undefined) {
     adminGroup = envAdminGroup;
     hasAdminGroupInput = true;
+  }
+  if (!hasInitBindCodeInput && envInitBindCode !== undefined) {
+    initBindCode = envInitBindCode;
+    hasInitBindCodeInput = true;
+  }
+  if (!Number.isFinite(initBindTtlMs) || initBindTtlMs <= 0) {
+    throw new Error("--init-bind-ttl-ms must be a positive number");
   }
 
   return {
@@ -273,12 +361,16 @@ function parseCliArgs(argv, env) {
     admins,
     adminGroup,
     enabled,
+    initBindCode,
+    initBindTtlMs,
+    enableRuntimeOnInitBindComplete,
     statusOnly,
     requireReady,
     json,
     help,
     hasAdminInput: adminInputs.length > 0 || envAdmins !== undefined,
     hasAdminGroupInput,
+    hasInitBindCodeInput,
   };
 }
 
@@ -294,6 +386,7 @@ function formatStatus(status) {
   const lines = [
     `Custom Runtime 管理员: ${status.admins.length ? status.admins.join(", ") : "未绑定"}`,
     `Custom Runtime 管理群: ${status.adminGroup ?? "未绑定"}`,
+    ...(status.initBind?.code ? [`Custom Runtime 对话式绑定: 已启用（expiresAt=${status.initBind.expiresAt ?? "未设置"}）`] : []),
     `Custom Runtime 初始化: ${status.ready ? "完整" : `缺少 ${status.missing.join(", ")}`}`,
   ];
   if (status.changed) lines.unshift("Custom Runtime 初始化配置已写入");
@@ -308,6 +401,9 @@ function usage() {
     "Options:",
     "  --admins, --admin <openid,...>       Bind one or more QQBot user_openid/member_openid admins",
     "  --admin-group <group_openid>         Bind the management QQBot group_openid",
+    "  --init-bind-code <code>              Stage a one-time /bot-init-bind <code> chat binding challenge",
+    "  --init-bind-ttl-ms <ms>              Challenge TTL, default 600000",
+    "  --enable-runtime-after-init-bind     Set customRuntime.enabled=true when chat binding completes",
     "  --enable-custom-runtime              Set customRuntime.enabled=true",
     "  --disable-custom-runtime             Set customRuntime.enabled=false",
     "  --status-only                        Print current binding status without writing",
@@ -317,6 +413,7 @@ function usage() {
     "Environment:",
     "  QQBOT_CUSTOM_ADMINS / QQBOT_ADMINS",
     "  QQBOT_CUSTOM_ADMIN_GROUP / QQBOT_ADMIN_GROUP",
+    "  QQBOT_CUSTOM_INIT_BIND_CODE / QQBOT_INIT_BIND_CODE",
     "",
   ].join("\n");
 }

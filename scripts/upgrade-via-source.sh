@@ -38,6 +38,9 @@ SECRET=""
 MARKDOWN=""
 CUSTOM_ADMINS=""
 CUSTOM_ADMIN_GROUP=""
+CUSTOM_INIT_BIND_CODE=""
+CUSTOM_INIT_BIND_TTL_MS=""
+CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND=""
 
 while [[ $# -gt 0 ]]; do
     case $1 in
@@ -63,6 +66,20 @@ while [[ $# -gt 0 ]]; do
             CUSTOM_ADMIN_GROUP="$2"
             shift 2
             ;;
+        --init-bind-code)
+            [ -z "$2" ] && echo "❌ $1 需要参数" && exit 1
+            CUSTOM_INIT_BIND_CODE="$2"
+            shift 2
+            ;;
+        --init-bind-ttl-ms)
+            [ -z "$2" ] && echo "❌ $1 需要参数" && exit 1
+            CUSTOM_INIT_BIND_TTL_MS="$2"
+            shift 2
+            ;;
+        --enable-runtime-after-init-bind)
+            CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND="true"
+            shift
+            ;;
         -h|--help)
             echo "用法: $0 [选项]"
             echo ""
@@ -72,6 +89,9 @@ while [[ $# -gt 0 ]]; do
             echo "  --markdown <yes|no>   是否启用 markdown 消息格式（默认: no）"
             echo "  --admins <openid,...> customRuntime 管理员 openid（多个用逗号分隔）"
             echo "  --admin-group <openid> customRuntime 管理群 group_openid"
+            echo "  --init-bind-code <code> customRuntime 对话式初始化绑定一次性 code"
+            echo "  --init-bind-ttl-ms <ms> 对话式绑定 code 有效期（默认 600000）"
+            echo "  --enable-runtime-after-init-bind 绑定完成后启用 customRuntime"
             echo "  -h, --help            显示帮助信息"
             echo ""
             echo "也可以通过环境变量设置:"
@@ -81,6 +101,7 @@ while [[ $# -gt 0 ]]; do
             echo "  QQBOT_MARKDOWN        是否启用 markdown（yes/no）"
             echo "  QQBOT_CUSTOM_ADMINS   customRuntime 管理员 openid"
             echo "  QQBOT_CUSTOM_ADMIN_GROUP customRuntime 管理群 group_openid"
+            echo "  QQBOT_CUSTOM_INIT_BIND_CODE customRuntime 对话式初始化绑定一次性 code"
             echo ""
             echo "不带参数时，将使用已有配置直接启动。"
             echo ""
@@ -101,6 +122,9 @@ SECRET="${SECRET:-$QQBOT_SECRET}"
 MARKDOWN="${MARKDOWN:-$QQBOT_MARKDOWN}"
 CUSTOM_ADMINS="${CUSTOM_ADMINS:-${QQBOT_CUSTOM_ADMINS:-$QQBOT_ADMINS}}"
 CUSTOM_ADMIN_GROUP="${CUSTOM_ADMIN_GROUP:-${QQBOT_CUSTOM_ADMIN_GROUP:-$QQBOT_ADMIN_GROUP}}"
+CUSTOM_INIT_BIND_CODE="${CUSTOM_INIT_BIND_CODE:-${QQBOT_CUSTOM_INIT_BIND_CODE:-$QQBOT_INIT_BIND_CODE}}"
+CUSTOM_INIT_BIND_TTL_MS="${CUSTOM_INIT_BIND_TTL_MS:-$QQBOT_CUSTOM_INIT_BIND_TTL_MS}"
+CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND="${CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND:-$QQBOT_CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND}"
 
 echo "========================================="
 echo "  qqbot 一键更新启动脚本"
@@ -971,15 +995,18 @@ case "$start_choice" in
 
                 _init_script="$PROJ_DIR/scripts/apply-custom-runtime-init.mjs"
                 if [ -f "$_init_script" ]; then
-                    if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ]; then
-                        echo "  写入 customRuntime 管理员和管理群..."
+                    if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ] || [ -n "$CUSTOM_INIT_BIND_CODE" ]; then
+                        echo "  写入 customRuntime 初始化绑定..."
                         _init_args=(--config "$_target_cfg")
                         [ -n "$CUSTOM_ADMINS" ] && _init_args+=(--admins "$CUSTOM_ADMINS")
                         [ -n "$CUSTOM_ADMIN_GROUP" ] && _init_args+=(--admin-group "$CUSTOM_ADMIN_GROUP")
+                        [ -n "$CUSTOM_INIT_BIND_CODE" ] && _init_args+=(--init-bind-code "$CUSTOM_INIT_BIND_CODE")
+                        [ -n "$CUSTOM_INIT_BIND_TTL_MS" ] && _init_args+=(--init-bind-ttl-ms "$CUSTOM_INIT_BIND_TTL_MS")
+                        [ "$CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND" = "true" ] && _init_args+=(--enable-runtime-after-init-bind)
                         node "$_init_script" "${_init_args[@]}" || echo "  ⚠️  customRuntime 初始化绑定写入失败"
                     else
                         node "$_init_script" --config "$_target_cfg" --status-only --require-ready || \
-                            echo "  ⚠️  未绑定 customRuntime 管理员或管理群；首次初始化建议使用 --admins 和 --admin-group"
+                            echo "  ⚠️  未绑定 customRuntime 管理员或管理群；首次初始化建议使用 --admins/--admin-group 或 --init-bind-code"
                     fi
                 fi
 
@@ -1073,15 +1100,18 @@ case "$start_choice" in
 
             _init_script="$PROJ_DIR/scripts/apply-custom-runtime-init.mjs"
             if [ -f "$_init_script" ]; then
-                if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ]; then
-                    echo "  写入 customRuntime 管理员和管理群..."
+                if [ -n "$CUSTOM_ADMINS" ] || [ -n "$CUSTOM_ADMIN_GROUP" ] || [ -n "$CUSTOM_INIT_BIND_CODE" ]; then
+                    echo "  写入 customRuntime 初始化绑定..."
                     _init_args=(--config "$_STASH_CFG")
                     [ -n "$CUSTOM_ADMINS" ] && _init_args+=(--admins "$CUSTOM_ADMINS")
                     [ -n "$CUSTOM_ADMIN_GROUP" ] && _init_args+=(--admin-group "$CUSTOM_ADMIN_GROUP")
+                    [ -n "$CUSTOM_INIT_BIND_CODE" ] && _init_args+=(--init-bind-code "$CUSTOM_INIT_BIND_CODE")
+                    [ -n "$CUSTOM_INIT_BIND_TTL_MS" ] && _init_args+=(--init-bind-ttl-ms "$CUSTOM_INIT_BIND_TTL_MS")
+                    [ "$CUSTOM_ENABLE_RUNTIME_AFTER_INIT_BIND" = "true" ] && _init_args+=(--enable-runtime-after-init-bind)
                     node "$_init_script" "${_init_args[@]}" || echo "  ⚠️  customRuntime 初始化绑定写入失败"
                 else
                     node "$_init_script" --config "$_STASH_CFG" --status-only --require-ready || \
-                        echo "  ⚠️  未绑定 customRuntime 管理员或管理群；首次初始化建议使用 --admins 和 --admin-group"
+                        echo "  ⚠️  未绑定 customRuntime 管理员或管理群；首次初始化建议使用 --admins/--admin-group 或 --init-bind-code"
                 fi
             fi
 

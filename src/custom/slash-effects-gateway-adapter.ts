@@ -1,6 +1,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { InlineKeyboard } from "../types.js";
-import { resolveCustomRuntimeConfig } from "./config.js";
+import {
+  applyCustomRuntimeAdminBindingsToConfig,
+  clearCustomRuntimeInitBindChallengeFromConfig,
+  resolveCustomRuntimeConfig,
+} from "./config.js";
 import { upsertCustomSceneConfig } from "./scene-gateway-adapter.js";
 import type { CustomSlashGatewayResult } from "./slash-gateway-adapter.js";
 import {
@@ -81,6 +85,10 @@ export async function applyCustomSlashGatewayEffects(
     await persistCustomSlashConfig(params);
     result.configPersisted = true;
   }
+  if (persist?.initBind) {
+    await persistCustomInitBindConfig(params);
+    result.configPersisted = true;
+  }
   if (persist?.tasks) {
     requireCallback(params.persistTaskState, "persistTaskState")();
     result.tasksPersisted = true;
@@ -127,6 +135,27 @@ function logCustomSlashGatewayResult(params: ApplyCustomSlashGatewayEffectsParam
       params.log?.info?.(`[qqbot:${params.accountId}] ${item.message}`);
     }
   }
+}
+
+async function persistCustomInitBindConfig(params: ApplyCustomSlashGatewayEffectsParams): Promise<void> {
+  const initBindPersist = params.result.persist?.initBind;
+  if (!initBindPersist) return;
+  const configApi = params.getConfigApi?.();
+  if (!configApi) throw new Error("getConfigApi is required to persist custom init binding changes");
+
+  const currentCfg = typeof configApi.loadConfig === "function"
+    ? structuredClone(configApi.loadConfig()) as OpenClawConfig
+    : structuredClone(params.cfg) as OpenClawConfig;
+  let nextCfg = applyCustomRuntimeAdminBindingsToConfig(currentCfg, {
+    admins: initBindPersist.admins,
+    adminGroup: initBindPersist.adminGroup,
+    ...(typeof initBindPersist.enableRuntime === "boolean" ? { enabled: initBindPersist.enableRuntime } : {}),
+  });
+  if (initBindPersist.clearInitBind) {
+    nextCfg = clearCustomRuntimeInitBindChallengeFromConfig(nextCfg);
+  }
+  await configApi.writeConfigFile(nextCfg);
+  params.log?.info?.(`[qqbot:${params.accountId}] custom runtime init binding persisted: admins=${initBindPersist.admins.length} adminGroup=${initBindPersist.adminGroup ?? "unchanged"} clear=${initBindPersist.clearInitBind === true}`);
 }
 
 async function persistCustomSlashConfig(params: ApplyCustomSlashGatewayEffectsParams): Promise<void> {
