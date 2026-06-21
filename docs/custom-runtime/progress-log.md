@@ -887,3 +887,15 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates the auth check + denial branch and only reacts to the returned `shouldStop` flag by stopping typing and exiting the current message.
 - The adapter still receives gateway-owned send callbacks for visible text, approval cards, and admin-group copies, so QQ API sends and token retry remain at the gateway boundary.
 - Added `tests/custom-dispatch-authorization-gateway-adapter.test.ts` for approval-card denial, text fallback after card failure, admin-group `source=dispatch` forwarding, persistence/logging, and runtime-disabled pass-through.
+
+抽出 dispatch fallback 记录器绑定：
+
+- Added `createCustomDispatchFallbackRecorder()` in `src/custom/fallback-record-gateway-adapter.ts` to bind account/message/session/runtime/snapshot callbacks once per dispatch.
+- `gateway.ts` no longer imports `buildCustomFallbackRecordInput()` or fallback event detail types directly; it only invokes the returned recorder with kind/reason/details at timeout/tool-fallback sites.
+- Snapshot reads remain lazy per fallback event through injected queue/dispatch callbacks, so persisted diagnostics still include current queue pressure and dispatch counters.
+- Added adapter coverage in `tests/custom-fallback-record-gateway-adapter.test.ts` for recorder-created events, session key propagation, queue/dispatch counters, and callback invocation counts.
+
+同步新增初始化目标：
+
+- 已确认当前分支把首次初始化必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup` 作为硬约束：`src/onboarding.ts` 的 setup/onboarding 校验、`scripts/apply-custom-runtime-init.mjs`、README/升级文档、preflight 均已覆盖。
+- 本轮复跑 `tests/custom-onboarding.test.ts` 通过，继续保持“缺管理员或管理群=未完整初始化”的目标；管理群写入时仍默认绑定 `system-admin` 场景且保留已有 scene override。

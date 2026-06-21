@@ -1110,9 +1110,10 @@ Gateway-side fallback recorder and alert trigger.
 Current implementation status:
 
 - Builds or accepts `CustomFallbackEvent` records, logs the sanitized JSON event, and persists through `custom-fallback-event-store`.
+- Exposes `createCustomDispatchFallbackRecorder()` so `gateway.ts` only binds account/message/session callbacks once per dispatch and no longer assembles fallback record payloads inline.
 - Loads recent fallback events only after a successful append, then applies `buildCustomFallbackAlertDecision()` with current runtime config.
 - Returns typed persisted/alert status and dispatches an optional alert delivery callback without importing QQ send APIs.
-- Keeps queue snapshot construction, visible user notices, and final QQ delivery in `gateway.ts`; the adapter only owns record/persist/alert-trigger glue.
+- Keeps snapshot producers, visible user notices, and final QQ delivery in `gateway.ts`; the adapter owns dispatch record assembly, persistence, and alert-trigger glue.
 - Urgent queue bypass and dispatch fallback paths now share this recorder instead of each importing fallback store helpers in `gateway.ts`.
 
 ### `src/custom/fallback-alerts.ts`

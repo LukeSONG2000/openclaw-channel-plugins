@@ -3,7 +3,11 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { loadCustomFallbackEvents } from "../src/custom/fallback-event-store.js";
-import { recordCustomFallbackEventGateway, type CustomFallbackAlertDelivery } from "../src/custom/fallback-record-gateway-adapter.js";
+import {
+  createCustomDispatchFallbackRecorder,
+  recordCustomFallbackEventGateway,
+  type CustomFallbackAlertDelivery,
+} from "../src/custom/fallback-record-gateway-adapter.js";
 import type { CustomRuntimeConfig } from "../src/custom/types.js";
 
 const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), "qqbot-fallback-record-"));
@@ -76,6 +80,64 @@ try {
   assert.equal(alerts[0].text.includes("窗口"), true);
   assert.equal(loadCustomFallbackEvents(accountId, storeOptions).length, 2);
 
+  let queueSnapshotReads = 0;
+  let dispatchSnapshotReads = 0;
+  const dispatchRecorder = createCustomDispatchFallbackRecorder({
+    accountId,
+    runtime,
+    storeOptions,
+    log,
+    message: {
+      type: "group",
+      senderId: "MEMBER_OPENID",
+      senderName: "Member",
+      content: "hello",
+      messageId: "msg-dispatch",
+      timestamp: "2026-06-21T00:00:00.000Z",
+      groupOpenid: "GROUP_OPENID",
+    },
+    sessionKey: "qqbot:group:GROUP_OPENID",
+    getQueueSnapshot: () => {
+      queueSnapshotReads += 1;
+      return {
+        totalPending: 4,
+        activeUsers: 1,
+        maxConcurrentUsers: 10,
+        senderPending: 2,
+        senderActiveMs: 123,
+        maxActiveMs: 456,
+      };
+    },
+    getDispatchSnapshot: () => {
+      dispatchSnapshotReads += 1;
+      return {
+        hasResponse: true,
+        hasBlockResponse: false,
+        hasModelBlockOutput: false,
+        dispatchTimedOut: false,
+        toolDeliverCount: 3,
+        toolTextCount: 2,
+        toolMediaCount: 1,
+        toolFallbackSent: false,
+        toolRenewalCount: 0,
+      };
+    },
+  });
+  const dispatchRecorded = dispatchRecorder({
+    kind: "tool-fallback-text",
+    reason: "tool text fallback",
+    details: { fallbackTextChars: 12 },
+  });
+  assert.equal(dispatchRecorded.persisted, true);
+  assert.equal(dispatchRecorded.event.kind, "tool-fallback-text");
+  assert.equal(dispatchRecorded.event.sessionKey, "qqbot:group:GROUP_OPENID");
+  assert.equal(dispatchRecorded.event.toolDeliverCount, 3);
+  assert.equal(dispatchRecorded.event.details?.queueTotalPending, 4);
+  assert.equal(dispatchRecorded.event.details?.fallbackTextChars, 12);
+  assert.equal(queueSnapshotReads, 1);
+  assert.equal(dispatchSnapshotReads, 1);
+  assert.equal(loadCustomFallbackEvents(accountId, storeOptions).length, 3);
+
   const urgent = recordCustomFallbackEventGateway({
     accountId,
     storeOptions,
@@ -91,7 +153,7 @@ try {
   });
   assert.equal(urgent.persisted, true);
   assert.equal(urgent.event.kind, "urgent-queue-bypass");
-  assert.equal(loadCustomFallbackEvents(accountId, storeOptions).length, 3);
+  assert.equal(loadCustomFallbackEvents(accountId, storeOptions).length, 4);
 
   const disabledRuntime = recordCustomFallbackEventGateway({
     accountId,

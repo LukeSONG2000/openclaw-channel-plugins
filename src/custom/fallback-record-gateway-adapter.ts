@@ -1,10 +1,15 @@
 import type { InlineKeyboard } from "../types.js";
+import type { QueuedMessage } from "../message-queue.js";
+import type { QueueSnapshot } from "../slash-commands.js";
 import type { CustomRuntimeConfig } from "./types.js";
+import type { CustomFallbackDispatchStateSnapshot } from "./fallback-dispatch-state.js";
 import {
   buildCustomFallbackEvent,
   formatCustomFallbackEventLog,
   type BuildCustomFallbackEventParams,
   type CustomFallbackEvent,
+  type CustomFallbackEventInputDetails,
+  type CustomFallbackEventKind,
 } from "./fallbacks.js";
 import {
   appendCustomFallbackEvent,
@@ -12,6 +17,7 @@ import {
   type CustomFallbackEventStoreOptions,
 } from "./fallback-event-store.js";
 import { buildCustomFallbackAlertDecision } from "./fallback-alerts.js";
+import { buildCustomFallbackRecordInput } from "./fallback-record-context.js";
 
 export interface CustomFallbackRecordLogger {
   info?: (msg: string) => void;
@@ -40,6 +46,51 @@ export interface CustomFallbackRecordGatewayResult {
 export type CustomFallbackRecordInput =
   | CustomFallbackEvent
   | (Omit<BuildCustomFallbackEventParams, "accountId"> & { accountId?: string });
+
+export interface CustomDispatchFallbackRecordParams {
+  kind: CustomFallbackEventKind;
+  reason?: string;
+  timeoutMs?: number;
+  details?: CustomFallbackEventInputDetails;
+}
+
+export interface CustomDispatchFallbackRecorderParams {
+  accountId: string;
+  message: QueuedMessage;
+  sessionKey?: string;
+  getQueueSnapshot: () => QueueSnapshot;
+  getDispatchSnapshot: () => CustomFallbackDispatchStateSnapshot;
+  runtime?: CustomRuntimeConfig;
+  getRuntime?: () => CustomRuntimeConfig;
+  storeOptions?: CustomFallbackEventStoreOptions;
+  alertRecentLimit?: number;
+  sendAlert?: (delivery: CustomFallbackAlertDelivery) => void | Promise<void>;
+  log?: CustomFallbackRecordLogger;
+}
+
+export type CustomDispatchFallbackRecorder = (
+  params: CustomDispatchFallbackRecordParams,
+) => CustomFallbackRecordGatewayResult;
+
+export function createCustomDispatchFallbackRecorder(
+  params: CustomDispatchFallbackRecorderParams,
+): CustomDispatchFallbackRecorder {
+  return (eventParams) => recordCustomFallbackEventGateway({
+    accountId: params.accountId,
+    runtime: params.getRuntime ? params.getRuntime() : params.runtime,
+    storeOptions: params.storeOptions,
+    alertRecentLimit: params.alertRecentLimit,
+    log: params.log,
+    sendAlert: params.sendAlert,
+    event: buildCustomFallbackRecordInput({
+      ...eventParams,
+      message: params.message,
+      sessionKey: params.sessionKey,
+      queueSnapshot: params.getQueueSnapshot(),
+      dispatchSnapshot: params.getDispatchSnapshot(),
+    }),
+  });
+}
 
 export function recordCustomFallbackEventGateway(params: {
   accountId: string;

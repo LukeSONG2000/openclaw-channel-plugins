@@ -109,13 +109,14 @@ import {
   formatCustomToolNoOutputNotice,
   isCustomModelSkipOutput,
   selectCustomToolFallbackText,
-  type CustomFallbackEventKind,
-  type CustomFallbackEventInputDetails,
 } from "./custom/fallbacks.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
-import { recordCustomFallbackEventGateway } from "./custom/fallback-record-gateway-adapter.js";
-import { buildCustomFallbackRecordInput } from "./custom/fallback-record-context.js";
+import {
+  createCustomDispatchFallbackRecorder,
+  recordCustomFallbackEventGateway,
+  type CustomDispatchFallbackRecorder,
+} from "./custom/fallback-record-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
@@ -1854,28 +1855,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const maxToolRenewals = CUSTOM_TOOL_ONLY_MAX_RENEWALS; // tool 续期上限，防止无限工具调用永远不触发兜底
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
           let toolOnlyTimeoutId: ReturnType<typeof setTimeout> | null = null;
-          const recordFallbackEvent = (params: {
-            kind: CustomFallbackEventKind;
-            reason?: string;
-            timeoutMs?: number;
-            details?: CustomFallbackEventInputDetails;
-          }) => {
-            const queueSnapshot = msgQueue.getSnapshot(peerId);
-            const fallbackSnapshot = fallbackState.snapshot();
-            recordCustomFallbackEventGateway({
-              accountId: account.accountId,
-              runtime: resolveCustomRuntimeConfig(cfg as any),
-              log,
-              sendAlert: (alert) => sendCustomFallbackAdminGroupAlert(alert),
-              event: buildCustomFallbackRecordInput({
-                ...params,
-                message: event,
-                sessionKey: route.sessionKey,
-                queueSnapshot,
-                dispatchSnapshot: fallbackSnapshot,
-              }),
-            });
-          };
+          const recordFallbackEvent: CustomDispatchFallbackRecorder = createCustomDispatchFallbackRecorder({
+            accountId: account.accountId,
+            message: event,
+            sessionKey: route.sessionKey,
+            getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
+            getQueueSnapshot: () => msgQueue.getSnapshot(peerId),
+            getDispatchSnapshot: () => fallbackState.snapshot(),
+            log,
+            sendAlert: (alert) => sendCustomFallbackAdminGroupAlert(alert),
+          });
         try {
           const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
 
