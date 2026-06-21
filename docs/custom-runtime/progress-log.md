@@ -1301,3 +1301,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now constructs this platform dependency bundle once and passes stable callbacks into account services and connect-attempt wiring, reducing inline official connector glue while keeping official imports explicit for future upstream review.
 - The command detector still delegates to `pluginRuntime.channel.text.hasControlCommand()` and falls back to safe slash-prefix detection when the runtime is unavailable, preserving `/new` and `/compact` recovery visibility during early startup/failure edges.
 - Added `tests/custom-gateway-platform-services-gateway-adapter.test.ts` for command fallback behavior, mention/group resolver forwarding, runtime config/routing lookup, legacy approval lookup, task-status proactive text send wiring, and fallback defaults.
+
+抽出 runtime service handles 网关运行服务引用层：
+
+- Added `src/custom/gateway-runtime-service-handles-gateway-adapter.ts` to own the active long-task executor and unread scheduler references across connection attempts, reconnect cleanup, and abort cleanup.
+- `gateway.ts` now passes stable handle callbacks into account services, lifecycle cleanup, and connect-attempt wiring instead of mutating `customTaskExecutor` / `customUnreadScheduler` locals directly.
+- The handle holder clears stale references before disposal and still attempts both unread-scheduler and task-executor disposal if one throws, reducing reconnect/abort residue risk without changing who creates the services.
+- Added `tests/custom-gateway-runtime-service-handles-gateway-adapter.test.ts` for handle getters, replacement, idempotent cleanup, disposal order, error propagation, and stale-reference clearing.

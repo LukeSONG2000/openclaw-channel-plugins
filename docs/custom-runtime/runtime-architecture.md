@@ -566,6 +566,22 @@ Important boundary:
 - The controller does not know QQ tokens, OpenClaw runtime internals, message queues, or persistence stores. `gateway.ts` injects cleanup side effects such as runtime-service disposal, token refresh stopping, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler stop.
 - It keeps transport lifecycle state testable without opening a real WebSocket or starting Webhook transport.
 
+### `src/custom/gateway-runtime-service-handles-gateway-adapter.ts`
+
+Gateway-side mutable handle holder for connection-scoped custom runtime services.
+
+Current implementation status:
+
+- Owns the active long-task command executor and unread scheduler references that must survive across setup wiring but be disposed before reconnect, abort, or connection replacement.
+- Exposes stable callbacks for account-services (`getTaskExecutorOrUndefined`) and connect-attempt wiring (`getTaskExecutor`, `setTaskExecutor`, `setUnreadScheduler`) so `gateway.ts` no longer mutates those locals directly.
+- Disposes unread scheduler before task executor, clears both handles before invoking `dispose()`, and still attempts both disposals if one throws so the lifecycle cannot retain stale service references.
+- Provides a small snapshot for tests and future startup diagnostics without exposing the underlying executor/scheduler objects.
+
+Important boundary:
+
+- The holder does not create task executors or unread schedulers. `runtime-services-gateway-adapter.ts` still creates them per connection attempt, while lifecycle cleanup decides when to call `dispose()`.
+- It keeps reconnect/abort cleanup deterministic while preserving the existing per-connection service ownership model.
+
 ### `src/custom/gateway-connect-attempt-gateway-adapter.ts`
 
 Gateway-side connection-attempt runner for one QQBot account.

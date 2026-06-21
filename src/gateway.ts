@@ -9,8 +9,6 @@ import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { handleStructuredPayload, sendTextToTarget } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
-import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
-import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import {
   isQQBotGatewayWebSocketClosable,
 } from "./custom/websocket-connection-gateway-adapter.js";
@@ -20,6 +18,7 @@ import { createCustomGatewayAccountServices } from "./custom/gateway-account-ser
 import { startQQBotGatewayStartup } from "./custom/gateway-startup-gateway-adapter.js";
 import { runQQBotGatewayConnectAttempt } from "./custom/gateway-connect-attempt-gateway-adapter.js";
 import { createQQBotGatewayPlatformServices } from "./custom/gateway-platform-services-gateway-adapter.js";
+import { createQQBotGatewayRuntimeServiceHandles } from "./custom/gateway-runtime-service-handles-gateway-adapter.js";
 
 // QQ Bot intents - 按权限级别分组
 const INTENTS = {
@@ -80,19 +79,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     sendTextToTarget: sendTextToTarget as any,
   });
 
-  let customUnreadScheduler: CustomUnreadScheduler | null = null;
-  let customTaskExecutor: CustomTaskCommandExecutor | null = null;
+  const runtimeServiceHandles = createQQBotGatewayRuntimeServiceHandles();
   const lifecycle = createQQBotGatewayLifecycle({
     accountId: account.accountId,
     reconnectDelays: RECONNECT_DELAYS,
     maxReconnectAttempts: MAX_RECONNECT_ATTEMPTS,
     isWebSocketClosable: isQQBotGatewayWebSocketClosable,
-    disposeRuntimeServices: () => {
-      customUnreadScheduler?.dispose();
-      customUnreadScheduler = null;
-      customTaskExecutor?.dispose();
-      customTaskExecutor = null;
-    },
+    disposeRuntimeServices: runtimeServiceHandles.dispose,
     log,
   });
 
@@ -119,7 +112,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     account,
     cfg,
     isAborted: () => lifecycle.isAborted(),
-    getTaskExecutor: () => customTaskExecutor ?? undefined,
+    getTaskExecutor: runtimeServiceHandles.getTaskExecutorOrUndefined,
     stripMentionText: platformServices.stripMentionText,
     getConfigApi: platformServices.getConfigApi,
     log,
@@ -168,9 +161,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       lifecycle,
       messageQueue: msgQueue,
       runtime: customMessageFlow,
-      getPreviousTaskExecutor: () => customTaskExecutor,
-      setTaskExecutor: (executor) => { customTaskExecutor = executor; },
-      setUnreadScheduler: (scheduler) => { customUnreadScheduler = scheduler; },
+      getPreviousTaskExecutor: runtimeServiceHandles.getTaskExecutor,
+      setTaskExecutor: runtimeServiceHandles.setTaskExecutor,
+      setUnreadScheduler: runtimeServiceHandles.setUnreadScheduler,
       enqueueMessage: trySlashCommandOrEnqueue,
       getQueueSnapshot: (peerId) => msgQueue.getSnapshot(peerId),
       persistAuthState: persistCustomAuthState,
