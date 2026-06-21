@@ -1090,7 +1090,7 @@ Current implementation status:
 - Tracks whether any response arrived, whether a block response arrived, whether that block was real model output, and whether the dispatch has timed out.
 - Collects tool deliver text/media counts and mutable media URLs for fallback forwarding without spreading counters across `gateway.ts`.
 - Owns block-media dedupe state for tool media that arrives after a block reply.
-- Tracks tool-only fallback renewal count and one-shot fallback-sent state, keeping timer handles themselves in `gateway.ts`.
+- Tracks tool-only fallback renewal count and one-shot fallback-sent state; gateway still stores the timer handle, while `tool-deliver-gateway-adapter.ts` now owns renewal/scheduling decisions.
 - Does not log, send, persist, or know QQ/OpenClaw APIs; it only exposes a snapshot used by the fallback recorder.
 
 ### `src/custom/fallback-record-context.ts`
@@ -1115,6 +1115,17 @@ Current implementation status:
 - Returns typed persisted/alert status and dispatches an optional alert delivery callback without importing QQ send APIs.
 - Keeps snapshot producers, visible user notices, and final QQ delivery in `gateway.ts`; the adapter owns dispatch record assembly, persistence, and alert-trigger glue.
 - Urgent queue bypass and dispatch fallback paths now share this recorder instead of each importing fallback store helpers in `gateway.ts`.
+
+### `src/custom/tool-deliver-gateway-adapter.ts`
+
+Gateway-side observer for tool deliver callbacks.
+
+Current implementation status:
+
+- Records each tool deliver into `CustomFallbackDispatchState` and logs text/media counters.
+- Immediately forwards post-block tool media through an injected guarded media sender, including block-media dedupe and send-error logging.
+- Owns tool-only timer renewal-limit decisions and timeout scheduling while `gateway.ts` only stores/clears the current timer handle.
+- On timeout, records `tool-only-timeout`, marks the fallback as sent, and invokes the injected `sendToolFallback()` callback without importing QQ send APIs.
 
 ### `src/custom/tool-fallback-gateway-adapter.ts`
 

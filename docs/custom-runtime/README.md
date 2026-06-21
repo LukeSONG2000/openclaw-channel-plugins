@@ -70,6 +70,7 @@ Out of scope for the first custom runtime:
 - `src/custom/fallback-gateway-adapter.ts`: `/bot-fallback` status command adapter for recent fallback events.
 - `src/custom/fallback-record-context.ts`: pure builder for fallback record peer/actor/session/queue/dispatch snapshots from `QueuedMessage`; dispatch recorder wiring lives in `fallback-record-gateway-adapter.ts`.
 - `src/custom/fallbacks.ts`: pure timeout, model-skip, tool-only fallback, and dispatch failure policy helpers.
+- `src/custom/tool-deliver-gateway-adapter.ts`: gateway-side tool deliver observer for immediate media forwarding and tool-only timeout scheduling.
 - `src/custom/tool-fallback-gateway-adapter.ts`: gateway-side tool-only fallback sender for collected media/text/no-output notices.
 - `src/custom/gateway-message-routing.ts`: pure gateway message routing context helper for queue peer id, framework route peer, custom scene peer, request target, and reply target.
 - `src/custom/group-activation.ts`: gateway-adjacent group activation helper for `/activation` session-store path resolution and `mention`/`always` fallback parsing.

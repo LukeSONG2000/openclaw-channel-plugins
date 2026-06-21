@@ -906,3 +906,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates `sendToolFallback()` to the adapter and only passes current fallback state plus injected media/text send callbacks, keeping QQ API/token retry at the boundary.
 - The adapter records the concrete fallback event (`tool-fallback-media` / `tool-fallback-text` / `tool-fallback-no-output`) through the existing dispatch fallback recorder and preserves per-media timeout/error logging.
 - Added `tests/custom-tool-fallback-gateway-adapter.test.ts` for media forwarding, media timeout, text fallback selection, and no-output notice behavior.
+
+抽出 tool deliver/timer 编排适配器：
+
+- Added `src/custom/tool-deliver-gateway-adapter.ts` to observe tool deliver callbacks, immediately forward post-block tool media, and manage tool-only timeout scheduling decisions.
+- `gateway.ts` now stores/clears only the current tool-only timer handle; tool deliver collection, block-media dedupe, renewal-limit checks, timeout event recording, and fallback callback triggering live in the adapter.
+- The adapter still receives guarded media send and `sendToolFallback()` as injected callbacks, so QQ sends, proactive budget, token retry, and visible fallback notices remain outside the pure state tracker.
+- Added `tests/custom-tool-deliver-gateway-adapter.test.ts` for timer start, timeout callback, renewal, renewal limit, post-block media forwarding, media dedupe, and already-sent fallback behavior.

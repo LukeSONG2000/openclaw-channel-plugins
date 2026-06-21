@@ -114,6 +114,7 @@ import {
   recordCustomFallbackEventGateway,
   type CustomDispatchFallbackRecorder,
 } from "./custom/fallback-record-gateway-adapter.js";
+import { handleCustomToolDeliverGateway } from "./custom/tool-deliver-gateway-adapter.js";
 import { sendCustomToolFallback } from "./custom/tool-fallback-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
@@ -1950,67 +1951,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
                 // ============ 跳过工具调用的中间结果（带兜底保护） ============
                 if (info.kind === "tool") {
-                  const toolObservation = fallbackState.observeToolDeliver(payload);
-                  log?.info(`[qqbot:${account.accountId}] Collected tool deliver #${toolObservation.toolDeliverCount}: text=${toolObservation.toolTextChars} chars, media=${toolObservation.toolMediaCount} URLs`);
-
-                  // block 已先发送完毕，tool 后到的媒体立即转发（典型场景：AI 先流式输出文本再执行 TTS）
-                  if (fallbackState.hasBlockResponse && fallbackState.toolMediaUrls.length > 0) {
-                    // 去重：跳过已被 block deliver 的 sendPlainReply 处理过的 URL
-                    const { urlsToSend, skippedCount } = fallbackState.consumeToolMediaForImmediateForward();
-                    if (urlsToSend.length === 0) {
-                      log?.info(`[qqbot:${account.accountId}] All ${skippedCount} tool media URL(s) already handled by block deliver, skipping`);
-                      return;
-                    }
-                    log?.info(`[qqbot:${account.accountId}] Block already sent, immediately forwarding ${urlsToSend.length} tool media URL(s) (deduped from block deliver)`);
-                    for (const mediaUrl of urlsToSend) {
-                      try {
-                        const result = await sendGuardedMediaAuto(mediaUrl, "Tool media immediate forward");
-                        if (result.error) {
-                          log?.error(`[qqbot:${account.accountId}] Tool media immediate forward error: ${result.error}`);
-                        } else {
-                          log?.info(`[qqbot:${account.accountId}] Forwarded tool media (post-block): ${mediaUrl.slice(0, 80)}...`);
-                        }
-                      } catch (err) {
-                        log?.error(`[qqbot:${account.accountId}] Tool media immediate forward failed: ${err}`);
-                      }
-                    }
-                    return;
-                  }
-
-                  // 兜底已发送，不再续期
-                  if (fallbackState.toolFallbackSent) {
-                    return;
-                  }
-
-                  // tool-only 超时保护：收到 tool 但迟迟没有 block 时，启动兜底定时器
-                  // 续期有上限（maxToolRenewals 次），防止无限工具调用永远不触发兜底
-                  if (toolOnlyTimeoutId) {
-                    const renewal = fallbackState.shouldRenewToolOnlyTimer(maxToolRenewals);
-                    if (renewal.renew) {
-                      clearTimeout(toolOnlyTimeoutId);
-                      log?.info(`[qqbot:${account.accountId}] Tool-only timer renewed (${renewal.renewalCount}/${maxToolRenewals})`);
-                    } else {
-                      // 已达续期上限，不再重置，等定时器自然触发兜底
-                      log?.info(`[qqbot:${account.accountId}] Tool-only timer renewal limit reached (${maxToolRenewals}), waiting for timeout`);
-                      return;
-                    }
-                  }
-                  toolOnlyTimeoutId = setTimeout(async () => {
-                    if (!fallbackState.hasBlockResponse && !fallbackState.toolFallbackSent) {
-                      fallbackState.markToolFallbackSent();
-                      recordFallbackEvent({
-                        kind: "tool-only-timeout",
-                        reason: "tool deliver callbacks arrived but no block deliver before timeout",
-                        timeoutMs: toolOnlyTimeout,
-                      });
-                      log?.error(`[qqbot:${account.accountId}] Tool-only timeout: ${fallbackState.toolDeliverCount} tool deliver(s) but no block within ${toolOnlyTimeout / 1000}s, sending fallback`);
-                      try {
-                        await sendToolFallback();
-                      } catch (sendErr) {
-                        log?.error(`[qqbot:${account.accountId}] Failed to send tool-only fallback: ${sendErr}`);
-                      }
-                    }
-                  }, toolOnlyTimeout);
+                  await handleCustomToolDeliverGateway({
+                    accountId: account.accountId,
+                    payload,
+                    state: fallbackState,
+                    currentTimer: toolOnlyTimeoutId,
+                    setTimer: (timer) => { toolOnlyTimeoutId = timer; },
+                    toolOnlyTimeoutMs: toolOnlyTimeout,
+                    maxToolRenewals,
+                    recordFallbackEvent,
+                    sendGuardedMediaAuto,
+                    sendToolFallback,
+                    log,
+                  });
                   return;
                 }
 
