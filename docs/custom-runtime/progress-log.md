@@ -731,3 +731,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now builds typed delivery descriptions and delegates shared proactive guard application, send success commit, cooldown handling, and sent/blocked/skipped/failed logging to the adapter.
 - The adapter receives QQ send callbacks, so it still does not import QQ API functions or own network side effects; it only coordinates policy gates around the caller-confirmed send result.
 - Added `tests/custom-admin-group-delivery-gateway-adapter.test.ts` for keyboard sends, proactive blocks, cooldown skips, and failed sends without budget commits.
+
+抽出 fallback 记录与告警触发适配器：
+
+- Added `src/custom/fallback-record-gateway-adapter.ts` to centralize sanitized fallback event logging, JSON persistence, recent-event loading, and repeated-fallback alert decision wiring.
+- `gateway.ts` no longer imports fallback event store helpers or alert decision policy directly; urgent queue bypass and dispatch timeout/context/tool fallback paths share the same recorder.
+- The recorder accepts an alert delivery callback and still does not send QQ messages; management-group delivery remains behind `admin-group-delivery-gateway-adapter` and its proactive guard.
+- Added `tests/custom-fallback-record-gateway-adapter.test.ts` for below-threshold persistence, threshold alert creation, prebuilt urgent events, and runtime-disabled alert skipping.

@@ -88,9 +88,7 @@ import {
   CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
-  buildCustomFallbackEvent,
   classifyCustomDispatchFailure,
-  formatCustomFallbackEventLog,
   formatCustomContextTooLongNotice,
   formatCustomResponseTimeoutNotice,
   formatCustomToolNoOutputNotice,
@@ -99,11 +97,8 @@ import {
   type CustomFallbackEventKind,
   type CustomFallbackEventInputDetails,
 } from "./custom/fallbacks.js";
-import { appendCustomFallbackEvent, loadCustomFallbackEvents } from "./custom/fallback-event-store.js";
-import {
-  buildCustomFallbackAlertDecision,
-  resolveCustomFallbackAlertCooldownMs,
-} from "./custom/fallback-alerts.js";
+import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
+import { recordCustomFallbackEventGateway } from "./custom/fallback-record-gateway-adapter.js";
 import {
   buildCustomUpdateAvailableNotification,
   startCustomUpdateCheckLoop,
@@ -905,10 +900,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         queueBefore,
         queueAfter,
       });
-      log?.info(formatCustomFallbackEventLog(fallbackEvent));
-      if (!appendCustomFallbackEvent(account.accountId, fallbackEvent)) {
-        log?.error(`[qqbot:${account.accountId}] Failed to persist urgent queue bypass event: command=${urgentCommand} message=${msg.messageId}`);
-      }
+      recordCustomFallbackEventGateway({
+        accountId: account.accountId,
+        event: fallbackEvent,
+        log,
+      });
       msgQueue.executeImmediate(msg);
       return;
     }
@@ -2200,59 +2196,40 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             details?: CustomFallbackEventInputDetails;
           }) => {
             const queueSnapshot = msgQueue.getSnapshot(peerId);
-            const fallbackEvent = buildCustomFallbackEvent({
-              kind: params.kind,
+            recordCustomFallbackEventGateway({
               accountId: account.accountId,
-              peer: fallbackPeer,
-              actor: {
-                id: event.senderId,
-                label: event.senderName,
-                isBot: event.senderIsBot,
-              },
-              sessionKey: route.sessionKey,
-              runId: event.messageId,
-              messageId: event.messageId,
-              reason: params.reason,
-              timeoutMs: params.timeoutMs,
-              toolDeliverCount,
-              toolTextCount: toolTexts.length,
-              toolMediaCount: toolMediaUrls.length,
-              hasResponse,
-              hasBlockResponse,
-              details: {
-                ...params.details,
-                queueTotalPending: queueSnapshot.totalPending,
-                queueActiveUsers: queueSnapshot.activeUsers,
-                queueMaxConcurrentUsers: queueSnapshot.maxConcurrentUsers,
-                queueSenderPending: queueSnapshot.senderPending,
-                queueSenderActiveMs: queueSnapshot.senderActiveMs,
-                queueMaxActiveMs: queueSnapshot.maxActiveMs,
-              },
-            });
-            log?.info(formatCustomFallbackEventLog(fallbackEvent));
-            if (!appendCustomFallbackEvent(account.accountId, fallbackEvent)) {
-              log?.error(`[qqbot:${account.accountId}] Failed to persist custom fallback event: kind=${fallbackEvent.kind} runId=${fallbackEvent.runId ?? ""}`);
-              return;
-            }
-
-            const alertDecision = buildCustomFallbackAlertDecision({
               runtime: resolveCustomRuntimeConfig(cfg as any),
-              accountId: account.accountId,
-              currentEvent: fallbackEvent,
-              recentEvents: loadCustomFallbackEvents(account.accountId, { limit: 100 }),
-              now: fallbackEvent.at,
+              log,
+              sendAlert: (alert) => sendCustomFallbackAdminGroupAlert(alert),
+              event: {
+                kind: params.kind,
+                peer: fallbackPeer,
+                actor: {
+                  id: event.senderId,
+                  label: event.senderName,
+                  isBot: event.senderIsBot,
+                },
+                sessionKey: route.sessionKey,
+                runId: event.messageId,
+                messageId: event.messageId,
+                reason: params.reason,
+                timeoutMs: params.timeoutMs,
+                toolDeliverCount,
+                toolTextCount: toolTexts.length,
+                toolMediaCount: toolMediaUrls.length,
+                hasResponse,
+                hasBlockResponse,
+                details: {
+                  ...params.details,
+                  queueTotalPending: queueSnapshot.totalPending,
+                  queueActiveUsers: queueSnapshot.activeUsers,
+                  queueMaxConcurrentUsers: queueSnapshot.maxConcurrentUsers,
+                  queueSenderPending: queueSnapshot.senderPending,
+                  queueSenderActiveMs: queueSnapshot.senderActiveMs,
+                  queueMaxActiveMs: queueSnapshot.maxActiveMs,
+                },
+              },
             });
-            if (alertDecision.alert && alertDecision.groupOpenid && alertDecision.text && alertDecision.cooldownKey) {
-              void sendCustomFallbackAdminGroupAlert({
-                groupOpenid: alertDecision.groupOpenid,
-                text: alertDecision.text,
-                keyboard: alertDecision.keyboard,
-                cooldownKey: alertDecision.cooldownKey,
-                eventCount: alertDecision.eventCount,
-              });
-            } else if (alertDecision.reason && alertDecision.reason !== "below-threshold" && alertDecision.reason !== "kind-not-alerted") {
-              log?.debug?.(`[qqbot:${account.accountId}] custom fallback alert skipped: reason=${alertDecision.reason} kind=${fallbackEvent.kind}`);
-            }
           };
         try {
           const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
