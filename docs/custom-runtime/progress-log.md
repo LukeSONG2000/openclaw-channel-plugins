@@ -540,3 +540,12 @@ Added configured scene binding inspection:
 - Output includes binding key, scene, enabled state, label, and resolved capability summary, but no chat content or cached runtime state.
 - The command requires only `system.status`; `/bot-scene list` remains the built-in profile list, while `/bot-scene bindings` shows actual configured peers/wildcards.
 - Added parser, adapter, slash gateway, and slash capability tests for the new read-only subcommand.
+
+新增授权运维只读视图：
+
+- `/bot-auth requests [数量]` 列出当前仍有效的待审批授权申请，默认 10 条、最多 20 条。
+- `/bot-auth grants [数量]` 列出当前仍有效的临时授权，过滤已过期或剩余次数为 0 的记录。
+- 两个命令都复用 `/bot-auth` 的管理员校验，只允许 `customRuntime.admins` 中的管理员查看。
+- 输出只包含 request/grant id、用户/会话标识、能力、场景、过期时间、剩余次数和审批命令提示，不包含原始消息正文或缓存聊天内容。
+- `/bot-auth status` 增加详情命令提示，并按当前时间只统计仍有效的待审批申请和临时授权。
+- 同步复核初始化配置目标：首次配置必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`；onboarding/setup/install helper 继续把缺失绑定视为未完整初始化，写入管理群时仍自动绑定默认 `system-admin` 场景。

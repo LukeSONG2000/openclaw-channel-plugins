@@ -11,7 +11,9 @@ import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.j
 import type {
   CustomActor,
   CustomAuthorizationApprovalRequest,
+  CustomAuthorizationGrant,
   CustomAuthorizationIntent,
+  CustomAuthorizationRuntimeState,
   CustomCapability,
   CustomGrantUse,
   CustomPeer,
@@ -225,6 +227,8 @@ export function formatCustomAuthorizationDeniedMessage(decision: CustomSlashAuth
 export type CustomAuthCommand =
   | { kind: "help" }
   | { kind: "status" }
+  | { kind: "requests"; limit: number }
+  | { kind: "grants"; limit: number }
   | {
       kind: "resolve";
       requestId: string;
@@ -264,6 +268,9 @@ export interface CustomAuthButtonPayload {
   decision: CustomAuthButtonDecision;
 }
 
+const DEFAULT_AUTH_LIST_LIMIT = 10;
+const MAX_AUTH_LIST_LIMIT = 20;
+
 export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandParseResult {
   const content = rawContent.trim();
   if (!content.startsWith("/")) return { matched: false };
@@ -275,6 +282,16 @@ export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandPar
   const action = (tokens.shift() ?? "help").toLowerCase();
   if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
   if (action === "status") return { matched: true, command: { kind: "status" } };
+  if (action === "requests" || action === "request" || action === "pending" || action === "list") {
+    const limit = parseListLimit(tokens[0]);
+    if (limit === null) return { matched: true, error: `数量需要是 1 到 ${MAX_AUTH_LIST_LIMIT} 的整数` };
+    return { matched: true, command: { kind: "requests", limit } };
+  }
+  if (action === "grants" || action === "grant") {
+    const limit = parseListLimit(tokens[0]);
+    if (limit === null) return { matched: true, error: `数量需要是 1 到 ${MAX_AUTH_LIST_LIMIT} 的整数` };
+    return { matched: true, command: { kind: "grants", limit } };
+  }
 
   if (action === "approve" || action === "allow" || action === "allow-once" || action === "allow-count" || action === "allow-timed") {
     const requestId = tokens.shift();
@@ -400,7 +417,15 @@ export function handleCustomAuthCommand(params: {
   }
 
   if (command.kind === "status") {
-    return { handled: true, reply: formatCustomAuthStatus(params.auth, runtime) };
+    return { handled: true, reply: formatCustomAuthStatus(params.auth, runtime, params.now) };
+  }
+
+  if (command.kind === "requests") {
+    return { handled: true, reply: formatCustomAuthRequests(params.auth, command.limit, params.now) };
+  }
+
+  if (command.kind === "grants") {
+    return { handled: true, reply: formatCustomAuthGrants(params.auth, command.limit, params.now) };
   }
 
   return resolveCustomAuthRequest({
@@ -579,6 +604,8 @@ function formatCustomAuthHelp(error?: string): string {
     `🔐 自定义授权命令`,
     ``,
     `/bot-auth status`,
+    `/bot-auth requests [数量]`,
+    `/bot-auth grants [数量]`,
     `/bot-auth approve <requestId> once`,
     `/bot-auth approve <requestId> task`,
     `/bot-auth approve <requestId> count 3`,
@@ -588,10 +615,14 @@ function formatCustomAuthHelp(error?: string): string {
   return lines.join("\n");
 }
 
-function formatCustomAuthStatus(auth: CustomAuthorizationRuntime, runtime?: ReturnType<typeof resolveCustomRuntimeConfig>): string {
+function formatCustomAuthStatus(
+  auth: CustomAuthorizationRuntime,
+  runtime?: ReturnType<typeof resolveCustomRuntimeConfig>,
+  now: number = Date.now(),
+): string {
   const state = auth.getState();
-  const requests = Object.values(state.requests).filter((request) => request.status === "pending");
-  const grants = Object.values(state.grants);
+  const requests = activePendingRequests(state, now);
+  const grants = activeGrants(state, now);
   const adminBindings = runtime ? inspectCustomAdminBindings(runtime) : null;
   const lines = [
     `🔐 自定义授权状态`,
@@ -604,6 +635,8 @@ function formatCustomAuthStatus(auth: CustomAuthorizationRuntime, runtime?: Retu
     ] : []),
     `待审批：${requests.length}`,
     `临时授权：${grants.length}`,
+    ``,
+    `查看详情：/bot-auth requests 或 /bot-auth grants`,
   ];
 
   for (const request of requests.slice(0, 5)) {
@@ -619,6 +652,79 @@ function formatCustomAuthStatus(auth: CustomAuthorizationRuntime, runtime?: Retu
     lines.push(``, `还有 ${requests.length - 5} 条待审批未显示。`);
   }
 
+  return lines.join("\n");
+}
+
+function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit: number, now: number = Date.now()): string {
+  const state = auth.getState();
+  const requests = activePendingRequests(state, now)
+    .sort((a, b) => a.requestedAt - b.requestedAt)
+    .slice(0, limit);
+  const total = activePendingRequests(state, now).length;
+  const lines = [
+    `🔐 待审批授权申请`,
+    ``,
+    `显示：${requests.length}/${total}`,
+  ];
+
+  if (requests.length === 0) {
+    lines.push(``, `暂无待审批授权申请。`);
+    return lines.join("\n");
+  }
+
+  for (const request of requests) {
+    lines.push(
+      ``,
+      `- ${request.id}`,
+      `  用户：${request.actor.label || request.actor.id}`,
+      `  会话：${formatCustomAuthPeer(request.peer)}`,
+      `  能力：${request.capability}`,
+      `  场景：${request.sceneLabel || request.scene}`,
+      ...(request.taskId ? [`  任务：${request.taskId}`] : []),
+      `  过期：${formatCustomAuthTime(request.expiresAt)}（剩余 ${formatRemainingMs(request.expiresAt - now)}）`,
+      `  操作：/bot-auth approve ${request.id} once 或 /bot-auth deny ${request.id}`,
+    );
+  }
+
+  if (total > requests.length) {
+    lines.push(``, `还有 ${total - requests.length} 条待审批未显示。`);
+  }
+  return lines.join("\n");
+}
+
+function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: number, now: number = Date.now()): string {
+  const state = auth.getState();
+  const allGrants = activeGrants(state, now)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const grants = allGrants.slice(0, limit);
+  const lines = [
+    `🔐 临时授权列表`,
+    ``,
+    `显示：${grants.length}/${allGrants.length}`,
+  ];
+
+  if (grants.length === 0) {
+    lines.push(``, `暂无有效临时授权。`);
+    return lines.join("\n");
+  }
+
+  for (const grant of grants) {
+    lines.push(
+      ``,
+      `- ${grant.id}`,
+      `  用户：${grant.actorId}`,
+      `  会话：${grant.peerId}`,
+      `  能力：${grant.capability}`,
+      `  授权人：${grant.grantedBy}`,
+      ...(grant.taskId ? [`  任务：${grant.taskId}`] : []),
+      `  剩余：${grant.remainingUses === undefined ? "不限次数" : `${grant.remainingUses} 次`}`,
+      `  过期：${grant.expiresAt ? `${formatCustomAuthTime(grant.expiresAt)}（剩余 ${formatRemainingMs(grant.expiresAt - now)}）` : "不过期"}`,
+    );
+  }
+
+  if (allGrants.length > grants.length) {
+    lines.push(``, `还有 ${allGrants.length - grants.length} 条临时授权未显示。`);
+  }
   return lines.join("\n");
 }
 
@@ -694,6 +800,55 @@ function findPendingRequestId(requestIds: string[], input: string): string | nul
   if (requestIds.includes(input)) return input;
   const matches = requestIds.filter((id) => id.startsWith(input) || id.endsWith(input));
   return matches.length === 1 ? matches[0]! : null;
+}
+
+function parseListLimit(raw?: string): number | null {
+  if (!raw) return DEFAULT_AUTH_LIST_LIMIT;
+  if (!/^\d+$/.test(raw.trim())) return null;
+  const limit = Number.parseInt(raw, 10);
+  if (!Number.isFinite(limit) || limit < 1 || limit > MAX_AUTH_LIST_LIMIT) return null;
+  return limit;
+}
+
+function activePendingRequests(
+  state: CustomAuthorizationRuntimeState,
+  now: number,
+): CustomAuthorizationApprovalRequest[] {
+  return Object.values(state.requests ?? {})
+    .filter((request) => request.status === "pending" && request.expiresAt > now);
+}
+
+function activeGrants(
+  state: CustomAuthorizationRuntimeState,
+  now: number,
+): CustomAuthorizationGrant[] {
+  return Object.values(state.grants ?? {})
+    .filter((grant) => {
+      if (grant.expiresAt !== undefined && grant.expiresAt <= now) return false;
+      if (grant.remainingUses !== undefined && grant.remainingUses <= 0) return false;
+      return true;
+    });
+}
+
+function formatCustomAuthPeer(peer: CustomPeer): string {
+  const key = `${peer.kind}:${peer.id}`;
+  return peer.label ? `${key} (${peer.label})` : key;
+}
+
+function formatCustomAuthTime(ms: number): string {
+  return new Date(ms).toISOString();
+}
+
+function formatRemainingMs(ms: number): string {
+  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
+  const days = Math.floor(totalSeconds / 86_400);
+  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
+  const minutes = Math.floor((totalSeconds % 3_600) / 60);
+  const seconds = totalSeconds % 60;
+  if (days > 0) return `${days}d${hours}h`;
+  if (hours > 0) return `${hours}h${minutes}m`;
+  if (minutes > 0) return `${minutes}m${seconds}s`;
+  return `${seconds}s`;
 }
 
 function parseDurationMs(value: string): number | null {

@@ -321,6 +321,7 @@ Current implementation status:
   - codex-only scenes without `chat.send`: `codex.run`
 - Formats visible denial text for C2C, group, channel, and DM replies.
 - Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
+- Provides admin-only read views for pending approval requests and active temporary grants through `/bot-auth requests [数量]` and `/bot-auth grants [数量]`; these views show ids, actor/peer ids, capabilities, expiry, and command hints, but not raw message bodies.
 - Builds QQ inline keyboard approval cards for new unauthorized C2C/group slash-command requests.
 - Handles `custom-auth:<requestId>:allow-once|allow-count|allow-timed|deny` button callbacks through the same per-account auth runtime.
 - Logs approval/grant intents in the gateway for observability.
@@ -345,6 +346,8 @@ Initial slash command capability mapping:
 Text approval commands:
 
 - `/bot-auth status`
+- `/bot-auth requests [数量]`
+- `/bot-auth grants [数量]`
 - `/bot-auth approve <requestId> once`
 - `/bot-auth approve <requestId> count 3`
 - `/bot-auth approve <requestId> timed 10m`

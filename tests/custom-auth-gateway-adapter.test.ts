@@ -114,6 +114,21 @@ assert.deepEqual(parseCustomAuthCommand("/bot-auth allow-timed authreq-2000-1 10
     grantTtlMs: 600_000,
   },
 });
+assert.deepEqual(parseCustomAuthCommand("/bot-auth requests"), {
+  matched: true,
+  command: { kind: "requests", limit: 10 },
+});
+assert.deepEqual(parseCustomAuthCommand("/bot-auth requests 2"), {
+  matched: true,
+  command: { kind: "requests", limit: 2 },
+});
+assert.deepEqual(parseCustomAuthCommand("/bot-auth grants"), {
+  matched: true,
+  command: { kind: "grants", limit: 10 },
+});
+const invalidRequestLimit = parseCustomAuthCommand("/bot-auth requests 0");
+assert.equal(invalidRequestLimit.matched, true);
+assert.equal("error" in invalidRequestLimit && invalidRequestLimit.error?.includes("数量需要是 1 到 20"), true);
 
 const deniedAuthCommand = handleCustomAuthCommand({
   cfg: authCfg,
@@ -141,6 +156,23 @@ assert.equal(status.handled, true);
 assert.equal(status.reply?.includes("管理员：ADMIN_OPENID"), true);
 assert.equal(status.reply?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
 assert.equal(status.reply?.includes("初始化：完整"), true);
+assert.equal(status.reply?.includes("查看详情：/bot-auth requests 或 /bot-auth grants"), true);
+
+const pendingRequests = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth,
+  message: adminMessage,
+  rawContent: "/bot-auth requests",
+  now: 2_900,
+});
+assert.equal(pendingRequests.handled, true);
+assert.equal(pendingRequests.reply?.includes("待审批授权申请"), true);
+assert.equal(pendingRequests.reply?.includes("authreq-2000-1"), true);
+assert.equal(pendingRequests.reply?.includes("能力：config.write"), true);
+assert.equal(pendingRequests.reply?.includes("用户：Member"), true);
+assert.equal(pendingRequests.reply?.includes("会话：group:GROUP_OPENID"), true);
+assert.equal(pendingRequests.reply?.includes("/bot-auth approve authreq-2000-1 once"), true);
+assert.equal(pendingRequests.reply?.includes(memberGroupMessage.content), false);
 
 const missingInitStatus = handleCustomAuthCommand({
   cfg: {
@@ -173,6 +205,21 @@ assert.equal(approved.handled, true);
 assert.equal(approved.intent?.kind, "approval-resolved");
 assert.equal(approved.reply?.includes("已批准临时授权"), true);
 
+const activeGrants = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth,
+  message: adminMessage,
+  rawContent: "/bot-auth grants",
+  now: 3_100,
+});
+assert.equal(activeGrants.handled, true);
+assert.equal(activeGrants.reply?.includes("临时授权列表"), true);
+assert.equal(activeGrants.reply?.includes("grant-3000-1"), true);
+assert.equal(activeGrants.reply?.includes("用户：MEMBER_OPENID"), true);
+assert.equal(activeGrants.reply?.includes("会话：GROUP_OPENID"), true);
+assert.equal(activeGrants.reply?.includes("能力：config.write"), true);
+assert.equal(activeGrants.reply?.includes("剩余：1 次"), true);
+
 const allowedByGrant = checkCustomSlashAuthorization({
   cfg: authCfg,
   auth,
@@ -191,6 +238,24 @@ const secondUseAfterOnceGrant = checkCustomSlashAuthorization({
   now: 5_000,
 });
 assert.equal(secondUseAfterOnceGrant.allowed, false);
+
+const emptyAuth = new CustomAuthorizationRuntime();
+const emptyRequests = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth: emptyAuth,
+  message: adminMessage,
+  rawContent: "/bot-auth requests",
+  now: 5_100,
+});
+assert.equal(emptyRequests.reply?.includes("暂无待审批授权申请。"), true);
+const emptyGrants = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth: emptyAuth,
+  message: adminMessage,
+  rawContent: "/bot-auth grants",
+  now: 5_100,
+});
+assert.equal(emptyGrants.reply?.includes("暂无有效临时授权。"), true);
 
 const dispatchAuth = new CustomAuthorizationRuntime();
 const dispatchDenied = checkCustomDispatchAuthorization({

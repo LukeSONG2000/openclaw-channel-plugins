@@ -20,6 +20,7 @@ Core custom behavior:
 - Proactive contextual nudges: periodically decide whether to speak based on recent group context.
 - Active push routing: use platform-safe proactive messages only where limits allow.
 - Authorization and scene routing: decide who can do what in each DM/group.
+- Initialization anchors: first-time configuration must bind `customRuntime.admins` and `customRuntime.adminGroup` so approval, status, and operational alerts have a reliable management owner.
 - Long task sandboxing: run deep tasks in isolated workspaces/subagents and push status/results back.
 - Timeout and context fallbacks: keep slash commands and queues usable after long runs.
 
