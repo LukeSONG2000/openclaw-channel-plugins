@@ -481,3 +481,10 @@ Added unread runtime inspection summaries:
 - The summary reports peer count, total pending message count, follow-up/sleep timer counts, snapshot counts, and policy-gated snapshot counts.
 - Per-peer summaries include pending count, oldest/newest pending timestamps, timer due times, follow-up activity, and snapshot counts.
 - The helper intentionally does not include cached message bodies, so future status commands and remote validation logs can expose runtime health without leaking group chat content.
+
+Added `/bot-unread` runtime status command:
+
+- Added `src/custom/unread-status-gateway-adapter.ts` for `/bot-unread`, `/bot-unread status [数量]`, and `/bot-unread summary [数量]`.
+- The command is read-only, requires `system.status` through slash capability metadata, and is routed by `src/custom/slash-gateway-adapter.ts` before normal AI dispatch.
+- Output uses `inspectCustomUnreadRuntimeState()` and shows peer/pending/snapshot/timer counts plus per-peer timestamps; it does not include cached message bodies.
+- Added tests for parser/status output, custom slash gateway routing, and slash capability mapping.

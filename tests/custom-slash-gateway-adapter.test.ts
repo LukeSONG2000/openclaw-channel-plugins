@@ -257,6 +257,42 @@ assert.equal(fallbackStatus.persist, undefined);
 assert.equal(fallbackStatus.reply?.kind, "text");
 assert.equal(fallbackStatus.reply?.kind === "text" && fallbackStatus.reply.text.includes("最近兜底事件"), true);
 
+const unreadRuntime = createCustomMessageFlowRuntime();
+unreadRuntime.unread.recordNonMention({
+  message: {
+    accountId: "default",
+    peer: { kind: "group", id: "GROUP_OPENID" },
+    actor: { id: "MEMBER_OPENID", label: "Member" },
+    content: "hidden unread content",
+    messageId: "unread-1",
+    timestamp: 6_100,
+    mentionedBot: false,
+  },
+  cfg: {
+    enabled: true,
+    historyLimit: 10,
+    followupDelayMs: 1_000,
+    sleepDelayMs: 10_000,
+    allowAutonomousReply: false,
+    allowProactiveSend: false,
+  },
+  now: 6_100,
+});
+const unreadStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: unreadRuntime,
+  message: { ...baseMessage, content: "/bot-unread" },
+  rawContent: "/bot-unread",
+  now: 6_200,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(unreadStatus.handled, true);
+assert.equal(unreadStatus.persist, undefined);
+assert.equal(unreadStatus.reply?.kind, "text");
+assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("自定义未读状态"), true);
+assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("hidden unread content"), false);
+
 const deniedFallbackClear = handleCustomSlashGatewayCommand({
   cfg: deniedCfg,
   accountId: "default",

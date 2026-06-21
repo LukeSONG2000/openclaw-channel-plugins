@@ -419,6 +419,7 @@ Current implementation status:
 - Does not send messages directly. `src/custom/unread-gateway-adapter.ts` converts intents into gateway effects.
 - Defaults to policy-gated autonomous/proactive behavior unless the scene explicitly allows it.
 - Exposes `inspectCustomUnreadRuntimeState()` for text-safe status summaries that include peer counts, pending counts, scheduled timer counts, snapshot counts, and policy-gated snapshot counts without exposing cached message bodies.
+- `src/custom/unread-status-gateway-adapter.ts` exposes `/bot-unread status [limit]` through the custom slash gateway. It is read-only, requires `system.status`, and uses the inspection helper so cached group message bodies are not displayed.
 
 State:
 

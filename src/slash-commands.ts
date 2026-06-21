@@ -459,6 +459,27 @@ registerCommand({
   handler: () => null,
 });
 
+/**
+ * /bot-unread — custom runtime unread/follow-up/sleep-digest status command.
+ *
+ * The gateway handles this command against the live custom runtime before
+ * normal slash command matching. This registry entry only provides help text
+ * and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-unread",
+  description: "查看自定义未读追读状态",
+  capability: "system.status",
+  usage: [
+    `/bot-unread`,
+    `/bot-unread status [数量]`,
+    `/bot-unread summary [数量]`,
+    ``,
+    `查看未读追读、follow-up 和 sleep-digest 的只读摘要，不展示缓存消息正文。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
 const DEFAULT_UPGRADE_URL = "https://docs.qq.com/doc/DSGxOZk1oVnVKVkpq";
 
 function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {

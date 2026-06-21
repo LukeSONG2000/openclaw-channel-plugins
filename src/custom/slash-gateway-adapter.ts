@@ -17,6 +17,7 @@ import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { handleCustomSceneCommand } from "./scene-gateway-adapter.js";
 import { checkCustomTaskCommandAuthorization } from "./task-auth-gateway-adapter.js";
 import { handleCustomTaskCommand } from "./task-gateway-adapter.js";
+import { handleCustomUnreadStatusCommand } from "./unread-status-gateway-adapter.js";
 import {
   applyCustomTaskExecutionIntents,
   type CustomTaskExecutor,
@@ -172,6 +173,18 @@ export function handleCustomSlashGatewayCommand(params: {
   if (customFallbackCommand.handled) {
     return handled({
       reply: customFallbackCommand.reply ? { kind: "text", text: customFallbackCommand.reply } : undefined,
+      persist,
+      logs,
+    });
+  }
+
+  const customUnreadStatusCommand = handleCustomUnreadStatusCommand({
+    unread: params.runtime.unread,
+    rawContent: params.rawContent,
+  });
+  if (customUnreadStatusCommand.handled) {
+    return handled({
+      reply: customUnreadStatusCommand.reply ? { kind: "text", text: customUnreadStatusCommand.reply } : undefined,
       persist,
       logs,
     });
