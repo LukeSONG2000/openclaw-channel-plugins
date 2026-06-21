@@ -131,6 +131,7 @@ import {
   handleCustomStreamingPartialReply,
 } from "./custom/streaming-gateway-adapter.js";
 import { applyCustomStaticDeliverGateway } from "./custom/static-deliver-gateway-adapter.js";
+import { dispatchCustomDebouncedDeliver } from "./custom/deliver-debounce-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
@@ -2050,20 +2051,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 };
 
                 // ============ Debounce 合并回复 ============
-                if (!debouncer) {
-                  debouncer = createDeliverDebouncer(
-                    debounceConfig,
-                    executeDeliver,
-                    log,
-                    `[qqbot:${account.accountId}:debounce]`,
-                  );
-                }
-
-                if (debouncer) {
-                  await debouncer.deliver(payload, info);
-                } else {
-                  await executeDeliver(payload, info);
-                }
+                await dispatchCustomDebouncedDeliver({
+                  accountId: account.accountId,
+                  payload,
+                  info,
+                  currentDebouncer: debouncer,
+                  setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
+                  debounceConfig,
+                  executeDeliver,
+                  createDebouncer: createDeliverDebouncer,
+                  log,
+                });
               },
               onError: async (err: unknown) => {
                 log?.error(`[qqbot:${account.accountId}] Dispatch error: ${err}`);

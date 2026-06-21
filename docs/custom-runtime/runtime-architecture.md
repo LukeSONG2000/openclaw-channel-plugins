@@ -408,6 +408,16 @@ Current implementation status:
 - Records block-delivered media before plain sends so late tool-media dedupe continues to work through `CustomFallbackDispatchState`.
 - Keeps actual `parseAndSendMediaTags()`, `handleStructuredPayload()`, and `sendPlainReply()` implementations injected by `gateway.ts` to avoid pulling QQ send APIs into the custom adapter.
 
+### `src/custom/deliver-debounce-gateway-adapter.ts`
+
+Gateway-side debounce dispatcher for static deliver payloads.
+
+Current implementation status:
+
+- Owns the create/reuse/direct-dispatch branch around `createDeliverDebouncer()` so `gateway.ts` only stores the current debouncer handle.
+- Preserves disabled-debounce behavior by falling back to the injected direct deliver executor when the factory returns `null`.
+- Keeps the actual debounce implementation in `src/deliver-debounce.ts`; this adapter only wires account-specific prefix, config, executor, and handle mutation.
+
 ### `src/custom/dispatch-failure-gateway-adapter.ts`
 
 Gateway-side orchestration helper for dispatch race failures.

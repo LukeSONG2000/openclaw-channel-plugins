@@ -948,3 +948,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects `parseAndSendMediaTags()`, `handleStructuredPayload()`, and `sendPlainReply()` into the adapter, preserving QQ send boundaries while removing quote-ref/activity/plain-send orchestration from the main dispatch callback.
 - The adapter keeps single-use quote-ref behavior per deliver payload and records block-delivered media before plain replies so post-block tool media dedupe still works.
 - Added `tests/custom-static-deliver-gateway-adapter.test.ts` for media-tag handled, structured handled, and plain-send paths including quote-ref consumption and outbound activity recording.
+
+抽出 deliver debounce 调度：
+
+- Added `src/custom/deliver-debounce-gateway-adapter.ts` to own debouncer creation/reuse/direct-dispatch branching for static deliver payloads.
+- `gateway.ts` now only stores the current `DeliverDebouncer` handle and injects `createDeliverDebouncer()` plus the static deliver executor.
+- Disabled debounce still falls through to direct static delivery when the factory returns `null`.
+- Added `tests/custom-deliver-debounce-gateway-adapter.test.ts` for created debouncer, reused debouncer, and direct dispatch paths.
