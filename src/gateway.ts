@@ -40,10 +40,10 @@ import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
-  inspectCustomProactiveConfig,
   type CustomMessageFlowRuntime,
   type ResolvedCustomUnreadConfig,
 } from "./custom/runtime.js";
+import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
 import {
   observeCustomUnreadMentionBeforeDispatch,
   recordCustomUnreadNonMentionBeforeDispatch,
@@ -754,47 +754,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const isCustomRuntimeEnabled = (): boolean =>
     resolveCustomRuntimeConfig(cfg as any).enabled === true;
 
-  const buildCustomProactiveGuard = () => ({
-    proactiveGuard: ({ targetType, targetId, text }: { targetType: "c2c" | "group"; targetId: string; text: string }) => {
-      if (!isCustomRuntimeEnabled()) return { allowed: true as const };
-      const peer: CustomPeer = { kind: targetType, id: targetId };
-      const proactiveCfg = inspectCustomProactiveConfig({
-        cfg: cfg as any,
-        message: {
-          accountId: account.accountId,
-          peer,
-          actor: { id: account.accountId, label: account.accountId, isBot: true },
-          content: text,
-          messageId: `custom-proactive-${Date.now()}`,
-          timestamp: Date.now(),
-          mentionedBot: false,
-        },
-      });
-      const check = customMessageFlow.proactiveBudget.check({
-        accountId: account.accountId,
-        peer,
-        cfg: proactiveCfg,
-      });
-      if (!check.allowed) {
-        const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
-        return {
-          allowed: false as const,
-          reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
-        };
-      }
-      return {
-        allowed: true as const,
-        commit: () => {
-          const recorded = customMessageFlow.proactiveBudget.record({
-            accountId: account.accountId,
-            peer,
-            cfg: proactiveCfg,
-          });
-          log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
-          persistCustomProactiveBudgetState();
-        },
-      };
-    },
+  const buildCustomProactiveGuard = (source?: {
+    actor?: { id: string; label?: string; isBot?: boolean };
+    messageId?: string;
+    timestamp?: number;
+  }) => ({
+    proactiveGuard: createCustomProactiveGatewayGuard({
+      cfg: cfg as any,
+      accountId: account.accountId,
+      budget: customMessageFlow.proactiveBudget,
+      persistBudgetState: persistCustomProactiveBudgetState,
+      log,
+      actor: source?.actor,
+      sourceMessageId: source?.messageId,
+      sourceTimestamp: source?.timestamp,
+    }),
   });
 
   const sendCustomAuthAdminGroupNotification = async (notification: {
@@ -2190,46 +2164,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           account,
           qualifiedTarget,
           log,
-          proactiveGuard: ({ targetType, targetId, text }) => {
-            if (!isCustomRuntimeEnabled()) return { allowed: true };
-            const peer: CustomPeer = { kind: targetType, id: targetId };
-            const proactiveCfg = inspectCustomProactiveConfig({
-              cfg: cfg as any,
-              message: {
-                accountId: account.accountId,
-                peer,
-                actor: { id: event.senderId, label: event.senderName, isBot: event.senderIsBot },
-                content: text,
-                messageId: event.messageId,
-                timestamp: new Date(event.timestamp).getTime(),
-                mentionedBot: false,
-              },
-            });
-            const check = customMessageFlow.proactiveBudget.check({
-              accountId: account.accountId,
-              peer,
-              cfg: proactiveCfg,
-            });
-            if (!check.allowed) {
-              const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
-              return {
-                allowed: false,
-                reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
-              };
-            }
-            return {
-              allowed: true,
-              commit: () => {
-                const recorded = customMessageFlow.proactiveBudget.record({
-                  accountId: account.accountId,
-                  peer,
-                  cfg: proactiveCfg,
-                });
-                log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
-                persistCustomProactiveBudgetState();
-              },
-            };
-          },
+          proactiveGuard: buildCustomProactiveGuard({
+            actor: { id: event.senderId, label: event.senderName, isBot: event.senderIsBot },
+            messageId: event.messageId,
+            timestamp: new Date(event.timestamp).getTime(),
+          }).proactiveGuard,
         };
         const sendGuardedMediaAuto = async (mediaUrl: string, label: string): Promise<{ channel: string; error?: string }> => {
           const proactiveGuardDecision = prepareProactiveMediaSend(deliverEvent, deliverActx, "media", mediaUrl);

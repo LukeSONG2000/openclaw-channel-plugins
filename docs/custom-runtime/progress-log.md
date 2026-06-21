@@ -717,3 +717,10 @@ Added configured scene binding inspection:
 - Update notification text explicitly recommends running the in-chat preflight before creating a confirmation card.
 - This still never calls `/bot-upgrade`, installs packages, restarts gateway, or touches the server; it only guides the admin through the safer manual review path.
 - Expanded `tests/custom-update-check.test.ts` for the preflight button and text.
+
+继续降低主动推送 gateway 耦合：
+
+- Added `src/custom/proactive-gateway-adapter.ts` as the single gateway-facing builder for custom proactive guards.
+- `gateway.ts` no longer hand-builds proactive budget checks/records in multiple send paths; management-group pushes, reply-dispatcher unanchored sends, task notifications, and media forwarding now reuse the same guard builder.
+- The adapter still does not send QQ messages or own stores; it only resolves scene/runtime proactive config, checks budget/receive state, formats block reasons, and commits persistence after the caller confirms a successful send.
+- Added `tests/custom-proactive-gateway-adapter.test.ts` for enabled/runtime-disabled/scene-disabled guard behavior and successful budget persistence.

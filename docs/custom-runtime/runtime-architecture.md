@@ -176,8 +176,9 @@ Current implementation status:
 - 当最新本地接收状态为拒收时，阻止对应 C2C/group 主动发送。
 - Counts only after a proactive text or media send succeeds, so token retry or failed sends do not consume budget.
 - Persists state under `~/.openclaw/qqbot/data/custom-proactive-budget/budget-<accountId>.json`.
-- Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
-- The same guard now covers media tag queues, Base64 image sends, local/payload media auto-routing, and tool fallback/immediate media forwarding.
+- `src/custom/proactive-gateway-adapter.ts` builds the gateway-facing guard from current config, account id, the in-memory proactive budget runtime, and a persist callback. Gateway code no longer repeats budget check/record formatting in each send path.
+- Gateway injects that guard into `src/outbound-deliver.ts`; synthetic catch-up sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
+- The same guard now covers management-group pushes, reply-dispatcher unanchored text sends, task notifications, media tag queues, Base64 image sends, local/payload media auto-routing, and tool fallback/immediate media forwarding.
 - `src/reply-dispatcher.ts` exposes a small `prepareUnanchoredTextSend` hook. Gateway reply helpers use it for C2C/group text sends with no real `messageId`, covering error fallbacks, structured-payload captions, admin-group auth notifications, and long-task notifications without importing custom runtime internals into the dispatcher.
 - `src/outbound.ts` and `src/proactive.ts` expose optional guard hooks for legacy/framework proactive APIs. These paths are not allowed to reach into custom runtime state directly, but callers that reuse them for custom message-flow work can now inject the same budget/acceptance guard and commit only after successful sends.
 - Current send-surface policy:
