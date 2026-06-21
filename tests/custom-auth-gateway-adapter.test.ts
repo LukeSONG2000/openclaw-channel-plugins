@@ -373,6 +373,8 @@ if (!cardRequest) throw new Error("expected custom auth request");
 assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
 const keyboard = buildCustomAuthApprovalKeyboard(cardRequest.id);
 assert.equal(keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:allow-once");
+assert.equal(keyboard.content?.rows[0]?.buttons[2]?.action?.data, "custom-auth:authreq-10000-1:allow-timed");
+assert.equal(keyboard.content?.rows[1]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:deny");
 const adminGroupNotification = buildCustomAuthAdminGroupNotification({
   request: cardRequest,
   sourcePeer: { kind: "c2c", id: "MEMBER_OPENID" },
@@ -396,6 +398,10 @@ assert.equal(buildCustomAuthAdminGroupNotification({
 assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-count"), {
   requestId: "authreq-10000-1",
   decision: "allow-count",
+});
+assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-timed"), {
+  requestId: "authreq-10000-1",
+  decision: "allow-timed",
 });
 assert.equal(parseCustomAuthButtonData("approve:abc:allow-once"), null);
 
@@ -452,5 +458,42 @@ const cardGrantUseFour = checkCustomSlashAuthorization({
   now: 16_000,
 });
 assert.equal(cardGrantUseFour.allowed, false);
+
+const timedCardAuth = new CustomAuthorizationRuntime();
+const timedDenied = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: timedCardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 20_000,
+});
+const timedRequest = firstCustomAuthApprovalRequest(timedDenied.result?.intents ?? []);
+if (!timedRequest) throw new Error("expected timed custom auth request");
+const timedButton = handleCustomAuthInteraction({
+  cfg: authCfg,
+  auth: timedCardAuth,
+  buttonData: `custom-auth:${timedRequest.id}:allow-timed`,
+  actorId: "ADMIN_OPENID",
+  now: 21_000,
+});
+assert.equal(timedButton.handled, true);
+assert.equal(timedButton.intent?.kind, "approval-resolved");
+assert.equal(timedButton.intent?.kind === "approval-resolved" && timedButton.intent.grant?.expiresAt, 621_000);
+const timedGrantUse = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: timedCardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 620_000,
+});
+assert.equal(timedGrantUse.allowed, true);
+const timedGrantExpired = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth: timedCardAuth,
+  message: memberGroupMessage,
+  rawContent: "/bot-streaming on",
+  now: 622_000,
+});
+assert.equal(timedGrantExpired.allowed, false);
 
 console.log("custom auth gateway adapter tests passed");

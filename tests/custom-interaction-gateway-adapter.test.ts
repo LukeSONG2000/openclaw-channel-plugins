@@ -70,6 +70,28 @@ assert.equal(adminAuth.persist?.auth, true);
 assert.equal(adminAuth.reply?.includes("已批准临时授权"), true);
 assert.equal(adminAuth.logs?.some((item) => item.message.includes("approval-resolved")), true);
 
+const timedRuntime = createCustomMessageFlowRuntime();
+const timedDenied = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: timedRuntime,
+  message,
+  rawContent: "/bot-streaming on",
+  now: 3_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(timedDenied.handled, true);
+const timedAuth = handleCustomInteractionGatewayButton({
+  cfg,
+  runtime: timedRuntime,
+  buttonData: "custom-auth:authreq-3500-1:allow-timed",
+  actor: { id: "ADMIN_OPENID", label: "Admin" },
+  now: 3_600,
+});
+assert.equal(timedAuth.handled, true);
+assert.equal(timedAuth.persist?.auth, true);
+assert.equal(timedAuth.reply?.includes("已批准临时授权"), true);
+
 const pollRuntime = createCustomMessageFlowRuntime();
 const poll = handleCustomSlashGatewayCommand({
   cfg,

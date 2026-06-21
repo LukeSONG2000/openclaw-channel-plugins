@@ -171,7 +171,7 @@ Wired custom authorization into plugin-level slash command handling:
   - `/bot-auth deny <requestId>`
 - `/bot-auth` resolves approval requests against the live per-account `CustomAuthorizationRuntime`, creating once/count/timed temporary grants without entering the AI queue.
 - Added QQ inline keyboard cards for new custom auth requests in C2C/group messages.
-- Custom auth card buttons currently support allow once, allow 3 times, and deny through `custom-auth:<requestId>:...` interaction callbacks.
+- Custom auth card buttons currently support allow once, allow 3 times, allow 10 minutes, and deny through `custom-auth:<requestId>:...` interaction callbacks.
 - Card handling reuses the same per-account `CustomAuthorizationRuntime` as `/bot-auth`, so button approvals create temporary grants immediately.
 - Added `tests/slash-command-capability.test.ts` and `tests/custom-auth-gateway-adapter.test.ts`.
 
@@ -572,3 +572,9 @@ Added configured scene binding inspection:
 - `qqbotPlugin.setup.validateInput` 现在继续把缺少 `customRuntime.admins` 或 `customRuntime.adminGroup` 视为初始化失败，不能只填 AppID/Secret 就完成二开运行时初始化。
 - `qqbotPlugin.setup.applyAccountConfig` 复用同一 helper，写入账号凭证时同步写入管理员和管理群，并自动为管理群创建默认 `system-admin` scene 绑定。
 - 扩展 `tests/custom-onboarding.test.ts` 覆盖 setup 输入完整、缺管理员、缺管理群，以及写入凭证+绑定管理群的初始化路径。
+
+增强授权申请卡片的临时授权入口：
+
+- `buildCustomAuthApprovalKeyboard()` 现在在 C2C/群聊授权卡片中渲染“允许10分钟”按钮，按钮 payload 为 `custom-auth:<requestId>:allow-timed`。
+- `handleCustomAuthInteraction()` 原有的 timed grant 处理路径得到卡片入口覆盖，管理员点击后会创建 10 分钟临时授权；任意时长仍可用 `/bot-auth allow-timed <requestId> <时长>` 文本命令。
+- 扩展 `tests/custom-auth-gateway-adapter.test.ts` 和 `tests/custom-interaction-gateway-adapter.test.ts`，覆盖卡片 payload、10 分钟过期时间和 gateway interaction 持久化标记。

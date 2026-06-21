@@ -490,6 +490,11 @@ export function buildCustomAuthApprovalKeyboard(request: CustomAuthorizationAppr
               1,
             ),
             makeBtn("allow_count", "允许3次", "已允许3次", `custom-auth:${requestId}:allow-count`, 1),
+            makeBtn("allow_timed", "允许10分钟", "已允许10分钟", `custom-auth:${requestId}:allow-timed`, 1),
+          ],
+        },
+        {
+          buttons: [
             makeBtn("deny", "拒绝", "已拒绝", `custom-auth:${requestId}:deny`, 3),
           ],
         },
