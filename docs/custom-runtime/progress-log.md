@@ -997,3 +997,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects known-user recording, message enqueueing, proactive-budget persistence, and interaction handling callbacks instead of branching on every QQ event type directly.
 - The adapter keeps message/delete/interaction field normalization in the existing focused helpers while moving side-effect ordering into a testable gateway boundary.
 - Added `tests/custom-inbound-event-gateway-adapter.test.ts` for C2C enqueue/known-user records, group proactive acceptance persistence, group robot records, delete diagnostics, interaction logging/error handling, and unsupported events.
+
+抽出 custom interaction effects 应用层：
+
+- Added `src/custom/interaction-effects-gateway-adapter.ts` to apply handled custom callback-card effects outside `gateway.ts`: logs, auth/poll/game/deploy-confirmation persistence, and follow-up reply delivery.
+- `gateway.ts` now only builds the QQ ACK, custom interaction routing input, normalized reply target, and platform send callback; effect ordering lives in the adapter.
+- Reply-send failures are logged by the adapter after persistence callbacks run, preserving callback state updates even if QQ follow-up reply delivery fails.
+- Added `tests/custom-interaction-effects-gateway-adapter.test.ts` for persistence callbacks, group/C2C/channel reply targets, missing-target skip behavior, send failure logging, and optional persistence callbacks.

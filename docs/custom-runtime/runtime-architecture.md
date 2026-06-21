@@ -729,7 +729,18 @@ Current implementation status:
 - Delegates custom callback payloads to `src/custom/interaction-router.ts`.
 - Keeps QQ event source-peer normalization near the gateway boundary.
 - Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
-- Leaves `gateway.ts` responsible for the platform ACK, reply target selection, QQ send APIs, and legacy official approval buttons.
+- Leaves `src/custom/interaction-effects-gateway-adapter.ts` to apply typed custom effects, while `gateway.ts` remains responsible for the platform ACK, QQ send callbacks, and legacy official approval buttons.
+
+### `src/custom/interaction-effects-gateway-adapter.ts`
+
+Gateway-side effect applier for handled custom callback-card interactions.
+
+Current implementation status:
+
+- Applies custom interaction logs with account-prefixed gateway logging.
+- Persists auth/poll/game/deploy-confirmation state through injected callbacks.
+- Sends follow-up replies through an injected reply callback using the normalized group/C2C/channel reply target.
+- Logs reply-send failures without affecting callback state persistence.
 
 ### `src/custom/interaction-router.ts`
 

@@ -76,6 +76,7 @@ import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
+import { applyCustomInteractionGatewayEffects } from "./custom/interaction-effects-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import {
   normalizeQQBotInteractionEvent,
@@ -321,37 +322,25 @@ async function handleInteractionCreate(params: {
       now: Date.now(),
     }) : { handled: false };
     if (customInteraction.handled) {
-      if (customInteraction.logs) {
-        for (const item of customInteraction.logs) {
-          if (item.level === "error") log?.error(`[qqbot:${account.accountId}] ${item.message}`);
-          else log?.info(`[qqbot:${account.accountId}] ${item.message}`);
-        }
-      }
-      if (customInteraction.persist?.auth) {
-        params.persistCustomAuthState?.();
-      }
-      if (customInteraction.persist?.polls) {
-        params.persistCustomPollState?.();
-      }
-      if (customInteraction.persist?.games) {
-        params.persistCustomGameState?.();
-      }
-      if (customInteraction.persist?.deployConfirmations) {
-        params.persistCustomDeployConfirmationState?.();
-      }
-      if (customInteraction.reply) {
-        try {
-          if (interaction.replyTarget?.kind === "group") {
-            await sendGroupMessage(token, interaction.replyTarget.groupOpenid, customInteraction.reply);
-          } else if (interaction.replyTarget?.kind === "c2c") {
-            await sendC2CMessage(token, interaction.replyTarget.userOpenid, customInteraction.reply);
-          } else if (interaction.replyTarget?.kind === "channel") {
-            await sendChannelMessage(token, interaction.replyTarget.channelId, customInteraction.reply);
+      await applyCustomInteractionGatewayEffects({
+        accountId: account.accountId,
+        result: customInteraction,
+        replyTarget: interaction.replyTarget,
+        persistAuthState: params.persistCustomAuthState,
+        persistPollState: params.persistCustomPollState,
+        persistGameState: params.persistCustomGameState,
+        persistDeployConfirmationState: params.persistCustomDeployConfirmationState,
+        sendReply: async (target, text) => {
+          if (target.kind === "group") {
+            await sendGroupMessage(token, target.groupOpenid, text);
+          } else if (target.kind === "c2c") {
+            await sendC2CMessage(token, target.userOpenid, text);
+          } else {
+            await sendChannelMessage(token, target.channelId, text);
           }
-        } catch (sendErr) {
-          log?.error(`[qqbot:${account.accountId}] Failed to send custom interaction reply: ${sendErr}`);
-        }
-      }
+        },
+        log,
+      });
       return;
     }
 
