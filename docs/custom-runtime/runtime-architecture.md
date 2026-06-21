@@ -602,6 +602,14 @@ Minimum behavior:
 - log structured error with peer/session/run id
 - suggest `/new` or run an automatic session reset only when authorized and safe
 
+Current implemented safeguards:
+
+- `/stop`, `/approve`, `/new`, and `/compact` bypass normal queueing in `gateway.ts`.
+- `src/message-queue.ts` now keeps immediate commands in a small pending-immediate list if the processor has not started yet, then flushes them as soon as `startProcessor()` is called.
+- Response timeout sends a visible user notice and ignores late block/tool deliveries.
+- Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
+- Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
+
 ### `src/custom/update-check.ts`
 
 Checks the custom fork/release, not the official plugin, for deployable updates.

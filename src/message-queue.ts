@@ -177,6 +177,7 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
 
   const userQueues = new Map<string, QueuedMessage[]>();
   const activeUsers = new Set<string>();
+  const pendingImmediateMessages: QueuedMessage[] = [];
   let handleMessageFnRef: ((msg: QueuedMessage) => Promise<void>) | null = null;
   let totalEnqueued = 0;
 
@@ -337,6 +338,10 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
   const startProcessor = (handleMessageFn: (msg: QueuedMessage) => Promise<void>): void => {
     handleMessageFnRef = handleMessageFn;
     log?.info(`[qqbot:${accountId}] Message processor started (per-user concurrency, max ${maxConcurrentUsers} users)`);
+    while (pendingImmediateMessages.length > 0 && !ctx.isAborted()) {
+      const msg = pendingImmediateMessages.shift()!;
+      executeImmediate(msg);
+    }
   };
 
   const getSnapshot = (senderPeerId: string): QueueSnapshot => {
@@ -363,11 +368,14 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
   };
 
   const executeImmediate = (msg: QueuedMessage): void => {
-    if (handleMessageFnRef) {
-      handleMessageFnRef(msg).catch(err => {
-        log?.error(`[qqbot:${accountId}] Immediate execution error: ${err}`);
-      });
+    if (!handleMessageFnRef) {
+      pendingImmediateMessages.push(msg);
+      log?.info(`[qqbot:${accountId}] Immediate message queued until processor starts: ${msg.messageId}`);
+      return;
     }
+    handleMessageFnRef(msg).catch(err => {
+      log?.error(`[qqbot:${accountId}] Immediate execution error: ${err}`);
+    });
   };
 
   return { enqueue, startProcessor, getSnapshot, getMessagePeerId, clearUserQueue, executeImmediate };

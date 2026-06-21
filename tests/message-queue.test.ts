@@ -55,4 +55,21 @@ assert.equal(processed[2]!._customUnreadSnapshotId, "snapshot-1");
 assert.equal(processed[2]!._noMerge, true);
 assert.equal(processed[3]!.messageId, "normal-2");
 
+const immediateProcessed: QueuedMessage[] = [];
+const immediateQueue = createMessageQueue({
+  accountId: "default",
+  isAborted: () => false,
+});
+
+immediateQueue.executeImmediate(groupMessage("urgent-before-start", {
+  content: "/new",
+}));
+assert.equal(immediateProcessed.length, 0);
+immediateQueue.startProcessor(async (msg) => {
+  immediateProcessed.push(msg);
+});
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(immediateProcessed.length, 1);
+assert.equal(immediateProcessed[0]!.messageId, "urgent-before-start");
+
 console.log("message queue tests passed");

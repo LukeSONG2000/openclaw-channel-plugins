@@ -18,6 +18,7 @@ Ported safe server hotfixes into the fork:
 - Token fetch `node:https` fallback when global `fetch` fails.
 - `/new` and `/compact` added to urgent commands, alongside `/stop` and `/approve`.
 - Group slash commands strip bot mentions before command matching.
+- Immediate urgent commands are now retained if they arrive before the message processor starts, then flushed when `startProcessor()` is registered.
 - Dispatch timeout now waits for user-visible block output, sends a visible timeout notice, and ignores late deliver callbacks.
 - Tool-only fallback sends a visible notice when no text/media is available.
 - Error messages retry without `msg_id` if the reply anchor is invalid, expired, or unauthorized.
