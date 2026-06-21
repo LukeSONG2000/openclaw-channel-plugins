@@ -221,6 +221,10 @@ export interface QueueSnapshot {
   maxConcurrentUsers: number;
   /** 当前发送者在队列中的待处理消息数 */
   senderPending: number;
+  /** 当前发送者正在处理时的持续时长（毫秒） */
+  senderActiveMs?: number;
+  /** 当前所有活跃用户中最长处理时长（毫秒） */
+  maxActiveMs?: number;
 }
 
 /** 斜杠指令返回值：文本、带文件的结果、委托给模型、或 null（不处理） */

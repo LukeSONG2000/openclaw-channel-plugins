@@ -138,8 +138,11 @@ const urgentEvent = buildCustomFallbackEvent({
     queueActiveUsers: 2,
     queueMaxConcurrentUsers: 3,
     queueSenderPending: 2,
+    queueSenderActiveMs: 120_000,
+    queueMaxActiveMs: 180_000,
     queueAfterTotalPending: 6,
     queueAfterSenderPending: 0,
+    queueAfterSenderActiveMs: 121_000,
   },
 });
 
@@ -172,7 +175,8 @@ const urgentList = handleCustomFallbackCommand({
 });
 assert.equal(urgentList.handled, true);
 assert.equal(urgentList.reply?.includes("urgent-queue-bypass"), true);
-assert.equal(urgentList.reply?.includes("urgent：command=/compact, dropped=2, queuePeer=group:GROUP_OPENID, afterPending=6, afterSenderPending=0"), true);
+assert.equal(urgentList.reply?.includes("queue：pending=8, active=2/3, senderPending=2, activeMs=120000/180000"), true);
+assert.equal(urgentList.reply?.includes("urgent：command=/compact, dropped=2, queuePeer=group:GROUP_OPENID, afterPending=6, afterSenderPending=0, afterSenderActiveMs=121000"), true);
 
 let summaryLimit = 0;
 const summary = handleCustomFallbackCommand({

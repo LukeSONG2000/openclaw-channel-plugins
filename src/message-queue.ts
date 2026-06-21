@@ -177,6 +177,7 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
 
   const userQueues = new Map<string, QueuedMessage[]>();
   const activeUsers = new Set<string>();
+  const activeStartedAt = new Map<string, number>();
   const pendingImmediateMessages: QueuedMessage[] = [];
   let handleMessageFnRef: ((msg: QueuedMessage) => Promise<void>) | null = null;
   let totalEnqueued = 0;
@@ -267,6 +268,7 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
     }
 
     activeUsers.add(peerId);
+    activeStartedAt.set(peerId, Date.now());
     const isGroup = isGroupPeer(peerId);
 
     try {
@@ -288,6 +290,7 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
       }
     } finally {
       activeUsers.delete(peerId);
+      activeStartedAt.delete(peerId);
       userQueues.delete(peerId);
       // 尽量填满并发槽位
       for (const [waitingPeerId, waitingQueue] of userQueues) {
@@ -350,11 +353,19 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
       totalPending += q.length;
     }
     const senderQueue = userQueues.get(senderPeerId);
+    const now = Date.now();
+    const senderStartedAt = activeStartedAt.get(senderPeerId);
+    let maxActiveMs = 0;
+    for (const startedAt of activeStartedAt.values()) {
+      maxActiveMs = Math.max(maxActiveMs, Math.max(0, now - startedAt));
+    }
     return {
       totalPending,
       activeUsers: activeUsers.size,
       maxConcurrentUsers,
       senderPending: senderQueue ? senderQueue.length : 0,
+      senderActiveMs: senderStartedAt === undefined ? undefined : Math.max(0, now - senderStartedAt),
+      maxActiveMs: activeStartedAt.size === 0 ? undefined : maxActiveMs,
     };
   };
 

@@ -227,8 +227,13 @@ function formatQueueDetails(event: CustomFallbackEvent): string[] {
   const active = numberDetail(event, "queueActiveUsers");
   const max = numberDetail(event, "queueMaxConcurrentUsers");
   const sender = numberDetail(event, "queueSenderPending");
-  if (total === null && active === null && max === null && sender === null) return [];
-  return [`  queue：pending=${total ?? "?"}, active=${active ?? "?"}/${max ?? "?"}, senderPending=${sender ?? "?"}`];
+  const senderActiveMs = numberDetail(event, "queueSenderActiveMs");
+  const maxActiveMs = numberDetail(event, "queueMaxActiveMs");
+  if (total === null && active === null && max === null && sender === null && senderActiveMs === null && maxActiveMs === null) return [];
+  const activeAge = senderActiveMs !== null || maxActiveMs !== null
+    ? `, activeMs=${senderActiveMs ?? "?"}/${maxActiveMs ?? "?"}`
+    : "";
+  return [`  queue：pending=${total ?? "?"}, active=${active ?? "?"}/${max ?? "?"}, senderPending=${sender ?? "?"}${activeAge}`];
 }
 
 function numberDetail(event: CustomFallbackEvent, key: string): number | null {
@@ -248,7 +253,9 @@ function formatUrgentDetails(event: CustomFallbackEvent): string[] {
   const dropped = numberDetail(event, "droppedQueuedMessages");
   const afterTotal = numberDetail(event, "queueAfterTotalPending");
   const afterSender = numberDetail(event, "queueAfterSenderPending");
-  return [`  urgent：command=${command}, dropped=${dropped ?? "?"}, queuePeer=${queuePeerId}, afterPending=${afterTotal ?? "?"}, afterSenderPending=${afterSender ?? "?"}`];
+  const afterSenderActiveMs = numberDetail(event, "queueAfterSenderActiveMs");
+  const afterActive = afterSenderActiveMs !== null ? `, afterSenderActiveMs=${afterSenderActiveMs}` : "";
+  return [`  urgent：command=${command}, dropped=${dropped ?? "?"}, queuePeer=${queuePeerId}, afterPending=${afterTotal ?? "?"}, afterSenderPending=${afterSender ?? "?"}${afterActive}`];
 }
 
 function maxNumber(events: CustomFallbackEvent[], key: string): number | null {

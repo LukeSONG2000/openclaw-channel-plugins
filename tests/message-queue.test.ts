@@ -94,6 +94,12 @@ await new Promise((resolve) => setTimeout(resolve, 0));
 const queuedNormal = groupMessage("queued-normal");
 blockedPeerQueue.enqueue(queuedNormal);
 const blockedPeerId = blockedPeerQueue.getMessagePeerId(queuedNormal);
+const activeSnapshot = blockedPeerQueue.getSnapshot(blockedPeerId);
+assert.equal(activeSnapshot.activeUsers, 1);
+assert.equal(typeof activeSnapshot.senderActiveMs, "number");
+assert.equal(typeof activeSnapshot.maxActiveMs, "number");
+assert.ok(activeSnapshot.senderActiveMs! >= 0);
+assert.ok(activeSnapshot.maxActiveMs! >= 0);
 assert.equal(blockedPeerQueue.clearUserQueue(blockedPeerId), 1);
 
 blockedPeerQueue.executeImmediate(groupMessage("urgent-while-peer-blocked", {

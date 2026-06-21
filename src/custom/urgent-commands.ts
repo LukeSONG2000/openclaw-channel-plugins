@@ -16,6 +16,8 @@ export interface CustomUrgentQueueSnapshot {
   activeUsers: number;
   maxConcurrentUsers: number;
   senderPending: number;
+  senderActiveMs?: number;
+  maxActiveMs?: number;
 }
 
 export interface BuildCustomUrgentQueueBypassEventParams {
@@ -69,8 +71,12 @@ export function buildCustomUrgentQueueBypassEvent(params: BuildCustomUrgentQueue
       queueActiveUsers: params.queueBefore.activeUsers,
       queueMaxConcurrentUsers: params.queueBefore.maxConcurrentUsers,
       queueSenderPending: params.queueBefore.senderPending,
+      queueSenderActiveMs: params.queueBefore.senderActiveMs,
+      queueMaxActiveMs: params.queueBefore.maxActiveMs,
       queueAfterTotalPending: params.queueAfter.totalPending,
       queueAfterSenderPending: params.queueAfter.senderPending,
+      queueAfterSenderActiveMs: params.queueAfter.senderActiveMs,
+      queueAfterMaxActiveMs: params.queueAfter.maxActiveMs,
     },
   });
 }

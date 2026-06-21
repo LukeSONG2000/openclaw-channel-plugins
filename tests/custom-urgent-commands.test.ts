@@ -71,12 +71,16 @@ const event = buildCustomUrgentQueueBypassEvent({
     activeUsers: 1,
     maxConcurrentUsers: 10,
     senderPending: 2,
+    senderActiveMs: 123,
+    maxActiveMs: 456,
   },
   queueAfter: {
     totalPending: 2,
     activeUsers: 1,
     maxConcurrentUsers: 10,
     senderPending: 0,
+    senderActiveMs: 124,
+    maxActiveMs: 457,
   },
 });
 assert.equal(event.kind, "urgent-queue-bypass");
@@ -85,6 +89,10 @@ assert.equal(event.details?.command, "/compact");
 assert.equal(event.details?.queuePeerId, "group:GROUP_OPENID");
 assert.equal(event.details?.droppedQueuedMessages, 2);
 assert.equal(event.details?.queueSenderPending, 2);
+assert.equal(event.details?.queueSenderActiveMs, 123);
+assert.equal(event.details?.queueMaxActiveMs, 456);
 assert.equal(event.details?.queueAfterSenderPending, 0);
+assert.equal(event.details?.queueAfterSenderActiveMs, 124);
+assert.equal(event.details?.queueAfterMaxActiveMs, 457);
 
 console.log("custom urgent command tests passed");

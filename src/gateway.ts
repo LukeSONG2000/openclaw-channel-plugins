@@ -2170,6 +2170,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 queueActiveUsers: queueSnapshot.activeUsers,
                 queueMaxConcurrentUsers: queueSnapshot.maxConcurrentUsers,
                 queueSenderPending: queueSnapshot.senderPending,
+                queueSenderActiveMs: queueSnapshot.senderActiveMs,
+                queueMaxActiveMs: queueSnapshot.maxActiveMs,
               },
             });
             log?.info(formatCustomFallbackEventLog(fallbackEvent));
