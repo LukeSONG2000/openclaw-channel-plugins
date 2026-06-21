@@ -52,6 +52,8 @@ Out of scope for the first custom runtime:
 
 - `node scripts/inspect-message-evidence.mjs`: read-only summary for `~/.openclaw/qqbot/data/known-users.json` and `ref-index.jsonl`.
 - `node scripts/inspect-message-evidence.mjs /path/to/data --samples`: same summary with redacted shape samples; it reports presence/shape flags instead of raw message text or openids.
+- `node scripts/inspect-upstream-updates.mjs`: fetch/read-only Markdown review of official `upstream/main` against `custom-runtime`; it never merges, installs, or deploys.
+- `node scripts/inspect-upstream-updates.mjs --no-fetch --output /tmp/qqbot-upstream-review.md`: generate the same review from existing local refs.
 
 ## Current Implementation Modules
 

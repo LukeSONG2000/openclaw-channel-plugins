@@ -186,12 +186,12 @@ Official releases are input for local review only; they are not the server's upd
 1. Fetch upstream locally. This only updates local git refs; it does not affect the deployed OpenClaw instance:
 
 ```bash
-git fetch upstream
-git log --oneline --decorate custom-runtime..upstream/main
-git diff --stat custom-runtime..upstream/main
+node scripts/inspect-upstream-updates.mjs --base custom-runtime --upstream upstream/main
 ```
 
-2. Read changelog/diff and decide whether the official change is worth adopting.
+The script fetches upstream by default, prints upstream-only commits, changed files, and risk hints, and never merges, installs, or deploys anything.
+
+2. Read the generated review/changelog/diff and decide whether the official change is worth adopting.
 3. Merge or cherry-pick into the personal branch:
 
 ```bash

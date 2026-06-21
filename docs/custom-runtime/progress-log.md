@@ -670,3 +670,11 @@ Added configured scene binding inspection:
 - `gateway.ts` sends the notification through the same custom proactive guard used by auth/fallback management pushes, then records proactive budget only after the QQ send succeeds.
 - The notification card contains QQ command buttons for `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest`. It still does not call `/bot-upgrade`, restart the gateway, or install packages.
 - Extended `tests/custom-update-check.test.ts` to cover notification construction, missing runtime/admin-group suppression, and per-version notification dedupe.
+
+工具化官方 upstream 更新审查：
+
+- Added `scripts/inspect-upstream-updates.mjs` as a read-only local review helper for `custom-runtime...upstream/main`.
+- The script can fetch upstream refs, report custom-only/upstream-only commit counts, list upstream-only commits and changed files, and classify high-risk files such as `src/gateway.ts`, `src/slash-commands.ts`, `package.json`, send/transport code, and upgrade scripts.
+- It never merges, cherry-picks, installs, restarts, or touches the deployed OpenClaw instance; it only prints or writes Markdown.
+- Current fetched state on 2026-06-21: `custom-runtime` is 92 commits ahead of `upstream/main` and 0 commits behind, so no official upstream merge is needed right now.
+- Added `tests/upstream-review-script.test.mjs` for count parsing, name-status parsing, risk classification, CLI args, and Markdown output.
