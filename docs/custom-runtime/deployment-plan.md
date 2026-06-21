@@ -61,7 +61,7 @@ Behavior:
 
 - `/bot-version` shows the current plugin version and the npm package used for update checks.
 - `/bot-upgrade` checks `@lukesong/openclaw-qqbot` and returns guidance by default.
-- The gateway starts a background custom update check loop against `@lukesong/openclaw-qqbot`; it only logs availability and never installs by itself.
+- The gateway starts a background custom update check loop against `@lukesong/openclaw-qqbot`; it logs availability, can notify `customRuntime.adminGroup`, and never installs by itself.
 - Hot reload is available only if `upgradeMode` is explicitly set to `hot-reload`; even then, install starts only after the admin sends `/bot-upgrade --latest` or `/bot-upgrade --version X`.
 - `--pkg` is rejected unless `allowUpgradePkgOverride=true`; keep it disabled on the production instance so the bot cannot be accidentally switched back to the official `@tencent-connect/openclaw-qqbot` package.
 - Hot reload downloads the upgrade script from the personal `custom-runtime` branch by default. Override `QQBOT_UPGRADE_SCRIPT_URL` only for manual emergency maintenance.
@@ -207,8 +207,8 @@ git merge upstream/main
 Custom runtime updates:
 
 - The OpenClaw instance checks only `@lukesong/openclaw-qqbot` unless overridden.
-- The gateway logs available custom updates automatically; `/bot-version` and `/bot-upgrade` show the same custom package source on demand.
-- Admin reviews the detected custom version and explicitly approves install.
+- The gateway logs available custom updates automatically and sends the management group a guarded prompt with `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest` buttons when `customRuntime.adminGroup` is bound.
+- Admin reviews the detected custom version, creates/confirms a deploy card if needed, then explicitly performs the final install command after backup.
 - Server backs up current plugin before update.
 
 ## Release Checklist

@@ -929,12 +929,14 @@ Implemented behavior:
 - Runs a gateway background loop with `customUpdateCheck.enabled !== false`.
 - Defaults to a 6 hour interval and clamps overly small intervals to 5 minutes.
 - Logs available personal-package updates once per version.
-- Never installs packages; `/bot-upgrade` remains the explicit admin confirmation path.
+- Builds a management-group notification when a new personal-package version is detected and `customRuntime.adminGroup` is bound.
+- The notification includes command buttons for `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest`; it is sent through the same proactive budget/acceptance guard as other management-group pushes.
+- Never installs packages; `/bot-deploy` and `/bot-upgrade` remain explicit admin-controlled paths.
 
 Still separate from runtime:
 
 - Official upstream change review stays in local git workflow (`git fetch upstream`, inspect diff, then merge/cherry-pick into `custom-runtime` if desired).
-- Admin group/DM notification cards and release-note summaries are still future UX work.
+- Release-note summaries are still future UX work.
 - Server backup and install remain part of the upgrade script/manual deploy path.
 
 Current update guardrails:
@@ -943,7 +945,7 @@ Current update guardrails:
 - Custom builds use `@lukesong/openclaw-qqbot` while keeping OpenClaw plugin id `openclaw-qqbot`.
 - `channels.qqbot.upgradePkg` can override the npm package checked by `/bot-version` and `/bot-upgrade`.
 - `channels.qqbot.upgradeMode` defaults to `doc`, so the instance reports available custom updates without installing them.
-- `channels.qqbot.customUpdateCheck.enabled` defaults to true; it only checks and logs personal package updates.
+- `channels.qqbot.customUpdateCheck.enabled` defaults to true; it checks/logs personal package updates and can notify the bound management group once per version.
 - Hot reload remains available only after explicit config opt-in and an admin `/bot-upgrade --latest` or `/bot-upgrade --version X`.
 
 ## Gateway Integration Points

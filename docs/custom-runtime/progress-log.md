@@ -662,3 +662,11 @@ Added configured scene binding inspection:
 - Gateway restores and persists deploy-confirmation state alongside auth/proactive/task/poll/game/unread state, and interaction callbacks persist only when they mutate confirmation state.
 - Callback visibility follows the same safe account/peer rule used by poll/game cards: original peer can interact, the creator can inspect/interact across peers, and ordinary cross-peer replay gets a generic not-current-session response.
 - Added tests for deploy confirmation runtime, store, gateway adapter, slash/interaction routers, slash gateway auth gating, message-flow state restore/persist, interaction persistence, and slash capability mapping.
+
+把二开版本检查连接到管理群判断流程：
+
+- `src/custom/update-check.ts` now builds a management-group notification for `update-available` results when `customRuntime.enabled=true` and `customRuntime.adminGroup` is bound.
+- `startCustomUpdateCheckLoop()` accepts an `onUpdateAvailable` hook and deduplicates notifications by latest version within the current process, so repeated background checks do not spam the management group.
+- `gateway.ts` sends the notification through the same custom proactive guard used by auth/fallback management pushes, then records proactive budget only after the QQ send succeeds.
+- The notification card contains QQ command buttons for `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest`. It still does not call `/bot-upgrade`, restart the gateway, or install packages.
+- Extended `tests/custom-update-check.test.ts` to cover notification construction, missing runtime/admin-group suppression, and per-version notification dedupe.

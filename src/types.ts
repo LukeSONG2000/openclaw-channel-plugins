@@ -152,6 +152,7 @@ export interface QQBotAccountConfig {
   /**
    * 二开版本后台检查配置。
    * 只检查 channels.qqbot.upgradePkg/当前安装包名对应的包，不自动安装。
+   * 发现新版本时可通知 customRuntime.adminGroup，由管理员判断是否继续确认/升级。
    */
   customUpdateCheck?: CustomUpdateCheckConfig;
   /**

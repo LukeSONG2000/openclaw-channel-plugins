@@ -102,7 +102,11 @@ import {
   buildCustomFallbackAlertDecision,
   resolveCustomFallbackAlertCooldownMs,
 } from "./custom/fallback-alerts.js";
-import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
+import {
+  buildCustomUpdateAvailableNotification,
+  startCustomUpdateCheckLoop,
+  type CustomUpdateCheckResult,
+} from "./custom/update-check.js";
 import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
 import { formatCustomMessageDeleteDiagnostics, inspectCustomMessageDeleteEvent, isCustomMessageDeleteEventType } from "./custom/message-delete-events.js";
 import {
@@ -610,13 +614,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     log?.error(`[qqbot:${account.accountId}] ⚠️ Runtime preflight failed: ${preflightErr}. AI 消息处理可能失败`);
   }
 
-  // 后台二开版本检查：只检查个人包更新，不自动安装。
-  const customUpdateCheck = startCustomUpdateCheckLoop({
-    accountId: account.accountId,
-    accountConfig: account.config,
-    log,
-  });
-
   // 初始化 API 配置（markdown 支持）
   // 将框架 log 注入 api 模块，统一日志输出
   if (log) {
@@ -873,6 +870,46 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       log?.error(`[qqbot:${account.accountId}] Failed to send custom fallback admin-group alert: key=${alert.cooldownKey} group=${alert.groupOpenid} error=${sendErr}`);
     }
   };
+
+  const sendCustomUpdateAvailableNotification = async (result: CustomUpdateCheckResult): Promise<void> => {
+    const notification = buildCustomUpdateAvailableNotification({
+      accountId: account.accountId,
+      runtime: resolveCustomRuntimeConfig(cfg as any),
+      result,
+    });
+    if (!notification) {
+      log?.debug?.(`[qqbot:${account.accountId}] custom update available notification skipped: missing custom runtime admin group or not notifiable`);
+      return;
+    }
+
+    const proactive = buildCustomProactiveGuard();
+    const proactiveDecision = proactive.proactiveGuard({
+      targetType: "group",
+      targetId: notification.groupOpenid,
+      text: notification.text,
+    });
+    if (!proactiveDecision.allowed) {
+      log?.error(`[qqbot:${account.accountId}] custom update available notification blocked: package=${notification.packageName} latest=${notification.latest} reason=${proactiveDecision.reason}`);
+      return;
+    }
+
+    try {
+      const token = await getAccessToken(account.appId, account.clientSecret);
+      await sendGroupMessageWithInlineKeyboard(token, notification.groupOpenid, notification.text, notification.keyboard);
+      proactiveDecision.commit?.();
+      log?.info(`[qqbot:${account.accountId}] custom update available notification sent: package=${notification.packageName} latest=${notification.latest} group=${notification.groupOpenid}`);
+    } catch (sendErr) {
+      log?.error(`[qqbot:${account.accountId}] Failed to send custom update available notification: package=${notification.packageName} latest=${notification.latest} group=${notification.groupOpenid} error=${sendErr}`);
+    }
+  };
+
+  // 后台二开版本检查：只检查个人包更新，不自动安装。
+  const customUpdateCheck = startCustomUpdateCheckLoop({
+    accountId: account.accountId,
+    accountConfig: account.config,
+    log,
+    onUpdateAvailable: sendCustomUpdateAvailableNotification,
+  });
 
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
   // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
