@@ -453,3 +453,10 @@ Added reusable deployed-message evidence inspection:
 - The script records known-user counts, peer type distribution, nickname/group-openid presence, numeric-like raw id hints, attachment type distribution, and text-content hints for face tags, URLs, quotes, and voice markers.
 - Recorded the 2026-06-21 `laptop-home` snapshot in `qqbot-message-flow.md`: 32 known users, 2440 ref-index records, 168 attachment summaries, and observed attachment categories for JPEG/PNG/GIF/generic image/file/voice.
 - This makes later deployment validation repeatable without relying on one-off shell snippets or memory of prior server checks.
+
+Hardened long-task status visibility:
+
+- `/bot-task status <taskId>` now checks read visibility before formatting task details.
+- A task is visible only under the same account and original peer, or to the task owner across peers.
+- If an ordinary user queries a task id from another group/DM, the adapter returns "not found or not current session" and does not expose workspace path, owner, prompt-derived title, result, or error.
+- Added tests for same-peer status, cross-peer denial, and owner cross-peer status access.

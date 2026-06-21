@@ -69,6 +69,28 @@ const statusBySuffix = handleCustomTaskCommand({
 assert.equal(statusBySuffix.handled, true);
 assert.equal(statusBySuffix.reply?.includes("长任务状态"), true);
 
+const otherGroupStatus = handleCustomTaskCommand({
+  accountId: "default",
+  tasks,
+  message: { ...message, groupOpenid: "OTHER_GROUP_OPENID", senderId: "OTHER_MEMBER_OPENID" },
+  rawContent: `/bot-task status ${taskId}`,
+  now: 3_100,
+});
+assert.equal(otherGroupStatus.handled, true);
+assert.equal(otherGroupStatus.reply?.includes("不属于当前会话"), true);
+assert.equal(otherGroupStatus.reply?.includes("工作区："), false);
+
+const ownerDmStatus = handleCustomTaskCommand({
+  accountId: "default",
+  tasks,
+  message: { ...message, type: "c2c", groupOpenid: undefined },
+  rawContent: `/bot-task status ${taskId}`,
+  now: 3_200,
+});
+assert.equal(ownerDmStatus.handled, true);
+assert.equal(ownerDmStatus.reply?.includes("长任务状态"), true);
+assert.equal(ownerDmStatus.reply?.includes("工作区："), true);
+
 const add = handleCustomTaskCommand({
   accountId: "default",
   tasks,

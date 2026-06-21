@@ -608,6 +608,7 @@ Current implementation status:
   - `/bot-task status <taskId>`
   - `/bot-task add <taskId> <追加需求>`
   - `/bot-task cancel <taskId>`
+- `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
 - Slash-command capability metadata gates task mutations through custom auth:
   - query/help/list/status use `system.status`
   - create/add/cancel use `codex.longTask`

@@ -94,7 +94,10 @@ export function handleCustomTaskCommand(params: {
   }
   if (command.kind === "status") {
     const task = resolveTask(params.tasks.getState(), command.taskId);
-    return { handled: true, reply: task ? formatTaskStatus(task) : `⚠️ 未找到任务：${command.taskId}` };
+    if (!task || !canReadTask(task, params.accountId, peer, actor)) {
+      return { handled: true, reply: `⚠️ 未找到任务，或该任务不属于当前会话：${command.taskId}` };
+    }
+    return { handled: true, reply: formatTaskStatus(task) };
   }
   if (command.kind === "add") {
     const task = resolveTask(params.tasks.getState(), command.taskId);
@@ -200,4 +203,15 @@ function resolveTask(state: CustomTaskSandboxRuntimeState, input: string): Custo
   if (state.tasks[input]) return state.tasks[input];
   const matches = Object.values(state.tasks).filter((task) => task.id.startsWith(input) || task.id.endsWith(input));
   return matches.length === 1 ? matches[0]! : null;
+}
+
+function canReadTask(
+  task: CustomSandboxTask,
+  accountId: string,
+  peer: ReturnType<typeof toCustomPeerFromQueuedMessage>,
+  actor: ReturnType<typeof toCustomActorFromQueuedMessage>,
+): boolean {
+  if (task.accountId !== accountId) return false;
+  if (task.owner.id.toUpperCase() === actor.id.toUpperCase()) return true;
+  return task.peer.kind === peer.kind && task.peer.id === peer.id;
 }
