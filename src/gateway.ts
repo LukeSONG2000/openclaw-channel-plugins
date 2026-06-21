@@ -27,7 +27,7 @@ import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
-import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply } from "./outbound-deliver.js";
+import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
@@ -53,6 +53,7 @@ import {
   buildCustomOutboundDeliverContext,
   buildCustomOutboundProactiveSource,
 } from "./custom/outbound-deliver-context.js";
+import { applyCustomGuardedMediaAutoSend } from "./custom/guarded-media-send-gateway-adapter.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -1848,24 +1849,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           proactiveGuard: deliverProactive.proactiveGuard,
         });
         const sendGuardedMediaAuto = async (mediaUrl: string, label: string): Promise<{ channel: string; error?: string }> => {
-          const proactiveGuardDecision = prepareProactiveMediaSend(deliverEvent, deliverActx, "media", mediaUrl);
-          if (!proactiveGuardDecision.allowed) {
-            const reason = `${label} blocked by custom proactive guard: ${proactiveGuardDecision.reason}`;
-            log?.error(`[qqbot:${account.accountId}] ${reason}`);
-            return { channel: "qqbot", error: reason };
-          }
-          const result = await sendMediaAuto({
-            to: qualifiedTarget,
-            text: "",
+          return applyCustomGuardedMediaAutoSend({
             mediaUrl,
-            accountId: account.accountId,
-            replyToId: replyAnchorId,
-            account,
+            label,
+            event: deliverEvent,
+            accountContext: deliverActx,
+            sendMedia: sendMediaAuto,
           });
-          if (!result.error) {
-            proactiveGuardDecision.commit?.();
-          }
-          return result;
         };
 
         // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码

@@ -866,3 +866,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps actual platform sends, token retry, media auto-send, and proactive guard creation, but no longer owns the deliver event/account object literals.
 - The helper preserves reply anchor propagation, synthetic unanchored sends, group/channel ids, `msgIdx`, qualified target, logger, and injected proactive guard identity.
 - Added `tests/custom-outbound-deliver-context.test.ts` for group/guild deliver events, account context packaging, unanchored reply handling, and proactive source metadata.
+
+抽出 guarded media auto-send 适配器：
+
+- Added `src/custom/guarded-media-send-gateway-adapter.ts` to centralize proactive media guard checks, blocked-send logging, media send callback invocation, and budget commit handling for auto-routed media sends.
+- `gateway.ts` now keeps the actual `sendMediaAuto()` dependency and platform side effects, but no longer repeats guard/block/send/commit logic inside the main dispatch closure.
+- The adapter preserves passive reply behavior: anchored media sends bypass proactive budget checks, while unanchored media sends are checked and committed only after a successful send.
+- Added `tests/custom-guarded-media-send-gateway-adapter.test.ts` for anchored passive media, allowed unanchored media, blocked media, and send-error no-commit behavior.

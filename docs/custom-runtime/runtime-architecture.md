@@ -364,6 +364,17 @@ Current implementation status:
 - Builds the proactive guard source actor/message/timestamp metadata from the original queued message without importing proactive runtime state.
 - `gateway.ts` still owns actual sends, token retry, media auto-send, and proactive guard creation; this helper only shapes the context objects.
 
+### `src/custom/guarded-media-send-gateway-adapter.ts`
+
+Gateway-side helper for media auto-send operations that must pass the custom proactive guard.
+
+Current implementation status:
+
+- Reuses the outbound delivery context and injected proactive guard to check unanchored media sends before any media send callback runs.
+- Preserves passive reply behavior: when `replyToId` exists, media sends do not consume proactive budget.
+- Calls the injected media send callback with qualified target, account id, account credentials, media URL, and reply anchor; successful sends commit proactive budget, failed sends do not.
+- Logs blocked media sends through the gateway logger while keeping QQ media APIs and actual `sendMediaAuto()` calls outside the helper.
+
 ### `src/custom/group-activation.ts`
 
 Gateway-adjacent helper for resolving group activation mode from the OpenClaw `/activation` session store.
