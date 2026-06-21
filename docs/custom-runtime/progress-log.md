@@ -1181,3 +1181,10 @@ Added configured scene binding inspection:
 - The adapter returns only the downstream fields needed for auth/dispatch/unread completion (`ctxPayload`, `userContent`, `wasMentioned`, `shouldCatchUpUnreadAfterReply`, and `customUnreadCfgForEvent`), making the message pipeline boundary clearer.
 - Added `tests/custom-message-context-gateway-adapter.test.ts` for direct-message context construction, TTS/system prompt merging, command authorization, group stop behavior, and allowFrom normalization.
 - 同步复核新增初始化目标：当前分支仍把 `customRuntime.admins` 和 `customRuntime.adminGroup` 作为首次初始化硬约束，`tests/custom-onboarding.test.ts` 本轮复跑通过，管理群写入时继续自动绑定默认 `system-admin` 场景。
+
+抽出 message dispatch 网关适配器：
+
+- Added `src/custom/message-dispatch-gateway-adapter.ts` to own the post-context dispatch orchestration: reply setup, custom authorization, request context binding, fallback session creation, reply dispatch, and unread completion.
+- `gateway.ts` now keeps the message path at a high-level ingress -> context -> dispatch shape, while token transport, inline keyboard sending, framework dispatch, and admin-group notification delivery remain injected from the gateway boundary.
+- The adapter stops before request-context/agent dispatch when custom authorization denies a message, preserving the previous stop-typing behavior and approval-card hook.
+- Added `tests/custom-message-dispatch-gateway-adapter.test.ts` for auth-denied short-circuiting, approval-card sendWithRetry wiring, request context binding, fallback-session creation, reply dispatch handoff, and unread completion callback wiring.

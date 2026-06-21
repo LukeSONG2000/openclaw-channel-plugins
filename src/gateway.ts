@@ -28,25 +28,20 @@ import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolve
 import { sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
-import { runWithRequestContext } from "./request-context.js";
 import { resolveCustomRuntimeConfig } from "./custom/config.js";
-import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
 import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
-import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
-import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
 import { createCustomAdminGroupNotificationServiceGateway } from "./custom/admin-group-notification-service-gateway-adapter.js";
 import { handleCustomInteractionCreateGateway } from "./custom/interaction-create-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
-import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
-import { runCustomDispatchReplyGateway } from "./custom/dispatch-reply-gateway-adapter.js";
 import {
   recordCustomFallbackEventGateway,
 } from "./custom/fallback-record-gateway-adapter.js";
 import { runCustomMessageContextGateway } from "./custom/message-context-gateway-adapter.js";
+import { runCustomMessageDispatchGateway } from "./custom/message-dispatch-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
   startCustomUpdateCheckLoop,
@@ -701,118 +696,55 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (messageContext.action === "stop") {
           return;
         }
-        const ctxPayload = messageContext.ctxPayload;
-        const userContent = messageContext.userContent;
-        const wasMentioned = messageContext.wasMentioned;
-        const shouldCatchUpUnreadAfterReply = messageContext.shouldCatchUpUnreadAfterReply;
-        const customUnreadCfgForEvent = messageContext.customUnreadCfgForEvent;
-
-        const {
-          replyAnchorId,
-          replyContext: replyCtx,
-          sendWithRetry,
-          sendErrorMessage,
-          deliverEvent,
-          deliverAccountContext: deliverActx,
-          sendGuardedMediaAuto,
-        } = applyCustomDispatchSetupGateway({
-          event,
+        await runCustomMessageDispatchGateway({
           account,
+          event,
           cfg,
+          route,
           qualifiedTarget,
+          ctxPayload: messageContext.ctxPayload,
+          userContent: messageContext.userContent,
+          wasMentioned: messageContext.wasMentioned,
+          shouldCatchUpUnreadAfterReply: messageContext.shouldCatchUpUnreadAfterReply,
+          customUnreadCfgForEvent: messageContext.customUnreadCfgForEvent,
+          runtime: {
+            auth: customMessageFlow.auth,
+            unread: customMessageFlow.unread,
+          },
+          groupHistories,
+          persistAuthState: persistCustomAuthState,
+          persistCustomUnreadState,
+          applyUnreadSchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
           buildProactiveGuard: buildCustomProactiveGuard,
           sendMedia: sendMediaAuto,
-          log,
-        });
-
-        const dispatchAuth = await applyCustomDispatchAuthorizationGateway({
-          cfg: cfg as any,
-          auth: customMessageFlow.auth,
-          message: event,
-          rawContent: userContent,
-          accountId: account.accountId,
-          persistAuthState: persistCustomAuthState,
-          sendText: sendErrorMessage,
-          sendApprovalCard: async (target, text, keyboard) => sendWithRetry(async (token) => {
+          getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
+          getQueueSnapshot: () => msgQueue.getSnapshot(peerId),
+          sendFallbackAdminGroupAlert: (alert) => customAdminGroupNotifications.sendFallbackAdminGroupAlert(alert),
+          notifyAuthAdminGroup: customAdminGroupNotifications.sendAuthAdminGroupNotification,
+          sendApprovalCardWithRetry: async (sendWithRetry, target, text, keyboard) => sendWithRetry(async (token) => {
             if (target.kind === "c2c") {
               await sendC2CMessageWithInlineKeyboard(token, target.userOpenid, text, keyboard, target.messageId);
             } else {
               await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.messageId);
             }
           }),
-          notifyAdminGroup: customAdminGroupNotifications.sendAuthAdminGroupNotification,
+          createDebouncer: createDeliverDebouncer,
+          recordOutboundActivity: () => pluginRuntime.channel.activity.record({
+            channel: "qqbot",
+            accountId: account.accountId,
+            direction: "outbound",
+          }),
+          parseAndSendMediaTags,
+          handleStructuredPayload,
+          sendPlainReply,
+          stopTyping: () => typing.stop(),
+          resolveEffectiveMessagesConfig: (config, agentId) =>
+            pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(config, agentId),
+          dispatchReply: (input) =>
+            pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher(input as Parameters<typeof pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher>[0]),
+          resolveHistoryLimit: (groupOpenid, accountId) => resolveHistoryLimit(cfg as any, groupOpenid, accountId),
           log,
         });
-        if (dispatchAuth.shouldStop) {
-          typing.stop();
-          return;
-        }
-
-        // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码
-        // （包括 AI agent 调用、tool execute）都能安全获取当前会话信息，无并发竞态。
-        await runWithRequestContext({ target: qualifiedTarget, accountId: account.accountId }, async () => {
-          const fallbackSession = createCustomDispatchFallbackSession({
-            accountId: account.accountId,
-            message: event,
-            sessionKey: route.sessionKey,
-            getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
-            getQueueSnapshot: () => msgQueue.getSnapshot(peerId),
-            log,
-            sendAlert: (alert) => customAdminGroupNotifications.sendFallbackAdminGroupAlert(alert),
-            sendGuardedMediaAuto,
-            sendErrorMessage,
-          });
-          await runCustomDispatchReplyGateway({
-            account,
-            event,
-            cfg,
-            routeAgentId: route.agentId,
-            ctxPayload,
-            replyAnchorId,
-            fallbackSession,
-            sendErrorMessage,
-            replyContext: replyCtx,
-            deliverEvent,
-            deliverAccountContext: deliverActx,
-            sendWithRetry,
-            sendGuardedMediaAuto,
-            debounceConfig: account.config?.deliverDebounce,
-            createDebouncer: createDeliverDebouncer,
-            recordOutboundActivity: () => pluginRuntime.channel.activity.record({
-              channel: "qqbot",
-              accountId: account.accountId,
-              direction: "outbound",
-            }),
-            parseAndSendMediaTags,
-            handleStructuredPayload,
-            sendPlainReply,
-            stopTyping: () => typing.stop(),
-            resolveEffectiveMessagesConfig: (config, agentId) =>
-              pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(config, agentId),
-            dispatchReply: (input) =>
-              pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher(input as Parameters<typeof pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher>[0]),
-            log,
-            onAfterFinalize: ({ hasModelBlockOutput }) => {
-              // 回复完成后处理群历史/自定义未读 runtime
-              if (event.type !== "group" || !event.groupOpenid) return;
-              applyCustomUnreadCompletionGateway({
-                accountId: account.accountId,
-                unread: customMessageFlow.unread,
-                groupOpenid: event.groupOpenid,
-                cfg: customUnreadCfgForEvent,
-                snapshotId: event._customUnreadSnapshotId,
-                hasModelBlockOutput,
-                shouldCatchUpAfterReply: shouldCatchUpUnreadAfterReply,
-                wasMentioned,
-                groupHistories,
-                resolveHistoryLimit: (groupOpenid, accountId) => resolveHistoryLimit(cfg as any, groupOpenid, accountId),
-                persistCustomUnreadState,
-                applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
-                log,
-              });
-            },
-          });
-        }); // end runWithRequestContext
       };
 
       // ============ 统一事件分发（WebSocket/Webhook 共用） ============

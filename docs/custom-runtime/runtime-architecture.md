@@ -225,6 +225,23 @@ Important boundary:
 - The adapter does not send replies, resolve QQ tokens, or call OpenClaw dispatch. It owns context assembly only.
 - Gateway still injects framework formatting/finalization, group policy resolvers, history envelope formatting, and custom unread scheduler/persistence callbacks.
 
+### `src/custom/message-dispatch-gateway-adapter.ts`
+
+Gateway-side dispatch pipeline after context assembly.
+
+Current implementation status:
+
+- Runs dispatch setup so reply anchors, send helpers, outbound deliver context, and guarded media sending are prepared in one post-context boundary.
+- Runs custom scene/capability authorization before any OpenClaw dispatch call; denied messages stop typing and return before request context binding.
+- Binds the AsyncLocalStorage request context for agent/tool execution using the fully qualified QQBot target.
+- Creates the fallback session inside that request context, then delegates model reply execution to `dispatch-reply-gateway-adapter.ts`.
+- Applies unread completion after reply finalization, including custom unread snapshots, legacy group-history clearing, persistence, and scheduler effects.
+
+Important boundary:
+
+- The adapter does not own QQ token retrieval, inline keyboard transport, framework dispatch implementation, or proactive/fallback admin-group delivery; these remain injected from `gateway.ts`.
+- It keeps the remaining `gateway.ts` message handler at ingress -> context -> dispatch, which makes later custom message-flow behavior easier to replace or test.
+
 ### `src/custom/proactive-budget.ts`
 
 Owns local proactive/unanchored text-send budget for custom runtime paths.
