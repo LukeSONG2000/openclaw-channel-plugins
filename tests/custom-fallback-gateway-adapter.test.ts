@@ -32,6 +32,14 @@ assert.deepEqual(parseCustomFallbackCommand("/bot-fallback list 99"), {
   matched: true,
   error: "数量需要是 1 到 20 的整数",
 });
+assert.deepEqual(parseCustomFallbackCommand("/bot-fallback clear"), {
+  matched: true,
+  command: { kind: "clear", force: false },
+});
+assert.deepEqual(parseCustomFallbackCommand("/bot-fallback clear --force"), {
+  matched: true,
+  command: { kind: "clear", force: true },
+});
 assert.deepEqual(parseCustomFallbackCommand("/bot-ping"), { matched: false });
 
 let loadedLimit = 0;
@@ -81,5 +89,38 @@ const empty = handleCustomFallbackCommand({
 });
 assert.equal(empty.handled, true);
 assert.equal(empty.reply?.includes("暂无记录"), true);
+
+let clearCount = 0;
+const clearPrompt = handleCustomFallbackCommand({
+  accountId: "default",
+  message,
+  rawContent: "/bot-fallback clear",
+  store: {
+    loadEvents: () => [],
+    clearEvents: () => {
+      clearCount += 1;
+      return true;
+    },
+  },
+});
+assert.equal(clearPrompt.handled, true);
+assert.equal(clearPrompt.reply?.includes("--force"), true);
+assert.equal(clearCount, 0);
+
+const cleared = handleCustomFallbackCommand({
+  accountId: "default",
+  message,
+  rawContent: "/bot-fallback clear --force",
+  store: {
+    loadEvents: () => [],
+    clearEvents: () => {
+      clearCount += 1;
+      return true;
+    },
+  },
+});
+assert.equal(cleared.handled, true);
+assert.equal(cleared.reply?.includes("已清空"), true);
+assert.equal(clearCount, 1);
 
 console.log("custom fallback gateway adapter tests passed");

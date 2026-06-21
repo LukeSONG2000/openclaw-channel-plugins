@@ -75,6 +75,7 @@ Added structured fallback event logs:
 - Added `src/custom/fallback-event-store.ts` for bounded JSON persistence of recent fallback events under `~/.openclaw/qqbot/data/custom-fallback-events/events-<accountId>.json`.
 - `gateway.ts` appends fallback events to that ring buffer while keeping the user-visible fallback behavior unchanged.
 - Added `src/custom/fallback-gateway-adapter.ts` and `/bot-fallback` so authorized users can inspect recent fallback events from chat.
+- Added `/bot-fallback clear --force` behind `config.write` so admins can clear old diagnostic events after verification.
 - Future admin notification cards can reuse the same pure event shape.
 
 Extracted unread/follow-up message flow into pure runtime:

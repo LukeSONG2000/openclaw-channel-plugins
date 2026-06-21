@@ -230,4 +230,19 @@ assert.equal(fallbackStatus.persist, undefined);
 assert.equal(fallbackStatus.reply?.kind, "text");
 assert.equal(fallbackStatus.reply?.kind === "text" && fallbackStatus.reply.text.includes("最近兜底事件"), true);
 
+const deniedFallbackClear = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-fallback clear --force" },
+  rawContent: "/bot-fallback clear --force",
+  now: 6_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deniedFallbackClear.handled, true);
+assert.equal(deniedFallbackClear.persist?.auth, true);
+assert.equal(deniedFallbackClear.reply?.kind, "auth-approval");
+if (deniedFallbackClear.reply?.kind !== "auth-approval") throw new Error("expected fallback clear auth approval reply");
+assert.equal(deniedFallbackClear.reply.denialText.includes("需要能力：config.write"), true);
+
 console.log("custom slash gateway adapter tests passed");

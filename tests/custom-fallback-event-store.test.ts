@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   appendCustomFallbackEvent,
+  clearCustomFallbackEvents,
   getCustomFallbackEventStorePath,
   loadCustomFallbackEvents,
   saveCustomFallbackEvents,
@@ -25,6 +26,9 @@ try {
 
   assert.equal(appendCustomFallbackEvent(accountId, event3, { dir: tmpDir, limit: 2 }), true);
   assert.deepEqual(loadCustomFallbackEvents(accountId, { dir: tmpDir, limit: 10 }), [event2, event3]);
+
+  assert.equal(clearCustomFallbackEvents(accountId, { dir: tmpDir }), true);
+  assert.deepEqual(loadCustomFallbackEvents(accountId, { dir: tmpDir }), []);
 
   fs.writeFileSync(filePath, JSON.stringify({
     version: 1,

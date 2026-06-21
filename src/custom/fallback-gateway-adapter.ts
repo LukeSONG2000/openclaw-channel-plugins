@@ -1,10 +1,11 @@
 import type { QueuedMessage } from "../message-queue.js";
-import { loadCustomFallbackEvents } from "./fallback-event-store.js";
+import { clearCustomFallbackEvents, loadCustomFallbackEvents } from "./fallback-event-store.js";
 import type { CustomFallbackEvent } from "./fallbacks.js";
 
 export type CustomFallbackCommand =
   | { kind: "help" }
-  | { kind: "list"; limit: number };
+  | { kind: "list"; limit: number }
+  | { kind: "clear"; force: boolean };
 
 export type CustomFallbackCommandParseResult =
   | { matched: false }
@@ -17,6 +18,7 @@ export interface CustomFallbackCommandResult {
 
 export interface CustomFallbackCommandStore {
   loadEvents: (accountId: string, limit: number) => CustomFallbackEvent[];
+  clearEvents?: (accountId: string) => boolean;
 }
 
 export function parseCustomFallbackCommand(rawContent: string): CustomFallbackCommandParseResult {
@@ -31,6 +33,9 @@ export function parseCustomFallbackCommand(rawContent: string): CustomFallbackCo
     const parsedLimit = parseLimit(tokens[0]);
     if (parsedLimit === null) return { matched: true, error: "数量需要是 1 到 20 的整数" };
     return { matched: true, command: { kind: "list", limit: parsedLimit } };
+  }
+  if (action === "clear" || action === "reset") {
+    return { matched: true, command: { kind: "clear", force: tokens.some((token) => token.toLowerCase() === "--force") } };
   }
 
   const parsedLimit = parseLimit(action);
@@ -53,6 +58,17 @@ export function handleCustomFallbackCommand(params: {
   const command = parsed.command ?? { kind: "list" as const, limit: 5 };
 
   if (command.kind === "help") return { handled: true, reply: formatCustomFallbackHelp() };
+  if (command.kind === "clear") {
+    if (!command.force) return { handled: true, reply: formatCustomFallbackClearHelp() };
+    const clear = params.store?.clearEvents ?? clearCustomFallbackEvents;
+    const ok = clear(params.accountId);
+    return {
+      handled: true,
+      reply: ok
+        ? `✅ 已清空最近兜底事件。`
+        : `⚠️ 清空最近兜底事件失败，请查看 gateway 日志。`,
+    };
+  }
 
   const events = (params.store?.loadEvents ?? loadFallbackEvents)(params.accountId, command.limit);
   return { handled: true, reply: formatCustomFallbackList(events, command.limit) };
@@ -78,10 +94,21 @@ function formatCustomFallbackHelp(error?: string): string {
     `/bot-fallback`,
     `/bot-fallback list [数量]`,
     `/bot-fallback status [数量]`,
+    `/bot-fallback clear --force`,
     ``,
-    `查看最近的超时、上下文过长、工具无输出等兜底事件。数量范围：1-20。`,
+    `查看或清理最近的超时、上下文过长、工具无输出等兜底事件。数量范围：1-20。`,
   );
   return lines.join("\n");
+}
+
+function formatCustomFallbackClearHelp(): string {
+  return [
+    `⚠️ 清空兜底事件需要确认`,
+    ``,
+    `请使用：/bot-fallback clear --force`,
+    ``,
+    `清空后将无法通过 /bot-fallback 查看之前的兜底记录。`,
+  ].join("\n");
 }
 
 function formatCustomFallbackList(events: CustomFallbackEvent[], limit: number): string {

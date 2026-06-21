@@ -305,7 +305,7 @@ Initial slash command capability mapping:
 - `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
 - `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
 - `/bot-scene`: `system.status`; `set`/`bind` or direct scene names require `config.write`
-- `/bot-fallback`: `system.status`
+- `/bot-fallback`: `system.status`; `clear`/`reset` require `config.write`
 
 Text approval commands:
 
@@ -679,11 +679,12 @@ Implemented commands:
 - `/bot-fallback`
 - `/bot-fallback list [1-20]`
 - `/bot-fallback status [1-20]`
+- `/bot-fallback clear --force`
 
 Authorization:
 
-- Uses slash-command metadata, so access requires `system.status` through admin, scene capability, or temporary grant.
-- The command is read-only and does not mutate runtime state.
+- Uses slash-command metadata, so list/status access requires `system.status` through admin, scene capability, or temporary grant.
+- Clearing events requires `config.write` and an explicit `--force`.
 
 Still separate from the pure module:
 

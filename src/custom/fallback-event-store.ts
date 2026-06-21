@@ -85,6 +85,13 @@ export function appendCustomFallbackEvent(
   return saveCustomFallbackEvents(accountId, events, options);
 }
 
+export function clearCustomFallbackEvents(
+  accountId: string,
+  options?: CustomFallbackEventStoreOptions,
+): boolean {
+  return saveCustomFallbackEvents(accountId, [], options);
+}
+
 function trimFallbackEvents(
   events: readonly CustomFallbackEvent[],
   rawLimit?: number,

@@ -442,13 +442,14 @@ registerCommand({
 registerCommand({
   name: "bot-fallback",
   description: "查看自定义兜底事件",
-  capability: "system.status",
+  capability: (request) => slashFallbackCapability(request.args),
   usage: [
     `/bot-fallback`,
     `/bot-fallback list [数量]`,
     `/bot-fallback status [数量]`,
+    `/bot-fallback clear --force`,
     ``,
-    `查看最近的超时、上下文过长、工具无输出等二开兜底事件。`,
+    `查看或清理最近的超时、上下文过长、工具无输出等二开兜底事件。`,
   ].join("\n"),
   handler: () => null,
 });
@@ -2666,4 +2667,12 @@ function slashSceneCapability(args: string): SlashCommandCapability {
     return "config.write";
   }
   return "config.write";
+}
+
+function slashFallbackCapability(args: string): SlashCommandCapability {
+  const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  if (action === "clear" || action === "reset") {
+    return "config.write";
+  }
+  return "system.status";
 }
