@@ -353,6 +353,17 @@ Current implementation status:
 - Carries the injected unanchored-text proactive guard through the context without importing QQ send APIs or proactive runtime state.
 - `gateway.ts` still owns token retry helpers, error-message sends, and platform delivery calls; this adapter only builds the context object.
 
+### `src/custom/outbound-deliver-context.ts`
+
+Pure helper for constructing outbound delivery contexts used by media-tag parsing and normal reply delivery.
+
+Current implementation status:
+
+- Converts a queued message plus reply anchor into `DeliverEventContext`, preserving type, sender, channel/group ids, message id, ref reply id, and `msgIdx`.
+- Packages account, qualified target, logger, and injected proactive guard into `DeliverAccountContext`.
+- Builds the proactive guard source actor/message/timestamp metadata from the original queued message without importing proactive runtime state.
+- `gateway.ts` still owns actual sends, token retry, media auto-send, and proactive guard creation; this helper only shapes the context objects.
+
 ### `src/custom/group-activation.ts`
 
 Gateway-adjacent helper for resolving group activation mode from the OpenClaw `/activation` session store.

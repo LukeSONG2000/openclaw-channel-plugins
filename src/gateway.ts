@@ -27,7 +27,7 @@ import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
-import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
+import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
@@ -49,6 +49,10 @@ import {
 import { buildCustomAgentMessageBodyContext } from "./custom/agent-message-body-context.js";
 import { buildCustomInboundContextPayload } from "./custom/inbound-context-payload.js";
 import { buildCustomGatewayReplyContext } from "./custom/reply-context-gateway-adapter.js";
+import {
+  buildCustomOutboundDeliverContext,
+  buildCustomOutboundProactiveSource,
+} from "./custom/outbound-deliver-context.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -1831,25 +1835,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           return;
         }
 
-        const deliverEvent: DeliverEventContext = {
-          type: event.type,
-          senderId: event.senderId,
-          messageId: event.messageId,
-          replyToId: replyAnchorId,
-          channelId: event.channelId,
-          groupOpenid: event.groupOpenid,
-          msgIdx: event.msgIdx,
-        };
-        const deliverActx: DeliverAccountContext = {
+        const deliverProactive = buildCustomProactiveGuard(buildCustomOutboundProactiveSource(event));
+        const {
+          deliverEvent,
+          deliverAccountContext: deliverActx,
+        } = buildCustomOutboundDeliverContext({
+          event,
+          replyAnchorId,
           account,
           qualifiedTarget,
           log,
-          proactiveGuard: buildCustomProactiveGuard({
-            actor: { id: event.senderId, label: event.senderName, isBot: event.senderIsBot },
-            messageId: event.messageId,
-            timestamp: new Date(event.timestamp).getTime(),
-          }).proactiveGuard,
-        };
+          proactiveGuard: deliverProactive.proactiveGuard,
+        });
         const sendGuardedMediaAuto = async (mediaUrl: string, label: string): Promise<{ channel: string; error?: string }> => {
           const proactiveGuardDecision = prepareProactiveMediaSend(deliverEvent, deliverActx, "media", mediaUrl);
           if (!proactiveGuardDecision.allowed) {

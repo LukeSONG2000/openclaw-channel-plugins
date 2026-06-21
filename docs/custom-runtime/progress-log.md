@@ -859,3 +859,10 @@ Added configured scene binding inspection:
 - Synthetic custom unread catch-up messages continue to clear the passive reply anchor, so they use unanchored/proactive-guarded sends instead of replying to stale source messages.
 - `gateway.ts` now injects the unanchored-text proactive guard into the adapter result and keeps token retry, error sends, auth-denial delivery, and platform sends at the gateway boundary.
 - Added `tests/custom-reply-context-gateway-adapter.test.ts` for group targets, C2C targets, synthetic anchor clearing, and guard callback propagation.
+
+抽出 outbound deliver 上下文构造：
+
+- Added `src/custom/outbound-deliver-context.ts` to build `DeliverEventContext`, `DeliverAccountContext`, and proactive guard source metadata from queued messages.
+- `gateway.ts` now keeps actual platform sends, token retry, media auto-send, and proactive guard creation, but no longer owns the deliver event/account object literals.
+- The helper preserves reply anchor propagation, synthetic unanchored sends, group/channel ids, `msgIdx`, qualified target, logger, and injected proactive guard identity.
+- Added `tests/custom-outbound-deliver-context.test.ts` for group/guild deliver events, account context packaging, unanchored reply handling, and proactive source metadata.
