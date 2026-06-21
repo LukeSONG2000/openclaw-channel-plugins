@@ -101,6 +101,10 @@ import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.j
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
 import { recordCustomFallbackEventGateway } from "./custom/fallback-record-gateway-adapter.js";
 import { buildCustomFallbackRecordInput } from "./custom/fallback-record-context.js";
+import {
+  buildCustomInboundMediaContext,
+  formatCustomInboundVoiceSummary,
+} from "./custom/inbound-media-context.js";
 import { normalizeQQBotInboundEvent } from "./custom/inbound-event-normalizer.js";
 import {
   buildCustomUpdateAvailableNotification,
@@ -1502,10 +1506,28 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 处理附件（图片等）- 下载到本地供 openclaw 访问
         const processed = await processAttachments(event.attachments, { appId: account.appId, peerId, cfg, log });
         const { attachmentInfo, imageUrls, imageMediaTypes, voiceAttachmentPaths, voiceAttachmentUrls, voiceAsrReferTexts, voiceTranscripts, voiceTranscriptSources, attachmentLocalPaths } = processed;
+        const inboundMedia = buildCustomInboundMediaContext({
+          imageUrls,
+          imageMediaTypes,
+          voiceAttachmentPaths,
+          voiceAttachmentUrls,
+          voiceAsrReferTexts,
+          voiceTranscriptSources,
+        });
+        const {
+          uniqueVoicePaths,
+          uniqueVoiceUrls,
+          uniqueVoiceAsrReferTexts,
+          dynamicContext: dynamicCtx,
+          localMediaPaths,
+          localMediaTypes,
+          remoteMediaUrls,
+          remoteMediaTypes,
+        } = inboundMedia;
         
         // 语音转录文本注入到用户消息中
         const voiceText = formatVoiceText(voiceTranscripts);
-        const hasAsrReferFallback = voiceTranscriptSources.includes("asr");
+        const hasAsrReferFallback = inboundMedia.hasAsrReferFallback;
 
         // 解析 QQ 表情标签，将 <faceType=...,ext="base64"> 替换为 【表情: 中文名】
         const parsedContent = parseFaceTags(event.content);
@@ -1608,22 +1630,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // BodyForAgent: AI 实际看到的完整上下文（动态数据 + 系统提示 + 用户输入）
 
         // 构建媒体附件纯数据描述（图片 + 语音统一列出）
-        const uniqueVoicePaths = [...new Set(voiceAttachmentPaths)];
-        const uniqueVoiceUrls = [...new Set(voiceAttachmentUrls)];
-        const uniqueVoiceAsrReferTexts = [...new Set(voiceAsrReferTexts)].filter(Boolean);
-        const sttTranscriptCount = voiceTranscriptSources.filter((s) => s === "stt").length;
-        const asrFallbackCount = voiceTranscriptSources.filter((s) => s === "asr").length;
-        const fallbackCount = voiceTranscriptSources.filter((s) => s === "fallback").length;
-        if (voiceAttachmentPaths.length > 0 || voiceAttachmentUrls.length > 0 || uniqueVoiceAsrReferTexts.length > 0) {
-          const asrPreview = uniqueVoiceAsrReferTexts.length > 0
-            ? uniqueVoiceAsrReferTexts[0].slice(0, 50)
-            : "";
-          log?.info(
-            `[qqbot:${account.accountId}] Voice input summary: local=${uniqueVoicePaths.length}, remote=${uniqueVoiceUrls.length}, `
-            + `asrReferTexts=${uniqueVoiceAsrReferTexts.length}, transcripts=${voiceTranscripts.length}, `
-            + `source(stt/asr/fallback)=${sttTranscriptCount}/${asrFallbackCount}/${fallbackCount}`
-            + (asrPreview ? `, asr_preview="${asrPreview}${uniqueVoiceAsrReferTexts[0].length > 50 ? "..." : ""}"` : "")
-          );
+        const voiceSummary = formatCustomInboundVoiceSummary({
+          media: inboundMedia,
+          voiceAttachmentPaths,
+          voiceAttachmentUrls,
+          voiceTranscriptCount: voiceTranscripts.length,
+        });
+        if (voiceSummary) {
+          log?.info(`[qqbot:${account.accountId}] ${voiceSummary}`);
         }
         // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
         const qualifiedTarget = messageRoute.requestTarget;
@@ -1662,19 +1676,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const staticInstruction = staticParts.join(" | ");
           systemPrompts.unshift(staticInstruction);
         }
-
-        // --- 动态上下文 ---
-        const dynLines: string[] = [];
-        if (imageUrls.length > 0) {
-          dynLines.push(`- 图片: ${imageUrls.join(", ")}`);
-        }
-        if (uniqueVoicePaths.length > 0 || uniqueVoiceUrls.length > 0) {
-          dynLines.push(`- 语音: ${[...uniqueVoicePaths, ...uniqueVoiceUrls].join(", ")}`);
-        }
-        if (uniqueVoiceAsrReferTexts.length > 0) {
-          dynLines.push(`- ASR: ${uniqueVoiceAsrReferTexts.join(" | ")}`);
-        }
-        const dynamicCtx = dynLines.length > 0 ? dynLines.join("\n") + "\n\n" : "";
 
         // --- 命令授权（所有消息类型共用，群消息门控也需要） ---
         // allowFrom: ["*"] 表示允许所有人，否则检查 senderId 是否在 allowFrom 列表中
@@ -1933,23 +1934,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         const fromAddress = messageRoute.fromAddress;
         const toAddress = messageRoute.toAddress;
-
-        // 分离 imageUrls 为本地路径和远程 URL，供 openclaw 原生媒体处理
-        const localMediaPaths: string[] = [];
-        const localMediaTypes: string[] = [];
-        const remoteMediaUrls: string[] = [];
-        const remoteMediaTypes: string[] = [];
-        for (let i = 0; i < imageUrls.length; i++) {
-          const u = imageUrls[i];
-          const t = imageMediaTypes[i] ?? "image/png";
-          if (u.startsWith("http://") || u.startsWith("https://")) {
-            remoteMediaUrls.push(u);
-            remoteMediaTypes.push(t);
-          } else {
-            localMediaPaths.push(u);
-            localMediaTypes.push(t);
-          }
-        }
 
         // QQBot 静态系统提示（投递地址、TTS 能力等）合并到 GroupSystemPrompt，
         // 通过框架的 extraSystemPrompt 机制注入 AI system prompt，

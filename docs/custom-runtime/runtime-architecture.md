@@ -342,6 +342,17 @@ Current implementation status:
 - Keeps existing compatibility behavior for guild and channel-DM paths while making those mappings explicit and testable; channel-DM custom scene behavior remains marked unaudited in the message-flow document.
 - `gateway.ts` now asks this helper for routing primitives instead of repeating event-type conditionals around routing, scene lookup, request context, and reply target construction.
 
+### `src/custom/inbound-media-context.ts`
+
+Pure helper for inbound image/voice context derived after attachment processing.
+
+Current implementation status:
+
+- Deduplicates voice local paths, voice remote URLs, and QQ ASR reference text before they are injected into the agent dynamic context.
+- Builds compact dynamic prompt lines for images, voice inputs, and ASR text while keeping user-visible message formatting in `gateway.ts`.
+- Counts STT/ASR/fallback transcript sources and formats the voice summary log line without reading config, filesystem, QQ APIs, or OpenClaw runtime state.
+- Splits image/media URLs into local paths and remote URLs for the framework media fields, keeping that local/remote rule covered outside the main dispatch loop.
+
 ### `src/custom/interaction-event-normalizer.ts`
 
 Gateway-side normalizer for QQ `INTERACTION_CREATE` button/config events.

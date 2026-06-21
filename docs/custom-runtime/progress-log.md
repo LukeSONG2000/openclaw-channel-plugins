@@ -794,3 +794,10 @@ Added configured scene binding inspection:
 - The helper reuses message routing and queued-message identity mapping so fallback peer/actor fields stay aligned with scene/auth routing.
 - `gateway.ts` now only collects current snapshots and delegates fallback record shape construction before calling `recordCustomFallbackEventGateway()`.
 - Added `tests/custom-fallback-record-context.test.ts` for group, C2C, and guild fallback record identity plus queue/dispatch counter fields.
+
+抽出入站媒体上下文构造：
+
+- Added `src/custom/inbound-media-context.ts` to build compact image/voice/ASR dynamic context, voice summary counters, ASR fallback status, and local/remote media split after attachment processing.
+- `gateway.ts` now delegates voice path/url/ASR dedupe, transcript source counting, dynamic media prompt lines, and media path/url partitioning to that helper.
+- The helper is pure and does not read config, filesystem, QQ APIs, OpenClaw runtime state, or custom stores; it only reshapes already-processed attachment metadata for the message-flow pipeline.
+- Added `tests/custom-inbound-media-context.test.ts` for dedupe, STT/ASR/fallback counts, dynamic context formatting, voice summary formatting, and local/remote media partition.
