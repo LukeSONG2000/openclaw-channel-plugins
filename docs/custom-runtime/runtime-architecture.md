@@ -415,6 +415,24 @@ Important boundary:
 - The module does not send WebSocket frames, own heartbeat timers, write session storage, mutate `_pendingFirstReady`, or call `onReady`. `gateway.ts` applies those side effects after reading the returned decision.
 - Keeping payload decisions pure gives the transport layer a testable seam before a larger WebSocket/Webhook lifecycle extraction.
 
+### `src/custom/websocket-message-gateway-adapter.ts`
+
+Gateway-side adapter for QQ Gateway WebSocket `message` events.
+
+Current implementation status:
+
+- Parses raw WebSocket message frames into `WSPayload` and logs parse failures without throwing into the WebSocket callback.
+- Applies sequence updates and session persistence through injected `saveSession` / state setter callbacks.
+- Delegates Hello, READY/RESUMED/ordinary dispatch, and Invalid Session decisions to `websocket-payload-policy.ts`.
+- Starts heartbeat through an injected timer reset callback and sends heartbeat payloads through an injected `sendJson` callback.
+- Applies READY/RESUMED side effects through injected `onReady`, `_pendingFirstReady` markers, and startup greeting callbacks.
+- Applies server reconnect and invalid-session retry through injected `cleanup` and `scheduleReconnect` callbacks.
+
+Important boundary:
+
+- The adapter does not import `ws`, token helpers, session-store helpers, startup-greeting logic, or inbound event normalizers directly. `gateway.ts` still owns those platform/process side effects.
+- This adapter is the bridge between the official WebSocket transport and the custom runtime event fanout; it enables a future transport lifecycle extraction without mixing transport packet policy with message-flow customization.
+
 ### `src/custom/queued-message-context.ts`
 
 Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.

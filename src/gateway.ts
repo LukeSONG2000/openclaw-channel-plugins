@@ -1,6 +1,6 @@
 import WebSocket from "ws";
 import path from "node:path";
-import type { ResolvedQQBotAccount, WSPayload, TransportMode } from "./types.js";
+import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
 import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, getPluginUserAgent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession, saveSession, clearSession } from "./session-store.js";
@@ -62,12 +62,7 @@ import {
   resolveQQBotConnectionFailureReconnectDelay,
   resolveQQBotWebSocketCloseDecision,
 } from "./custom/websocket-reconnect-policy.js";
-import {
-  buildQQBotWebSocketHeartbeatPayload,
-  resolveQQBotWebSocketDispatchDecision,
-  resolveQQBotWebSocketHelloDecision,
-  resolveQQBotWebSocketInvalidSessionDecision,
-} from "./custom/websocket-payload-policy.js";
+import { handleQQBotWebSocketMessageGateway } from "./custom/websocket-message-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -1112,139 +1107,37 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       });
 
       ws.on("message", async (data) => {
-        try {
-          const rawData = data.toString();
-          const payload = JSON.parse(rawData) as WSPayload;
-          const { op, d, s, t } = payload;
-
-          if (s) {
-            lastSeq = s;
-            // P1-2: 更新持久化存储中的 lastSeq（节流保存）
-            if (sessionId) {
-              saveSession({
-                sessionId,
-                lastSeq,
-                lastConnectedAt: lastConnectTime,
-                intentLevelIndex: 0,
-                accountId: account.accountId,
-                savedAt: Date.now(),
-                appId: account.appId,
-              });
-            }
-          }
-
-          log?.debug?.(`[qqbot:${account.accountId}] Received op=${op} t=${t}`);
-
-          switch (op) {
-            case 10: { // Hello
-              const helloDecision = resolveQQBotWebSocketHelloDecision({
-                accessToken,
-                sessionId,
-                lastSeq,
-                intents: FULL_INTENTS,
-                intentsDesc: FULL_INTENTS_DESC,
-                heartbeatInterval: (d as { heartbeat_interval?: unknown }).heartbeat_interval,
-              });
-              logGatewayDecisionEntries(log, account.accountId, helloDecision.logs);
-              ws.send(JSON.stringify(helloDecision.outbound));
-
-              if (heartbeatInterval) clearInterval(heartbeatInterval);
-              heartbeatInterval = setInterval(() => {
-                if (ws.readyState === WebSocket.OPEN) {
-                  ws.send(JSON.stringify(buildQQBotWebSocketHeartbeatPayload(lastSeq)));
-                  log?.debug?.(`[qqbot:${account.accountId}] Heartbeat sent`);
-                }
-              }, helloDecision.heartbeatIntervalMs);
-              break;
-            }
-
-            case 0: { // Dispatch
-              log?.info(`[qqbot:${account.accountId}] 📩 Dispatch event: t=${t}, d=${JSON.stringify(d)}`);
-              const dispatchDecision = resolveQQBotWebSocketDispatchDecision({
-                eventType: t,
-                data: d,
-                pendingFirstReady: _pendingFirstReady.has(account.accountId),
-                intentsDesc: FULL_INTENTS_DESC,
-              });
-              logGatewayDecisionEntries(log, account.accountId, dispatchDecision.logs);
-              if (dispatchDecision.kind === "ready") {
-                sessionId = dispatchDecision.sessionId;
-                saveSession({
-                  sessionId,
-                  lastSeq,
-                  lastConnectedAt: Date.now(),
-                  intentLevelIndex: 0,
-                  accountId: account.accountId,
-                  savedAt: Date.now(),
-                  appId: account.appId,
-                });
-                onReady?.(d);
-                if (dispatchDecision.startupGreeting) {
-                  _pendingFirstReady.delete(account.accountId);
-                  sendStartupGreetings(adminCtx, dispatchDecision.startupGreeting);
-                }
-              } else if (dispatchDecision.kind === "resumed") {
-                onReady?.(d);
-                if (dispatchDecision.startupGreeting) {
-                  _pendingFirstReady.delete(account.accountId);
-                  sendStartupGreetings(adminCtx, dispatchDecision.startupGreeting);
-                }
-                if (sessionId) {
-                  saveSession({
-                    sessionId,
-                    lastSeq,
-                    lastConnectedAt: Date.now(),
-                    intentLevelIndex: 0,
-                    accountId: account.accountId,
-                    savedAt: Date.now(),
-                    appId: account.appId,
-                  });
-                }
-              } else {
-                dispatchInboundEvent(dispatchDecision.eventType, dispatchDecision.data).catch((err) => {
-                  log?.error(`[qqbot:${account.accountId}] Event dispatch error (t=${dispatchDecision.eventType}): ${err}`);
-                });
+        await handleQQBotWebSocketMessageGateway({
+          accountId: account.accountId,
+          appId: account.appId,
+          accessToken,
+          intents: FULL_INTENTS,
+          intentsDesc: FULL_INTENTS_DESC,
+          rawData: data.toString(),
+          getSessionState: () => ({ sessionId, lastSeq, lastConnectTime }),
+          setLastSeq: (nextLastSeq) => { lastSeq = nextLastSeq; },
+          setSessionId: (nextSessionId) => { sessionId = nextSessionId; },
+          setShouldRefreshToken: (nextShouldRefreshToken) => { shouldRefreshToken = nextShouldRefreshToken; },
+          saveSession,
+          clearSession,
+          sendJson: (payload) => ws.send(JSON.stringify(payload)),
+          resetHeartbeat: (intervalMs, onHeartbeat) => {
+            if (heartbeatInterval) clearInterval(heartbeatInterval);
+            heartbeatInterval = setInterval(() => {
+              if (ws.readyState === WebSocket.OPEN) {
+                onHeartbeat();
               }
-              break;
-            }
-
-            case 11: // Heartbeat ACK
-              log?.debug?.(`[qqbot:${account.accountId}] Heartbeat ACK`);
-              break;
-
-            case 7: // Reconnect
-              log?.info(`[qqbot:${account.accountId}] Server requested reconnect`);
-              cleanup();
-              scheduleReconnect();
-              break;
-
-            case 9: { // Invalid Session
-              const invalidSessionDecision = resolveQQBotWebSocketInvalidSessionDecision({
-                canResume: d as boolean,
-                intentsDesc: FULL_INTENTS_DESC,
-                rawData,
-              });
-              logGatewayDecisionEntries(log, account.accountId, invalidSessionDecision.logs);
-              if (invalidSessionDecision.shouldClearSession) {
-                sessionId = null;
-                lastSeq = null;
-                clearSession(account.accountId);
-              }
-              if (invalidSessionDecision.shouldRefreshToken) {
-                shouldRefreshToken = true;
-              }
-              if (invalidSessionDecision.cleanup) {
-                cleanup();
-              }
-              if (invalidSessionDecision.reconnect) {
-                scheduleReconnect(invalidSessionDecision.reconnectDelayMs);
-              }
-              break;
-            }
-          }
-        } catch (err) {
-          log?.error(`[qqbot:${account.accountId}] Message parse error: ${err}`);
-        }
+            }, intervalMs);
+          },
+          isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
+          markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
+          onReady: (payload) => onReady?.(payload),
+          sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
+          dispatchInboundEvent,
+          cleanup,
+          scheduleReconnect,
+          log,
+        });
       });
 
       ws.on("close", (code, reason) => {
