@@ -318,6 +318,18 @@ Current implementation status:
 - Normalizes `GROUP_ADD_ROBOT` / `GROUP_DEL_ROBOT` into loggable group robot membership events; add events still record the operator as a known group user.
 - Does not enqueue, persist known users, mutate proactive budget state, or send replies. `gateway.ts` applies the returned effects.
 
+### `src/custom/interaction-event-normalizer.ts`
+
+Gateway-side normalizer for QQ `INTERACTION_CREATE` button/config events.
+
+Current implementation status:
+
+- Extracts interaction id, data type, scene description, button id/data, resolved fields, and actor id from QQ's scene-specific fields.
+- Maps callback source fields into a custom peer: `group_openid` -> group, `user_openid` -> C2C, `channel_id` -> channel, `guild_id` -> DM fallback.
+- Resolves follow-up reply targets for group, C2C, and channel callbacks without sending messages.
+- Parses legacy OpenClaw approval button payloads (`approve:<id>:allow-once|allow-always|deny`) so gateway approval handling no longer owns regex details.
+- Custom auth/poll/game/deploy callback routing now receives normalized actor/source/button fields from `gateway.ts`; config query/update interactions still use the original QQ event for ACK payloads.
+
 ### `src/custom/message-delete-events.ts`
 
 Message deletion is currently diagnostic-only.

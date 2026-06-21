@@ -66,7 +66,11 @@ import {
   formatCustomDispatchAuthorizationDeniedMessage,
 } from "./custom/auth-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
-import { handleCustomInteractionGatewayButton, resolveCustomInteractionSourcePeer, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
+import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
+import {
+  normalizeQQBotInteractionEvent,
+  parseLegacyApprovalInteractionButton,
+} from "./custom/interaction-event-normalizer.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
@@ -140,8 +144,9 @@ async function handleInteractionCreate(params: {
 }): Promise<void> {
   const { event, account, cfg, log } = params;
   const token = await getAccessToken(account.appId, account.clientSecret);
+  const interaction = normalizeQQBotInteractionEvent(event);
 
-  if (event.data?.type === INTERACTION_TYPE_CONFIG_QUERY) {
+  if (interaction.dataType === INTERACTION_TYPE_CONFIG_QUERY) {
     // 从框架 configApi 读取最新配置（而非闭包中的旧 cfg），确保配置查询返回的数据与磁盘一致
     const runtime = getQQBotRuntime();
     const configApi = runtime.config as {
@@ -150,7 +155,7 @@ async function handleInteractionCreate(params: {
     };
     const latestCfg = configApi.loadConfig() as Record<string, unknown>;
 
-    const groupOpenid = event.group_openid ?? "";
+    const groupOpenid = interaction.groupOpenid ?? "";
     const groupCfg = groupOpenid ? resolveGroupConfig(latestCfg as any, groupOpenid, account.accountId) : null;
     const groupPolicy = resolveGroupPolicy(latestCfg as any, account.accountId);
     // require_mention 协议：字符串 "mention" | "always"（mention=@机器人时激活，always=总是激活）
@@ -201,11 +206,10 @@ async function handleInteractionCreate(params: {
 
     await acknowledgeInteraction(token, event.id, 0, { claw_cfg: clawCfg });
     log?.info(`[qqbot:${account.accountId}] Interaction ACK (type=${INTERACTION_TYPE_CONFIG_QUERY}) sent: ${event.id}, claw_cfg=${JSON.stringify(clawCfg)}`);
-  } else if (event.data?.type === INTERACTION_TYPE_CONFIG_UPDATE) {
+  } else if (interaction.dataType === INTERACTION_TYPE_CONFIG_UPDATE) {
     // type=2002: 配置更新交互，从 resolved.claw_cfg 获取更新信息并写入本地配置
-    const resolved = event.data.resolved;
-    const clawCfgUpdate = (resolved as Record<string, unknown>)?.claw_cfg as Record<string, unknown> | undefined;
-    const groupOpenid = event.group_openid ?? "";
+    const clawCfgUpdate = interaction.resolved?.claw_cfg as Record<string, unknown> | undefined;
+    const groupOpenid = interaction.groupOpenid ?? "";
 
     const runtime = getQQBotRuntime();
     const configApi = runtime.config as {
@@ -278,21 +282,15 @@ async function handleInteractionCreate(params: {
     // Inline Keyboard 审批按钮（type=1 Callback）
     // button_data 格式：approve:<approvalId>:<decision>
     // approvalId 可能是 "exec:uuid" / "plugin:uuid"（带前缀）或纯 "uuid"（无前缀）
-    const buttonData = event.data?.resolved?.button_data ?? "";
     const customInteraction: CustomInteractionGatewayResult = params.customAuth && params.customPolls && params.customGames && params.customDeployConfirmations ? handleCustomInteractionGatewayButton({
       cfg: cfg as any,
       accountId: account.accountId,
       runtime: { auth: params.customAuth, polls: params.customPolls, games: params.customGames, deployConfirmations: params.customDeployConfirmations },
-      buttonData,
+      buttonData: interaction.buttonData,
       actor: {
-        id: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
+        id: interaction.actorId,
       },
-      sourcePeer: resolveCustomInteractionSourcePeer({
-        groupOpenid: event.group_openid,
-        userOpenid: event.user_openid,
-        channelId: event.channel_id,
-        guildId: event.guild_id,
-      }),
+      sourcePeer: interaction.sourcePeer,
       now: Date.now(),
     }) : { handled: false };
     if (customInteraction.handled) {
@@ -316,12 +314,12 @@ async function handleInteractionCreate(params: {
       }
       if (customInteraction.reply) {
         try {
-          if (event.group_openid) {
-            await sendGroupMessage(token, event.group_openid, customInteraction.reply);
-          } else if (event.user_openid) {
-            await sendC2CMessage(token, event.user_openid, customInteraction.reply);
-          } else if (event.channel_id) {
-            await sendChannelMessage(token, event.channel_id, customInteraction.reply);
+          if (interaction.replyTarget?.kind === "group") {
+            await sendGroupMessage(token, interaction.replyTarget.groupOpenid, customInteraction.reply);
+          } else if (interaction.replyTarget?.kind === "c2c") {
+            await sendC2CMessage(token, interaction.replyTarget.userOpenid, customInteraction.reply);
+          } else if (interaction.replyTarget?.kind === "channel") {
+            await sendChannelMessage(token, interaction.replyTarget.channelId, customInteraction.reply);
           }
         } catch (sendErr) {
           log?.error(`[qqbot:${account.accountId}] Failed to send custom interaction reply: ${sendErr}`);
@@ -330,15 +328,12 @@ async function handleInteractionCreate(params: {
       return;
     }
 
-    const m = buttonData.match(/^approve:((?:(?:exec|plugin):)?[0-9a-f-]+):(allow-once|allow-always|deny)$/i);
-    if (m) {
-      const approvalId = m[1]!;
-      const decision = m[2] as "allow-once" | "allow-always" | "deny";
-      const userId = event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown";
-      log?.info(`[qqbot:${account.accountId}] Approval button clicked: approvalId=${approvalId}, decision=${decision}, user=${userId}, buttonData=${buttonData}`);
+    const legacyApproval = parseLegacyApprovalInteractionButton(interaction.buttonData);
+    if (legacyApproval) {
+      log?.info(`[qqbot:${account.accountId}] Approval button clicked: approvalId=${legacyApproval.approvalId}, decision=${legacyApproval.decision}, user=${interaction.actorId}, buttonData=${interaction.buttonData}`);
       const handler = getApprovalHandler(account.accountId);
       if (handler) {
-        void handler.resolveApproval(approvalId, decision);
+        void handler.resolveApproval(legacyApproval.approvalId, legacyApproval.decision);
       } else {
         log?.error(`[qqbot:${account.accountId}] Approval button: no handler found for accountId=${account.accountId}`);
       }
@@ -2771,9 +2766,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           }
         } else if (t === "INTERACTION_CREATE") {
           const ev = d as InteractionEvent;
-          const resolved = ev.data?.resolved;
-          const sceneDesc = ev.scene ?? (ev.chat_type === 0 ? "guild" : ev.chat_type === 1 ? "group" : "c2c");
-          log?.info(`[qqbot:${account.accountId}] Interaction: scene=${sceneDesc}, type=${ev.data?.type}, button_id=${resolved?.button_id}, button_data=${resolved?.button_data}`);
+          const normalizedInteraction = normalizeQQBotInteractionEvent(ev);
+          log?.info(`[qqbot:${account.accountId}] Interaction: scene=${normalizedInteraction.sceneDesc}, type=${normalizedInteraction.dataType}, button_id=${normalizedInteraction.buttonId}, button_data=${normalizedInteraction.buttonData}`);
           handleInteractionCreate({
             event: ev,
             account,

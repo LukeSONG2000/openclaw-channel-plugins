@@ -752,3 +752,10 @@ Added configured scene binding inspection:
 - The normalizer also emits known-user records, proactive receive/reject acceptance updates, and group robot add/remove log metadata without mutating stores or sending messages.
 - `gateway.ts` now applies normalized effects instead of hand-building every C2C/group/channel/DM queued message inline; message delete diagnostics and interaction handling remain separate for now.
 - Added `tests/custom-inbound-event-normalizer.test.ts` covering C2C quote refs, group mentions/openids, guild and DM routing fields, proactive acceptance timestamps, group add records, and unsupported events.
+
+抽出 QQ interaction/button 事件归一化：
+
+- Added `src/custom/interaction-event-normalizer.ts` to normalize `INTERACTION_CREATE` id/type/scene/button payload, actor id, callback source peer, and follow-up reply target.
+- The normalizer also parses legacy `approve:<id>:allow-once|allow-always|deny` payloads so gateway no longer owns button regex details.
+- `gateway.ts` now feeds custom auth/poll/game/deploy callbacks with normalized actor/source/button fields; config query/update ACK logic still owns the framework `claw_cfg` payload.
+- Added `tests/custom-interaction-event-normalizer.test.ts` covering group/C2C/channel/DM fallback source mapping, reply target mapping, and legacy approval payload parsing.
