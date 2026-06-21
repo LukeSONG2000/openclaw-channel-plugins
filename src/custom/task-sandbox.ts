@@ -20,6 +20,7 @@ export interface CustomCreateTaskParams {
   actor: CustomActor;
   prompt: string;
   title?: string;
+  config?: CustomTaskSandboxConfig;
   now?: number;
 }
 
@@ -43,8 +44,9 @@ export class CustomTaskSandboxRuntime {
   createTask(params: CustomCreateTaskParams): CustomTaskSandboxDecision {
     const prompt = params.prompt.trim();
     const now = params.now ?? Date.now();
+    const taskConfig = resolveTaskSandboxConfig(this.config, params.config);
     if (!prompt) return { allowed: false, reason: "empty_prompt" };
-    if (this.countActiveForPeer(params.accountId, params.peer) >= this.maxActiveTasksPerPeer()) {
+    if (this.countActiveForPeer(params.accountId, params.peer) >= maxActiveTasksPerPeer(taskConfig)) {
       return { allowed: false, reason: "too_many_active_tasks" };
     }
 
@@ -57,7 +59,7 @@ export class CustomTaskSandboxRuntime {
       title: params.title?.trim() || summarizeTitle(prompt),
       prompt,
       status: "queued",
-      workspace: this.workspaceFor(id),
+      workspace: workspaceFor(taskConfig, id),
       createdAt: now,
       updatedAt: now,
       requirements: [],
@@ -271,16 +273,6 @@ export class CustomTaskSandboxRuntime {
     return this.listTasks({ accountId, peer, status: "active", limit: Number.MAX_SAFE_INTEGER }).length;
   }
 
-  private maxActiveTasksPerPeer(): number {
-    const n = Number(this.config.maxActiveTasksPerPeer);
-    if (!Number.isFinite(n) || n < 1) return DEFAULT_MAX_ACTIVE_TASKS_PER_PEER;
-    return Math.floor(n);
-  }
-
-  private workspaceFor(taskId: string): string {
-    return path.join(this.config.workspaceRoot || DEFAULT_WORKSPACE_ROOT, taskId);
-  }
-
   private nextTaskId(accountId: string, peer: CustomPeer, now: number): string {
     const safeAccount = sanitizeTaskPart(accountId);
     const safePeer = sanitizeTaskPart(peer.id).slice(0, 16) || "peer";
@@ -295,8 +287,38 @@ export class CustomTaskSandboxRuntime {
   }
 }
 
+export function resolveTaskSandboxConfig(
+  base?: CustomTaskSandboxConfig,
+  override?: CustomTaskSandboxConfig,
+): Required<CustomTaskSandboxConfig> {
+  return {
+    workspaceRoot: normalizeWorkspaceRoot(override?.workspaceRoot) ?? normalizeWorkspaceRoot(base?.workspaceRoot) ?? DEFAULT_WORKSPACE_ROOT,
+    maxActiveTasksPerPeer: normalizeMaxActiveTasks(override?.maxActiveTasksPerPeer) ?? normalizeMaxActiveTasks(base?.maxActiveTasksPerPeer) ?? DEFAULT_MAX_ACTIVE_TASKS_PER_PEER,
+  };
+}
+
 function isActiveStatus(status: CustomTaskStatus): boolean {
   return status === "queued" || status === "running";
+}
+
+function maxActiveTasksPerPeer(config: CustomTaskSandboxConfig): number {
+  return normalizeMaxActiveTasks(config.maxActiveTasksPerPeer) ?? DEFAULT_MAX_ACTIVE_TASKS_PER_PEER;
+}
+
+function workspaceFor(config: CustomTaskSandboxConfig, taskId: string): string {
+  return path.join(normalizeWorkspaceRoot(config.workspaceRoot) ?? DEFAULT_WORKSPACE_ROOT, taskId);
+}
+
+function normalizeMaxActiveTasks(value: unknown): number | undefined {
+  const n = Number(value);
+  if (!Number.isFinite(n) || n < 1) return undefined;
+  return Math.floor(n);
+}
+
+function normalizeWorkspaceRoot(value: unknown): string | undefined {
+  if (typeof value !== "string") return undefined;
+  const trimmed = value.trim();
+  return trimmed || undefined;
 }
 
 function summarizeTitle(prompt: string): string {

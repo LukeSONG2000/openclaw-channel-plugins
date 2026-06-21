@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
+import { CustomTaskSandboxRuntime, resolveTaskSandboxConfig } from "../src/custom/task-sandbox.js";
 import type { CustomActor, CustomPeer } from "../src/custom/types.js";
 
 const peer: CustomPeer = { kind: "group", id: "GROUP_OPENID", label: "Master Luke" };
@@ -55,6 +55,48 @@ const overLimit = runtime.createTask({
 });
 assert.equal(overLimit.allowed, false);
 assert.equal(overLimit.reason, "too_many_active_tasks");
+
+assert.deepEqual(resolveTaskSandboxConfig({
+  workspaceRoot: "/tmp/base-tasks",
+  maxActiveTasksPerPeer: 5,
+}, {
+  workspaceRoot: " /tmp/scene-tasks ",
+  maxActiveTasksPerPeer: 1.8,
+}), {
+  workspaceRoot: "/tmp/scene-tasks",
+  maxActiveTasksPerPeer: 1,
+});
+
+const sceneLimited = new CustomTaskSandboxRuntime({
+  workspaceRoot: "/tmp/base-tasks",
+  maxActiveTasksPerPeer: 5,
+});
+const sceneTaskOne = sceneLimited.createTask({
+  accountId: "default",
+  peer,
+  actor,
+  prompt: "Scene specific task one",
+  config: {
+    workspaceRoot: "/tmp/scene-tasks",
+    maxActiveTasksPerPeer: 1,
+  },
+  now: 4_100,
+});
+assert.equal(sceneTaskOne.allowed, true);
+assert.equal(sceneTaskOne.task?.workspace, "/tmp/scene-tasks/qqbot-default-group-GROUP_OPENID-4100-1");
+const sceneTaskTwo = sceneLimited.createTask({
+  accountId: "default",
+  peer,
+  actor,
+  prompt: "Scene specific task two",
+  config: {
+    workspaceRoot: "/tmp/scene-tasks",
+    maxActiveTasksPerPeer: 1,
+  },
+  now: 4_200,
+});
+assert.equal(sceneTaskTwo.allowed, false);
+assert.equal(sceneTaskTwo.reason, "too_many_active_tasks");
 
 const otherPeerTask = runtime.createTask({
   accountId: "default",

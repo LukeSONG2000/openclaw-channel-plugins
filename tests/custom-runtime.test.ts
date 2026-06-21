@@ -11,7 +11,7 @@ import {
   resolveCustomRuntimeConfig,
   resolveCustomSceneConfig,
 } from "../src/custom/config.js";
-import { createCustomMessageFlowRuntime, inspectCustomRuntimeMessage, inspectCustomUnreadConfig } from "../src/custom/runtime.js";
+import { createCustomMessageFlowRuntime, inspectCustomRuntimeMessage, inspectCustomTaskSandboxConfig, inspectCustomUnreadConfig } from "../src/custom/runtime.js";
 import type { CustomActor, CustomPeer } from "../src/custom/types.js";
 
 const groupPeer: CustomPeer = { kind: "group", id: "GROUP_OPENID", label: "test-group" };
@@ -33,12 +33,20 @@ const cfg = {
             unread: {
               followupDelayMs: 5_000,
             },
+            tasks: {
+              workspaceRoot: "/tmp/dev-lab-tasks",
+              maxActiveTasksPerPeer: 1,
+            },
             capabilities: ["chat.send", "codex.run"],
           },
         },
         unread: {
           historyLimit: 20,
           sleepDelayMs: 60_000,
+        },
+        tasks: {
+          workspaceRoot: "/tmp/global-tasks",
+          maxActiveTasksPerPeer: 4,
         },
         fallbackAlerts: {
           threshold: 2,
@@ -171,6 +179,40 @@ const unreadCfg = inspectCustomUnreadConfig({
 assert.equal(unreadCfg.historyLimit, 20);
 assert.equal(unreadCfg.followupDelayMs, 5_000);
 assert.equal(unreadCfg.sleepDelayMs, 60_000);
+
+const taskCfg = inspectCustomTaskSandboxConfig({
+  cfg,
+  message: {
+    accountId: "default",
+    peer: groupPeer,
+    actor: user,
+    content: "task",
+    messageId: "msg-task",
+    timestamp: Date.now(),
+    mentionedBot: true,
+  },
+});
+assert.deepEqual(taskCfg, {
+  workspaceRoot: "/tmp/dev-lab-tasks",
+  maxActiveTasksPerPeer: 1,
+});
+
+const defaultDmTaskCfg = inspectCustomTaskSandboxConfig({
+  cfg,
+  message: {
+    accountId: "default",
+    peer: { kind: "c2c", id: "USER_OPENID" },
+    actor: user,
+    content: "task",
+    messageId: "msg-task-dm",
+    timestamp: Date.now(),
+    mentionedBot: false,
+  },
+});
+assert.deepEqual(defaultDmTaskCfg, {
+  workspaceRoot: "/tmp/global-tasks",
+  maxActiveTasksPerPeer: 4,
+});
 
 const flowRuntime = createCustomMessageFlowRuntime();
 assert.equal(flowRuntime.unread.getPendingCount(groupPeer.id), 0);

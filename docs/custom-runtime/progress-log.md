@@ -557,3 +557,11 @@ Added configured scene binding inspection:
 - `/bot-task add` / `/bot-task cancel` 在进入 task-scoped auth 之前先检查同一 account/peer 边界；跨会话普通成员不会触发授权申请，也不会把任务 id、能力或 owner 信息推给管理群。
 - 同会话非 owner 成员仍不能直接改任务，保持通过 task-scoped `codex.longTask` 临时授权申请的路径。
 - 新增 `tests/custom-task-access.test.ts`，并扩展 task auth/slash gateway 测试覆盖跨会话 mutation 拦截。
+
+加入场景级长任务沙盒配置：
+
+- `CustomSceneConfig` 支持 `tasks` 字段，和全局 `customRuntime.tasks` 使用同一组轻量配置：`workspaceRoot` 与 `maxActiveTasksPerPeer`。
+- 新增 `resolveTaskSandboxConfig()` / `inspectCustomTaskSandboxConfig()`，按“全局默认 + 当前场景覆盖”解析长任务沙盒策略。
+- `/bot-task create` 现在根据当前 peer 的 scene 传入沙盒配置，因此不同群聊/单聊可以落到不同工作区，并拥有不同活跃任务上限。
+- 这个改动不重建 per-account runtime，也不把 OpenClaw 子 agent 细节塞进 gateway；真实 subagent/job executor 仍通过现有 `CustomTaskExecutor` 边界后续接入。
+- 扩展 task sandbox、custom runtime、custom slash gateway 测试，覆盖场景工作区覆盖和场景活跃任务上限。

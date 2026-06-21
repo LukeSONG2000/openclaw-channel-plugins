@@ -11,6 +11,7 @@ import {
   firstCustomAuthApprovalRequest,
   formatCustomAuthorizationDeniedMessage,
   handleCustomAuthCommand,
+  toCustomPeerFromQueuedMessage,
 } from "./auth-gateway-adapter.js";
 import { handleCustomFallbackCommand } from "./fallback-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
@@ -29,6 +30,8 @@ import {
   type CustomTaskNotificationDelivery,
 } from "./task-notification-gateway-adapter.js";
 import type { CustomSceneConfig } from "./types.js";
+import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
+import { resolveTaskSandboxConfig } from "./task-sandbox.js";
 
 export type CustomSlashGatewayReply =
   | { kind: "text"; text: string }
@@ -286,6 +289,10 @@ export function handleCustomSlashGatewayCommand(params: {
     tasks: params.runtime.tasks,
     message: params.message,
     rawContent: params.rawContent,
+    taskConfig: resolveTaskSandboxConfig(
+      resolveCustomRuntimeConfig(params.cfg).tasks,
+      resolveCustomSceneConfig(params.cfg, toCustomPeerFromQueuedMessage(params.message)).tasks,
+    ),
     now: params.now,
   });
   if (customTaskCommand.handled) {

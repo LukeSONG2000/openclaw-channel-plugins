@@ -2,6 +2,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import type { CustomSandboxTask, CustomTaskIntent, CustomTaskRequirement, CustomTaskSandboxRuntimeState } from "./types.js";
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
+import type { CustomTaskSandboxConfig } from "./task-sandbox.js";
 import { evaluateCustomTaskPeerAccess, formatCustomTaskOutOfScope } from "./task-access.js";
 
 export type CustomTaskCommand =
@@ -66,6 +67,7 @@ export function handleCustomTaskCommand(params: {
   tasks: CustomTaskSandboxRuntime;
   message: QueuedMessage;
   rawContent: string;
+  taskConfig?: CustomTaskSandboxConfig;
   now?: number;
 }): CustomTaskCommandResult {
   const parsed = parseCustomTaskCommand(params.rawContent);
@@ -82,6 +84,7 @@ export function handleCustomTaskCommand(params: {
       peer,
       actor,
       prompt: command.prompt,
+      config: params.taskConfig,
       now: params.now,
     });
     if (!result.allowed || !result.task) {

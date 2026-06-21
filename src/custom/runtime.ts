@@ -4,6 +4,7 @@ import { CustomAuthorizationRuntime, evaluateCustomAuthorization } from "./auth.
 import { CustomUnreadRuntime, resolveCustomUnreadConfig, type ResolvedCustomUnreadConfig } from "./unread-runtime.js";
 import { CustomProactiveBudgetRuntime, resolveCustomProactiveConfig, type ResolvedCustomProactiveConfig } from "./proactive-budget.js";
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
+import { resolveTaskSandboxConfig, type CustomTaskSandboxConfig } from "./task-sandbox.js";
 import { CustomPollRuntime } from "./poll.js";
 import type { CustomAuthorizationDecision, CustomCapability, CustomInboundMessage, CustomSceneConfig } from "./types.js";
 import { buildCustomSceneSystemPrompt, type ResolvedCustomScene } from "./scenes.js";
@@ -81,6 +82,15 @@ export function inspectCustomProactiveConfig(params: {
   return resolveCustomProactiveConfig({ runtime, scene });
 }
 
+export function inspectCustomTaskSandboxConfig(params: {
+  cfg: OpenClawConfig;
+  message: CustomInboundMessage;
+}): Required<CustomTaskSandboxConfig> {
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
+  return resolveTaskSandboxConfig(runtime.tasks, scene.tasks);
+}
+
 export {
   CustomAuthorizationRuntime,
   defaultSceneCapabilities,
@@ -100,7 +110,7 @@ export {
   CustomProactiveBudgetRuntime,
   resolveCustomProactiveConfig,
 } from "./proactive-budget.js";
-export { CustomTaskSandboxRuntime } from "./task-sandbox.js";
+export { CustomTaskSandboxRuntime, resolveTaskSandboxConfig } from "./task-sandbox.js";
 export { CustomPollRuntime } from "./poll.js";
 export type { CustomAuthorizationCheckResult } from "./auth.js";
 export type { CustomSceneProfile, ResolvedCustomScene } from "./scenes.js";

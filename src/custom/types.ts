@@ -65,6 +65,7 @@ export interface CustomSceneConfig {
   allowProactiveSend?: boolean;
   unread?: CustomUnreadConfig;
   proactive?: CustomProactiveConfig;
+  tasks?: CustomTaskRuntimeConfig;
   capabilities?: CustomCapability[];
 }
 
@@ -103,6 +104,8 @@ export interface CustomProactiveConfig {
 }
 
 export interface CustomTaskRuntimeConfig {
+  workspaceRoot?: string;
+  maxActiveTasksPerPeer?: number;
   commandExecutor?: CustomTaskCommandExecutorConfig;
 }
 

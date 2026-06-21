@@ -20,10 +20,18 @@ const cfg = {
         enabled: true,
         admins: ["ADMIN_OPENID"],
         adminGroup: "GROUP_OPENID",
+        tasks: {
+          workspaceRoot: "/tmp/global-slash-tasks",
+          maxActiveTasksPerPeer: 4,
+        },
         scenes: {
           "qqbot:group:GROUP_OPENID": {
             scene: "chat",
             capabilities: ["chat.send", "system.status", "codex.longTask", "game.interact", "config.write"],
+            tasks: {
+              workspaceRoot: "/tmp/group-slash-tasks",
+              maxActiveTasksPerPeer: 1,
+            },
           },
         },
       },
@@ -116,6 +124,20 @@ assert.equal(task.persist?.tasks, true);
 assert.equal(task.reply?.kind, "text");
 assert.equal(task.reply?.kind === "text" && task.reply.text.includes("长任务已创建"), true);
 assert.equal(Object.keys(taskRuntime.tasks.getState().tasks)[0], "qqbot-default-group-GROUP_OPENID-3000-1");
+assert.equal(taskRuntime.tasks.getTask("qqbot-default-group-GROUP_OPENID-3000-1")?.workspace, "/tmp/group-slash-tasks/qqbot-default-group-GROUP_OPENID-3000-1");
+
+const taskOverSceneLimit = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...baseMessage, content: "/bot-task create second scene task" },
+  rawContent: "/bot-task create second scene task",
+  now: 3_100,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(taskOverSceneLimit.handled, true);
+assert.equal(taskOverSceneLimit.persist?.tasks, undefined);
+assert.equal(taskOverSceneLimit.reply?.kind === "text" && taskOverSceneLimit.reply.text.includes("活跃长任务过多"), true);
 
 const taskId = Object.keys(taskRuntime.tasks.getState().tasks)[0]!;
 const cancelTask = handleCustomSlashGatewayCommand({

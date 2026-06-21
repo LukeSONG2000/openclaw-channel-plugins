@@ -157,7 +157,6 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 Open items:
 
 - Scene `agentId` overrides OpenClaw route selection after the base route resolves; the custom layer rebuilds `sessionKey` with the framework routing helper so agent binding and session storage stay aligned.
-- Per-scene workspace/sandbox routing for `codex.longTask` is still pending.
 
 ### `src/custom/proactive-budget.ts`
 
@@ -575,6 +574,9 @@ Current implementation status:
 - Emits task intents for start requests, requirement additions, cancellation requests, and status updates so a future executor can be plugged in without changing command parsing.
 - Defaults to at most 3 active tasks per account/peer.
 - Default workspace root is `~/.openclaw/qqbot/tasks`.
+- `channels.qqbot.customRuntime.tasks` can override the global task workspace root and max active tasks per peer.
+- Each scene binding can also set `tasks.workspaceRoot` and `tasks.maxActiveTasksPerPeer`; scene values override global values when `/bot-task create` runs in that peer.
+- `inspectCustomTaskSandboxConfig()` exposes the resolved task sandbox config for a message, and `/bot-task create` passes it into `CustomTaskSandboxRuntime.createTask()` without rebuilding the per-account runtime.
 - Task ids use `qqbot-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
 - Supports create, list, status, add requirement, cancel, start, heartbeat, complete, and fail operations.
 - Exports/imports `CustomTaskSandboxRuntimeState` so the gateway can restore task metadata after restart.
@@ -650,6 +652,8 @@ Example command executor config:
     "qqbot": {
       "customRuntime": {
         "tasks": {
+          "workspaceRoot": "~/.openclaw/qqbot/tasks",
+          "maxActiveTasksPerPeer": 3,
           "commandExecutor": {
             "enabled": false,
             "command": "/usr/local/bin/custom-task-runner",
@@ -657,6 +661,15 @@ Example command executor config:
             "timeoutMs": 1800000,
             "maxOutputChars": 6000,
             "notifyAudiences": ["peer"]
+          }
+        },
+        "scenes": {
+          "qqbot:group:DEV_GROUP_OPENID": {
+            "scene": "dev-lab",
+            "tasks": {
+              "workspaceRoot": "~/.openclaw/qqbot/tasks/dev-lab",
+              "maxActiveTasksPerPeer": 1
+            }
           }
         }
       }
