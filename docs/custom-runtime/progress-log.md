@@ -643,3 +643,11 @@ Added configured scene binding inspection:
 - `src/custom/interaction-gateway-adapter.ts` now stays as a thin gateway boundary: normalize QQ source fields, call the router, and return typed reply/persist/log effects.
 - Auth, poll, and game callback payloads still behave the same, but future deploy confirmation cards or richer game callbacks can be added as routes without widening `gateway.ts`.
 - Added `tests/custom-interaction-router.test.ts` for default route order, unknown payload fallback, custom route injection, and first-handled short circuit behavior.
+
+抽出自定义 slash 命令路由表：
+
+- Added `src/custom/slash-router.ts` as the ordered route table for scene/fallback/queue/unread/task/poll/game commands.
+- `src/custom/slash-gateway-adapter.ts` now focuses on `/bot-auth`, task-scoped auth, general slash auth, and merging typed effects returned by the router.
+- Task workspace effects, task notification deliveries, scene config persistence intents, and poll/game persistence flags are now produced from the route layer after authorization has passed.
+- Future custom slash commands can be added as routes without widening `gateway.ts` or the authorization gate.
+- Added `tests/custom-slash-router.test.ts` for default route order, unknown command fallback, custom route injection, first-handled short circuit behavior, and a real `/bot-game guess` route.

@@ -66,7 +66,8 @@ Out of scope for the first custom runtime:
 - `src/custom/slash-reply-target.ts`: pure slash reply target resolution for C2C/group/guild-channel/channel-DM text replies.
 - `src/custom/urgent-commands.ts`: pure queue-bypass command policy for `/stop`, `/approve`, `/new`, and `/compact`.
 - `src/custom/scene-gateway-adapter.ts`: `/bot-scene` status/profile-list/binding-list/bind command adapter with gateway-owned config persistence.
-- `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash orchestration for auth, scene, task, poll, and game commands.
+- `src/custom/slash-gateway-adapter.ts`: gateway-facing custom slash auth gate and typed effect merge layer.
+- `src/custom/slash-router.ts`: pluggable custom slash route table for scene, fallback, queue, unread, task, poll, and game commands.
 - `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and future confirmation cards.
 - `src/custom/game.ts`: pure lightweight game runtime for interactive cards.
 - `src/custom/game-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-games`.

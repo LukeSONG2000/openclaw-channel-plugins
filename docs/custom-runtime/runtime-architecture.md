@@ -360,26 +360,47 @@ Still open:
 
 ### `src/custom/slash-gateway-adapter.ts`
 
-Gateway-side custom slash command orchestration layer.
+Gateway-side custom slash auth gate and effect merge layer.
 
 Current implementation status:
 
 - Runs before official plugin slash command matching.
-- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, `/bot-poll`, and `/bot-game` through one adapter entry point.
+- Handles `/bot-auth` directly because it mutates authorization state and must bypass the normal slash route table.
+- Applies task-scoped authorization before `/bot-task add` / `/bot-task cancel` can mutate task state.
+- Applies custom slash authorization for plugin-level and custom commands.
+- Delegates authorized custom runtime commands to `src/custom/slash-router.ts`.
+- Merges auth-stage and route-stage typed effects before returning to `gateway.ts`.
+- Leaves `gateway.ts` responsible for platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
+
+### `src/custom/slash-router.ts`
+
+Pluggable custom slash command route table.
+
+Current implementation status:
+
+- Owns the ordered custom route list:
+  - scene
+  - fallback
+  - queue
+  - unread
+  - task
+  - poll
+  - game
+- Routes `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, `/bot-poll`, and `/bot-game` after the auth gate has allowed the command.
 - Returns typed side-effect descriptions instead of sending QQ messages directly:
   - text reply
   - keyboard reply
-  - auth approval card with denial fallback
   - state areas that need persistence
+  - task notification deliveries
   - info/error log lines
 - Applies task workspace file effects for task create/add/cancel while keeping QQ send APIs out of the custom command decision layer.
 - Returns exact scene config persistence intents for `/bot-scene set`, leaving disk writes to the gateway.
-- Leaves `gateway.ts` responsible for platform sends, token lookup, fallback text sends, and normal OpenClaw slash command matching.
+- Allows future custom commands to be added as routes without widening the auth gate or `gateway.ts`.
 
 Important boundary:
 
 - This is not a full command framework replacement.
-- Official/plugin slash commands still live in `src/slash-commands.ts`; the custom adapter only handles custom runtime gates and commands that need live per-account runtime state.
+- Official/plugin slash commands still live in `src/slash-commands.ts`; this router only handles custom runtime commands that need live per-account runtime state.
 
 ### `src/custom/slash-reply-target.ts`
 
