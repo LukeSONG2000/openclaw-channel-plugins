@@ -179,6 +179,12 @@ Current implementation status:
 - Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.
 - The same guard now covers media tag queues, Base64 image sends, local/payload media auto-routing, and tool fallback/immediate media forwarding.
 - `src/reply-dispatcher.ts` exposes a small `prepareUnanchoredTextSend` hook. Gateway reply helpers use it for C2C/group text sends with no real `messageId`, covering error fallbacks, structured-payload captions, admin-group auth notifications, and long-task notifications without importing custom runtime internals into the dispatcher.
+- `src/outbound.ts` and `src/proactive.ts` expose optional guard hooks for legacy/framework proactive APIs. These paths are not allowed to reach into custom runtime state directly, but callers that reuse them for custom message-flow work can now inject the same budget/acceptance guard and commit only after successful sends.
+- Current send-surface policy:
+  - `src/outbound-deliver.ts`: custom runtime gateway delivery, guard injected by gateway.
+  - `src/reply-dispatcher.ts`: gateway reply helper, guard injected by gateway for unanchored C2C/group text.
+  - `src/outbound.ts`: framework outbound/cron helper, optional `prepareUnanchoredSend`.
+  - `src/proactive.ts`: legacy proactive helper, optional `prepareUnanchoredSend`.
 
 Example:
 

@@ -230,7 +230,7 @@ Current send matrix:
 | Video | `sendC2CVideoMessage` | `sendGroupVideoMessage` | not the current focus | not audited | Uses media upload |
 | File | `sendC2CFileMessage` | `sendGroupFileMessage` | not the current focus | not audited | Chunked upload helpers exist for larger C2C/group files |
 | Typing indicator | `sendC2CInputNotify` | no local wrapper | no local wrapper | no local wrapper | C2C only in current code |
-| Proactive text | `sendProactiveC2CMessage` | `sendProactiveGroupMessage` | no local proactive helper | no local proactive helper | Must pass custom proactive budget/acceptance policy before use |
+| Proactive text | `sendProactiveC2CMessage` | `sendProactiveGroupMessage` | no local proactive helper | no local proactive helper | Custom gateway paths must pass proactive budget/acceptance policy; legacy `outbound.ts`/`proactive.ts` APIs expose optional guard hooks for callers |
 | Streaming text | `sendC2CStreamMessage` | no local stream wrapper | no local stream wrapper | no local stream wrapper | Current streaming support is C2C-only |
 
 Current local gap:

@@ -65,6 +65,28 @@ import {
 } from "./api.js";
 import { resolveQQBotAccount } from "./config.js";
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type {
+  CustomProactiveSendGuard,
+  CustomProactiveSendGuardDecision,
+} from "./custom/proactive-send-guard.js";
+
+function prepareProactiveModuleSend(params: {
+  guard?: CustomProactiveSendGuard;
+  type: "c2c" | "group" | "channel";
+  to: string;
+  text: string;
+  kind?: "text" | "image";
+  mediaUrl?: string;
+}): CustomProactiveSendGuardDecision {
+  if (!params.guard || (params.type !== "c2c" && params.type !== "group")) return { allowed: true };
+  return params.guard({
+    targetType: params.type,
+    targetId: params.to,
+    text: params.text,
+    kind: params.kind ?? "text",
+    mediaUrl: params.mediaUrl,
+  });
+}
 
 // ============ 用户存储管理 ============
 
@@ -299,7 +321,8 @@ export function clearKnownUsers(accountId?: string): number {
  */
 export async function sendProactive(
   options: ProactiveSendOptions,
-  cfg: OpenClawConfig
+  cfg: OpenClawConfig,
+  guardOptions?: { prepareUnanchoredSend?: CustomProactiveSendGuard },
 ): Promise<ProactiveSendResult> {
   const { to, text, type = "c2c", imageUrl, accountId = "default" } = options;
   
@@ -319,11 +342,23 @@ export async function sendProactive(
     // 如果有图片，先发送图片
     if (imageUrl) {
       try {
+        const imageDecision = prepareProactiveModuleSend({
+          guard: guardOptions?.prepareUnanchoredSend,
+          type,
+          to,
+          text: `[image] ${imageUrl}`,
+          kind: "image",
+          mediaUrl: imageUrl,
+        });
+        if (!imageDecision.allowed) {
+          return { success: false, error: imageDecision.reason };
+        }
         if (type === "c2c") {
           await sendC2CImageMessage(accessToken, to, imageUrl, undefined, undefined);
         } else if (type === "group") {
           await sendGroupImageMessage(accessToken, to, imageUrl, undefined, undefined);
         }
+        imageDecision.commit?.();
         console.log(`[qqbot:proactive] Sent image to ${type}:${to}`);
       } catch (err) {
         console.error(`[qqbot:proactive] Failed to send image: ${err}`);
@@ -333,6 +368,15 @@ export async function sendProactive(
     
     // 发送文本消息
     let result: { id: string; timestamp: number | string };
+    const textDecision = prepareProactiveModuleSend({
+      guard: guardOptions?.prepareUnanchoredSend,
+      type,
+      to,
+      text,
+    });
+    if (!textDecision.allowed) {
+      return { success: false, error: textDecision.reason };
+    }
     
     if (type === "c2c") {
       result = await sendProactiveC2CMessage(accessToken, to, text);
@@ -350,6 +394,7 @@ export async function sendProactive(
         error: `Unknown message type: ${type}`,
       };
     }
+    textDecision.commit?.();
     
     console.log(`[qqbot:proactive] Sent message to ${type}:${to}, id: ${result.id}`);
     
@@ -384,12 +429,13 @@ export async function sendBulkProactiveMessage(
   text: string,
   type: "c2c" | "group",
   cfg: OpenClawConfig,
-  accountId = "default"
+  accountId = "default",
+  guardOptions?: { prepareUnanchoredSend?: CustomProactiveSendGuard },
 ): Promise<Array<{ to: string; result: ProactiveSendResult }>> {
   const results: Array<{ to: string; result: ProactiveSendResult }> = [];
   
   for (const to of recipients) {
-    const result = await sendProactive({ to, text, type, accountId }, cfg);
+    const result = await sendProactive({ to, text, type, accountId }, cfg, guardOptions);
     results.push({ to, result });
     
     // 添加延迟，避免频率限制
@@ -414,7 +460,8 @@ export async function broadcastMessage(
     type?: "c2c" | "group";
     accountId?: string;
     limit?: number;
-  }
+  },
+  guardOptions?: { prepareUnanchoredSend?: CustomProactiveSendGuard },
 ): Promise<{
   total: number;
   success: number;
@@ -441,7 +488,7 @@ export async function broadcastMessage(
       text,
       type: user.type as "c2c" | "group",
       accountId: user.accountId,
-    }, cfg);
+    }, cfg, guardOptions);
     
     results.push({ to: user.openid, result });
     
@@ -477,7 +524,8 @@ export async function sendProactiveMessageDirect(
   account: ResolvedQQBotAccount,
   to: string,
   text: string,
-  type: "c2c" | "group" = "c2c"
+  type: "c2c" | "group" = "c2c",
+  guardOptions?: { prepareUnanchoredSend?: CustomProactiveSendGuard },
 ): Promise<ProactiveSendResult> {
   if (!account.appId || !account.clientSecret) {
     return {
@@ -490,12 +538,22 @@ export async function sendProactiveMessageDirect(
     const accessToken = await getAccessToken(account.appId, account.clientSecret);
     
     let result: { id: string; timestamp: number | string };
+    const textDecision = prepareProactiveModuleSend({
+      guard: guardOptions?.prepareUnanchoredSend,
+      type,
+      to,
+      text,
+    });
+    if (!textDecision.allowed) {
+      return { success: false, error: textDecision.reason };
+    }
     
     if (type === "c2c") {
       result = await sendProactiveC2CMessage(accessToken, to, text);
     } else {
       result = await sendProactiveGroupMessage(accessToken, to, text);
     }
+    textDecision.commit?.();
     
     return {
       success: true,

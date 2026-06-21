@@ -25,6 +25,11 @@ import { chunkedUploadC2C, chunkedUploadGroup, UploadDailyLimitExceededError } f
 import { isLocalPath as isLocalFilePath, normalizePath, getQQBotMediaDir } from "./utils/platform.js";
 import { downloadFile } from "./image-server.js";
 import { parseMediaTagsToSendQueue, executeSendQueue, type MediaSendContext } from "./utils/media-send.js";
+import type {
+  CustomProactiveSendGuard,
+  CustomProactiveSendGuardDecision,
+  CustomProactiveSendPayloadKind,
+} from "./custom/proactive-send-guard.js";
 
 // ============ 消息回复限流器 ============
 // 同一 message_id 1小时内最多回复 4 次，超过 1 小时无法被动回复（需改为主动消息）
@@ -159,6 +164,7 @@ export interface OutboundContext {
   accountId?: string | null;
   replyToId?: string | null;
   account: ResolvedQQBotAccount;
+  prepareUnanchoredSend?: CustomProactiveSendGuard;
 }
 
 export interface MediaOutboundContext extends OutboundContext {
@@ -187,6 +193,32 @@ export interface OutboundResult {
   qqBizCode?: number;
   /** 出站消息的引用索引（ext_info.ref_idx），供引用消息缓存使用 */
   refIdx?: string;
+}
+
+type ParsedOutboundTarget = { type: "c2c" | "group" | "channel"; id: string };
+
+function prepareUnanchoredOutboundSend(
+  ctx: Pick<OutboundContext, "replyToId" | "prepareUnanchoredSend">,
+  target: ParsedOutboundTarget,
+  payload: {
+    text: string;
+    kind?: CustomProactiveSendPayloadKind;
+    mediaUrl?: string;
+  },
+): CustomProactiveSendGuardDecision {
+  if (ctx.replyToId || !ctx.prepareUnanchoredSend) return { allowed: true };
+  if (target.type !== "c2c" && target.type !== "group") return { allowed: true };
+  return ctx.prepareUnanchoredSend({
+    targetType: target.type,
+    targetId: target.id,
+    text: payload.text,
+    kind: payload.kind ?? "text",
+    mediaUrl: payload.mediaUrl,
+  });
+}
+
+function proactiveBlockedResult(decision: Extract<CustomProactiveSendGuardDecision, { allowed: false }>): OutboundResult {
+  return { channel: "qqbot", error: decision.reason };
 }
 
 /**
@@ -285,10 +317,16 @@ export interface MediaTargetContext {
   replyToId?: string;
   /** 日志前缀（可选，用于区分调用来源） */
   logPrefix?: string;
+  prepareUnanchoredSend?: CustomProactiveSendGuard;
 }
 
 /** 从 OutboundContext 构建 MediaTargetContext */
-function buildMediaTarget(ctx: { to: string; account: ResolvedQQBotAccount; replyToId?: string | null }, logPrefix?: string): MediaTargetContext {
+function buildMediaTarget(ctx: {
+  to: string;
+  account: ResolvedQQBotAccount;
+  replyToId?: string | null;
+  prepareUnanchoredSend?: CustomProactiveSendGuard;
+}, logPrefix?: string): MediaTargetContext {
   const target = parseTarget(ctx.to);
   return {
     targetType: target.type,
@@ -296,7 +334,29 @@ function buildMediaTarget(ctx: { to: string; account: ResolvedQQBotAccount; repl
     account: ctx.account,
     replyToId: ctx.replyToId ?? undefined,
     logPrefix,
+    prepareUnanchoredSend: ctx.prepareUnanchoredSend,
   };
+}
+
+function prepareUnanchoredMediaSend(ctx: MediaTargetContext, kind: Exclude<CustomProactiveSendPayloadKind, "text">, mediaUrl: string): CustomProactiveSendGuardDecision {
+  return prepareUnanchoredOutboundSend(ctx, { type: ctx.targetType, id: ctx.targetId }, {
+    kind,
+    mediaUrl,
+    text: `[${kind}] ${mediaUrl}`,
+  });
+}
+
+async function sendPreparedMedia(
+  ctx: MediaTargetContext,
+  kind: Exclude<CustomProactiveSendPayloadKind, "text">,
+  mediaUrl: string,
+  send: () => Promise<OutboundResult>,
+): Promise<OutboundResult> {
+  const decision = prepareUnanchoredMediaSend(ctx, kind, mediaUrl);
+  if (!decision.allowed) return proactiveBlockedResult(decision);
+  const result = await send();
+  if (!result.error) decision.commit?.();
+  return result;
 }
 
 /** 获取已认证的 access token，失败时抛出异常 */
@@ -713,6 +773,11 @@ async function sendFallbackLink(
   try {
     const token = await getToken(ctx.account);
     const fallbackText = `📎 ${httpUrl}`;
+    const proactiveDecision = prepareUnanchoredOutboundSend(ctx, { type: ctx.targetType, id: ctx.targetId }, {
+      text: fallbackText,
+      kind: "text",
+    });
+    if (!proactiveDecision.allowed) return proactiveBlockedResult(proactiveDecision);
 
     let r: { id?: string; timestamp?: string | number };
     if (ctx.targetType === "c2c") {
@@ -722,6 +787,7 @@ async function sendFallbackLink(
     } else {
       r = await sendChannelMessage(token, ctx.targetId, fallbackText, ctx.replyToId);
     }
+    proactiveDecision.commit?.();
     // 链接已成功发给用户 → 视为兜底成功，不设 error，
     // 上层不会再发额外的错误文案
     console.log(`${prefix} ${caller}: fallback link sent successfully`);
@@ -789,7 +855,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
     console.log(`[qqbot] sendText: Send queue: ${sendQueue.map(item => item.type).join(" -> ")}`);
     
     // 构建统一的媒体发送上下文
-    const mediaTarget = buildMediaTarget({ to, account, replyToId }, "[qqbot:sendText]");
+    const mediaTarget = buildMediaTarget({ to, account, replyToId, prepareUnanchoredSend: ctx.prepareUnanchoredSend }, "[qqbot:sendText]");
     const mediaSendCtx: MediaSendContext = {
       mediaTarget,
       qualifiedTarget: to,
@@ -827,6 +893,11 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
         } else {
           const accessToken = await getToken(account);
           const target = parseTarget(to);
+          const proactiveDecision = prepareUnanchoredOutboundSend({ ...ctx, replyToId }, target, { text: textContent });
+          if (!proactiveDecision.allowed) {
+            lastResult = proactiveBlockedResult(proactiveDecision);
+            return;
+          }
           if (target.type === "c2c") {
             const result = await sendProactiveC2CMessage(accessToken, target.id, textContent);
             lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp, refIdx: (result as any).ext_info?.ref_idx };
@@ -837,6 +908,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
             const result = await sendChannelMessage(accessToken, target.id, textContent);
             lastResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp, refIdx: (result as any).ext_info?.ref_idx };
           }
+          proactiveDecision.commit?.();
         }
         console.log(`[qqbot] sendText: Sent text part: ${textContent.slice(0, 30)}...`);
       },
@@ -874,6 +946,8 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
     // 如果没有 replyToId，使用主动发送接口
     if (!replyToId) {
       let outResult: OutboundResult;
+      const proactiveDecision = prepareUnanchoredOutboundSend({ ...ctx, replyToId }, target, { text });
+      if (!proactiveDecision.allowed) return proactiveBlockedResult(proactiveDecision);
       if (target.type === "c2c") {
         const result = await sendProactiveC2CMessage(accessToken, target.id, text);
         outResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp, refIdx: (result as any).ext_info?.ref_idx };
@@ -885,6 +959,7 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
         const result = await sendChannelMessage(accessToken, target.id, text);
         outResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp, refIdx: (result as any).ext_info?.ref_idx };
       }
+      proactiveDecision.commit?.();
       return outResult;
     }
 
@@ -921,7 +996,8 @@ export async function sendText(ctx: OutboundContext): Promise<OutboundResult> {
 export async function sendProactiveMessage(
   account: ResolvedQQBotAccount,
   to: string,
-  text: string
+  text: string,
+  options?: { prepareUnanchoredSend?: CustomProactiveSendGuard },
 ): Promise<OutboundResult> {
   const timestamp = new Date().toISOString();
   
@@ -940,6 +1016,11 @@ export async function sendProactiveMessage(
     console.log(`[${timestamp}] [qqbot] sendProactiveMessage: parsing target=${to}`);
     const target = parseTarget(to);
     console.log(`[${timestamp}] [qqbot] sendProactiveMessage: target parsed, type=${target.type}, id=${target.id}`);
+    const proactiveDecision = prepareUnanchoredOutboundSend({
+      replyToId: null,
+      prepareUnanchoredSend: options?.prepareUnanchoredSend,
+    }, target, { text });
+    if (!proactiveDecision.allowed) return proactiveBlockedResult(proactiveDecision);
 
     let outResult: OutboundResult;
     if (target.type === "c2c") {
@@ -959,6 +1040,7 @@ export async function sendProactiveMessage(
       console.log(`[${timestamp}] [qqbot] sendProactiveMessage: channel message sent successfully, messageId=${result.id}`);
       outResult = { channel: "qqbot", messageId: result.id, timestamp: result.timestamp, refIdx: (result as any).ext_info?.ref_idx };
     }
+    proactiveDecision.commit?.();
     return outResult;
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
@@ -1020,14 +1102,14 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
     return { channel: "qqbot", error: "mediaUrl is required for sendMedia" };
   }
 
-  const target = buildMediaTarget({ to, account, replyToId }, "[qqbot:sendMedia]");
+  const target = buildMediaTarget({ to, account, replyToId, prepareUnanchoredSend: ctx.prepareUnanchoredSend }, "[qqbot:sendMedia]");
 
   // 按类型分发（MIME 优先，扩展名回退）
   // 各 send* 函数内部已自带 URL 直传/下载策略（受 urlDirectUpload 开关控制）
   if (isAudioFile(mediaUrl, mimeType)) {
     const formats = account.config?.audioFormatPolicy?.uploadDirectFormats ?? account.config?.voiceDirectUploadFormats;
     const transcodeEnabled = account.config?.audioFormatPolicy?.transcodeEnabled !== false;
-    const result = await sendVoice(target, mediaUrl, formats, transcodeEnabled);
+    const result = await sendPreparedMedia(target, "voice", mediaUrl, () => sendVoice(target, mediaUrl, formats, transcodeEnabled));
     if (!result.error) {
       if (text?.trim()) await sendTextAfterMedia(target, text);
       return result;
@@ -1035,7 +1117,7 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
     // 语音发送失败 fallback 到文件发送（保留错误链）
     const voiceError = result.error;
     console.warn(`[qqbot] sendMedia: sendVoice failed (${voiceError}), falling back to sendDocument`);
-    const fallback = await sendDocument(target, mediaUrl);
+    const fallback = await sendPreparedMedia(target, "file", mediaUrl, () => sendDocument(target, mediaUrl));
     if (!fallback.error) {
       if (text?.trim()) await sendTextAfterMedia(target, text);
       return fallback;
@@ -1044,20 +1126,20 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
   }
 
   if (isVideoFile(mediaUrl, mimeType)) {
-    const result = await sendVideoMsg(target, mediaUrl);
+    const result = await sendPreparedMedia(target, "video", mediaUrl, () => sendVideoMsg(target, mediaUrl));
     if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
     return result;
   }
 
   // 非图片、非音频、非视频 → 文件发送
   if (!isImageFile(mediaUrl, mimeType) && !isAudioFile(mediaUrl, mimeType) && !isVideoFile(mediaUrl, mimeType)) {
-    const result = await sendDocument(target, mediaUrl);
+    const result = await sendPreparedMedia(target, "file", mediaUrl, () => sendDocument(target, mediaUrl));
     if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
     return result;
   }
 
   // 默认：图片（sendPhoto 内置 URL fallback）
-  const result = await sendPhoto(target, mediaUrl);
+  const result = await sendPreparedMedia(target, "image", mediaUrl, () => sendPhoto(target, mediaUrl));
   if (!result.error && text?.trim()) await sendTextAfterMedia(target, text);
   return result;
 }
@@ -1066,11 +1148,20 @@ export async function sendMedia(ctx: MediaOutboundContext): Promise<OutboundResu
 async function sendTextAfterMedia(ctx: MediaTargetContext, text: string): Promise<void> {
   try {
     const token = await getToken(ctx.account);
+    const proactiveDecision = prepareUnanchoredOutboundSend(ctx, { type: ctx.targetType, id: ctx.targetId }, {
+      text,
+      kind: "text",
+    });
+    if (!proactiveDecision.allowed) {
+      console.error(`[qqbot] sendTextAfterMedia blocked: ${proactiveDecision.reason}`);
+      return;
+    }
     if (ctx.targetType === "c2c") {
       await sendC2CMessage(token, ctx.targetId, text, ctx.replyToId);
     } else if (ctx.targetType === "group") {
       await sendGroupMessage(token, ctx.targetId, text, ctx.replyToId);
     }
+    proactiveDecision.commit?.();
   } catch (err) {
     console.error(`[qqbot] sendTextAfterMedia failed: ${err}`);
   }
@@ -1132,7 +1223,8 @@ function isVideoFile(filePath: string, mimeType?: string): boolean {
 export async function sendCronMessage(
   account: ResolvedQQBotAccount,
   to: string,
-  message: string
+  message: string,
+  options?: { prepareUnanchoredSend?: CustomProactiveSendGuard },
 ): Promise<OutboundResult> {
   const timestamp = new Date().toISOString();
   console.log(`[${timestamp}] [qqbot] sendCronMessage: to=${to}, message length=${message.length}`);
@@ -1161,7 +1253,7 @@ export async function sendCronMessage(
       console.log(`[${timestamp}] [qqbot] sendCronMessage: sending proactive message to targetTo=${targetTo}`);
       
       // 发送提醒内容
-      const result = await sendProactiveMessage(account, targetTo, payload.content);
+      const result = await sendProactiveMessage(account, targetTo, payload.content, options);
       
       if (result.error) {
         console.error(`[${timestamp}] [qqbot] sendCronMessage: proactive message failed, error=${result.error}`);
@@ -1175,5 +1267,5 @@ export async function sendCronMessage(
   
   // 非结构化载荷，作为普通文本处理
   console.log(`[${timestamp}] [qqbot] sendCronMessage: plain text message, sending to ${to}`);
-  return await sendProactiveMessage(account, to, message);
+  return await sendProactiveMessage(account, to, message, options);
 }

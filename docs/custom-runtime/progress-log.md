@@ -416,6 +416,13 @@ Hardened reply-dispatcher unanchored text sends:
 - Removed the hand-rolled task-notification guard branch in favor of the shared reply-dispatcher hook.
 - Added `tests/reply-dispatcher-proactive-guard.test.ts` to prove anchored replies skip the guard, unanchored C2C/group sends call it, blocked sends do not hit the API, and commits run only after successful sends.
 
+Added guard hooks to legacy proactive send surfaces:
+
+- `src/outbound.ts` now accepts optional `prepareUnanchoredSend` on text/media contexts and proactive/cron helpers. When present, unanchored C2C/group text, media, media captions, and fallback links are checked before QQ send APIs and committed only after successful delivery.
+- `src/proactive.ts` now accepts the same optional guard for direct, bulk, broadcast, and direct-account proactive sends.
+- These hooks deliberately do not import or own custom runtime state; gateway/custom callers decide when to inject the shared budget/acceptance guard.
+- Added `tests/outbound-proactive-guard.test.ts` for blocked proactive text, passive-skip behavior, direct proactive sends, and cron sends.
+
 Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.
