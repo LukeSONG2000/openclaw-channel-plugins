@@ -242,6 +242,23 @@ Important boundary:
 - The adapter does not own QQ token retrieval, inline keyboard transport, framework dispatch implementation, or proactive/fallback admin-group delivery; these remain injected from `gateway.ts`.
 - It keeps the remaining `gateway.ts` message handler at ingress -> context -> dispatch, which makes later custom message-flow behavior easier to replace or test.
 
+### `src/custom/message-handler-gateway-adapter.ts`
+
+Gateway-side binding layer for one per-account queued-message handler.
+
+Current implementation status:
+
+- Builds the `handleMessage(event)` callback consumed by both WebSocket and Webhook queue processors.
+- Wires the extracted ingress -> context -> dispatch adapters in order, passing only the typed downstream bundle from each stage to the next.
+- Keeps QQ/OpenClaw runtime effects injected from `gateway.ts`: token refresh, channel activity, route/envelope formatting, group policy resolvers, proactive guards, send helpers, ref-index helpers, admin-group notifications, and persistence callbacks.
+- Stops immediately when ingress or context returns a stop result, preserving disabled-scene and group-gate short-circuit behavior before dispatch is reached.
+- Avoids importing the plugin channel module directly; `gateway.ts` injects mention stripping, mention detection, and group intro/require-mention resolvers so adapter tests do not need the OpenClaw runtime package.
+
+Important boundary:
+
+- The adapter binds live gateway dependencies but still does not own transport startup, WebSocket/Webhook event parsing, queue lifecycle, or deployment actions.
+- It is the next seam for replacing the official message loop with a deeper custom runtime while keeping server deployment rollback safe.
+
 ### `src/custom/proactive-budget.ts`
 
 Owns local proactive/unanchored text-send budget for custom runtime paths.
