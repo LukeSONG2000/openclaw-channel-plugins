@@ -443,7 +443,8 @@ Current implementation status:
 - Emits typed intents for approval requests, approval resolution, grant consumption, and grant expiry.
 - Deduplicates pending approval requests by peer, actor, capability, and task id.
 - Can import/export `CustomAuthorizationRuntimeState` so the gateway can persist temporary grants and approval requests.
-- `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks.
+- `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks, while re-exporting auth command helpers for compatibility.
+- `src/custom/auth-command-gateway-adapter.ts` owns `/bot-auth` parsing, admin-only status/request/grant rendering, approval-card payload parsing, task/count/timed grant command conversion, and management-group notification payload construction.
 - `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.
 - `gateway.ts` also checks ordinary messages before OpenClaw/model dispatch. Normal chat requests require `chat.send`; slash-like framework commands that are not plugin commands require `codex.run`; codex-only scenes route ordinary dispatch checks to `codex.run`.
 - Unauthorized slash commands receive a visible denial message and create an in-memory approval request intent when bound admins exist.
@@ -517,7 +518,7 @@ Current implementation status:
 
 Important boundary:
 
-- The adapter does not decide custom authorization and does not build `customRuntime` approval requests; those remain in `auth.ts`, `auth-gateway-adapter.ts`, and `dispatch-auth-delivery-gateway-adapter.ts`.
+- The adapter does not decide custom authorization and does not build `customRuntime` approval requests; those remain in `auth.ts`, `auth-gateway-adapter.ts`, `auth-command-gateway-adapter.ts`, and `dispatch-auth-delivery-gateway-adapter.ts`.
 - It only owns the legacy framework approval bridge required for existing exec/plugin approval cards.
 
 ### `src/custom/inbound-event-normalizer.ts`
@@ -1264,11 +1265,20 @@ Current implementation status:
   - slash-like framework commands: `codex.run`
   - codex-only scenes without `chat.send`: `codex.run`
 - Formats visible denial text for C2C, group, channel, and DM replies.
+- Re-exports `/bot-auth` command and approval-card helpers from `auth-command-gateway-adapter.ts` for compatibility with existing gateway callers.
+- Logs approval/grant intents in the gateway for observability.
+
+### `src/custom/auth-command-gateway-adapter.ts`
+
+Gateway-adjacent command and interaction layer for custom authorization.
+
+Current implementation status:
+
 - Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
 - Provides admin-only read views for pending approval requests and active temporary grants through `/bot-auth requests [数量]` and `/bot-auth grants [数量]`; these views show ids, actor/peer ids, capabilities, expiry, and command hints, but not raw message bodies.
 - Builds QQ inline keyboard approval cards for new unauthorized C2C/group slash-command requests.
 - Handles `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` button callbacks through the same per-account auth runtime; `allow-task` is accepted only for approval requests that carry a task id.
-- Logs approval/grant intents in the gateway for observability.
+- Builds management-group notification intents from `customRuntime.adminGroup` without sending directly; delivery stays in the admin-group notification/dispatch adapters so proactive guards remain centralized.
 
 Initial slash command capability mapping:
 

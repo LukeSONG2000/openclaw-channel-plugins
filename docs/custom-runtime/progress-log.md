@@ -1329,3 +1329,9 @@ Added configured scene binding inspection:
 - `scripts/apply-custom-runtime-init.mjs` can now stage `customRuntime.initBind` with `--init-bind-code` / `QQBOT_CUSTOM_INIT_BIND_CODE`, TTL, and optional `--enable-runtime-after-init-bind`; source/npm upgrade scripts pass those options through, and status output reports pending conversation binding.
 - 群聊发送绑定命令会写入管理员 `member_openid`、管理群 `group_openid`、默认 `system-admin` scene，并清除一次性 challenge；单聊发送会写入 `user_openid`，若管理群尚未存在则提示继续在目标管理群发送同一命令。
 - Added focused tests for init-bind parsing/expiry/C2C/group completion, slash routing persistence, config write effects, and CLI challenge staging.
+
+抽出 auth command 网关命令层：
+
+- Added `src/custom/auth-command-gateway-adapter.ts` to own `/bot-auth` command parsing, admin-only status/request/grant rendering, approval-card button data parsing, task/count/timed grant conversion, and management-group notification payload construction.
+- `src/custom/auth-gateway-adapter.ts` now keeps only dispatch/slash authorization decisions and denial text formatting, re-exporting auth command/card helpers for existing callers while reducing auth gateway coupling.
+- Re-ran auth/slash/interaction/dispatch authorization tests plus TypeScript validation to confirm the split is behavior-preserving.
