@@ -990,3 +990,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only passes normalized slash content plus queue/fallback-record callbacks, keeping context-too-long/timeout recovery bypass separate from custom slash routing and official slash matching.
 - The pure `src/custom/urgent-commands.ts` still owns command-token policy and diagnostic event construction, while the new adapter owns queue side-effect ordering.
 - Added `tests/custom-urgent-queue-bypass-gateway-adapter.test.ts` for urgent execution, dropped-message diagnostics, non-urgent no-op behavior, and C2C peer label propagation.
+
+抽出 inbound event gateway 分发层：
+
+- Added `src/custom/inbound-event-gateway-adapter.ts` to own WebSocket/Webhook shared inbound fanout for normalized messages, proactive acceptance updates, group robot events, delete diagnostics, and interaction handoff.
+- `gateway.ts` now injects known-user recording, message enqueueing, proactive-budget persistence, and interaction handling callbacks instead of branching on every QQ event type directly.
+- The adapter keeps message/delete/interaction field normalization in the existing focused helpers while moving side-effect ordering into a testable gateway boundary.
+- Added `tests/custom-inbound-event-gateway-adapter.test.ts` for C2C enqueue/known-user records, group proactive acceptance persistence, group robot records, delete diagnostics, interaction logging/error handling, and unsupported events.

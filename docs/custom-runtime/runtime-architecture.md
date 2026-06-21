@@ -320,6 +320,18 @@ Current implementation status:
 - Does not enqueue, persist known users, mutate proactive budget state, or send replies. `gateway.ts` applies the returned effects.
 - Field-level receive coverage and verification status are tracked in `docs/custom-runtime/qqbot-message-flow.md` under `Normalized Event Field Matrix`; that table is the authoritative checklist before custom policy depends on a QQ event field.
 
+### `src/custom/inbound-event-gateway-adapter.ts`
+
+Gateway-side inbound event dispatcher for WebSocket/Webhook shared event fanout.
+
+Current implementation status:
+
+- Calls `src/custom/inbound-event-normalizer.ts` first so C2C/group/guild/channel-DM message events enter the existing `QueuedMessage` path with known-user records.
+- Applies proactive receive/reject updates through injected budget and persistence callbacks, keeping proactive acceptance state out of `gateway.ts`.
+- Applies group robot add/remove known-user records and logs without coupling the gateway to event-specific field mapping.
+- Logs message delete diagnostics through the dedicated delete inspector.
+- Normalizes `INTERACTION_CREATE` for logging and hands the raw interaction event to the existing interaction handler with async error logging.
+
 ### `src/custom/queued-message-context.ts`
 
 Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.

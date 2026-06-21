@@ -136,14 +136,13 @@ import {
   buildCustomCurrentRefIndexRecord,
   resolveCustomQuoteReferenceContext,
 } from "./custom/message-reference-context.js";
-import { normalizeQQBotInboundEvent } from "./custom/inbound-event-normalizer.js";
+import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
   buildCustomUpdateAvailableNotification,
   startCustomUpdateCheckLoop,
   type CustomUpdateCheckResult,
 } from "./custom/update-check.js";
 import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
-import { formatCustomMessageDeleteDiagnostics, inspectCustomMessageDeleteEvent, isCustomMessageDeleteEventType } from "./custom/message-delete-events.js";
 import { applyCustomUrgentQueueBypass } from "./custom/urgent-queue-bypass-gateway-adapter.js";
 import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
 
@@ -2092,42 +2091,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       // ============ 统一事件分发（WebSocket/Webhook 共用） ============
       const dispatchInboundEvent = async (t: string, d: unknown): Promise<void> => {
-        const normalized = normalizeQQBotInboundEvent({
+        await dispatchCustomInboundGatewayEvent({
           eventType: t,
           data: d,
           accountId: account.accountId,
-        });
-        if (normalized.kind === "message") {
-          for (const user of normalized.knownUsers) {
-            recordKnownUser(user);
-          }
-          await trySlashCommandOrEnqueue(normalized.message);
-        } else if (normalized.kind === "proactive-acceptance") {
-          log?.info(`[qqbot:${account.accountId}] ${normalized.logMessage}`);
-          customMessageFlow.proactiveBudget.setAcceptance({
-            accountId: account.accountId,
-            peer: normalized.peer,
-            accepted: normalized.accepted,
-            updatedBy: normalized.updatedBy,
-            now: normalized.timestampMs,
-          });
-          persistCustomProactiveBudgetState();
-        } else if (normalized.kind === "group-robot") {
-          log?.info(`[qqbot:${account.accountId}] ${normalized.logMessage}`);
-          for (const user of normalized.knownUsers) {
-            recordKnownUser(user);
-          }
-        } else if (isCustomMessageDeleteEventType(t)) {
-          const diag = inspectCustomMessageDeleteEvent(t, d);
-          if (diag) {
-            log?.info(`[qqbot:${account.accountId}] Message delete diagnostics: ${formatCustomMessageDeleteDiagnostics(diag)}`);
-          }
-        } else if (t === "INTERACTION_CREATE") {
-          const ev = d as InteractionEvent;
-          const normalizedInteraction = normalizeQQBotInteractionEvent(ev);
-          log?.info(`[qqbot:${account.accountId}] Interaction: scene=${normalizedInteraction.sceneDesc}, type=${normalizedInteraction.dataType}, button_id=${normalizedInteraction.buttonId}, button_data=${normalizedInteraction.buttonData}`);
-          handleInteractionCreate({
-            event: ev,
+          recordKnownUser,
+          enqueueMessage: trySlashCommandOrEnqueue,
+          setProactiveAcceptance: (acceptance) => {
+            customMessageFlow.proactiveBudget.setAcceptance(acceptance);
+          },
+          persistProactiveBudgetState: persistCustomProactiveBudgetState,
+          handleInteraction: (event) => handleInteractionCreate({
+            event,
             account,
             cfg,
             customAuth: customMessageFlow.auth,
@@ -2139,10 +2114,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             customDeployConfirmations: customMessageFlow.deployConfirmations,
             persistCustomDeployConfirmationState,
             log,
-          }).catch((err) => {
-            log?.error(`[qqbot:${account.accountId}] Failed to handle interaction ${ev.id}: ${err}`);
-          });
-        }
+          }),
+          log,
+        });
       };
 
       // ============ Webhook 模式：共享 handleMessage，不走 WS ============
