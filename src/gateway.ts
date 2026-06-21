@@ -25,7 +25,7 @@ import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
 import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
-import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload, type ReplyContext } from "./reply-dispatcher.js";
+import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
 import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply, type DeliverEventContext, type DeliverAccountContext } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
@@ -48,6 +48,7 @@ import {
 } from "./custom/group-prompt-context.js";
 import { buildCustomAgentMessageBodyContext } from "./custom/agent-message-body-context.js";
 import { buildCustomInboundContextPayload } from "./custom/inbound-context-payload.js";
+import { buildCustomGatewayReplyContext } from "./custom/reply-context-gateway-adapter.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -133,10 +134,7 @@ import {
   resolveCustomUrgentQueueBypassCommand,
   resolveCustomUrgentQueuePeer,
 } from "./custom/urgent-commands.js";
-import {
-  resolveCustomGatewayMessageReplyTarget,
-  resolveCustomGatewayMessageRouteContext,
-} from "./custom/gateway-message-routing.js";
+import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
 
 // ============ Interaction 处理 ============
 
@@ -1778,17 +1776,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           quote: quoteRef,
         }));
 
-        // 构建回复上下文
-        const replyAnchorId = event._customUnreadSnapshotId ? undefined : event.messageId;
-        const replyTarget = resolveCustomGatewayMessageReplyTarget(event, replyAnchorId ?? "");
         const replyProactive = buildCustomProactiveGuard();
-        const replyCtx: ReplyContext = {
-          target: replyTarget,
+        const {
+          replyAnchorId,
+          replyContext: replyCtx,
+        } = buildCustomGatewayReplyContext({
+          event,
           account,
           cfg,
           log,
           prepareUnanchoredTextSend: replyProactive.proactiveGuard,
-        };
+        });
 
         // 简化的 token 重试包装（使用 reply-dispatcher 的通用实现）
         const sendWithRetry = <T>(sendFn: (token: string) => Promise<T>) =>

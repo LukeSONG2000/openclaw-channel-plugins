@@ -852,3 +852,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps the actual framework `finalizeInboundContext()` call, but no longer owns the large literal object or the conditional media/quote field spread logic.
 - The helper preserves optional-field behavior for group metadata, local/remote media, quote `ReplyTo*` fields, and static QQBot + group prompt merging.
 - Added `tests/custom-inbound-context-payload.test.ts` for group payload metadata, voice/media/quote fields, system prompt merging, direct-message group-field suppression, and absent optional media/quote fields.
+
+抽出回复锚点与 ReplyContext 构造：
+
+- Added `src/custom/reply-context-gateway-adapter.ts` to resolve reply anchors, reply targets, and `ReplyContext` values for normal dispatch messages.
+- Synthetic custom unread catch-up messages continue to clear the passive reply anchor, so they use unanchored/proactive-guarded sends instead of replying to stale source messages.
+- `gateway.ts` now injects the unanchored-text proactive guard into the adapter result and keeps token retry, error sends, auth-denial delivery, and platform sends at the gateway boundary.
+- Added `tests/custom-reply-context-gateway-adapter.test.ts` for group targets, C2C targets, synthetic anchor clearing, and guard callback propagation.

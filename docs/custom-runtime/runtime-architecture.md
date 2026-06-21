@@ -342,6 +342,17 @@ Current implementation status:
 - Keeps existing compatibility behavior for guild and channel-DM paths while making those mappings explicit and testable; channel-DM custom scene behavior remains marked unaudited in the message-flow document.
 - `gateway.ts` now asks this helper for routing primitives instead of repeating event-type conditionals around routing, scene lookup, request context, and reply target construction.
 
+### `src/custom/reply-context-gateway-adapter.ts`
+
+Gateway-side helper for constructing reply anchors, reply targets, and `ReplyContext` values before dispatch/auth/fallback sends.
+
+Current implementation status:
+
+- Resolves the passive reply anchor from the queued message id, but removes it for synthetic unread catch-up messages so proactive-style replies are not tied to a stale original message.
+- Reuses the existing gateway message reply target mapping and packages the result into the shared `ReplyContext` used by `reply-dispatcher.ts`.
+- Carries the injected unanchored-text proactive guard through the context without importing QQ send APIs or proactive runtime state.
+- `gateway.ts` still owns token retry helpers, error-message sends, and platform delivery calls; this adapter only builds the context object.
+
 ### `src/custom/group-activation.ts`
 
 Gateway-adjacent helper for resolving group activation mode from the OpenClaw `/activation` session store.
