@@ -598,3 +598,10 @@ Added configured scene binding inspection:
 - 场景按钮使用 QQ 指令型 action 发送 `/bot-scene set <scene>`，不会绕过已有 `config.write` 鉴权；真正写入仍由 slash gateway 的场景持久化意图完成。
 - `handleCustomSlashGatewayCommand()` 会把带 keyboard 的场景回复透出为 `kind="keyboard"`，复用现有 C2C/group keyboard 发送路径。
 - 扩展 scene gateway 和 slash gateway 测试，覆盖场景列表按钮、当前场景高亮和场景回复 keyboard 路由。
+
+加入兜底告警管理群指令型卡片：
+
+- `buildCustomFallbackAlertDecision()` 现在随重复兜底告警返回 QQ inline command keyboard，管理群按钮只覆盖只读检查命令 `/bot-queue` 和 `/bot-fallback summary 20`。
+- Gateway 发送 `customRuntime.adminGroup` 兜底告警时会优先使用 `sendGroupMessageWithInlineKeyboard()`，仍然先经过 proactive acceptance/budget guard；没有 keyboard 时继续走纯文本发送。
+- 告警文本仍只包含聚合计数、队列计数和快捷命令，不包含原始错误、prompt、缓存消息正文或队列正文；`/compact` 和 `/new` 仍应在原故障会话执行，避免管理群命令作用到管理群自己的队列/会话。
+- 扩展 `tests/custom-fallback-alerts.test.ts` 覆盖告警卡片结构和只读检查按钮 payload。

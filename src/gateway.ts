@@ -822,6 +822,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const sendCustomFallbackAdminGroupAlert = async (alert: {
     groupOpenid: string;
     text: string;
+    keyboard?: import("./types.js").InlineKeyboard;
     cooldownKey: string;
     eventCount?: number;
   }): Promise<void> => {
@@ -848,7 +849,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
     try {
       const token = await getAccessToken(account.appId, account.clientSecret);
-      await sendGroupMessage(token, alert.groupOpenid, alert.text);
+      if (alert.keyboard) {
+        await sendGroupMessageWithInlineKeyboard(token, alert.groupOpenid, alert.text, alert.keyboard);
+      } else {
+        await sendGroupMessage(token, alert.groupOpenid, alert.text);
+      }
       proactiveDecision.commit?.();
       fallbackAlertCooldowns.set(alert.cooldownKey, now + cooldownMs);
       log?.info(`[qqbot:${account.accountId}] custom fallback admin-group alert sent: key=${alert.cooldownKey} count=${alert.eventCount ?? "?"} group=${alert.groupOpenid}`);
@@ -2260,6 +2265,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               void sendCustomFallbackAdminGroupAlert({
                 groupOpenid: alertDecision.groupOpenid,
                 text: alertDecision.text,
+                keyboard: alertDecision.keyboard,
                 cooldownKey: alertDecision.cooldownKey,
                 eventCount: alertDecision.eventCount,
               });

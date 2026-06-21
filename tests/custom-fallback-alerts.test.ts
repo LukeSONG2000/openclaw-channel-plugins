@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import {
+  buildCustomFallbackAlertKeyboard,
   buildCustomFallbackAlertDecision,
   DEFAULT_CUSTOM_FALLBACK_ALERT_COOLDOWN_MS,
   DEFAULT_CUSTOM_FALLBACK_ALERT_THRESHOLD,
@@ -53,6 +54,10 @@ assert.equal(alert.text?.includes("context-too-long=1"), true);
 assert.equal(alert.text?.includes("pending=5, active=1/2, senderPending=2, activeMs=120000/180000"), true);
 assert.equal(alert.text?.includes(`<qqbot-cmd-input text="/bot-queue" show="队列状态"/>`), true);
 assert.equal(alert.text?.includes(`<qqbot-cmd-input text="/bot-fallback summary 20" show="兜底摘要"/>`), true);
+assert.equal(alert.keyboard?.content?.rows[0]?.buttons[0]?.action?.type, 2);
+assert.equal(alert.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "/bot-queue");
+assert.equal(alert.keyboard?.content?.rows[1]?.buttons[0]?.action?.data, "/bot-fallback summary 20");
+assert.equal(alert.keyboard?.content?.rows[2], undefined);
 assert.equal(alert.text?.includes("secret prompt body"), false);
 assert.equal(alert.text?.includes("maximum context length"), false);
 
@@ -131,6 +136,7 @@ const customAlert = buildCustomFallbackAlertDecision({
 assert.equal(customAlert.alert, true);
 assert.equal(customAlert.groupOpenid, "ADMIN_GROUP");
 assert.equal(resolveCustomFallbackAlertCooldownMs(customConfigRuntime), 12_345);
+assert.equal(buildCustomFallbackAlertKeyboard().content?.rows.length, 2);
 
 console.log("custom fallback alerts tests passed");
 

@@ -799,7 +799,6 @@ Still separate from the pure module:
 
 - automatic session reset after context-too-long errors
 - config schema rejection formatting
-- interactive admin notification cards for repeated fallback events; current fallback alerts are guarded text notices with command-input shortcuts.
 
 ### `src/custom/fallback-alerts.ts`
 
@@ -818,6 +817,8 @@ Implemented behavior:
   - `cooldownMs`
   - `kinds`
 - Alert text includes aggregate counts, latest event timestamp, queue counters, and command-input shortcuts for `/bot-queue` and `/bot-fallback summary 20`.
+- Alert decisions also include a QQ inline command keyboard for the management group with read-only buttons for `/bot-queue` and `/bot-fallback summary 20`; gateway sends it through the same guarded management-group path and falls back to text if no keyboard is present.
+- Recovery commands such as `/compact` and `/new` are intentionally not exposed as management-group alert buttons because they act on the peer where the command message is sent.
 - Alert text deliberately omits raw error reasons, prompts, cached message bodies, and queued message content.
 
 Boundary:

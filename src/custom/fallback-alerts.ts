@@ -1,5 +1,6 @@
 import { resolveCustomAdminGroupKey } from "./auth.js";
 import type { CustomFallbackEvent, CustomFallbackEventKind } from "./fallbacks.js";
+import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomRuntimeConfig } from "./types.js";
 
 export const DEFAULT_CUSTOM_FALLBACK_ALERT_WINDOW_MS = 15 * 60_000;
@@ -16,6 +17,7 @@ export interface CustomFallbackAlertDecision {
   reason?: string;
   groupOpenid?: string;
   text?: string;
+  keyboard?: InlineKeyboard;
   cooldownKey?: string;
   eventCount?: number;
 }
@@ -78,8 +80,49 @@ export function buildCustomFallbackAlertDecision(params: {
     alert: true,
     groupOpenid,
     text,
+    keyboard: buildCustomFallbackAlertKeyboard(),
     cooldownKey: formatCooldownKey(params.accountId, peerKey),
     eventCount: matchingEvents.length,
+  };
+}
+
+export function buildCustomFallbackAlertKeyboard(): InlineKeyboard {
+  return {
+    content: {
+      rows: [
+        {
+          buttons: [
+            makeAlertCommandButton("queue", "队列状态", "/bot-queue", true, 1),
+          ],
+        },
+        {
+          buttons: [
+            makeAlertCommandButton("summary", "兜底摘要", "/bot-fallback summary 20", true, 1),
+          ],
+        },
+      ],
+    },
+  };
+}
+
+function makeAlertCommandButton(
+  id: string,
+  label: string,
+  command: string,
+  enter: boolean,
+  style: 0 | 1 | 3,
+): KeyboardButton {
+  return {
+    id: `fallback_${id}`,
+    render_data: { label, visited_label: label, style },
+    action: {
+      type: 2,
+      data: command,
+      enter,
+      permission: { type: 2 },
+      click_limit: 0,
+    },
+    group_id: "custom-fallback-alert",
   };
 }
 
