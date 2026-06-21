@@ -1117,3 +1117,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates the dispatch completion sequence to this adapter and only injects the unread completion hook, keeping unread runtime wiring outside the generic dispatch race/finalize core.
 - The adapter preserves timeout/context-too-long fallback behavior by reusing `dispatch-failure-gateway-adapter.ts`, and preserves tool/debounce/streaming cleanup by reusing `dispatch-finalize-gateway-adapter.ts`.
 - Added `tests/custom-dispatch-completion-gateway-adapter.test.ts` for successful dispatch finalization, post-finalize `hasModelBlockOutput` propagation, race-failure notice routing, and defensive response-timeout cleanup.
+
+抽出 dispatch reply 网关编排层：
+
+- Added `src/custom/dispatch-reply-gateway-adapter.ts` to own ordinary OpenClaw reply dispatch orchestration: message config resolution, streaming setup, dispatcher deliver/onError/onPartialReply callback wiring, dispatch completion, processing-failure fallback, and typing cleanup.
+- `gateway.ts` now delegates the full model dispatch body to the adapter after auth/context/delivery setup, leaving only injected callbacks for QQ sends, media parsing, outbound activity, and custom unread post-finalize handling.
+- The adapter preserves the core custom-runtime boundary: scene/auth/group/unread context remains upstream, while the generic dispatch adapter does not import QQ API token helpers or perform platform sends directly.
+- Added `tests/custom-dispatch-reply-gateway-adapter.test.ts` for callback wiring, streaming partial handoff, debouncer propagation into completion, post-finalize hook propagation, processing-failure fallback, and guaranteed typing cleanup.

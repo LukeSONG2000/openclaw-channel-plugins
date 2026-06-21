@@ -71,6 +71,7 @@ Out of scope for the first custom runtime:
 - `src/custom/dispatch-fallback-session-gateway-adapter.ts`: gateway-side per-dispatch fallback session for response timeout timers, tool-only timers, fallback recorder binding, and tool fallback sender wiring.
 - `src/custom/dispatch-failure-gateway-adapter.ts`: gateway-side response-timeout/context-too-long/framework-error notice and fallback-event orchestration for dispatch race, callback, and processing failures.
 - `src/custom/dispatch-finalize-gateway-adapter.ts`: gateway-side dispatch finally cleanup for tool timers, tool completion fallback, debouncer disposal, and streaming finalization.
+- `src/custom/dispatch-reply-gateway-adapter.ts`: gateway-side ordinary reply dispatch orchestrator for message config resolution, dispatcher callback wiring, streaming setup, dispatch completion, processing failure fallback, and typing cleanup.
 - `src/custom/dispatch-send-helpers-gateway-adapter.ts`: gateway-side helper factory for bound token-retry sends and visible error-message sends during ordinary dispatch.
 - `src/custom/dispatch-setup-gateway-adapter.ts`: gateway-side ordinary-dispatch setup for reply context, send helpers, outbound deliver context, proactive guards, and guarded media auto-send.
 - `src/custom/dispatch-streaming-setup-gateway-adapter.ts`: gateway-side streaming setup for target-type resolution, streaming enablement, and `StreamingController` construction.

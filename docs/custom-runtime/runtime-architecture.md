@@ -437,6 +437,24 @@ Important boundary:
 - The adapter does not run authorization or dispatch the model; it only prepares shared per-message delivery objects.
 - It accepts proactive guard and media-send callbacks from `gateway.ts`, so proactive budget state, token ownership, and QQ media APIs stay at the connector boundary.
 
+### `src/custom/dispatch-reply-gateway-adapter.ts`
+
+Gateway-side orchestrator for one ordinary OpenClaw reply dispatch.
+
+Current implementation status:
+
+- Resolves effective message config for the selected agent route and logs the per-message run id.
+- Sets up streaming through `dispatch-streaming-setup-gateway-adapter.ts`.
+- Wires the buffered block dispatcher callbacks to `dispatch-deliver-callback-gateway-adapter.ts`, `dispatch-error-callback-gateway-adapter.ts`, and `streaming-gateway-adapter.ts`.
+- Delegates dispatch/timeout completion to `dispatch-completion-gateway-adapter.ts`.
+- Handles outer processing failures with `dispatch-failure-gateway-adapter.ts` and always stops typing in `finally`.
+- Exposes a post-finalize hook so gateway can keep custom unread completion as injected message-flow behavior rather than hardcoding it into the generic reply dispatch adapter.
+
+Important boundary:
+
+- The adapter does not resolve auth, scene, group gates, or agent context; it starts after gateway has already built `ctxPayload` and delivery contexts.
+- It does not call QQ APIs directly. Token retry, media tag parsing, structured payload handling, plain reply sending, and outbound activity recording remain injected gateway callbacks.
+
 ### `src/custom/dispatch-deliver-gateway-adapter.ts`
 
 Gateway-side preflight helper for dispatch deliver callbacks.

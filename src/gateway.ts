@@ -27,12 +27,11 @@ import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
-import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
+import { createDeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { resolveCustomRuntimeConfig } from "./custom/config.js";
 import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
 import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
-import { setupCustomDispatchStreamingGateway } from "./custom/dispatch-streaming-setup-gateway-adapter.js";
 import type { CustomAgentRoute } from "./custom/route.js";
 import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./custom/runtime.js";
@@ -54,19 +53,11 @@ import { createCustomMessageFlowStateController } from "./custom/message-flow-st
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
 import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
-import { handleCustomDispatchDeliverCallbackGateway } from "./custom/dispatch-deliver-callback-gateway-adapter.js";
-import { handleCustomDispatchErrorCallbackGateway } from "./custom/dispatch-error-callback-gateway-adapter.js";
-import { runCustomDispatchCompletionGateway } from "./custom/dispatch-completion-gateway-adapter.js";
-import {
-  handleCustomMessageProcessingFailure,
-} from "./custom/dispatch-failure-gateway-adapter.js";
+import { runCustomDispatchReplyGateway } from "./custom/dispatch-reply-gateway-adapter.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import {
   recordCustomFallbackEventGateway,
 } from "./custom/fallback-record-gateway-adapter.js";
-import {
-  handleCustomStreamingPartialReply,
-} from "./custom/streaming-gateway-adapter.js";
 import { prepareCustomInboundMessageGateway } from "./custom/inbound-preparation-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
@@ -1087,105 +1078,35 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             sendGuardedMediaAuto,
             sendErrorMessage,
           });
-          const recordFallbackEvent = fallbackSession.recordFallbackEvent;
-        try {
-          const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
-
-          // ============ Deliver Debouncer：合并短时间内连续到达的 block deliver ============
-          const debounceConfig = account.config?.deliverDebounce;
-          let debouncer: DeliverDebouncer | null = null as DeliverDebouncer | null;
-
-          const timeoutPromise = fallbackSession.createResponseTimeoutPromise();
-
-
-          const {
-            targetType,
-            useStreaming,
-            streamingController,
-          } = setupCustomDispatchStreamingGateway({
+          await runCustomDispatchReplyGateway({
             account,
             event,
-            replyAnchorId,
-            log,
-          });
-
-          // 打印 runId 用于调试
-          log?.info?.(`[qqbot:${account.accountId}] Dispatching with runId: ${event.messageId}`);
-
-          const dispatchPromise = pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
-            ctx: ctxPayload,
             cfg,
-            dispatcherOptions: {
-              responsePrefix: messagesConfig.responsePrefix,
-              deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
-                await handleCustomDispatchDeliverCallbackGateway({
-                  accountId: account.accountId,
-                  message: event,
-                  payload,
-                  info,
-                  fallbackSession,
-                  stopTyping: () => typing.stop(),
-                  streamingController,
-                  replyContext: replyCtx,
-                  deliverEvent,
-                  deliverAccountContext: deliverActx,
-                  sendWithRetry,
-                  debouncer,
-                  setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
-                  debounceConfig,
-                  createDebouncer: createDeliverDebouncer,
-                  sendGuardedMediaAuto,
-                  recordOutboundActivity: () => pluginRuntime.channel.activity.record({
-                    channel: "qqbot",
-                    accountId: account.accountId,
-                    direction: "outbound",
-                  }),
-                  parseAndSendMediaTags,
-                  handleStructuredPayload,
-                  sendPlainReply,
-                  log,
-                });
-              },
-              onError: async (err: unknown) => {
-                await handleCustomDispatchErrorCallbackGateway({
-                  accountId: account.accountId,
-                  err,
-                  fallbackSession,
-                  streamingController,
-                  sendErrorMessage,
-                  log,
-                });
-              },
-            },
-
-            replyOptions: {
-              // 使用消息ID作为 runId，用于追踪一次完整的 AI 对话运行
-              runId: event.messageId,
-              // 流式模式时禁用 block streaming
-              disableBlockStreaming: !useStreaming,
-              // 流式模式下注册 onPartialReply 回调，接收流式文本增量
-              ...(streamingController ? {
-                onPartialReply: async (payload: { text?: string }) => {
-                  await handleCustomStreamingPartialReply({
-                    accountId: account.accountId,
-                    controller: streamingController,
-                    payload,
-                    log,
-                  });
-                },
-              } : {}),
-            },
-          });
-
-          await runCustomDispatchCompletionGateway({
-            accountId: account.accountId,
-            dispatchPromise,
-            timeoutPromise,
+            routeAgentId: route.agentId,
+            ctxPayload,
+            replyAnchorId,
             fallbackSession,
             sendErrorMessage,
-            debouncer,
-            setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
-            streamingController,
+            replyContext: replyCtx,
+            deliverEvent,
+            deliverAccountContext: deliverActx,
+            sendWithRetry,
+            sendGuardedMediaAuto,
+            debounceConfig: account.config?.deliverDebounce,
+            createDebouncer: createDeliverDebouncer,
+            recordOutboundActivity: () => pluginRuntime.channel.activity.record({
+              channel: "qqbot",
+              accountId: account.accountId,
+              direction: "outbound",
+            }),
+            parseAndSendMediaTags,
+            handleStructuredPayload,
+            sendPlainReply,
+            stopTyping: () => typing.stop(),
+            resolveEffectiveMessagesConfig: (config, agentId) =>
+              pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(config, agentId),
+            dispatchReply: (input) =>
+              pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher(input as Parameters<typeof pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher>[0]),
             log,
             onAfterFinalize: ({ hasModelBlockOutput }) => {
               // 回复完成后处理群历史/自定义未读 runtime
@@ -1207,18 +1128,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               });
             },
           });
-        } catch (err) {
-          await handleCustomMessageProcessingFailure({
-            accountId: account.accountId,
-            err,
-            recordFallbackEvent,
-            sendErrorMessage,
-            log,
-          });
-        } finally {
-          // 无论成功/失败/超时，都停止输入状态续期
-          typing.stop();
-        }
         }); // end runWithRequestContext
       };
 
