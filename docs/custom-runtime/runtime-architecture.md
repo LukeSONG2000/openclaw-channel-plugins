@@ -796,6 +796,23 @@ Current implementation status:
 - Resolves agent-aware mention patterns through the same routing + custom scene agent override path used by normal message processing.
 - Leaves token lookup and the actual QQ ACK call in `gateway.ts` through an injected `acknowledge` callback.
 
+### `src/custom/interaction-create-gateway-adapter.ts`
+
+Gateway-side orchestrator for QQ `INTERACTION_CREATE` events.
+
+Current implementation status:
+
+- Normalizes the raw QQ interaction event once and reuses the normalized actor/source/reply-target fields across all callback-card branches.
+- Runs official connector config query/update ACK handling first; config interactions return immediately and do not send a second generic ACK.
+- Sends the generic interaction ACK before custom callback-card routing, matching the previous gateway behavior for auth/poll/game/deploy buttons.
+- Applies custom interaction effects through `interaction-effects-gateway-adapter.ts`, including auth/poll/game/deploy persistence and optional follow-up replies.
+- Keeps legacy OpenClaw approval buttons (`approve:<id>:...`) compatible by resolving the registered approval handler after ACK.
+
+Important boundary:
+
+- The adapter does not fetch QQ access tokens and does not call QQ send APIs directly. `gateway.ts` still injects `acknowledge`, `sendReply`, config API access, routing, and the legacy approval-handler lookup.
+- It is the single gateway entry point for interactive cards, so future auth cards, poll/game cards, deploy confirmations, or other mini-interactions can be added behind the custom callback router without growing `gateway.ts`.
+
 ### `src/custom/message-delete-events.ts`
 
 Message deletion is currently diagnostic-only.

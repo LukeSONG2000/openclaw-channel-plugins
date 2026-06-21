@@ -1124,3 +1124,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates the full model dispatch body to the adapter after auth/context/delivery setup, leaving only injected callbacks for QQ sends, media parsing, outbound activity, and custom unread post-finalize handling.
 - The adapter preserves the core custom-runtime boundary: scene/auth/group/unread context remains upstream, while the generic dispatch adapter does not import QQ API token helpers or perform platform sends directly.
 - Added `tests/custom-dispatch-reply-gateway-adapter.test.ts` for callback wiring, streaming partial handoff, debouncer propagation into completion, post-finalize hook propagation, processing-failure fallback, and guaranteed typing cleanup.
+
+抽出 interaction create 网关编排层：
+
+- Added `src/custom/interaction-create-gateway-adapter.ts` as the single gateway entry point for QQ `INTERACTION_CREATE` events: official config ACKs, custom auth/poll/game/deploy callback cards, and legacy OpenClaw approval buttons.
+- `gateway.ts` now injects token-backed `acknowledge`/`sendReply` callbacks, config API access, routing, and approval-handler lookup into the adapter, keeping QQ token/API ownership at the connector boundary.
+- The adapter preserves callback-card semantics: config interactions only send the special `claw_cfg` ACK, while normal buttons get a generic ACK before persistence/reply effects or legacy approval resolution.
+- Added `tests/custom-interaction-create-gateway-adapter.test.ts` for config interaction ACK routing, custom callback persistence/reply effects, and legacy approval handler compatibility.

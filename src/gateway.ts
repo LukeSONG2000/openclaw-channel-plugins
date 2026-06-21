@@ -1,8 +1,8 @@
 import WebSocket from "ws";
 import path from "node:path";
-import type { ResolvedQQBotAccount, WSPayload, InteractionEvent, MsgElement, TransportMode } from "./types.js";
+import type { ResolvedQQBotAccount, WSPayload, TransportMode } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
-import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, getPluginUserAgent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession, saveSession, clearSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -34,7 +34,6 @@ import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-a
 import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
 import type { CustomAgentRoute } from "./custom/route.js";
 import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
-import type { CustomMessageFlowRuntime } from "./custom/runtime.js";
 import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
 import { applyCustomGroupDispatchGateway } from "./custom/group-dispatch-gateway-adapter.js";
 import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
@@ -42,13 +41,7 @@ import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
-import { handleCustomConfigInteractionGateway } from "./custom/config-interaction-gateway-adapter.js";
-import { applyCustomInteractionGatewayEffects } from "./custom/interaction-effects-gateway-adapter.js";
-import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
-import {
-  normalizeQQBotInteractionEvent,
-  parseLegacyApprovalInteractionButton,
-} from "./custom/interaction-event-normalizer.js";
+import { handleCustomInteractionCreateGateway } from "./custom/interaction-create-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
@@ -68,95 +61,6 @@ import {
 import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-gateway-adapter.js";
 import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
 import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
-
-// ============ Interaction 处理 ============
-
-/** 处理 INTERACTION_CREATE 事件 */
-async function handleInteractionCreate(params: {
-  event: InteractionEvent;
-  account: ResolvedQQBotAccount;
-  cfg: unknown;
-  customAuth?: CustomMessageFlowRuntime["auth"];
-  persistCustomAuthState?: () => void;
-  customPolls?: CustomMessageFlowRuntime["polls"];
-  persistCustomPollState?: () => void;
-  customGames?: CustomMessageFlowRuntime["games"];
-  persistCustomGameState?: () => void;
-  customDeployConfirmations?: CustomMessageFlowRuntime["deployConfirmations"];
-  persistCustomDeployConfirmationState?: () => void;
-  log?: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void };
-}): Promise<void> {
-  const { event, account, cfg, log } = params;
-  const token = await getAccessToken(account.appId, account.clientSecret);
-  const interaction = normalizeQQBotInteractionEvent(event);
-
-  const configInteraction = await handleCustomConfigInteractionGateway({
-    accountId: account.accountId,
-    interaction,
-    getConfigApi: () => getQQBotRuntime().config as {
-      loadConfig: () => Record<string, unknown>;
-      writeConfigFile: (cfg: unknown) => Promise<void>;
-    },
-    routing: getQQBotRuntime().channel?.routing,
-    acknowledge: (code, payload) => acknowledgeInteraction(token, event.id, code, payload),
-    pluginVersion: getApiPluginVersion(),
-    frameworkVersion: getFrameworkVersion(),
-    log,
-  });
-  if (!configInteraction.handled) {
-    // 普通按钮交互：先 ACK
-    await acknowledgeInteraction(token, event.id);
-    log?.debug?.(`[qqbot:${account.accountId}] Interaction ACK sent: ${event.id}`);
-
-    // Inline Keyboard 审批按钮（type=1 Callback）
-    // button_data 格式：approve:<approvalId>:<decision>
-    // approvalId 可能是 "exec:uuid" / "plugin:uuid"（带前缀）或纯 "uuid"（无前缀）
-    const customInteraction: CustomInteractionGatewayResult = params.customAuth && params.customPolls && params.customGames && params.customDeployConfirmations ? handleCustomInteractionGatewayButton({
-      cfg: cfg as any,
-      accountId: account.accountId,
-      runtime: { auth: params.customAuth, polls: params.customPolls, games: params.customGames, deployConfirmations: params.customDeployConfirmations },
-      buttonData: interaction.buttonData,
-      actor: {
-        id: interaction.actorId,
-      },
-      sourcePeer: interaction.sourcePeer,
-      now: Date.now(),
-    }) : { handled: false };
-    if (customInteraction.handled) {
-      await applyCustomInteractionGatewayEffects({
-        accountId: account.accountId,
-        result: customInteraction,
-        replyTarget: interaction.replyTarget,
-        persistAuthState: params.persistCustomAuthState,
-        persistPollState: params.persistCustomPollState,
-        persistGameState: params.persistCustomGameState,
-        persistDeployConfirmationState: params.persistCustomDeployConfirmationState,
-        sendReply: async (target, text) => {
-          if (target.kind === "group") {
-            await sendGroupMessage(token, target.groupOpenid, text);
-          } else if (target.kind === "c2c") {
-            await sendC2CMessage(token, target.userOpenid, text);
-          } else {
-            await sendChannelMessage(token, target.channelId, text);
-          }
-        },
-        log,
-      });
-      return;
-    }
-
-    const legacyApproval = parseLegacyApprovalInteractionButton(interaction.buttonData);
-    if (legacyApproval) {
-      log?.info(`[qqbot:${account.accountId}] Approval button clicked: approvalId=${legacyApproval.approvalId}, decision=${legacyApproval.decision}, user=${interaction.actorId}, buttonData=${interaction.buttonData}`);
-      const handler = getApprovalHandler(account.accountId);
-      if (handler) {
-        void handler.resolveApproval(legacyApproval.approvalId, legacyApproval.decision);
-      } else {
-        log?.error(`[qqbot:${account.accountId}] Approval button: no handler found for accountId=${account.accountId}`);
-      }
-    }
-  }
-}
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -1143,20 +1047,55 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             customMessageFlow.proactiveBudget.setAcceptance(acceptance);
           },
           persistProactiveBudgetState: persistCustomProactiveBudgetState,
-          handleInteraction: (event) => handleInteractionCreate({
-            event,
-            account,
-            cfg,
-            customAuth: customMessageFlow.auth,
-            persistCustomAuthState,
-            customPolls: customMessageFlow.polls,
-            persistCustomPollState,
-            customGames: customMessageFlow.games,
-            persistCustomGameState,
-            customDeployConfirmations: customMessageFlow.deployConfirmations,
-            persistCustomDeployConfirmationState,
-            log,
-          }),
+          handleInteraction: async (event) => {
+            let interactionToken: Promise<string> | null = null;
+            const getInteractionToken = () => {
+              interactionToken ??= getAccessToken(account.appId, account.clientSecret);
+              return interactionToken;
+            };
+            await handleCustomInteractionCreateGateway({
+              accountId: account.accountId,
+              event,
+              cfg,
+              runtime: {
+                auth: customMessageFlow.auth,
+                polls: customMessageFlow.polls,
+                games: customMessageFlow.games,
+                deployConfirmations: customMessageFlow.deployConfirmations,
+              },
+              persistAuthState: persistCustomAuthState,
+              persistPollState: persistCustomPollState,
+              persistGameState: persistCustomGameState,
+              persistDeployConfirmationState: persistCustomDeployConfirmationState,
+              getConfigApi: () => getQQBotRuntime().config as {
+                loadConfig: () => Record<string, unknown>;
+                writeConfigFile: (cfg: unknown) => Promise<void>;
+              },
+              routing: getQQBotRuntime().channel?.routing,
+              acknowledge: async (code, payload) => {
+                const token = await getInteractionToken();
+                if (code !== undefined && payload !== undefined) {
+                  await acknowledgeInteraction(token, event.id, code, payload);
+                } else {
+                  await acknowledgeInteraction(token, event.id);
+                }
+              },
+              pluginVersion: getApiPluginVersion(),
+              frameworkVersion: getFrameworkVersion(),
+              sendReply: async (target, text) => {
+                const token = await getInteractionToken();
+                if (target.kind === "group") {
+                  await sendGroupMessage(token, target.groupOpenid, text);
+                } else if (target.kind === "c2c") {
+                  await sendC2CMessage(token, target.userOpenid, text);
+                } else {
+                  await sendChannelMessage(token, target.channelId, text);
+                }
+              },
+              getLegacyApprovalHandler: getApprovalHandler,
+              log,
+            });
+          },
           log,
         });
       };
