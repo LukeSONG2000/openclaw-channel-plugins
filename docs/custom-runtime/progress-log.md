@@ -1068,3 +1068,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates scene route setup to the adapter after the framework base route is resolved, so later inbound preparation consumes a finalized route and prompt list without rebuilding scene state inline.
 - 同步复核新增目标：初始化配置仍要求绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`；现有 onboarding/setup/helper/preflight 路径继续把缺管理员或管理群视为未完整初始化。
 - Added `tests/custom-scene-route-gateway-adapter.test.ts` for scene route override, disabled-scene stop behavior, and disabled-runtime no-op behavior.
+
+抽出 custom runtime services 网关启动层：
+
+- Added `src/custom/runtime-services-gateway-adapter.ts` to own per-connect custom runtime service wiring: command-backed task executor callbacks, async task status notifications, unread scheduler creation, restore, and unread config lookup helpers.
+- `gateway.ts` now only injects proactive-guarded task notification sending, queue enqueue, and persistence callbacks; task executor status transitions and unread scheduler bootstrap no longer live inline in the WebSocket connect path.
+- The adapter keeps task notifications behind the existing unanchored/proactive guard boundary by accepting `sendTaskStatusText()` from gateway instead of calling QQ send APIs or token helpers directly.
+- Added `tests/custom-runtime-services-gateway-adapter.test.ts` for previous executor disposal, task executor config/log wiring, unread scheduler restore/config resolution, progress persistence, and async completion notification effects.

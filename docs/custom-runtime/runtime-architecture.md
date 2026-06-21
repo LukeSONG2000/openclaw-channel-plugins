@@ -66,6 +66,23 @@ Important boundary:
 - This module still runs inside the QQBot connector process.
 - It is a step toward a thinner gateway adapter, not yet a full standalone middleware package.
 
+### `src/custom/runtime-services-gateway-adapter.ts`
+
+Gateway-side service bootstrap for the custom message-flow runtime.
+
+Current implementation status:
+
+- Creates the command-backed long-task executor from `customRuntime.tasks.commandExecutor`.
+- Wires executor `complete`/`fail` callbacks to task runtime status transitions, workspace status writes, async notifications, and configured notification audiences.
+- Wires executor `heartbeat`/`progress` callbacks to task runtime updates and task-state persistence.
+- Creates and restores the custom unread scheduler with peer-level config resolution, synthetic catch-up enqueue callback, and unread-state persistence callback.
+- Returns `resolveUnreadForEvent()` / `resolveUnreadForPeer()` so gateway group dispatch can reuse the same restore-time config path without importing unread constants or queue-shape details.
+
+Important boundary:
+
+- The adapter owns custom runtime service wiring, but it does not own QQ token acquisition, proactive-send policy, or text delivery; `gateway.ts` injects `sendTaskStatusText()` so all unanchored task notifications still pass through the existing proactive guard.
+- It does not create or persist the top-level runtime state; `src/custom/message-flow-state.ts` remains responsible for loading/saving auth, unread, proactive budget, task, poll, game, and deploy-confirmation state.
+
 ### `src/custom/types.ts`
 
 Stable custom types:

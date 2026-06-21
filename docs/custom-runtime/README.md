@@ -92,6 +92,7 @@ Out of scope for the first custom runtime:
 - `src/custom/inbound-context-payload.ts`: pure `finalizeInboundContext()` payload builder for message addresses, group metadata, voice/media fields, quote fields, and QQBot system prompts.
 - `src/custom/inbound-media-context.ts`: pure inbound media context builder for image/voice dynamic prompt lines, voice summary counters, and local/remote media split.
 - `src/custom/message-reference-context.ts`: pure quote/ref-index context helper for inbound quote resolution and current-message ref-index record construction.
+- `src/custom/runtime-services-gateway-adapter.ts`: gateway-side custom runtime service bootstrap for command-backed task executor callbacks, async task notifications, unread scheduler creation, and restore-time unread config lookup.
 - `src/custom/outbound-deliver-context.ts`: pure outbound delivery event/account context builder for media tag delivery and proactive guard source metadata.
 - `src/custom/queued-message-context.ts`: pure `QueuedMessage` to custom peer/actor mapper shared by auth, scene, task, poll, game, deploy, and fallback diagnostics adapters.
 - `src/custom/queue-status-gateway-adapter.ts`: `/bot-queue` read-only adapter for live per-peer queue health.

@@ -41,18 +41,11 @@ import { applyCustomGuardedMediaAutoSend } from "./custom/guarded-media-send-gat
 import { buildCustomDispatchSendHelpers } from "./custom/dispatch-send-helpers-gateway-adapter.js";
 import type { CustomAgentRoute } from "./custom/route.js";
 import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
-import {
-  CUSTOM_UNREAD_ACTOR_ID,
-  type CustomMessageFlowRuntime,
-  type ResolvedCustomUnreadConfig,
-} from "./custom/runtime.js";
+import type { CustomMessageFlowRuntime } from "./custom/runtime.js";
 import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
-import {
-  resolveCustomUnreadForQueuedGroupMessage,
-} from "./custom/unread-ingress.js";
 import { applyCustomGroupDispatchGateway } from "./custom/group-dispatch-gateway-adapter.js";
 import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
-import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
+import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
@@ -64,15 +57,8 @@ import {
   parseLegacyApprovalInteractionButton,
 } from "./custom/interaction-event-normalizer.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
-import { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
-import { applyCustomTaskAsyncStatusGateway } from "./custom/task-execution-effects-gateway-adapter.js";
-import {
-  completeCustomTaskExecution,
-  failCustomTaskExecution,
-  heartbeatCustomTaskExecution,
-  progressCustomTaskExecution,
-  type CustomTaskExecutionEffect,
-} from "./custom/task-executor-adapter.js";
+import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
+import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
 import {
   CUSTOM_RESPONSE_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
@@ -771,113 +757,28 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       // 群历史消息缓存：非@消息写入此 Map，被@时一次性注入上下文后清空
       const groupHistories = new Map<string, HistoryEntry[]>();
 
-      const applyAsyncCustomTaskStatus = async (effects: CustomTaskExecutionEffect[]): Promise<void> => {
-        await applyCustomTaskAsyncStatusGateway({
-          accountId: account.accountId,
-          tasks: customMessageFlow.tasks,
-          effects,
-          persistTaskState: persistCustomTaskState,
-          allowUnanchored: true,
-          sendText: async (delivery) => {
-            const proactive = buildCustomProactiveGuard();
-            await sendTextToTarget({
-              target: delivery.target,
-              account,
-              cfg,
-              log,
-              prepareUnanchoredTextSend: proactive.proactiveGuard,
-            }, delivery.text);
-          },
-          log,
-        });
-      };
-
-      const resolveCustomUnreadForEvent = (event: QueuedMessage): ResolvedCustomUnreadConfig | null => {
-        return resolveCustomUnreadForQueuedGroupMessage({
-          cfg: cfg as any,
-          accountId: account.accountId,
-          event,
-        });
-      };
-
-      const resolveCustomUnreadForPeer = (peerId: string): ResolvedCustomUnreadConfig | null =>
-        resolveCustomUnreadForEvent({
-            type: "group",
-            senderId: CUSTOM_UNREAD_ACTOR_ID,
-            senderIsBot: true,
-            content: "",
-            messageId: `custom-unread-restore-${peerId}`,
-            timestamp: new Date().toISOString(),
-            groupOpenid: peerId,
-          });
-
-      customTaskExecutor?.dispose();
-      customTaskExecutor = new CustomTaskCommandExecutor({
-        config: resolveCustomRuntimeConfig(cfg as any).tasks?.commandExecutor,
-        callbacks: {
-          complete: ({ taskId, result, now }) => {
-            const applied = completeCustomTaskExecution({
-              tasks: customMessageFlow.tasks,
-              taskId,
-              result,
-              notifyAudiences: customTaskExecutor?.notifyAudiences ?? ["peer"],
-              applyWorkspaceEffects: true,
-              now,
-            });
-            void applyAsyncCustomTaskStatus(applied.effects);
-          },
-          fail: ({ taskId, error, now }) => {
-            const applied = failCustomTaskExecution({
-              tasks: customMessageFlow.tasks,
-              taskId,
-              error,
-              notifyAudiences: customTaskExecutor?.notifyAudiences ?? ["peer"],
-              applyWorkspaceEffects: true,
-              now,
-            });
-            void applyAsyncCustomTaskStatus(applied.effects);
-          },
-          heartbeat: ({ taskId, now }) => {
-            const applied = heartbeatCustomTaskExecution({
-              tasks: customMessageFlow.tasks,
-              taskId,
-              applyWorkspaceEffects: true,
-              now,
-            });
-            if (applied.changed) persistCustomTaskState();
-          },
-          progress: ({ taskId, phase, message, percent, now }) => {
-            const applied = progressCustomTaskExecution({
-              tasks: customMessageFlow.tasks,
-              taskId,
-              phase,
-              message,
-              percent,
-              applyWorkspaceEffects: true,
-              now,
-            });
-            if (applied.changed) persistCustomTaskState();
-          },
-        },
-        log: {
-          info: (msg) => log?.info(`[qqbot:${account.accountId}] ${msg}`),
-          error: (msg) => log?.error(`[qqbot:${account.accountId}] ${msg}`),
-        },
-      });
-
-      customUnreadScheduler = new CustomUnreadScheduler({
+      const customRuntimeServices = createCustomRuntimeServicesGateway({
+        cfg: cfg as any,
         accountId: account.accountId,
-        unread: customMessageFlow.unread,
-        enqueue: (message) => trySlashCommandOrEnqueue(message),
-        persist: persistCustomUnreadState,
-        resolveConfigForPeer: resolveCustomUnreadForPeer,
-        log: {
-          info: (msg) => log?.info(`[qqbot:${account.accountId}] ${msg}`),
-          debug: (msg) => log?.debug?.(`[qqbot:${account.accountId}] ${msg}`),
-          error: (msg) => log?.error(`[qqbot:${account.accountId}] ${msg}`),
+        runtime: customMessageFlow,
+        previousTaskExecutor: customTaskExecutor,
+        enqueueMessage: (message) => trySlashCommandOrEnqueue(message),
+        persistTaskState: persistCustomTaskState,
+        persistUnreadState: persistCustomUnreadState,
+        sendTaskStatusText: async (delivery) => {
+          const proactive = buildCustomProactiveGuard();
+          await sendTextToTarget({
+            target: delivery.target,
+            account,
+            cfg,
+            log,
+            prepareUnanchoredTextSend: proactive.proactiveGuard,
+          }, delivery.text);
         },
+        log,
       });
-      customUnreadScheduler.restore(customMessageFlow.unread.getState());
+      customTaskExecutor = customRuntimeServices.taskExecutor;
+      customUnreadScheduler = customRuntimeServices.unreadScheduler;
 
       // 处理收到的消息
       const handleMessage = async (event: QueuedMessage) => {
@@ -1037,7 +938,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           commandAuthorized,
           groupHistories,
           initialCustomUnreadCfg: event._customUnreadSnapshotId
-            ? resolveCustomUnreadForEvent(event)
+            ? customRuntimeServices.resolveUnreadForEvent(event)
             : null,
           isGroupAllowed: ({ cfg: groupCfg, accountId, groupOpenid }) =>
             isGroupAllowed(groupCfg as any, groupOpenid, accountId),
