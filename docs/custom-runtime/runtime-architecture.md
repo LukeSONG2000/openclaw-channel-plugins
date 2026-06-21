@@ -959,6 +959,16 @@ Current implementation status:
 - Tracks tool-only fallback renewal count and one-shot fallback-sent state, keeping timer handles themselves in `gateway.ts`.
 - Does not log, send, persist, or know QQ/OpenClaw APIs; it only exposes a snapshot used by the fallback recorder.
 
+### `src/custom/fallback-record-context.ts`
+
+Pure builder for fallback record inputs.
+
+Current implementation status:
+
+- Combines a `QueuedMessage`, queue snapshot, dispatch-state snapshot, session key, timeout/reason metadata, and caller details into the `CustomFallbackRecordInput` shape.
+- Reuses `gateway-message-routing.ts` and `queued-message-context.ts` for peer/actor mapping so fallback diagnostics stay aligned with scene/auth routing.
+- Keeps fallback event assembly out of the main gateway dispatch loop; `gateway.ts` now supplies snapshots and sends the resulting record through `fallback-record-gateway-adapter`.
+
 ### `src/custom/fallback-record-gateway-adapter.ts`
 
 Gateway-side fallback recorder and alert trigger.

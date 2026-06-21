@@ -787,3 +787,10 @@ Added configured scene binding inspection:
 - The adapter prefers C2C/group approval cards, falls back to visible denial text when card delivery fails or the target does not support custom cards, and returns the management-group notification intent for gateway delivery.
 - `gateway.ts` now keeps only token/QQ send callbacks and management-group delivery orchestration; approval-card text/keyboard construction and fallback choice live outside the main dispatch loop.
 - Added `tests/custom-dispatch-auth-delivery-gateway-adapter.test.ts` for card send, text fallback, admin-group copy intent, no-request denial, and runtime-disabled no-op behavior.
+
+抽出 fallback 记录上下文构造：
+
+- Added `src/custom/fallback-record-context.ts` to build sanitized fallback record inputs from `QueuedMessage`, queue snapshot, dispatch-state snapshot, session key, timeout/reason metadata, and extra details.
+- The helper reuses message routing and queued-message identity mapping so fallback peer/actor fields stay aligned with scene/auth routing.
+- `gateway.ts` now only collects current snapshots and delegates fallback record shape construction before calling `recordCustomFallbackEventGateway()`.
+- Added `tests/custom-fallback-record-context.test.ts` for group, C2C, and guild fallback record identity plus queue/dispatch counter fields.

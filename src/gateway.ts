@@ -100,6 +100,7 @@ import {
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
 import { recordCustomFallbackEventGateway } from "./custom/fallback-record-gateway-adapter.js";
+import { buildCustomFallbackRecordInput } from "./custom/fallback-record-context.js";
 import { normalizeQQBotInboundEvent } from "./custom/inbound-event-normalizer.js";
 import {
   buildCustomUpdateAvailableNotification,
@@ -117,7 +118,6 @@ import {
   resolveCustomGatewayMessageReplyTarget,
   resolveCustomGatewayMessageRouteContext,
 } from "./custom/gateway-message-routing.js";
-import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
 
@@ -2114,11 +2114,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const maxToolRenewals = CUSTOM_TOOL_ONLY_MAX_RENEWALS; // tool 续期上限，防止无限工具调用永远不触发兜底
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
           let toolOnlyTimeoutId: ReturnType<typeof setTimeout> | null = null;
-          const fallbackPeer: CustomPeer = {
-            kind: event.type === "guild" ? "channel" : event.type === "group" ? "group" : event.type === "dm" ? "dm" : "c2c",
-            id: peerId,
-            label: isGroupChat ? undefined : event.senderName,
-          };
           const recordFallbackEvent = (params: {
             kind: CustomFallbackEventKind;
             reason?: string;
@@ -2132,34 +2127,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               runtime: resolveCustomRuntimeConfig(cfg as any),
               log,
               sendAlert: (alert) => sendCustomFallbackAdminGroupAlert(alert),
-              event: {
-                kind: params.kind,
-                peer: fallbackPeer,
-                actor: {
-                  id: event.senderId,
-                  label: event.senderName,
-                  isBot: event.senderIsBot,
-                },
+              event: buildCustomFallbackRecordInput({
+                ...params,
+                message: event,
                 sessionKey: route.sessionKey,
-                runId: event.messageId,
-                messageId: event.messageId,
-                reason: params.reason,
-                timeoutMs: params.timeoutMs,
-                toolDeliverCount: fallbackSnapshot.toolDeliverCount,
-                toolTextCount: fallbackSnapshot.toolTextCount,
-                toolMediaCount: fallbackSnapshot.toolMediaCount,
-                hasResponse: fallbackSnapshot.hasResponse,
-                hasBlockResponse: fallbackSnapshot.hasBlockResponse,
-                details: {
-                  ...params.details,
-                  queueTotalPending: queueSnapshot.totalPending,
-                  queueActiveUsers: queueSnapshot.activeUsers,
-                  queueMaxConcurrentUsers: queueSnapshot.maxConcurrentUsers,
-                  queueSenderPending: queueSnapshot.senderPending,
-                  queueSenderActiveMs: queueSnapshot.senderActiveMs,
-                  queueMaxActiveMs: queueSnapshot.maxActiveMs,
-                },
-              },
+                queueSnapshot,
+                dispatchSnapshot: fallbackSnapshot,
+              }),
             });
           };
         try {
