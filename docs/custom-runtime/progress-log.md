@@ -780,3 +780,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now uses that helper around agent route resolution, custom scene lookup, request-context target, and reply target construction instead of repeating event-type conditionals inline.
 - The helper intentionally preserves current guild/channel-DM compatibility behavior while making it explicit and covered by tests; channel-DM custom scene/media/card behavior remains marked unaudited.
 - Added `tests/custom-gateway-message-routing.test.ts`.
+
+抽出普通消息鉴权拒绝发送适配器：
+
+- Added `src/custom/dispatch-auth-delivery-gateway-adapter.ts` to own ordinary-dispatch auth denial delivery decisions.
+- The adapter prefers C2C/group approval cards, falls back to visible denial text when card delivery fails or the target does not support custom cards, and returns the management-group notification intent for gateway delivery.
+- `gateway.ts` now keeps only token/QQ send callbacks and management-group delivery orchestration; approval-card text/keyboard construction and fallback choice live outside the main dispatch loop.
+- Added `tests/custom-dispatch-auth-delivery-gateway-adapter.test.ts` for card send, text fallback, admin-group copy intent, no-request denial, and runtime-disabled no-op behavior.

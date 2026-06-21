@@ -259,6 +259,7 @@ Current implementation status:
 - `/bot-auth status` reports whether the admin binding is complete. Missing admins or admin group means authorization still blocks high-risk actions, but approval requests have no reliable management anchor.
 - Approval request records carry the normalized management group key so approval cards, text fallbacks, and future system push/deploy notifications can share the same target.
 - When an approval request is created outside the bound management group, the gateway best-effort copies the approval card/text to `customRuntime.adminGroup`. This copy is an unanchored group send, so it passes through the same proactive acceptance/budget guard before any QQ send API call.
+- `src/custom/dispatch-auth-delivery-gateway-adapter.ts` owns the ordinary-dispatch denial delivery decision: prefer C2C/group approval cards, fall back to visible text on card failure or unsupported targets, and return a management-group notification intent for the gateway to send through `admin-group-delivery-gateway-adapter`.
 
 Policy inputs:
 

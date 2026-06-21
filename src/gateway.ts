@@ -57,14 +57,10 @@ import {
 import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
-  buildCustomAuthApprovalKeyboard,
-  buildCustomAuthAdminGroupNotification,
-  buildCustomAuthApprovalText,
   checkCustomDispatchAuthorization,
   describeCustomAuthorizationIntents,
-  firstCustomAuthApprovalRequest,
-  formatCustomDispatchAuthorizationDeniedMessage,
 } from "./custom/auth-gateway-adapter.js";
+import { applyCustomDispatchAuthDenialDelivery } from "./custom/dispatch-auth-delivery-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import {
@@ -2047,49 +2043,23 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }
         if (dispatchAuth.enabled && dispatchAuth.reason === "denied") {
           log?.info(`[qqbot:${account.accountId}] Message dispatch denied by custom auth: capability=${dispatchAuth.capability} sender=${event.senderId}`);
-          const request = dispatchAuth.result?.intents
-            ? firstCustomAuthApprovalRequest(dispatchAuth.result.intents)
-            : null;
-          const denialText = formatCustomDispatchAuthorizationDeniedMessage(dispatchAuth);
-          const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
-          const approvalKeyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
-          if (request && (event.type === "c2c" || event.type === "group")) {
-            const token = await getAccessToken(account.appId, account.clientSecret);
-            try {
-              if (event.type === "c2c") {
-                await sendC2CMessageWithInlineKeyboard(
-                  token,
-                  event.senderId,
-                  approvalText!,
-                  approvalKeyboard!,
-                  event.messageId,
-                );
-              } else if (event.groupOpenid) {
-                await sendGroupMessageWithInlineKeyboard(
-                  token,
-                  event.groupOpenid,
-                  approvalText!,
-                  approvalKeyboard!,
-                  event.messageId,
-                );
+          const denialDelivery = await applyCustomDispatchAuthDenialDelivery({
+            decision: dispatchAuth,
+            message: event,
+            sendText: sendErrorMessage,
+            sendApprovalCard: async (target, text, keyboard) => sendWithRetry(async (token) => {
+              if (target.kind === "c2c") {
+                await sendC2CMessageWithInlineKeyboard(token, target.userOpenid, text, keyboard, target.messageId);
+              } else {
+                await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.messageId);
               }
-            } catch (sendErr) {
-              log?.error(`[qqbot:${account.accountId}] Failed to send dispatch auth approval card, falling back to text: ${sendErr}`);
-              await sendErrorMessage(denialText);
-            }
-          } else {
-            await sendErrorMessage(denialText);
-          }
-          if (request && approvalText) {
-            const adminGroupNotification = buildCustomAuthAdminGroupNotification({
-              request,
-              sourcePeer: dispatchAuth.peer,
-              text: approvalText,
-              keyboard: approvalKeyboard,
-            });
-            if (adminGroupNotification) {
-              await sendCustomAuthAdminGroupNotification({ ...adminGroupNotification, source: "dispatch" });
-            }
+            }),
+            log: {
+              error: (msg) => log?.error(`[qqbot:${account.accountId}] ${msg}`),
+            },
+          });
+          if (denialDelivery.adminGroupNotification) {
+            await sendCustomAuthAdminGroupNotification({ ...denialDelivery.adminGroupNotification, source: "dispatch" });
           }
           typing.keepAlive?.stop();
           return;
