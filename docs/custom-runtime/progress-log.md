@@ -591,3 +591,10 @@ Added configured scene binding inspection:
 - 任务卡片按钮使用 QQ 指令型 action，不新增 callback 状态：查看/取消会直接发送 slash 命令，追加需求/新建任务只预填可编辑命令，避免静默提交不完整需求。
 - `handleCustomSlashGatewayCommand()` 会把带 keyboard 的任务回复透出为 `kind="keyboard"`，复用现有 C2C/group keyboard 发送路径；客户端不支持时仍有文本中的 `<qqbot-cmd-input>` 兜底。
 - 扩展 task gateway 和 slash gateway 测试，覆盖任务键盘内容、活跃/已取消任务按钮差异，以及任务回复从 text 变为 keyboard 的路由。
+
+加入场景切换指令型卡片：
+
+- `handleCustomSceneCommand()` 现在为 `/bot-scene status`、`/bot-scene list` 和成功的 `/bot-scene set <scene>` 生成 QQ inline command keyboard。
+- 场景按钮使用 QQ 指令型 action 发送 `/bot-scene set <scene>`，不会绕过已有 `config.write` 鉴权；真正写入仍由 slash gateway 的场景持久化意图完成。
+- `handleCustomSlashGatewayCommand()` 会把带 keyboard 的场景回复透出为 `kind="keyboard"`，复用现有 C2C/group keyboard 发送路径。
+- 扩展 scene gateway 和 slash gateway 测试，覆盖场景列表按钮、当前场景高亮和场景回复 keyboard 路由。

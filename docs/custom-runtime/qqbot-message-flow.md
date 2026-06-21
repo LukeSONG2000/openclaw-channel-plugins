@@ -344,9 +344,13 @@ Current custom task cards:
 - Task buttons use QQ command actions rather than callback payloads: status/cancel send the slash command directly, while add/new-task prefill editable command text.
 - The text reply still includes command-input shortcuts as fallback for clients where inline keyboards are unavailable.
 
+Current custom scene cards:
+
+- `/bot-scene status`, `/bot-scene list`, and successful `/bot-scene set <scene>` replies can include inline command keyboards for C2C/group sends.
+- Scene switch buttons use QQ command actions for `/bot-scene set <scene>` and therefore still pass through `config.write` authorization before changing runtime config.
+
 Potential future uses:
 
-- Scene switch cards for admins.
 - Richer task status cards with live progress/details once a real OpenClaw subagent executor contract is wired.
 - Additional lightweight games now that callback ACK and state storage have a first poll implementation.
 - Admin-only deployment/update confirmation cards.

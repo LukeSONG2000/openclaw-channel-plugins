@@ -152,7 +152,7 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 - `/bot-scene set <codex-only|chat|system-admin|dev-lab|default-dm>`
 - `/bot-scene <scene>` shorthand
 
-`/bot-scene status`, `list`, and `bindings` require `system.status`; scene binding requires `config.write`. `list` shows built-in scene profiles, while `bindings` shows explicit configured peer/wildcard bindings with scene, enabled state, label, and capability summary. The adapter updates the live config object only for bind/set commands and returns a precise config persistence intent. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
+`/bot-scene status`, `list`, and `bindings` require `system.status`; scene binding requires `config.write`. `list` shows built-in scene profiles, while `bindings` shows explicit configured peer/wildcard bindings with scene, enabled state, label, and capability summary. `status`, `list`, and successful `set` replies include C2C/group inline command keyboards for switching scenes; each button sends `/bot-scene set <scene>`, so the existing `config.write` authorization still gates the mutation. The adapter updates the live config object only for bind/set commands and returns a precise config persistence intent. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
 
 Open items:
 

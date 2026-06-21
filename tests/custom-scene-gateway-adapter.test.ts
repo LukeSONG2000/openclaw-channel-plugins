@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import {
+  buildCustomSceneSwitchKeyboard,
   handleCustomSceneCommand,
   parseCustomSceneCommand,
 } from "../src/custom/scene-gateway-adapter.js";
@@ -67,6 +68,10 @@ assert.equal(status.handled, true);
 assert.equal(status.changed, undefined);
 assert.equal(status.reply?.includes("场景：chat"), true);
 assert.equal(status.reply?.includes("目标：qqbot:group:GROUP_OPENID"), true);
+assert.equal(status.keyboard?.content?.rows.length, 5);
+assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.type, 2);
+assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "/bot-scene set codex-only");
+assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.enter, true);
 
 const list = handleCustomSceneCommand({
   cfg,
@@ -75,6 +80,7 @@ const list = handleCustomSceneCommand({
 });
 assert.equal(list.handled, true);
 assert.equal(list.reply?.includes("dev-lab"), true);
+assert.equal(list.keyboard?.content?.rows[3]?.buttons[0]?.action?.data, "/bot-scene set dev-lab");
 
 const bindings = handleCustomSceneCommand({
   cfg,
@@ -101,6 +107,8 @@ assert.equal(set.changed, true);
 assert.equal(set.sceneKey, "qqbot:group:GROUP_OPENID");
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
 assert.equal(set.reply?.includes("场景：dev-lab"), true);
+assert.equal(set.keyboard?.content?.rows[3]?.buttons[0]?.render_data?.label, "当前：dev-lab");
+assert.equal(buildCustomSceneSwitchKeyboard("chat").content?.rows[1]?.buttons[0]?.render_data?.style, 4);
 
 const updatedStatus = handleCustomSceneCommand({
   cfg,

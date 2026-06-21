@@ -271,8 +271,9 @@ const sceneStatus = handleCustomSlashGatewayCommand({
 });
 assert.equal(sceneStatus.handled, true);
 assert.equal(sceneStatus.persist, undefined);
-assert.equal(sceneStatus.reply?.kind, "text");
-assert.equal(sceneStatus.reply?.kind === "text" && sceneStatus.reply.text.includes("场景：chat"), true);
+assert.equal(sceneStatus.reply?.kind, "keyboard");
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.text.includes("场景：chat"), true);
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.data, "/bot-scene set codex-only");
 
 const sceneSet = handleCustomSlashGatewayCommand({
   cfg,
@@ -286,8 +287,9 @@ const sceneSet = handleCustomSlashGatewayCommand({
 assert.equal(sceneSet.handled, true);
 assert.equal(sceneSet.persist?.config?.sceneKey, "qqbot:group:GROUP_OPENID");
 assert.equal(sceneSet.persist?.config?.sceneConfig.scene, "dev-lab");
-assert.equal(sceneSet.reply?.kind, "text");
-assert.equal(sceneSet.reply?.kind === "text" && sceneSet.reply.text.includes("场景：dev-lab"), true);
+assert.equal(sceneSet.reply?.kind, "keyboard");
+assert.equal(sceneSet.reply?.kind === "keyboard" && sceneSet.reply.text.includes("场景：dev-lab"), true);
+assert.equal(sceneSet.reply?.kind === "keyboard" && sceneSet.reply.keyboard.content?.rows[3]?.buttons[0]?.render_data?.label, "当前：dev-lab");
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
 assert.equal(sceneSet.logs?.some((item) => item.message.includes("custom scene updated")), true);
 

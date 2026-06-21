@@ -240,7 +240,11 @@ export function handleCustomSlashGatewayCommand(params: {
       });
     }
     return handled({
-      reply: customSceneCommand.reply ? { kind: "text", text: customSceneCommand.reply } : undefined,
+      reply: customSceneCommand.reply
+        ? customSceneCommand.keyboard
+          ? { kind: "keyboard", text: customSceneCommand.reply, keyboard: customSceneCommand.keyboard }
+          : { kind: "text", text: customSceneCommand.reply }
+        : undefined,
       persist,
       logs,
     });

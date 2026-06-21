@@ -1,5 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
+import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./config.js";
 import {
@@ -22,6 +23,7 @@ export type CustomSceneCommandParseResult =
 export interface CustomSceneCommandResult {
   handled: boolean;
   reply?: string;
+  keyboard?: InlineKeyboard;
   changed?: boolean;
   sceneKey?: string;
   sceneConfig?: CustomSceneConfig;
@@ -73,10 +75,10 @@ export function handleCustomSceneCommand(params: {
   const runtime = resolveCustomRuntimeConfig(params.cfg);
 
   if (command.kind === "help") return { handled: true, reply: formatCustomSceneHelp() };
-  if (command.kind === "list") return { handled: true, reply: formatCustomSceneList() };
+  if (command.kind === "list") return { handled: true, reply: formatCustomSceneList(), keyboard: buildCustomSceneSwitchKeyboard() };
   if (command.kind === "bindings") return { handled: true, reply: formatCustomSceneBindings(runtime) };
   if (command.kind === "status") {
-    return { handled: true, reply: formatCustomSceneStatus(params.cfg, peer) };
+    return { handled: true, reply: formatCustomSceneStatus(params.cfg, peer), keyboard: buildCustomSceneSwitchKeyboard() };
   }
 
   const key = formatCustomPeerKey(peer);
@@ -91,6 +93,7 @@ export function handleCustomSceneCommand(params: {
     changed: true,
     sceneKey: key,
     sceneConfig,
+    keyboard: buildCustomSceneSwitchKeyboard(command.scene),
     reply: [
       `✅ 当前会话场景已绑定`,
       ``,
@@ -100,6 +103,36 @@ export function handleCustomSceneCommand(params: {
       ``,
       `配置已写入当前运行时，并将由 gateway 持久化到 openclaw.json。`,
     ].join("\n"),
+  };
+}
+
+export function buildCustomSceneSwitchKeyboard(currentScene?: CustomSceneKind): InlineKeyboard {
+  return {
+    content: {
+      rows: CUSTOM_SCENE_KINDS.map((scene) => ({
+        buttons: [makeSceneSwitchButton(scene, currentScene === scene)],
+      })),
+    },
+  };
+}
+
+function makeSceneSwitchButton(scene: CustomSceneKind, current: boolean): KeyboardButton {
+  const profile = getCustomSceneProfile(scene);
+  return {
+    id: `scene_${scene.replace(/[^a-z0-9_]/gi, "_")}`,
+    render_data: {
+      label: current ? `当前：${scene}` : profile.label,
+      visited_label: `切换 ${scene}`,
+      style: current ? 4 : 1,
+    },
+    action: {
+      type: 2,
+      data: `/bot-scene set ${scene}`,
+      enter: true,
+      permission: { type: 2 },
+      click_limit: 0,
+    },
+    group_id: "custom-scene",
   };
 }
 
