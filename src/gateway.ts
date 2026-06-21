@@ -1,9 +1,8 @@
-import WebSocket from "ws";
 import path from "node:path";
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
-import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, getPluginUserAgent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
-import { loadSession, saveSession, clearSession } from "./session-store.js";
+import { getAccessToken, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { loadSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { isGroupAllowed, resolveGroupName, resolveGroupPrompt, resolveHistoryLimit, resolveIgnoreOtherMentions, resolveMentionPatterns } from "./config.js";
@@ -49,10 +48,11 @@ import {
 import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
 import { runCustomMessageIngressGateway } from "./custom/message-ingress-gateway-adapter.js";
 import {
-  handleQQBotWebSocketCloseGateway,
-  handleQQBotWebSocketConnectionFailureGateway,
-} from "./custom/websocket-close-gateway-adapter.js";
-import { handleQQBotWebSocketMessageGateway } from "./custom/websocket-message-gateway-adapter.js";
+  isQQBotGatewayWebSocketClosable,
+  startQQBotWebSocketConnectionGateway,
+  type QQBotGatewayWebSocketLike,
+} from "./custom/websocket-connection-gateway-adapter.js";
+import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -279,7 +279,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   // ============ WebSocket / Webhook 公共初始化 ============
   let reconnectAttempts = 0;
   let isAborted = false;
-  let currentWs: WebSocket | null = null;
+  let currentWs: QQBotGatewayWebSocketLike | null = null;
   let heartbeatInterval: ReturnType<typeof setInterval> | null = null;
   let sessionId: string | null = null;
   let lastSeq: number | null = null;
@@ -494,7 +494,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       clearInterval(heartbeatInterval);
       heartbeatInterval = null;
     }
-    if (currentWs && (currentWs.readyState === WebSocket.OPEN || currentWs.readyState === WebSocket.CONNECTING)) {
+    if (currentWs && isQQBotGatewayWebSocketClosable(currentWs)) {
       currentWs.close();
     }
     currentWs = null;
@@ -849,89 +849,45 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         return; // webhook transport 结束，不继续 WS 逻辑
       }
 
-      // ============ WebSocket 模式：获取 token 并建立 WS 连接 ============
-      const accessToken = await getAccessToken(account.appId, account.clientSecret);
-      log?.info(`[qqbot:${account.accountId}] ✅ Access token obtained successfully`);
-      const gatewayUrl = await getGatewayUrl(accessToken);
-
-      log?.info(`[qqbot:${account.accountId}] Connecting to ${gatewayUrl}`);
-
-      const ws = new WebSocket(gatewayUrl, { headers: { "User-Agent": getPluginUserAgent() } });
-      currentWs = ws;
-
-      ws.on("open", () => {
-        log?.info(`[qqbot:${account.accountId}] WebSocket connected`);
-        isConnecting = false; // 连接完成，释放锁
-        reconnectAttempts = 0; // 连接成功，重置重试计数
-        lastConnectTime = Date.now(); // 记录连接时间
-        // 启动消息处理器（异步处理，防止阻塞心跳）
-        msgQueue.startProcessor(handleMessage);
-        // P1-1: 启动后台 Token 刷新
-        startBackgroundTokenRefresh(account.appId, account.clientSecret, {
-          log: log as { info: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void },
-        });
-      });
-
-      ws.on("message", async (data) => {
-        await handleQQBotWebSocketMessageGateway({
-          accountId: account.accountId,
-          appId: account.appId,
-          accessToken,
-          intents: FULL_INTENTS,
-          intentsDesc: FULL_INTENTS_DESC,
-          rawData: data.toString(),
-          getSessionState: () => ({ sessionId, lastSeq, lastConnectTime }),
-          setLastSeq: (nextLastSeq) => { lastSeq = nextLastSeq; },
-          setSessionId: (nextSessionId) => { sessionId = nextSessionId; },
-          setShouldRefreshToken: (nextShouldRefreshToken) => { shouldRefreshToken = nextShouldRefreshToken; },
-          saveSession,
-          clearSession,
-          sendJson: (payload) => ws.send(JSON.stringify(payload)),
-          resetHeartbeat: (intervalMs, onHeartbeat) => {
-            if (heartbeatInterval) clearInterval(heartbeatInterval);
-            heartbeatInterval = setInterval(() => {
-              if (ws.readyState === WebSocket.OPEN) {
-                onHeartbeat();
-              }
-            }, intervalMs);
-          },
-          isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
-          markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
-          onReady: (payload) => onReady?.(payload),
-          sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
-          dispatchInboundEvent,
-          cleanup,
-          scheduleReconnect,
-          log,
-        });
-      });
-
-      ws.on("close", (code, reason) => {
-        isConnecting = false; // 释放锁
-        handleQQBotWebSocketCloseGateway({
-          accountId: account.accountId,
-          code,
-          reason: reason.toString(),
-          isAborted,
-          lastConnectTime,
-          quickDisconnectCount,
-          quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
-          maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
-          rateLimitDelayMs: RATE_LIMIT_DELAY,
-          setSessionId: (nextSessionId) => { sessionId = nextSessionId; },
-          setLastSeq: (nextLastSeq) => { lastSeq = nextLastSeq; },
-          setShouldRefreshToken: (nextShouldRefreshToken) => { shouldRefreshToken = nextShouldRefreshToken; },
-          setQuickDisconnectCount: (nextQuickDisconnectCount) => { quickDisconnectCount = nextQuickDisconnectCount; },
-          clearSession,
-          cleanup,
-          scheduleReconnect,
-          log,
-        });
-      });
-
-      ws.on("error", (err) => {
-        log?.error(`[qqbot:${account.accountId}] WebSocket error: ${err.message}`);
-        onError?.(err);
+      await startQQBotWebSocketConnectionGateway({
+        accountId: account.accountId,
+        appId: account.appId,
+        clientSecret: account.clientSecret,
+        intents: FULL_INTENTS,
+        intentsDesc: FULL_INTENTS_DESC,
+        isAborted: () => isAborted,
+        getSessionState: () => ({ sessionId, lastSeq, lastConnectTime }),
+        setLastSeq: (nextLastSeq) => { lastSeq = nextLastSeq; },
+        setSessionId: (nextSessionId) => { sessionId = nextSessionId; },
+        setShouldRefreshToken: (nextShouldRefreshToken) => { shouldRefreshToken = nextShouldRefreshToken; },
+        setCurrentWebSocket: (ws) => { currentWs = ws; },
+        setConnecting: (nextIsConnecting) => { isConnecting = nextIsConnecting; },
+        setReconnectAttempts: (nextReconnectAttempts) => { reconnectAttempts = nextReconnectAttempts; },
+        setLastConnectTime: (nextLastConnectTime) => { lastConnectTime = nextLastConnectTime; },
+        getLastConnectTime: () => lastConnectTime,
+        getQuickDisconnectCount: () => quickDisconnectCount,
+        setQuickDisconnectCount: (nextQuickDisconnectCount) => { quickDisconnectCount = nextQuickDisconnectCount; },
+        quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
+        maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
+        rateLimitDelayMs: RATE_LIMIT_DELAY,
+        startMessageProcessor: () => msgQueue.startProcessor(handleMessage),
+        resetHeartbeat: (intervalMs, onHeartbeat, isSocketOpen) => {
+          if (heartbeatInterval) clearInterval(heartbeatInterval);
+          heartbeatInterval = setInterval(() => {
+            if (isSocketOpen()) {
+              onHeartbeat();
+            }
+          }, intervalMs);
+        },
+        isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
+        markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
+        onReady: (payload) => onReady?.(payload),
+        sendStartupGreeting: (event) => sendStartupGreetings(adminCtx, event),
+        dispatchInboundEvent,
+        cleanup,
+        scheduleReconnect,
+        onError: (err) => onError?.(err),
+        log,
       });
 
     } catch (err) {

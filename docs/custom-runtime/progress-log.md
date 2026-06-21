@@ -1188,3 +1188,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps the message path at a high-level ingress -> context -> dispatch shape, while token transport, inline keyboard sending, framework dispatch, and admin-group notification delivery remain injected from the gateway boundary.
 - The adapter stops before request-context/agent dispatch when custom authorization denies a message, preserving the previous stop-typing behavior and approval-card hook.
 - Added `tests/custom-message-dispatch-gateway-adapter.test.ts` for auth-denied short-circuiting, approval-card sendWithRetry wiring, request context binding, fallback-session creation, reply dispatch handoff, and unread completion callback wiring.
+
+抽出 WebSocket connection 网关适配器：
+
+- Added `src/custom/websocket-connection-gateway-adapter.ts` to own one live QQ Gateway WebSocket connection's token/gateway acquisition, socket creation, open/message/close/error callback binding, heartbeat reset binding, and connection-failure scheduling.
+- `gateway.ts` now delegates the WebSocket transport callback wiring while still owning higher-level state (`isConnecting`, reconnect counters, session variables, heartbeat timer, message queue, inbound event fanout, cleanup, and startup greeting).
+- The adapter reuses the existing message and close adapters, so payload policy, close/reconnect policy, and live socket wiring are now independently testable seams.
+- Added `tests/custom-websocket-connection-gateway-adapter.test.ts` with a fake socket for open lifecycle effects, message delegation/sendJson/heartbeat wiring, closable detection, and close-event state forwarding.

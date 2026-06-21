@@ -466,6 +466,23 @@ Important boundary:
 - The adapter does not import `ws`, session-store, token-cache helpers, or timers directly. `gateway.ts` still owns the live transport objects and injects setters/callbacks.
 - Close handling is now separate from message handling, so future transport changes can independently test connection failure behavior and inbound packet behavior.
 
+### `src/custom/websocket-connection-gateway-adapter.ts`
+
+Gateway-side adapter for binding one live QQ Gateway WebSocket connection.
+
+Current implementation status:
+
+- Acquires the access token and gateway URL, then creates the WebSocket with the plugin User-Agent.
+- Registers open/message/close/error event handlers in one boundary, so `gateway.ts` no longer wires each WebSocket callback inline.
+- Applies open lifecycle effects through injected setters/callbacks: clear `isConnecting`, reset reconnect attempts, record `lastConnectTime`, start the message queue processor, and start background token refresh.
+- Delegates message packets to `websocket-message-gateway-adapter.ts`, while binding `sendJson` and heartbeat timer reset to the live socket.
+- Delegates close and connection-failure handling to `websocket-close-gateway-adapter.ts`, preserving quick-disconnect, rate-limit, session, and reconnect behavior.
+
+Important boundary:
+
+- The adapter owns only the connection callback wiring. Higher-level gateway state, message handling, inbound event fanout, reconnect scheduling, cleanup, and startup greeting behavior remain injected from `gateway.ts`.
+- The default implementation imports the official API/session helpers and `ws`, but tests can inject fake socket/API/session handlers; this keeps the transport lifecycle movable toward a future standalone connector package.
+
 ### `src/custom/websocket-payload-policy.ts`
 
 Pure WebSocket payload/session policy for QQ Gateway op messages.
