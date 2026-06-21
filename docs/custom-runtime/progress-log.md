@@ -1173,3 +1173,11 @@ Added configured scene binding inspection:
 - `gateway.ts` now receives an ingress bundle with `typing`, `messageRoute`, `route`, `systemPrompts`, and `envelopeOptions`, then continues with inbound attachment/body preparation and dispatch-specific logic.
 - The adapter keeps QQ token access, channel activity recording, framework routing, and envelope formatting injected from `gateway.ts`, preserving the connector boundary while thinning the message pipeline entry point.
 - Added `tests/custom-message-ingress-gateway-adapter.test.ts` for group ingress logging/activity, route peer resolution, scene prompt propagation, envelope option forwarding, and disabled-scene stop behavior.
+
+抽出 message context 网关适配器：
+
+- Added `src/custom/message-context-gateway-adapter.ts` to own the post-ingress/pre-dispatch context pipeline: inbound preparation, TTS static hint injection, allowFrom command authorization, group dispatch gate, and final agent context payload assembly.
+- `gateway.ts` now delegates inbound attachment/body/quote/ref-index preparation, custom group dispatch, and `ctxPayload` construction to this adapter while still injecting framework formatters, group policy resolvers, unread scheduler effects, and history formatters.
+- The adapter returns only the downstream fields needed for auth/dispatch/unread completion (`ctxPayload`, `userContent`, `wasMentioned`, `shouldCatchUpUnreadAfterReply`, and `customUnreadCfgForEvent`), making the message pipeline boundary clearer.
+- Added `tests/custom-message-context-gateway-adapter.test.ts` for direct-message context construction, TTS/system prompt merging, command authorization, group stop behavior, and allowFrom normalization.
+- 同步复核新增初始化目标：当前分支仍把 `customRuntime.admins` 和 `customRuntime.adminGroup` 作为首次初始化硬约束，`tests/custom-onboarding.test.ts` 本轮复跑通过，管理群写入时继续自动绑定默认 `system-admin` 场景。

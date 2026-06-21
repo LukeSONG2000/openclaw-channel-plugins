@@ -30,10 +30,8 @@ import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { resolveCustomRuntimeConfig } from "./custom/config.js";
-import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
 import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
 import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
-import { applyCustomGroupDispatchGateway } from "./custom/group-dispatch-gateway-adapter.js";
 import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
@@ -48,7 +46,7 @@ import { runCustomDispatchReplyGateway } from "./custom/dispatch-reply-gateway-a
 import {
   recordCustomFallbackEventGateway,
 } from "./custom/fallback-record-gateway-adapter.js";
-import { prepareCustomInboundMessageGateway } from "./custom/inbound-preparation-gateway-adapter.js";
+import { runCustomMessageContextGateway } from "./custom/message-context-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
   startCustomUpdateCheckLoop,
@@ -611,26 +609,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const route = ingress.route;
         const envelopeOptions = ingress.envelopeOptions;
 
-        // 组装消息体
-        // 静态系统提示已移至 skills/qqbot-remind/SKILL.md 和 skills/qqbot-media/SKILL.md
-        // BodyForAgent 只保留必要的动态上下文信息
-        
-        // ============ 用户标识信息 ============
-        
-        // 收集额外的系统提示（如果配置了账户级别的 systemPrompt）
-        const systemPrompts = ingress.systemPrompts;
-        
-        const inboundPrepared = await prepareCustomInboundMessageGateway({
-          cfg,
-          account: {
-            accountId: account.accountId,
-            appId: account.appId,
-          },
+        const qualifiedTarget = messageRoute.requestTarget;
+        let agentHistoryEnvelopeOpts: ReturnType<typeof pluginRuntime.channel.reply.resolveEnvelopeFormatOptions> | undefined;
+        const messageContext = await runCustomMessageContextGateway({
+          cfg: cfg as any,
+          account,
           event,
-          peerId,
-          isGroupChat,
-          envelopeOptions,
-          inputNotifyRefIdx: typing.inputNotifyRefIdx,
+          ingress,
+          unread: customMessageFlow.unread,
+          groupHistories,
+          initialCustomUnreadCfg: event._customUnreadSnapshotId
+            ? customRuntimeServices.resolveUnreadForEvent(event)
+            : null,
+          hasTTS: !!resolveTTSConfig(cfg as Record<string, unknown>),
           processAttachments,
           formatVoiceText,
           parseFaceTags,
@@ -642,140 +633,38 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             formatMessageReferenceForAgent(ref, { appId: account.appId, peerId, cfg, log }),
           formatInboundEnvelope: (input) =>
             pluginRuntime.channel.reply.formatInboundEnvelope(input as Parameters<typeof pluginRuntime.channel.reply.formatInboundEnvelope>[0]),
-          log,
-        });
-        const {
-          processed,
-          inboundMedia,
-          userContent,
-          body,
-          quoteRef,
-        } = inboundPrepared;
-        const {
-          voiceTranscriptSources,
-        } = processed;
-        const {
-          uniqueVoicePaths,
-          uniqueVoiceUrls,
-          uniqueVoiceAsrReferTexts,
-          dynamicContext: dynamicCtx,
-          localMediaPaths,
-          localMediaTypes,
-          remoteMediaUrls,
-        } = inboundMedia;
-        const hasAsrReferFallback = inboundMedia.hasAsrReferFallback;
-
-        // AI 看到的投递地址必须带完整前缀（qqbot:c2c: / qqbot:group:）
-        const qualifiedTarget = messageRoute.requestTarget;
-
-        // 动态检测 TTS 配置状态
-        const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
-
-        // ============ 构建 contextInfo（静态/动态分离） ============
-        // 设计原则：
-        //   - 静态指引：每条消息不变的内容（场景锚定、投递地址、能力说明），
-        //     注入 systemPrompts 前部，session 中虽重复出现但 AI 会自动降权，
-        //     且保证长 session 窗口截断后仍可见。
-        //   - 动态标签：每条消息变化的数据（时间、附件、ASR），
-        //     以紧凑的 [ctx] 块标注在用户消息前，最小化 token 开销。
-
-        // --- 静态指引（仅注入框架信封未覆盖的 QQBot 特有信息） ---
-        // 框架 formatInboundEnvelope 已提供：平台标识、发送者、时间戳
-        // 投递地址通过 AsyncLocalStorage 请求上下文传递给 remind 工具，无需在 agentBody 中暴露
-        const staticParts: string[] = [];
-        // TTS 能力声明：仅在启用时告知 AI 可以发语音（媒体标签用法由 qqbot-media SKILL.md 提供）
-        // STT 无需声明：转写结果已在动态上下文的 ASR 行中，AI 自然可见
-        if (hasTTS) staticParts.push("语音合成已启用");
-
-        // 仅在有静态指引时注入 systemPrompts
-        if (staticParts.length > 0) {
-          const staticInstruction = staticParts.join(" | ");
-          systemPrompts.unshift(staticInstruction);
-        }
-
-        // --- 命令授权（所有消息类型共用，群消息门控也需要） ---
-        // allowFrom: ["*"] 表示允许所有人，否则检查 senderId 是否在 allowFrom 列表中
-        const allowFromList = account.config?.allowFrom ?? [];
-        const allowAll = allowFromList.length === 0 || allowFromList.some((entry: string) => entry === "*");
-        const commandAuthorized = allowAll || allowFromList.some((entry: string) =>
-          entry.toUpperCase() === event.senderId.toUpperCase()
-        );
-
-        // --- 群消息上下文：插件只提供策略，框架自动组装 hint ---
-        const groupDispatch = applyCustomGroupDispatchGateway({
-          cfg: cfg as any,
-          accountId: account.accountId,
-          route: {
-            agentId: route.agentId,
-            sessionKey: route.sessionKey,
+          groupDispatch: {
+            isGroupAllowed: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              isGroupAllowed(groupCfg as any, groupOpenid, accountId),
+            resolveMentionPatterns: ({ cfg: groupCfg, agentId }) =>
+              resolveMentionPatterns(groupCfg as any, agentId),
+            detectWasMentioned: (input) => detectWasMentioned(input),
+            resolveRequireMention: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              qqbotPlugin.groups?.resolveRequireMention?.({
+                cfg: groupCfg as any,
+                accountId,
+                groupId: groupOpenid,
+              }) ?? true,
+            resolveIgnoreOtherMentions: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              resolveIgnoreOtherMentions(groupCfg as any, groupOpenid, accountId),
+            resolveHistoryLimit: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              resolveHistoryLimit(groupCfg as any, groupOpenid, accountId),
+            resolveGroupName: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              resolveGroupName(groupCfg as any, groupOpenid, accountId),
+            resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              qqbotPlugin.groups?.resolveGroupIntroHint?.({
+                cfg: groupCfg as any,
+                accountId,
+                groupId: groupOpenid,
+              }),
+            resolveGroupPrompt: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              resolveGroupPrompt(groupCfg as any, groupOpenid, accountId),
+            getRefEntry: getRefIndex,
+            isControlCommand: hasControlCommand,
+            applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
+            persistCustomUnreadState,
           },
-          unread: customMessageFlow.unread,
-          event,
-          content: userContent,
-          commandAuthorized,
-          groupHistories,
-          initialCustomUnreadCfg: event._customUnreadSnapshotId
-            ? customRuntimeServices.resolveUnreadForEvent(event)
-            : null,
-          isGroupAllowed: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            isGroupAllowed(groupCfg as any, groupOpenid, accountId),
-          resolveMentionPatterns: ({ cfg: groupCfg, agentId }) =>
-            resolveMentionPatterns(groupCfg as any, agentId),
-          detectWasMentioned: (input) => detectWasMentioned(input),
-          resolveRequireMention: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            qqbotPlugin.groups?.resolveRequireMention?.({
-              cfg: groupCfg as any,
-              accountId,
-              groupId: groupOpenid,
-            }) ?? true,
-          resolveIgnoreOtherMentions: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            resolveIgnoreOtherMentions(groupCfg as any, groupOpenid, accountId),
-          resolveHistoryLimit: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            resolveHistoryLimit(groupCfg as any, groupOpenid, accountId),
-          resolveGroupName: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            resolveGroupName(groupCfg as any, groupOpenid, accountId),
-          resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            qqbotPlugin.groups?.resolveGroupIntroHint?.({
-              cfg: groupCfg as any,
-              accountId,
-              groupId: groupOpenid,
-            }),
-          resolveGroupPrompt: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-            resolveGroupPrompt(groupCfg as any, groupOpenid, accountId),
-          getRefEntry: getRefIndex,
-          isControlCommand: hasControlCommand,
-          applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
-          persistCustomUnreadState,
-          log,
-        });
-        if (groupDispatch.action === "stop") {
-          return;
-        }
-        const groupSystemPrompt = groupDispatch.groupSystemPrompt;
-        const wasMentioned = groupDispatch.wasMentioned;
-        const groupSubject = groupDispatch.groupSubject;
-        const senderLabel = groupDispatch.senderLabel;
-        const shouldCatchUpUnreadAfterReply = groupDispatch.shouldCatchUpUnreadAfterReply;
-        const customUnreadCfgForEvent = groupDispatch.customUnreadCfgForEvent;
-        const customUnreadHistoryForEvent = groupDispatch.customUnreadHistoryForEvent;
-
-        const fromAddress = messageRoute.fromAddress;
-        const toAddress = messageRoute.toAddress;
-        const historyLimitForAgentBody = event.type === "group" && event.groupOpenid
-          ? resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId)
-          : 0;
-        let agentHistoryEnvelopeOpts: ReturnType<typeof pluginRuntime.channel.reply.resolveEnvelopeFormatOptions> | undefined;
-        const agentContext = applyCustomAgentContextGateway({
-          accountId: account.accountId,
-          event,
-          body,
-          userContent,
-          quotePart: quoteRef.quotePart,
-          dynamicContext: dynamicCtx,
-          wasMentioned,
-          groupHistories,
-          mentionHistory: customUnreadHistoryForEvent,
-          historyLimit: historyLimitForAgentBody,
+          resolveHistoryLimit: (groupOpenid, accountId) => resolveHistoryLimit(cfg as any, groupOpenid, accountId),
           formatSubMessageContent: (m) =>
             formatMessageContent({
               content: m.content ?? "",
@@ -807,30 +696,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             });
           },
           finalizeInboundContext: (payload) => pluginRuntime.channel.reply.finalizeInboundContext(payload),
-          fromAddress,
-          toAddress,
-          sessionKey: route.sessionKey,
-          routeAccountId: route.accountId,
-          isGroupChat,
-          staticSystemPrompts: systemPrompts,
-          groupSystemPrompt,
-          senderLabel,
-          groupSubject,
-          hasAsrReferFallback,
-          voiceTranscriptSources,
-          uniqueVoicePaths,
-          uniqueVoiceUrls,
-          uniqueVoiceAsrReferTexts,
-          commandAuthorized,
-          media: {
-            localMediaPaths,
-            localMediaTypes,
-            remoteMediaUrls,
-          },
-          quote: quoteRef,
           log,
         });
-        const ctxPayload = agentContext.ctxPayload;
+        if (messageContext.action === "stop") {
+          return;
+        }
+        const ctxPayload = messageContext.ctxPayload;
+        const userContent = messageContext.userContent;
+        const wasMentioned = messageContext.wasMentioned;
+        const shouldCatchUpUnreadAfterReply = messageContext.shouldCatchUpUnreadAfterReply;
+        const customUnreadCfgForEvent = messageContext.customUnreadCfgForEvent;
 
         const {
           replyAnchorId,

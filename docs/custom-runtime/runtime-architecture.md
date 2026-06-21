@@ -208,6 +208,23 @@ Important boundary:
 - The adapter does not parse attachments, build agent context, authorize commands, or dispatch replies. It only owns the ingress setup before custom group dispatch and inbound message preparation.
 - QQ token access for input-notify, channel activity recording, framework routing, and envelope formatting remain injected from `gateway.ts`.
 
+### `src/custom/message-context-gateway-adapter.ts`
+
+Gateway-side context pipeline after message ingress and before dispatch setup.
+
+Current implementation status:
+
+- Runs `inbound-preparation-gateway-adapter.ts` with injected attachment, quote/ref-index, and framework envelope callbacks.
+- Applies static QQBot context hints such as TTS availability before scene/account prompts reach the final context payload.
+- Computes the legacy `allowFrom` command authorization flag used by group gating and downstream dispatch authorization.
+- Runs `group-dispatch-gateway-adapter.ts`, including custom unread ingress/skip behavior, mention detection, group prompt context, and stop decisions.
+- Runs `agent-context-gateway-adapter.ts` to produce the final `ctxPayload` for OpenClaw dispatch, while returning the fields needed by later auth and unread-completion hooks.
+
+Important boundary:
+
+- The adapter does not send replies, resolve QQ tokens, or call OpenClaw dispatch. It owns context assembly only.
+- Gateway still injects framework formatting/finalization, group policy resolvers, history envelope formatting, and custom unread scheduler/persistence callbacks.
+
 ### `src/custom/proactive-budget.ts`
 
 Owns local proactive/unanchored text-send budget for custom runtime paths.
