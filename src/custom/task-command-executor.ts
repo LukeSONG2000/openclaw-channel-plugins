@@ -21,6 +21,7 @@ export interface CustomTaskCommandExecutorResolvedConfig {
   command?: string;
   args: string[];
   cwd?: string;
+  forwardRequirementsToStdin: boolean;
   timeoutMs: number;
   maxOutputChars: number;
   notifyAudiences: CustomTaskNotificationAudience[];
@@ -49,6 +50,7 @@ export function resolveCustomTaskCommandExecutorConfig(
     command: typeof config?.command === "string" && config.command.trim() ? config.command.trim() : undefined,
     args: Array.isArray(config?.args) ? config.args.map(String) : [],
     cwd: typeof config?.cwd === "string" && config.cwd.trim() ? config.cwd.trim() : undefined,
+    forwardRequirementsToStdin: config?.forwardRequirementsToStdin === true,
     timeoutMs,
     maxOutputChars,
     notifyAudiences: normalizeNotifyAudiences(config?.notifyAudiences),
@@ -109,7 +111,9 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
         shell: false,
         stdio: ["pipe", "pipe", "pipe"],
       });
-      child.stdin.end();
+      if (!this.config.forwardRequirementsToStdin) {
+        child.stdin.end();
+      }
     } catch (err) {
       return {
         accepted: false,
@@ -174,7 +178,19 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
     const running = this.running.get(params.task.id);
     if (!running) return { accepted: false, message: "task command process is not running" };
     appendOutput(running.stdout, `\n[requirement] ${params.requirement.actor.label || params.requirement.actor.id}: ${params.requirement.content}\n`, this.config.maxOutputChars);
-    return { accepted: true, message: "requirement recorded in task state; command process cannot receive stdin" };
+    if (!this.config.forwardRequirementsToStdin) {
+      return { accepted: true, message: "requirement recorded in task state; command process stdin forwarding is disabled" };
+    }
+    if (running.process.stdin.destroyed || running.process.stdin.writableEnded) {
+      return { accepted: false, message: "task command process stdin is closed" };
+    }
+    const forwardedWithoutBackpressure = running.process.stdin.write(`${JSON.stringify(formatRequirementInput(params.requirement))}\n`);
+    return {
+      accepted: true,
+      message: forwardedWithoutBackpressure
+        ? "requirement forwarded to task command process stdin"
+        : "requirement queued to task command process stdin with backpressure",
+    };
   }
 
   cancel(params: { task: CustomSandboxTask }): CustomTaskExecutorAck {
@@ -224,6 +240,16 @@ function appendOutput(target: string[], chunk: unknown, maxChars: number): void 
   if (joined.length > maxChars) joined = joined.slice(joined.length - maxChars);
   target.length = 0;
   target.push(joined);
+}
+
+function formatRequirementInput(requirement: CustomTaskRequirement): Record<string, unknown> {
+  return {
+    type: "requirement",
+    id: requirement.id,
+    actor: requirement.actor,
+    content: requirement.content,
+    createdAt: requirement.createdAt,
+  };
 }
 
 function formatTaskCommandOutput(params: {

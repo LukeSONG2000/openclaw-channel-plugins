@@ -605,3 +605,10 @@ Added configured scene binding inspection:
 - Gateway 发送 `customRuntime.adminGroup` 兜底告警时会优先使用 `sendGroupMessageWithInlineKeyboard()`，仍然先经过 proactive acceptance/budget guard；没有 keyboard 时继续走纯文本发送。
 - 告警文本仍只包含聚合计数、队列计数和快捷命令，不包含原始错误、prompt、缓存消息正文或队列正文；`/compact` 和 `/new` 仍应在原故障会话执行，避免管理群命令作用到管理群自己的队列/会话。
 - 扩展 `tests/custom-fallback-alerts.test.ts` 覆盖告警卡片结构和只读检查按钮 payload。
+
+增强长任务命令执行器的追加需求通道：
+
+- `customRuntime.tasks.commandExecutor` 新增 `forwardRequirementsToStdin`，默认关闭以保持现有命令执行器行为。
+- 开启后，运行中的 `CustomTaskCommandExecutor` 会保持子进程 stdin 打开，`/bot-task add` 仍先持久化到任务状态/工作区，再把追加需求作为一行 JSON 转发到子进程 stdin。
+- 这给后续真实 OpenClaw/subagent runner 提供了轻量协议：主群聊不被长任务阻塞，同时可以继续引导任务追加需求。
+- 扩展 `tests/custom-task-command-executor.test.ts`，用真实 Node 子进程验证追加需求能通过 stdin 到达执行器并进入最终结果。

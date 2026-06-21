@@ -639,6 +639,7 @@ Important boundary:
 - It now has both a generic executor adapter boundary and a local command executor proving path, so a future OpenClaw runner can attach without changing command parsing, task state, or workspace persistence.
 - It returns notification delivery descriptions instead of sending QQ messages directly; gateway applies anchored deliveries through QQ send APIs and applies proactive policy before unanchored async completion notifications.
 - Without an enabled executor, tasks remain queued with durable workspace/status files; group long-task commands still return immediately and do not block the main conversation queue.
+- The local command executor can optionally keep stdin open with `forwardRequirementsToStdin=true`; when enabled, `/bot-task add` forwards each added requirement as one JSON line while still persisting the requirement to task state and the workspace.
 
 Next integration:
 
@@ -658,6 +659,7 @@ Example command executor config:
             "enabled": false,
             "command": "/usr/local/bin/custom-task-runner",
             "args": [],
+            "forwardRequirementsToStdin": false,
             "timeoutMs": 1800000,
             "maxOutputChars": 6000,
             "notifyAudiences": ["peer"]

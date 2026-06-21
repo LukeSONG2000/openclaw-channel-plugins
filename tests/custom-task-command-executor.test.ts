@@ -14,6 +14,7 @@ assert.deepEqual(resolveCustomTaskCommandExecutorConfig(undefined), {
   command: undefined,
   args: [],
   cwd: undefined,
+  forwardRequirementsToStdin: false,
   timeoutMs: 1_800_000,
   maxOutputChars: 6_000,
   notifyAudiences: ["peer"],
@@ -24,12 +25,14 @@ assert.deepEqual(resolveCustomTaskCommandExecutorConfig({
   args: ["--version"],
   timeoutMs: 10,
   maxOutputChars: 20,
+  forwardRequirementsToStdin: true,
   notifyAudiences: ["owner", "peer", "peer"],
 }), {
   enabled: true,
   command: "node",
   args: ["--version"],
   cwd: undefined,
+  forwardRequirementsToStdin: true,
   timeoutMs: 10,
   maxOutputChars: 20,
   notifyAudiences: ["owner", "peer"],
@@ -127,6 +130,81 @@ assert.match(completed[0]?.result ?? "", new RegExp(taskId));
 assert.match(completed[0]?.result ?? "", /warn line/);
 assert.equal(runtime.getTask(taskId)?.status, "completed");
 assert.equal(heartbeats.includes(taskId), true);
+
+const stdinRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
+const stdinCreated = stdinRuntime.createTask({
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  actor: { id: "OWNER_OPENID", label: "Owner" },
+  prompt: "Wait for forwarded requirement",
+  now: 2_100,
+});
+const stdinTaskId = stdinCreated.task!.id;
+const stdinCompleted: Array<{ taskId: string; result: string }> = [];
+const stdinExecutor = new CustomTaskCommandExecutor({
+  config: {
+    enabled: true,
+    command: process.execPath,
+    args: ["-e", [
+      "const chunks=[];",
+      "process.stdin.setEncoding('utf8');",
+      "process.stdin.on('data', chunk => chunks.push(chunk));",
+      "setTimeout(() => {",
+      "  const lines = chunks.join('').trim().split(/\\n+/).filter(Boolean);",
+      "  const parsed = lines.map((line) => JSON.parse(line));",
+      "  console.log(JSON.stringify(parsed));",
+      "  process.exit(0);",
+      "}, 250);",
+    ].join("")],
+    timeoutMs: 5_000,
+    maxOutputChars: 2_000,
+    forwardRequirementsToStdin: true,
+  },
+  callbacks: {
+    complete: (result) => {
+      stdinCompleted.push(result);
+      completeCustomTaskExecution({
+        tasks: stdinRuntime,
+        taskId: result.taskId,
+        result: result.result,
+        applyWorkspaceEffects: false,
+        now: 2_600,
+      });
+    },
+    fail: (result) => {
+      failCustomTaskExecution({
+        tasks: stdinRuntime,
+        taskId: result.taskId,
+        error: result.error,
+        applyWorkspaceEffects: false,
+        now: 2_600,
+      });
+    },
+  },
+});
+applyCustomTaskExecutionIntents({
+  tasks: stdinRuntime,
+  intents: stdinCreated.intents,
+  executor: stdinExecutor,
+  now: 2_200,
+});
+const stdinRequirement = stdinRuntime.addRequirement({
+  taskId: stdinTaskId,
+  actor: { id: "MEMBER_OPENID", label: "Member" },
+  content: "追加一条来自群聊的新需求",
+  now: 2_300,
+});
+const stdinAppend = applyCustomTaskExecutionIntents({
+  tasks: stdinRuntime,
+  intents: stdinRequirement.intents,
+  executor: stdinExecutor,
+  now: 2_350,
+});
+assert.equal(stdinAppend.effects.some((effect) => effect.kind === "executor-requirement-forwarded" && effect.message?.includes("stdin")), true);
+await waitFor(() => stdinCompleted.length === 1);
+assert.match(stdinCompleted[0]?.result ?? "", /追加一条来自群聊的新需求/);
+assert.match(stdinCompleted[0]?.result ?? "", /"type":"requirement"/);
+assert.equal(stdinRuntime.getTask(stdinTaskId)?.status, "completed");
 
 const failedRuntime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
 const failedCreated = failedRuntime.createTask({

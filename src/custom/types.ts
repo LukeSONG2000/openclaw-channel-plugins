@@ -122,6 +122,7 @@ export interface CustomTaskCommandExecutorConfig {
   command?: string;
   args?: string[];
   cwd?: string;
+  forwardRequirementsToStdin?: boolean;
   timeoutMs?: number;
   maxOutputChars?: number;
   notifyAudiences?: Array<"peer" | "owner">;
