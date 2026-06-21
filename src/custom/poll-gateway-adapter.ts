@@ -81,11 +81,16 @@ export function handleCustomPollCommand(params: {
   }
   if (command.kind === "status") {
     const poll = resolvePoll(params.polls, command.pollId);
-    return { handled: true, reply: poll ? formatPollStatus(poll) : `⚠️ 未找到投票：${command.pollId}` };
+    if (!poll || !canReadPoll(poll, params.accountId, peer, actor)) {
+      return { handled: true, reply: `⚠️ 未找到投票，或该投票不属于当前会话：${command.pollId}` };
+    }
+    return { handled: true, reply: formatPollStatus(poll) };
   }
   if (command.kind === "close") {
     const poll = resolvePoll(params.polls, command.pollId);
-    if (!poll) return { handled: true, reply: `⚠️ 未找到投票：${command.pollId}` };
+    if (!poll || !canReadPoll(poll, params.accountId, peer, actor)) {
+      return { handled: true, reply: `⚠️ 未找到投票，或该投票不属于当前会话：${command.pollId}` };
+    }
     const result = params.polls.closePoll({ pollId: poll.id, now: params.now });
     return {
       handled: true,
@@ -241,4 +246,15 @@ function resolvePoll(polls: CustomPollRuntime, input: string): CustomPoll | null
   const matches = polls.listPolls({ limit: Number.MAX_SAFE_INTEGER })
     .filter((poll) => poll.id.startsWith(input) || poll.id.endsWith(input));
   return matches.length === 1 ? matches[0]! : null;
+}
+
+function canReadPoll(
+  poll: CustomPoll,
+  accountId: string,
+  peer: ReturnType<typeof toCustomPeerFromQueuedMessage>,
+  actor: ReturnType<typeof toCustomActorFromQueuedMessage>,
+): boolean {
+  if (poll.accountId !== accountId) return false;
+  if (poll.creator.id.toUpperCase() === actor.id.toUpperCase()) return true;
+  return poll.peer.kind === peer.kind && poll.peer.id === peer.id;
 }

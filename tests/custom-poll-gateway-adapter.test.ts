@@ -123,6 +123,43 @@ const statusBySuffix = handleCustomPollCommand({
 assert.equal(statusBySuffix.handled, true);
 assert.equal(statusBySuffix.reply?.includes("B：1"), true);
 
+const otherGroupStatus = handleCustomPollCommand({
+  cfg,
+  accountId: "default",
+  polls,
+  message: { ...message, groupOpenid: "OTHER_GROUP_OPENID", senderId: "OTHER_MEMBER_OPENID" },
+  rawContent: `/bot-poll status ${pollId}`,
+  now: 4_100,
+});
+assert.equal(otherGroupStatus.handled, true);
+assert.equal(otherGroupStatus.reply?.includes("不属于当前会话"), true);
+assert.equal(otherGroupStatus.reply?.includes("Pick one"), false);
+
+const otherGroupClose = handleCustomPollCommand({
+  cfg,
+  accountId: "default",
+  polls,
+  message: { ...message, groupOpenid: "OTHER_GROUP_OPENID", senderId: "OTHER_MEMBER_OPENID" },
+  rawContent: `/bot-poll close ${pollId}`,
+  now: 4_200,
+});
+assert.equal(otherGroupClose.handled, true);
+assert.equal(otherGroupClose.changed, undefined);
+assert.equal(otherGroupClose.reply?.includes("不属于当前会话"), true);
+assert.equal(polls.getPoll(pollId)?.status, "open");
+
+const creatorDmStatus = handleCustomPollCommand({
+  cfg,
+  accountId: "default",
+  polls,
+  message: { ...message, type: "c2c", groupOpenid: undefined },
+  rawContent: `/bot-poll status ${pollId}`,
+  now: 4_300,
+});
+assert.equal(creatorDmStatus.handled, true);
+assert.equal(creatorDmStatus.reply?.includes("投票状态"), true);
+assert.equal(creatorDmStatus.reply?.includes("Pick one"), true);
+
 const close = handleCustomPollCommand({
   cfg,
   accountId: "default",

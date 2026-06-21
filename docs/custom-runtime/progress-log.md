@@ -467,3 +467,10 @@ Improved long-task follow-up ergonomics:
 - Active tasks show status, append-requirement, and cancel shortcuts; completed/cancelled/failed tasks hide append/cancel shortcuts and keep only status/new-task actions.
 - Append shortcuts prefill `/bot-task add <taskId> ` without auto-sending, so group members can edit the new requirement before sending.
 - This keeps long-task follow-up outside the main AI queue while making status checks and requirement updates easier in group chat.
+
+Hardened poll text-command visibility:
+
+- `/bot-poll status <pollId>` and `/bot-poll close <pollId>` now check account/peer visibility before showing poll details or closing a poll.
+- A poll is visible through text commands only in its original account/peer, or to its creator across peers.
+- Ordinary users who paste a poll id from another group/DM receive "not found or not current session" and do not see question/options/vote counts.
+- Button voting remains unchanged; the interaction adapter currently receives button data and actor only, so source-peer enforcement for callback votes remains a future gateway payload mapping item.

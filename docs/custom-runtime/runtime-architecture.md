@@ -670,6 +670,7 @@ Current implementation status:
 - For C2C/group messages, poll creation replies with an inline keyboard when available; channel/DM paths fall back to text.
 - Button callbacks use `custom-poll:<pollId>:vote:<optionId>`.
 - `gateway.ts` acknowledges interactions first, then routes `custom-poll:` callbacks to the per-account poll runtime.
+- `/bot-poll status <pollId>` and `/bot-poll close <pollId>` only reveal or mutate polls in the original account/peer, or polls created by the current actor. A poll id from another group/DM is treated as not found for ordinary readers.
 - Slash-command capability metadata gates poll mutations through custom auth:
   - help/list/status use `system.status`
   - create/close use `game.interact`
@@ -678,6 +679,7 @@ Important boundary:
 
 - This layer is intentionally only a small interactive-card proving ground.
 - It does not yet implement broader games, task cards, scene-switch cards, or deploy/update confirmation cards.
+- Poll button callbacks currently trust the signed/opaque QQ interaction delivery plus stored poll id; the gateway adapter does not yet receive enough source peer fields to enforce the same peer visibility rule inside `handleCustomPollInteraction()`.
 
 ### `src/custom/fallbacks.ts`
 
