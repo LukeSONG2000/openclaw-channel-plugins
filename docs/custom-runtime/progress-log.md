@@ -1025,3 +1025,11 @@ Added configured scene binding inspection:
 - `gateway.ts` now only injects token/cache callbacks and awaits the returned refIdx promise when building the current-message ref-index record.
 - Group/guild messages remain no-op because current QQ input-notify support is C2C-only; auth denial, block delivery, and final cleanup now call the adapter's `stop()` handle.
 - Added `tests/custom-typing-keepalive-gateway-adapter.test.ts` for non-C2C no-op, success/refIdx capture, keepalive start/stop, token-refresh retry, and non-token failure logging.
+
+同步新增初始化目标并抽出 group ingress 网关应用层：
+
+- 已复核新增目标：首次初始化仍必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`；`src/onboarding.ts`、`scripts/apply-custom-runtime-init.mjs`、setup 校验和 preflight 均保持缺管理员/管理群即未完整初始化。
+- Added `src/custom/group-ingress-gateway-adapter.ts` to own skipped group message ingress side effects, including custom unread recording, legacy group-history fallback, scheduler/persist callbacks, and existing-equivalent logs.
+- `gateway.ts` now delegates `drop_other_mention`、`skip_no_mention` 和 mention ingress/catch-up metadata extraction to the adapter, removing the local custom unread/legacy history closures from the group gate path.
+- The adapter preserves the previous fallback boundary: custom unread handles scene-enabled peers first; peers without custom unread still write legacy pending history with attachment summaries.
+- Added `tests/custom-group-ingress-gateway-adapter.test.ts` for custom unread skipped messages, legacy fallback with attachments, mention catch-up metadata, and disabled-runtime no-op behavior.

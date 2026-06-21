@@ -865,6 +865,24 @@ Important boundary:
 - It does not format final agent prompts. It only returns history entries that gateway formatting can consume.
 - It does not send QQ messages or own timers; `src/custom/unread-scheduler.ts` applies the returned effects.
 
+### `src/custom/group-ingress-gateway-adapter.ts`
+
+Gateway-side application layer for group ingress side effects immediately after the group gate decision.
+
+Current implementation status:
+
+- Applies skipped-message ingress for `drop_other_mention` and `skip_no_mention`.
+- Tries custom unread first and falls back to legacy `groupHistories` recording when custom unread is disabled for the peer.
+- Applies custom unread scheduler effects through an injected callback and persists unread state only when the runtime reports a change.
+- Logs the same operational messages as the previous inline gateway path for custom unread, legacy history, and mention catch-up decisions.
+- Applies mention ingress before ordinary dispatch and returns the unread config, pending history, and catch-up-after-reply flag that downstream prompt/completion logic consumes.
+
+Important boundary:
+
+- This adapter does not decide group allow-list, activation mode, mention detection, command authorization, or prompt formatting.
+- It does not own timers or persistence; the gateway still injects scheduler and persistence callbacks.
+- It keeps custom unread and legacy history fallback behavior together so future gate changes do not need to duplicate side-effect branches in `gateway.ts`.
+
 ### `src/custom/unread-context.ts`
 
 Gateway-side history context adapter for custom unread and legacy group history.

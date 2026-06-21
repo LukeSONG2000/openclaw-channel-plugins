@@ -59,13 +59,14 @@ import {
 } from "./custom/runtime.js";
 import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-adapter.js";
 import {
-  observeCustomUnreadMentionBeforeDispatch,
-  recordCustomUnreadNonMentionBeforeDispatch,
   resolveCustomUnreadForQueuedGroupMessage,
 } from "./custom/unread-ingress.js";
 import {
+  applyCustomGroupMentionIngress,
+  applyCustomGroupSkippedMessageIngress,
+} from "./custom/group-ingress-gateway-adapter.js";
+import {
   applyCustomUnreadHistoryContextToAgentBody,
-  recordLegacyGroupHistoryBeforeDispatch,
 } from "./custom/unread-context.js";
 import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
@@ -1025,33 +1026,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       });
       customUnreadScheduler.restore(customMessageFlow.unread.getState());
 
-      const recordCustomUnreadNonMention = (event: QueuedMessage, userContent: string, mentionedBot: boolean, implicitMention?: boolean): number | null => {
-        const result = recordCustomUnreadNonMentionBeforeDispatch({
-          cfg: cfg as any,
-          accountId: account.accountId,
-          unread: customMessageFlow.unread,
-          event,
-          content: userContent,
-          mentionedBot,
-          implicitMention,
-        });
-        if (!result.handled) return null;
-        customUnreadScheduler?.apply(result.effects, result.cfg);
-        if (result.persist) persistCustomUnreadState();
-        return result.pendingCount;
-      };
-
-      const recordLegacyGroupHistory = (event: QueuedMessage, userContent: string): { pendingCount: number; attachmentCount: number } => {
-        return recordLegacyGroupHistoryBeforeDispatch({
-          event,
-          groupHistories,
-          historyLimit: event.groupOpenid
-            ? resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId)
-            : 0,
-          content: userContent,
-        });
-      };
-
       // 处理收到的消息
       const handleMessage = async (event: QueuedMessage) => {
 
@@ -1330,13 +1304,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
           if (gate.action === "drop_other_mention") {
             // @了其他人但未 @bot：记录历史后丢弃
-            const customPending = recordCustomUnreadNonMention(event, userContent, wasMentioned, implicitMention);
-            if (customPending !== null) {
-              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: drop other mention, recorded by custom unread runtime (cached=${customPending})`);
-            } else {
-              const legacy = recordLegacyGroupHistory(event, userContent);
-              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: drop other mention, recorded to legacy history (cached=${legacy.pendingCount}${legacy.attachmentCount ? `, attachments=${legacy.attachmentCount}` : ""})`);
-            }
+            applyCustomGroupSkippedMessageIngress({
+              accountId: account.accountId,
+              cfg: cfg as any,
+              unread: customMessageFlow.unread,
+              event,
+              content: userContent,
+              mentionedBot: wasMentioned,
+              implicitMention,
+              groupHistories,
+              historyLimit: resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId),
+              reason: "drop_other_mention",
+              applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
+              persistCustomUnreadState,
+              log,
+            });
             return;
           }
 
@@ -1348,21 +1330,31 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
           if (gate.action === "skip_no_mention") {
             // 非 @bot 消息：记录到群历史缓存后跳过 AI
-            const customPending = recordCustomUnreadNonMention(event, userContent, wasMentioned, implicitMention);
-            if (customPending !== null) {
-              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: activation=${activation} not mentioned, recorded by custom unread runtime (cached=${customPending})`);
-            } else {
-              const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-              const legacy = recordLegacyGroupHistory(event, userContent);
-              log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: activation=${activation} (configRequireMention=${configRequireMention}) not mentioned, recorded to history (limit=${historyLimit}, cached=${legacy.pendingCount}${legacy.attachmentCount ? `, attachments=${legacy.attachmentCount}` : ""})`);
-            }
+            const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
+            applyCustomGroupSkippedMessageIngress({
+              accountId: account.accountId,
+              cfg: cfg as any,
+              unread: customMessageFlow.unread,
+              event,
+              content: userContent,
+              mentionedBot: wasMentioned,
+              implicitMention,
+              groupHistories,
+              historyLimit,
+              reason: "skip_no_mention",
+              activation,
+              configRequireMention,
+              applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
+              persistCustomUnreadState,
+              log,
+            });
             return;
           }
 
           // gate.action === "pass" — 更新 wasMentioned 为 effectiveWasMentioned（含 implicit + bypass）
           wasMentioned = gate.effectiveWasMentioned;
           if (wasMentioned) {
-            const mentionResult = observeCustomUnreadMentionBeforeDispatch({
+            const mentionResult = applyCustomGroupMentionIngress({
               cfg: cfg as any,
               accountId: account.accountId,
               unread: customMessageFlow.unread,
@@ -1370,16 +1362,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               content: userContent,
               mentionedBot: wasMentioned,
               implicitMention,
+              applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
+              persistCustomUnreadState,
+              log,
             });
             if (mentionResult.handled) {
-              customUnreadCfgForEvent = mentionResult.cfg ?? null;
+              customUnreadCfgForEvent = mentionResult.cfg;
               shouldCatchUpUnreadAfterReply = mentionResult.shouldCatchUpAfterReply;
               customUnreadHistoryForEvent = mentionResult.history;
-              customUnreadScheduler?.apply(mentionResult.effects, mentionResult.cfg);
-              if (mentionResult.persist) persistCustomUnreadState();
-              if (shouldCatchUpUnreadAfterReply) {
-                log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: mention with ${mentionResult.pendingCount} custom unread message(s); will catch up after reply`);
-              }
             }
           }
 

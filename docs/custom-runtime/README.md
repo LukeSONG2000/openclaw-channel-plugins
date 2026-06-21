@@ -81,6 +81,7 @@ Out of scope for the first custom runtime:
 - `src/custom/gateway-message-routing.ts`: pure gateway message routing context helper for queue peer id, framework route peer, custom scene peer, request target, and reply target.
 - `src/custom/group-activation.ts`: gateway-adjacent group activation helper for `/activation` session-store path resolution and `mention`/`always` fallback parsing.
 - `src/custom/group-message-gate-context.ts`: pure group-message gate context helper for mention detection, implicit quote mention, text-command gating, and synthetic unread catch-up overrides.
+- `src/custom/group-ingress-gateway-adapter.ts`: gateway-side group ingress side-effect adapter for skipped-message custom unread recording, legacy history fallback, mention catch-up metadata, scheduler/persist callbacks, and equivalent logs.
 - `src/custom/group-prompt-context.ts`: pure group prompt context helper for sender label, group subject, group intro/behavior prompt merge, and QQBot system prompt merging.
 - `src/custom/guarded-media-send-gateway-adapter.ts`: gateway-side guarded media auto-send helper for proactive media guard checks, send callbacks, logging, and budget commits.
 - `src/custom/inbound-event-gateway-adapter.ts`: gateway-side inbound event dispatcher for normalized messages, proactive acceptance, group robot events, delete diagnostics, and interaction handoff.
