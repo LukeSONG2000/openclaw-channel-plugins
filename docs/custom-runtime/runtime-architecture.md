@@ -511,6 +511,23 @@ Current implementation status:
 - Applies the synthetic unread catch-up override in one place: catch-up messages bypass `ignoreOtherMentions` and `requireMention`, and enter the gate as mentioned.
 - Returns the existing `resolveGroupMessageGate()` decision plus the derived context fields; `gateway.ts` still owns logging, unread history writes, and all QQ/OpenClaw side effects.
 
+### `src/custom/group-dispatch-gateway-adapter.ts`
+
+Gateway-side group dispatch gate orchestrator.
+
+Current implementation status:
+
+- Runs group allow-list checks before any OpenClaw/model dispatch work continues.
+- Resolves mention detection, `/activation` state, config-level `requireMention`, quote-based implicit mention, text-command permission, and `ignoreOtherMentions` into one gate decision.
+- Applies skipped-message side effects through `src/custom/group-ingress-gateway-adapter.ts`, preserving custom unread first and legacy history fallback.
+- Applies mention ingress before dispatch and returns the custom unread config, catch-up-after-reply flag, and mention-time history for downstream prompt/completion logic.
+- Builds group prompt metadata through `src/custom/group-prompt-context.ts`, returning sender label, group subject, and group system prompt.
+
+Important boundary:
+
+- It still receives QQ/OpenClaw policy resolvers and send/persist/scheduler callbacks from `gateway.ts`; it does not own config storage, timers, or QQ sends.
+- It keeps the group message-flow branch testable as a single application-layer decision instead of spreading stop/continue branches across `gateway.ts`.
+
 ### `src/custom/group-prompt-context.ts`
 
 Pure helper for group prompt and metadata assembly after a group message has passed the gate.

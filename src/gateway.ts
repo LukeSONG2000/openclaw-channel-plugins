@@ -32,16 +32,6 @@ import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/config.js";
 import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
-import {
-  buildCustomGroupMessageGateContext,
-  normalizeGroupMessageContentForCommand,
-  resolveCustomGroupImplicitMention,
-  shouldHandleCustomTextCommands,
-} from "./custom/group-message-gate-context.js";
-import { resolveCustomGroupActivation } from "./custom/group-activation.js";
-import {
-  buildCustomGroupPromptContext,
-} from "./custom/group-prompt-context.js";
 import { buildCustomAgentMessageBodyContext } from "./custom/agent-message-body-context.js";
 import { buildCustomInboundContextPayload } from "./custom/inbound-context-payload.js";
 import { buildCustomGatewayReplyContext } from "./custom/reply-context-gateway-adapter.js";
@@ -61,10 +51,7 @@ import { createCustomProactiveGatewayGuard } from "./custom/proactive-gateway-ad
 import {
   resolveCustomUnreadForQueuedGroupMessage,
 } from "./custom/unread-ingress.js";
-import {
-  applyCustomGroupMentionIngress,
-  applyCustomGroupSkippedMessageIngress,
-} from "./custom/group-ingress-gateway-adapter.js";
+import { applyCustomGroupDispatchGateway } from "./custom/group-dispatch-gateway-adapter.js";
 import {
   applyCustomUnreadHistoryContextToAgentBody,
 } from "./custom/unread-context.js";
@@ -1110,165 +1097,62 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         );
 
         // --- 群消息上下文：插件只提供策略，框架自动组装 hint ---
-        let groupSystemPrompt = "";
-        let wasMentioned = false;
-        let groupSubject = "";
-        let senderLabel = "";
-        let shouldCatchUpUnreadAfterReply = false;
-        let customUnreadCfgForEvent: ResolvedCustomUnreadConfig | null = event._customUnreadSnapshotId
-          ? resolveCustomUnreadForEvent(event)
-          : null;
-        let customUnreadHistoryForEvent: HistoryEntry[] | undefined;
-
-        if (event.type === "group" && event.groupOpenid) {
-          const isCustomUnreadSynthetic = Boolean(event._customUnreadSnapshotId);
-          // 1. 群策略检查（直接用 config 工具函数，与 Discord 的 allow-list.ts 同理）
-          if (!isGroupAllowed(cfg as any, event.groupOpenid, account.accountId)) {
-            log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid} not allowed by groupPolicy, skipping`);
-            return;
-          }
-
-          // 2. @检测（委托 mentions 适配器）
-          const mentionPatternsForDetect: string[] = resolveMentionPatterns(cfg as any, route.agentId);
-          wasMentioned = detectWasMentioned({
-            eventType: event.eventType,
-            mentions: event.mentions,
-            content: event.content,
-            mentionPatterns: mentionPatternsForDetect,
-          });
-
-          // 3. requireMention 门控
-          // 优先级：session store 中的 /activation 命令 > 配置文件 requireMention > 默认值
-          // 未被 @ 时：消息仍写入上下文（让 bot 拥有完整对话记忆），但不触发 AI 回复
-          const configRequireMention = qqbotPlugin.groups?.resolveRequireMention?.({
-            cfg: cfg as any,
-            accountId: account.accountId,
-            groupId: event.groupOpenid,
-          }) ?? true;
-
-          const activation = resolveCustomGroupActivation({
-            cfg: cfg as any,
+        const groupDispatch = applyCustomGroupDispatchGateway({
+          cfg: cfg as any,
+          accountId: account.accountId,
+          route: {
             agentId: route.agentId,
             sessionKey: route.sessionKey,
-            configRequireMention,
-          });
-          const requireMention = activation === "mention";
-
-          // 4. 隐式 mention：引用回复 bot 的消息视为隐式 mention
-          const implicitMention = resolveCustomGroupImplicitMention({
-            refMsgIdx: event.refMsgIdx,
-            getRefEntry: getRefIndex,
-          });
-
-          // 4.5 统一门控：ignoreOtherMentions → shouldBlock → mention 门控
-          // 三层判断收敛到 buildCustomGroupMessageGateContext()
-          const contentForCommand = normalizeGroupMessageContentForCommand(event.content);
-          const gateContext = buildCustomGroupMessageGateContext({
-            content: event.content,
-            contentForCommand,
-            mentions: event.mentions,
-            wasMentioned,
-            implicitMention,
-            isCustomUnreadSynthetic,
-            ignoreOtherMentions: isCustomUnreadSynthetic ? false : resolveIgnoreOtherMentions(cfg as any, event.groupOpenid, account.accountId),
-            allowTextCommands: shouldHandleCustomTextCommands(cfg as Record<string, unknown>),
-            isControlCommand: hasControlCommand(contentForCommand),
-            commandAuthorized,
-            requireMention,
-            canDetectMention: true,
-          });
-          const gate = gateContext.gate;
-
-          if (gate.action === "drop_other_mention") {
-            // @了其他人但未 @bot：记录历史后丢弃
-            applyCustomGroupSkippedMessageIngress({
-              accountId: account.accountId,
-              cfg: cfg as any,
-              unread: customMessageFlow.unread,
-              event,
-              content: userContent,
-              mentionedBot: wasMentioned,
-              implicitMention,
-              groupHistories,
-              historyLimit: resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId),
-              reason: "drop_other_mention",
-              applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
-              persistCustomUnreadState,
-              log,
-            });
-            return;
-          }
-
-          if (gate.action === "block_unauthorized_command") {
-            // 未授权控制命令：静默拦截，不交给 AI
-            log?.info(`[qqbot:${account.accountId}] Group ${event.groupOpenid}: blocked unauthorized control command from ${event.senderId}: ${contentForCommand.slice(0, 50)}`);
-            return;
-          }
-
-          if (gate.action === "skip_no_mention") {
-            // 非 @bot 消息：记录到群历史缓存后跳过 AI
-            const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-            applyCustomGroupSkippedMessageIngress({
-              accountId: account.accountId,
-              cfg: cfg as any,
-              unread: customMessageFlow.unread,
-              event,
-              content: userContent,
-              mentionedBot: wasMentioned,
-              implicitMention,
-              groupHistories,
-              historyLimit,
-              reason: "skip_no_mention",
-              activation,
-              configRequireMention,
-              applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
-              persistCustomUnreadState,
-              log,
-            });
-            return;
-          }
-
-          // gate.action === "pass" — 更新 wasMentioned 为 effectiveWasMentioned（含 implicit + bypass）
-          wasMentioned = gate.effectiveWasMentioned;
-          if (wasMentioned) {
-            const mentionResult = applyCustomGroupMentionIngress({
-              cfg: cfg as any,
-              accountId: account.accountId,
-              unread: customMessageFlow.unread,
-              event,
-              content: userContent,
-              mentionedBot: wasMentioned,
-              implicitMention,
-              applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
-              persistCustomUnreadState,
-              log,
-            });
-            if (mentionResult.handled) {
-              customUnreadCfgForEvent = mentionResult.cfg;
-              shouldCatchUpUnreadAfterReply = mentionResult.shouldCatchUpAfterReply;
-              customUnreadHistoryForEvent = mentionResult.history;
-            }
-          }
-
-          const groupPromptContext = buildCustomGroupPromptContext({
-            cfg: cfg as any,
-            accountId: account.accountId,
-            event,
-            resolveGroupName: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-              resolveGroupName(groupCfg as any, groupOpenid, accountId),
-            resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-              qqbotPlugin.groups?.resolveGroupIntroHint?.({
-                cfg: groupCfg as any,
-                accountId,
-                groupId: groupOpenid,
-              }),
-            resolveGroupPrompt: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-              resolveGroupPrompt(groupCfg as any, groupOpenid, accountId),
-          });
-          senderLabel = groupPromptContext.senderLabel;
-          groupSubject = groupPromptContext.groupSubject;
-          groupSystemPrompt = groupPromptContext.groupSystemPrompt;
+          },
+          unread: customMessageFlow.unread,
+          event,
+          content: userContent,
+          commandAuthorized,
+          groupHistories,
+          initialCustomUnreadCfg: event._customUnreadSnapshotId
+            ? resolveCustomUnreadForEvent(event)
+            : null,
+          isGroupAllowed: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            isGroupAllowed(groupCfg as any, groupOpenid, accountId),
+          resolveMentionPatterns: ({ cfg: groupCfg, agentId }) =>
+            resolveMentionPatterns(groupCfg as any, agentId),
+          detectWasMentioned: (input) => detectWasMentioned(input),
+          resolveRequireMention: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            qqbotPlugin.groups?.resolveRequireMention?.({
+              cfg: groupCfg as any,
+              accountId,
+              groupId: groupOpenid,
+            }) ?? true,
+          resolveIgnoreOtherMentions: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            resolveIgnoreOtherMentions(groupCfg as any, groupOpenid, accountId),
+          resolveHistoryLimit: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            resolveHistoryLimit(groupCfg as any, groupOpenid, accountId),
+          resolveGroupName: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            resolveGroupName(groupCfg as any, groupOpenid, accountId),
+          resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            qqbotPlugin.groups?.resolveGroupIntroHint?.({
+              cfg: groupCfg as any,
+              accountId,
+              groupId: groupOpenid,
+            }),
+          resolveGroupPrompt: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+            resolveGroupPrompt(groupCfg as any, groupOpenid, accountId),
+          getRefEntry: getRefIndex,
+          isControlCommand: hasControlCommand,
+          applySchedulerEffects: (effects, schedulerCfg) => customUnreadScheduler?.apply(effects, schedulerCfg),
+          persistCustomUnreadState,
+          log,
+        });
+        if (groupDispatch.action === "stop") {
+          return;
         }
+        const groupSystemPrompt = groupDispatch.groupSystemPrompt;
+        const wasMentioned = groupDispatch.wasMentioned;
+        const groupSubject = groupDispatch.groupSubject;
+        const senderLabel = groupDispatch.senderLabel;
+        const shouldCatchUpUnreadAfterReply = groupDispatch.shouldCatchUpUnreadAfterReply;
+        const customUnreadCfgForEvent = groupDispatch.customUnreadCfgForEvent;
+        const customUnreadHistoryForEvent = groupDispatch.customUnreadHistoryForEvent;
 
         // BodyForAgent 只包含动态上下文 + 用户消息，不拼入 systemPrompts。
         // systemPrompts（[QQBot] to=...、TTS 能力声明等）通过 GroupSystemPrompt 注入到

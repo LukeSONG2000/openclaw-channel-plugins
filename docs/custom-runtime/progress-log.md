@@ -1040,3 +1040,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects token-based QQ text/keyboard/file send callbacks and state persistence callbacks into the adapter, removing the inline slash command try/catch flow from the main gateway body.
 - The adapter preserves ordering: `/stop`、`/approve`、`/new`、`/compact` 先于 custom slash 和官方 slash，custom slash 先于官方插件命令，未知 slash 继续入队交给框架。
 - Added `tests/custom-slash-prequeue-gateway-adapter.test.ts` for non-slash enqueue, urgent bypass, custom slash reply, official slash null/delegate/text/file replies, mention-stripped commands, and error fallback enqueue.
+
+抽出 group dispatch 网关门控编排层：
+
+- Added `src/custom/group-dispatch-gateway-adapter.ts` to own group dispatch gate orchestration: allow-list check, mention/activation/implicit-mention/control-command gate, skipped-message ingress side effects, mention catch-up metadata, and group prompt context.
+- `gateway.ts` now injects QQ/OpenClaw policy resolvers, history-limit lookup, ref-index lookup, scheduler/persist callbacks, and logs into the adapter; the main message path only consumes stop/continue plus returned group context fields.
+- The adapter preserves previous behavior for `drop_other_mention`、`skip_no_mention`、unauthorized control commands, custom unread catch-up, and legacy history fallback while making the full group gate decision testable outside `gateway.ts`.
+- Added `tests/custom-group-dispatch-gateway-adapter.test.ts` for non-group pass-through, group-policy stop, legacy skip history, unauthorized control command stop, and mention-triggered custom unread catch-up prompt context.
