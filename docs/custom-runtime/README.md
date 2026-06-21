@@ -64,6 +64,7 @@ Out of scope for the first custom runtime:
 - `src/custom/dispatch-authorization-gateway-adapter.ts`: gateway-side ordinary-dispatch auth orchestration for checks, intent persistence/logging, denial delivery, and admin-group copies.
 - `src/custom/dispatch-auth-delivery-gateway-adapter.ts`: gateway-facing delivery helper for ordinary-dispatch auth denials, approval cards, text fallback, and management-group copy intent.
 - `src/custom/deliver-debounce-gateway-adapter.ts`: gateway-side debounce dispatcher for static deliver payloads and debouncer handle creation/reuse.
+- `src/custom/dispatch-deliver-callback-gateway-adapter.ts`: gateway-side ordinary dispatch deliver callback orchestrator for late-deliver filtering, tool deliver fallback, block preflight, streaming handoff, static delivery, and debounce.
 - `src/custom/dispatch-deliver-gateway-adapter.ts`: gateway-side deliver callback preflight for late-timeout ignores, model-skip tokens, block-state marking, and timer cleanup.
 - `src/custom/dispatch-fallback-session-gateway-adapter.ts`: gateway-side per-dispatch fallback session for response timeout timers, tool-only timers, fallback recorder binding, and tool fallback sender wiring.
 - `src/custom/dispatch-failure-gateway-adapter.ts`: gateway-side response-timeout/context-too-long/framework-error notice and fallback-event orchestration for dispatch race, callback, and processing failures.

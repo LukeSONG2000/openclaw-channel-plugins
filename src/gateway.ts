@@ -54,10 +54,7 @@ import { createCustomMessageFlowStateController } from "./custom/message-flow-st
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
 import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
-import {
-  handleCustomLateDispatchDeliver,
-  prepareCustomBlockDeliver,
-} from "./custom/dispatch-deliver-gateway-adapter.js";
+import { handleCustomDispatchDeliverCallbackGateway } from "./custom/dispatch-deliver-callback-gateway-adapter.js";
 import {
   handleCustomDispatchCallbackFailure,
   handleCustomDispatchRaceFailure,
@@ -67,14 +64,10 @@ import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.j
 import {
   recordCustomFallbackEventGateway,
 } from "./custom/fallback-record-gateway-adapter.js";
-import { handleCustomToolDeliverGateway } from "./custom/tool-deliver-gateway-adapter.js";
 import {
-  handleCustomStreamingDeliver,
   handleCustomStreamingError,
   handleCustomStreamingPartialReply,
 } from "./custom/streaming-gateway-adapter.js";
-import { applyCustomStaticDeliverGateway } from "./custom/static-deliver-gateway-adapter.js";
-import { dispatchCustomDebouncedDeliver } from "./custom/deliver-debounce-gateway-adapter.js";
 import { finalizeCustomDispatchGateway } from "./custom/dispatch-finalize-gateway-adapter.js";
 import { prepareCustomInboundMessageGateway } from "./custom/inbound-preparation-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
@@ -1129,113 +1122,31 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             dispatcherOptions: {
               responsePrefix: messagesConfig.responsePrefix,
               deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
-                const lateDeliver = handleCustomLateDispatchDeliver({
+                await handleCustomDispatchDeliverCallbackGateway({
                   accountId: account.accountId,
-                  dispatchTimedOut: fallbackState.dispatchTimedOut,
+                  message: event,
                   payload,
                   info,
-                  recordFallbackEvent,
-                  log,
-                });
-                if (lateDeliver.kind === "late-ignored") {
-                  return;
-                }
-                fallbackState.markResponse();
-
-                log?.info(`[qqbot:${account.accountId}] deliver called, kind: ${info.kind}, payload keys: ${Object.keys(payload).join(", ")}`);
-
-                // ============ 跳过工具调用的中间结果（带兜底保护） ============
-                if (info.kind === "tool") {
-                  await handleCustomToolDeliverGateway({
-                    accountId: account.accountId,
-                    payload,
-                    state: fallbackState,
-                    currentTimer: fallbackSession.getToolOnlyTimer(),
-                    setTimer: fallbackSession.setToolOnlyTimer,
-                    toolOnlyTimeoutMs: fallbackSession.toolOnlyTimeoutMs,
-                    maxToolRenewals: fallbackSession.maxToolRenewals,
-                    recordFallbackEvent,
-                    sendGuardedMediaAuto,
-                    sendToolFallback,
-                    log,
-                  });
-                  return;
-                }
-
-                // 收到 block 回复，清除所有超时定时器
-                const blockDeliver = prepareCustomBlockDeliver({
-                  accountId: account.accountId,
-                  payload,
-                  event: {
-                    type: event.type,
-                    senderId: event.senderId,
-                    content: event.content,
-                  },
-                  state: fallbackState,
+                  fallbackSession,
                   stopTyping: () => typing.stop(),
-                  clearResponseTimeout: fallbackSession.clearResponseTimeout,
-                  clearToolOnlyTimeout: () => {
-                    const timer = fallbackSession.getToolOnlyTimer();
-                    if (!timer) return;
-                    clearTimeout(timer);
-                    fallbackSession.setToolOnlyTimer(null);
-                  },
-                  log,
-                });
-                if (blockDeliver.kind === "model-skip") {
-                  return;
-                }
-
-                // ============ 流式模式处理 ============
-                // 流式模式下，所有 block deliver 内容（含媒体标签）统一交由 StreamingController 处理。
-                // StreamingController 内部有重试机制；如果一个分片都没发出去则降级到普通消息。
-                const streamingDeliver = await handleCustomStreamingDeliver({
-                  accountId: account.accountId,
-                  controller: streamingController,
-                  payload,
+                  streamingController,
+                  replyContext: replyCtx,
+                  deliverEvent,
+                  deliverAccountContext: deliverActx,
+                  sendWithRetry,
+                  debouncer,
+                  setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
+                  debounceConfig,
+                  createDebouncer: createDeliverDebouncer,
+                  sendGuardedMediaAuto,
                   recordOutboundActivity: () => pluginRuntime.channel.activity.record({
                     channel: "qqbot",
                     accountId: account.accountId,
                     direction: "outbound",
                   }),
-                  log,
-                });
-                if (streamingDeliver.kind === "handled") {
-                  return;
-                }
-
-                // ============ 实际发送逻辑（可被 debouncer 包裹） ============
-                const executeDeliver = async (deliverPayload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, _deliverInfo: { kind: string }) => {
-                  await applyCustomStaticDeliverGateway({
-                    deliverPayload,
-                    replyContext: replyCtx,
-                    deliverEvent,
-                    deliverAccountContext: deliverActx,
-                    sendWithRetry,
-                    quoteRef: event.msgIdx,
-                    toolMediaUrls: fallbackState.toolMediaUrls,
-                    recordBlockDeliveredMedia: (payloadToRecord) => fallbackState.recordBlockDeliveredMedia(payloadToRecord),
-                    recordOutboundActivity: () => pluginRuntime.channel.activity.record({
-                      channel: "qqbot",
-                      accountId: account.accountId,
-                      direction: "outbound",
-                    }),
-                    parseAndSendMediaTags,
-                    handleStructuredPayload,
-                    sendPlainReply,
-                  });
-                };
-
-                // ============ Debounce 合并回复 ============
-                await dispatchCustomDebouncedDeliver({
-                  accountId: account.accountId,
-                  payload,
-                  info,
-                  currentDebouncer: debouncer,
-                  setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
-                  debounceConfig,
-                  executeDeliver,
-                  createDebouncer: createDeliverDebouncer,
+                  parseAndSendMediaTags,
+                  handleStructuredPayload,
+                  sendPlainReply,
                   log,
                 });
               },

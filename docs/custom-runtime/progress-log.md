@@ -1096,3 +1096,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now asks the session for `state`、`recordFallbackEvent`、response timeout promise/clearer and tool-only timer accessors, instead of keeping those mutable handles inline in the model dispatch body.
 - The adapter preserves the timeout/context-too-long boundary: failure classification and recovery notice delivery still live in `dispatch-failure-gateway-adapter.ts`, while QQ/media/text sends remain injected by gateway callbacks.
 - Added `tests/custom-dispatch-fallback-session-gateway-adapter.test.ts` for response timeout rejection, block-response timeout suppression, response timer clearing, tool-only timer accessors, and injected tool fallback sender wiring.
+
+抽出 dispatch deliver callback 网关编排层：
+
+- Added `src/custom/dispatch-deliver-callback-gateway-adapter.ts` to own the ordinary dispatcher `deliver` callback sequence: late-deliver filtering, response marking, tool-deliver fallback handling, block preflight, streaming handoff, static delivery, and debounce orchestration.
+- `gateway.ts` now only injects fallback session, reply/deliver contexts, send callbacks, debouncer handle setters, and outbound activity callbacks; the large inline deliver branch is no longer embedded in the model dispatch body.
+- The adapter preserves the existing boundary: no QQ API/token calls inside the custom layer, and fallback persistence still flows through the per-dispatch fallback session recorder.
+- Added `tests/custom-dispatch-deliver-callback-gateway-adapter.test.ts` for late-deliver ignore, tool branch routing, model-skip short circuit, static delivery via debounce, quote refs, tool media propagation, and outbound activity recording.

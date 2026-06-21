@@ -448,6 +448,23 @@ Current implementation status:
 - Marks block response state, stops typing, clears response/tool-only timers, and logs prior tool-deliver counts through injected callbacks.
 - Keeps debouncing, media-tag parsing, structured-payload handling, and final QQ sends in `gateway.ts`; streaming callback orchestration is now delegated to `streaming-gateway-adapter.ts`.
 
+### `src/custom/dispatch-deliver-callback-gateway-adapter.ts`
+
+Gateway-side orchestrator for one `deliver` callback from OpenClaw's buffered block dispatcher.
+
+Current implementation status:
+
+- Applies late-deliver filtering before any state mutation, preserving timeout diagnostics and ignoring block/tool output that arrives after a response timeout.
+- Marks response state and routes `tool` deliveries to `tool-deliver-gateway-adapter.ts` with the per-dispatch fallback session timer accessors.
+- Runs block-deliver preflight from `dispatch-deliver-gateway-adapter.ts`, including model-skip detection, typing stop, response-timeout clearing, and tool-only timer clearing.
+- Hands block payloads to `streaming-gateway-adapter.ts` first; when streaming does not handle them, it executes static delivery through `static-deliver-gateway-adapter.ts`.
+- Applies static delivery through `deliver-debounce-gateway-adapter.ts`, so the gateway only stores the current debouncer handle and injects send/format callbacks.
+
+Important boundary:
+
+- The adapter does not call QQ APIs directly. `gateway.ts` still injects media tag parsing, structured payload handling, plain reply sending, token retry, outbound activity recording, and the debouncer factory.
+- It depends on the per-dispatch fallback session interface rather than owning runtime config, queue snapshots, or fallback persistence itself.
+
 ### `src/custom/streaming-gateway-adapter.ts`
 
 Gateway-side orchestration helper around `StreamingController`.
