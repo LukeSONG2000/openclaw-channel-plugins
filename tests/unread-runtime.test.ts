@@ -5,6 +5,7 @@ import {
   DEFAULT_UNREAD_FOLLOWUP_DELAY_MS,
   DEFAULT_UNREAD_HISTORY_LIMIT,
   DEFAULT_UNREAD_SLEEP_DELAY_MS,
+  inspectCustomUnreadRuntimeState,
   resolveCustomUnreadConfig,
 } from "../src/custom/unread-runtime.js";
 import type { CustomInboundMessage, CustomRuntimeConfig, CustomSceneConfig } from "../src/custom/types.js";
@@ -142,6 +143,25 @@ const gatedSleep = gatedRuntime.fireSleepDigest({
 assert.equal(gatedSleep.length, 1);
 assert.equal(gatedSleep[0]!.kind, "policy-gated");
 
+const inspection = inspectCustomUnreadRuntimeState(gatedRuntime.getState());
+assert.equal(inspection.peerCount, 1);
+assert.equal(inspection.totalPendingCount, 1);
+assert.equal(inspection.snapshotCount, 2);
+assert.equal(inspection.policyGatedSnapshotCount, 2);
+assert.equal(inspection.scheduledSleepDigestCount, 0);
+assert.deepEqual(inspection.peers[0], {
+  peerId: "GATED_GROUP",
+  pendingCount: 1,
+  oldestPendingAt: 1_000,
+  newestPendingAt: 1_000,
+  followupActive: false,
+  scheduledFollowupDueAt: undefined,
+  scheduledSleepDigestDueAt: undefined,
+  snapshotCount: 2,
+  policyGatedSnapshotCount: 2,
+});
+assert.equal(JSON.stringify(inspection).includes("hello"), false);
+
 const digestActorMention = gatedRuntime.observeMention({
   message: msg({
     peer: { kind: "group", id: "GATED_GROUP" },
@@ -162,5 +182,21 @@ stateBeforeRestore.peers.GATED_GROUP!.history[0]!.body = "mutated outside";
 assert.equal(restoredRuntime.getState().peers.GATED_GROUP!.history[0]!.body, "hello");
 restoredRuntime.clear("GATED_GROUP");
 assert.equal(restoredRuntime.getPendingCount("GATED_GROUP"), 0);
+
+const orderedRuntime = new CustomUnreadRuntime();
+orderedRuntime.recordNonMention({
+  message: msg({ peer: { kind: "group", id: "B_GROUP" }, messageId: "b-1", timestamp: 100 }),
+  cfg,
+  now: 100,
+});
+orderedRuntime.recordNonMention({
+  message: msg({ peer: { kind: "group", id: "A_GROUP" }, messageId: "a-1", timestamp: 200 }),
+  cfg,
+  now: 200,
+});
+const orderedInspection = inspectCustomUnreadRuntimeState(orderedRuntime.getState(), { limit: 1 });
+assert.equal(orderedInspection.peerCount, 2);
+assert.equal(orderedInspection.peers.length, 1);
+assert.equal(orderedInspection.peers[0]?.peerId, "B_GROUP");
 
 console.log("unread runtime tests passed");

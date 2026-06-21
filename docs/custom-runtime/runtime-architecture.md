@@ -418,6 +418,7 @@ Current implementation status:
 - Takes normalized `CustomInboundMessage` inputs and returns typed intents.
 - Does not send messages directly. `src/custom/unread-gateway-adapter.ts` converts intents into gateway effects.
 - Defaults to policy-gated autonomous/proactive behavior unless the scene explicitly allows it.
+- Exposes `inspectCustomUnreadRuntimeState()` for text-safe status summaries that include peer counts, pending counts, scheduled timer counts, snapshot counts, and policy-gated snapshot counts without exposing cached message bodies.
 
 State:
 

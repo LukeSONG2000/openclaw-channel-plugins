@@ -474,3 +474,10 @@ Hardened poll text-command visibility:
 - A poll is visible through text commands only in its original account/peer, or to its creator across peers.
 - Ordinary users who paste a poll id from another group/DM receive "not found or not current session" and do not see question/options/vote counts.
 - Button voting remains unchanged; the interaction adapter currently receives button data and actor only, so source-peer enforcement for callback votes remains a future gateway payload mapping item.
+
+Added unread runtime inspection summaries:
+
+- Added `inspectCustomUnreadRuntimeState()` as a pure, text-safe summary helper for the custom unread/follow-up/sleep-digest runtime.
+- The summary reports peer count, total pending message count, follow-up/sleep timer counts, snapshot counts, and policy-gated snapshot counts.
+- Per-peer summaries include pending count, oldest/newest pending timestamps, timer due times, follow-up activity, and snapshot counts.
+- The helper intentionally does not include cached message bodies, so future status commands and remote validation logs can expose runtime health without leaking group chat content.
