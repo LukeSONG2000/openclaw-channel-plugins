@@ -125,6 +125,12 @@ import {
 } from "./custom/tool-deliver-gateway-adapter.js";
 import { sendCustomToolFallback } from "./custom/tool-fallback-gateway-adapter.js";
 import {
+  finalizeCustomStreamingController,
+  handleCustomStreamingDeliver,
+  handleCustomStreamingError,
+  handleCustomStreamingPartialReply,
+} from "./custom/streaming-gateway-adapter.js";
+import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
 } from "./custom/inbound-media-context.js";
@@ -2005,32 +2011,19 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 // ============ 流式模式处理 ============
                 // 流式模式下，所有 block deliver 内容（含媒体标签）统一交由 StreamingController 处理。
                 // StreamingController 内部有重试机制；如果一个分片都没发出去则降级到普通消息。
-                if (streamingController && !streamingController.isTerminalPhase) {
-                  const deliverTextLen = (payload.text ?? "").length;
-                  const deliverPreview = (payload.text ?? "").slice(0, 40).replace(/\n/g, "\\n");
-                  log?.debug?.(`[qqbot:${account.accountId}] Streaming deliver entry, textLen=${deliverTextLen}, phase=${streamingController.currentPhase}, sentChunks=${streamingController.sentChunkCount_debug}, preview="${deliverPreview}"`);
-                  try {
-                    await streamingController.onDeliver(payload);
-                    log?.debug?.(`[qqbot:${account.accountId}] Streaming deliver done, phase=${streamingController.currentPhase}`);
-                  } catch (err) {
-                    // StreamingController 内部已有重试，这里只打日志
-                    log?.error(`[qqbot:${account.accountId}] Streaming deliver error: ${err}`);
-                  }
-
-                  // 检查是否因流式 API 不可用而需要降级（ensureStreamingStarted 全部失败）
-                  // 如果需要降级，不 return，让本次 deliver 的 payload.text（全量文本）继续走普通发送逻辑
-                  if (streamingController.shouldFallbackToStatic) {
-                    log?.info(`[qqbot:${account.accountId}] Streaming API unavailable, falling back to static for this deliver`);
-                    // 不 return，继续走普通发送逻辑（payload.text 是完整文本）
-                  } else {
-                    // 流式正常处理，不走普通发送逻辑
-                    pluginRuntime.channel.activity.record({
-                      channel: "qqbot",
-                      accountId: account.accountId,
-                      direction: "outbound",
-                    });
-                    return;
-                  }
+                const streamingDeliver = await handleCustomStreamingDeliver({
+                  accountId: account.accountId,
+                  controller: streamingController,
+                  payload,
+                  recordOutboundActivity: () => pluginRuntime.channel.activity.record({
+                    channel: "qqbot",
+                    accountId: account.accountId,
+                    direction: "outbound",
+                  }),
+                  log,
+                });
+                if (streamingDeliver.kind === "handled") {
+                  return;
                 }
 
                 // ============ 实际发送逻辑（可被 debouncer 包裹） ============
@@ -2112,20 +2105,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 }
 
                 // 流式模式：委托给 streaming controller 处理错误
-                if (streamingController && !streamingController.isTerminalPhase) {
-                  try {
-                    await streamingController.onError(err);
-                  } catch (streamErr) {
-                    log?.error(`[qqbot:${account.accountId}] Streaming onError failed: ${streamErr}`);
-                  }
-
-                  // 如果 onError 中因无分片发出而降级，不 return，走普通错误处理
-                  if (streamingController.shouldFallbackToStatic) {
-                    log?.info(`[qqbot:${account.accountId}] Streaming onError: no chunk sent, falling back to static error handling`);
-                    // 不 return，继续走普通错误处理
-                  } else {
-                    return;
-                  }
+                const streamingError = await handleCustomStreamingError({
+                  accountId: account.accountId,
+                  controller: streamingController,
+                  err,
+                  log,
+                });
+                if (streamingError.kind === "handled") {
+                  return;
                 }
                 
                 await handleCustomDispatchCallbackFailure({
@@ -2146,16 +2133,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               // 流式模式下注册 onPartialReply 回调，接收流式文本增量
               ...(streamingController ? {
                 onPartialReply: async (payload: { text?: string }) => {
-                  const textLen = payload.text?.length ?? 0;
-                  const preview = (payload.text ?? "").slice(0, 40).replace(/\n/g, "\\n");
-                  log?.debug?.(`[qqbot:${account.accountId}] onPartialReply called, textLen=${textLen}, phase=${streamingController!.currentPhase}, isTerminal=${streamingController!.isTerminalPhase}, preview="${preview}"`);
-                  try {
-                    await streamingController!.onPartialReply(payload);
-                    log?.debug?.(`[qqbot:${account.accountId}] onPartialReply done, phase=${streamingController!.currentPhase}`);
-                  } catch (err) {
-                    // StreamingController 内部已有重试，这里只打日志
-                    log?.error(`[qqbot:${account.accountId}] Streaming onPartialReply error: ${err}`);
-                  }
+                  await handleCustomStreamingPartialReply({
+                    accountId: account.accountId,
+                    controller: streamingController,
+                    payload,
+                    log,
+                  });
                 },
               } : {}),
             },
@@ -2199,27 +2182,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               debouncer = null;
             }
 
-            // ============ 流式消息收尾 ============
-            // dispatch 完成后，标记流式控制器已完成并触发 onIdle（发送终结分片）
-            if (streamingController && !streamingController.isTerminalPhase) {
-              try {
-                streamingController.markFullyComplete();
-                await streamingController.onIdle();
-                log?.debug?.(`[qqbot:${account.accountId}] Streaming controller finalized`);
-              } catch (err) {
-                log?.error(`[qqbot:${account.accountId}] Streaming finalization error: ${err}`);
-                // 尝试中止
-                try { await streamingController.abortStreaming(); } catch { /* ignore */ }
-              }
-            }
-
-            // ============ 流式降级到非流式 ============
-            // 无需额外处理：如果流式 API 不可用（shouldFallbackToStatic），
-            // deliver 回调中已自动跳过流式拦截，走普通消息发送逻辑。
-            // （每次 deliver 收到的都是全量文本，不需要在 controller 内部保存累积文本）
-            if (streamingController?.shouldFallbackToStatic) {
-              log?.debug?.(`[qqbot:${account.accountId}] Streaming was degraded to static mode (no chunk sent successfully)`);
-            }
+            await finalizeCustomStreamingController({
+              accountId: account.accountId,
+              controller: streamingController,
+              log,
+            });
 
             // 回复完成后处理群历史/自定义未读 runtime
             if (event.type === "group" && event.groupOpenid) {

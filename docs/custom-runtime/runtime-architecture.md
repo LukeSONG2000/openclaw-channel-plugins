@@ -383,7 +383,18 @@ Current implementation status:
 - Records and ignores late deliver callbacks after response timeout, preserving the existing `late-deliver-after-timeout` fallback event details.
 - Applies group-only model-skip token detection before block state is marked, so `NO_REPLY` / `[SKIP]` still suppresses visible group replies without affecting C2C.
 - Marks block response state, stops typing, clears response/tool-only timers, and logs prior tool-deliver counts through injected callbacks.
-- Keeps streaming, debouncing, media-tag parsing, structured-payload handling, and final QQ sends in `gateway.ts`.
+- Keeps debouncing, media-tag parsing, structured-payload handling, and final QQ sends in `gateway.ts`; streaming callback orchestration is now delegated to `streaming-gateway-adapter.ts`.
+
+### `src/custom/streaming-gateway-adapter.ts`
+
+Gateway-side orchestration helper around `StreamingController`.
+
+Current implementation status:
+
+- Handles streaming block-deliver callbacks, including debug logging, `onDeliver()`, static fallback detection, and outbound activity recording.
+- Handles streaming `onError` and `onPartialReply` callbacks with the same best-effort logging and static fallback behavior as the previous inline gateway path.
+- Finalizes streaming after dispatch completion by calling `markFullyComplete()` / `onIdle()` and best-effort `abortStreaming()` on failure.
+- Keeps controller construction, streaming enablement config, and non-streaming static delivery in `gateway.ts`.
 
 ### `src/custom/dispatch-failure-gateway-adapter.ts`
 

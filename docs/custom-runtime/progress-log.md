@@ -934,3 +934,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates deliver preflight before streaming/debounce/plain-send handling, so the main dispatch callback keeps only tool/streaming/send boundaries.
 - The adapter keeps QQ/OpenClaw sends out of scope and uses injected timer/typing callbacks, preserving the gateway-owned side-effect boundary.
 - Added `tests/custom-dispatch-deliver-gateway-adapter.test.ts` for late deliver diagnostics, normal block readiness, group skip tokens, and C2C skip-token non-suppression.
+
+抽出 streaming 回调编排：
+
+- Added `src/custom/streaming-gateway-adapter.ts` to own `StreamingController` deliver/error/partial/finalize orchestration, debug logging, static fallback detection, and outbound activity callback invocation.
+- `gateway.ts` still constructs `StreamingController` and keeps non-streaming static delivery, but no longer inlines `onDeliver()` / `onError()` / `onPartialReply()` / `onIdle()` handling.
+- Streaming finalization now has a tested best-effort abort path when `onIdle()` fails, while degraded-to-static logging remains centralized in the adapter.
+- Added `tests/custom-streaming-gateway-adapter.test.ts` for handled/fallback/static deliver paths, error handling, partial replies, finalization, abort cleanup, and already-terminal fallback logging.

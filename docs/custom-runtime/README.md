@@ -66,6 +66,7 @@ Out of scope for the first custom runtime:
 - `src/custom/dispatch-deliver-gateway-adapter.ts`: gateway-side deliver callback preflight for late-timeout ignores, model-skip tokens, block-state marking, and timer cleanup.
 - `src/custom/dispatch-failure-gateway-adapter.ts`: gateway-side response-timeout/context-too-long/framework-error notice and fallback-event orchestration for dispatch race, callback, and processing failures.
 - `src/custom/dispatch-send-helpers-gateway-adapter.ts`: gateway-side helper factory for bound token-retry sends and visible error-message sends during ordinary dispatch.
+- `src/custom/streaming-gateway-adapter.ts`: gateway-side streaming deliver/error/partial/finalize orchestration around `StreamingController`.
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
 - `src/custom/fallback-alerts.ts`: pure repeated-fallback alert policy for management-group operational notices.
 - `src/custom/fallback-event-store.ts`: bounded JSON persistence for recent custom fallback events.
