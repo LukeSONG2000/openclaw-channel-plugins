@@ -68,6 +68,14 @@ Behavior:
 
 ## Read-Only Preflight Before Deploy Or Update
 
+Admins can first run the lightweight in-chat summary:
+
+```text
+/bot-deploy preflight
+```
+
+This checks only the live config object visible to the plugin. It is useful for quick admin review in the management group, but it does not inspect server extension directories or shell environment.
+
 Before replacing the server QQBot package, and before any later custom update, run the local/read-only preflight against the target config snapshot:
 
 ```bash

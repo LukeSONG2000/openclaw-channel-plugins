@@ -929,6 +929,18 @@ Behavior:
 - Adds QQ command-input shortcuts for `/compact` and `/new` only when the current peer has pending or active work.
 - Does not display queued message bodies, unread snapshots, or cached chat content.
 
+### `src/custom/deploy-preflight.ts`
+
+Read-only deploy safety summary for chat.
+
+Implemented behavior:
+
+- `/bot-deploy preflight` inspects the live config object and formats a management-friendly summary.
+- Checks admin anchors, management group anchor, `customRuntime.enabled`, management-group scene binding, update package source, upgrade mode, package override setting, custom update check setting, and duplicate/legacy QQBot plugin config entries.
+- Uses `deploy.check` capability through slash-command metadata.
+- Does not read server extension directories, run shell commands, install packages, restart the gateway, delete files, or mutate config.
+- Complements but does not replace `scripts/preflight-custom-runtime-deploy.mjs --require-ready`, which should still run on the server before real deploy/update.
+
 ### `src/custom/update-check.ts`
 
 Checks the custom fork/release, not the official plugin, for deployable updates.

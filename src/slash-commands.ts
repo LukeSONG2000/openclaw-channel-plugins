@@ -454,8 +454,9 @@ registerCommand({
     `/bot-deploy confirm /bot-upgrade --version <version>`,
     `/bot-deploy list`,
     `/bot-deploy status <confirmationId>`,
+    `/bot-deploy preflight`,
     ``,
-    `创建部署确认卡；确认按钮只记录确认状态，不会自动执行热更新。`,
+    `创建部署确认卡或查看聊天内只读部署预检；确认按钮只记录确认状态，不会自动执行热更新。`,
   ].join("\n"),
   handler: () => null,
 });
@@ -2775,7 +2776,7 @@ function slashGameCapability(args: string): SlashCommandCapability {
 
 function slashDeployCapability(args: string): SlashCommandCapability {
   const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
-  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show" || action === "preflight" || action === "check" || action === "safety") {
     return "deploy.check";
   }
   if (action === "confirm" || action === "plan") {

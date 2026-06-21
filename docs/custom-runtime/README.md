@@ -73,6 +73,7 @@ Out of scope for the first custom runtime:
 - `src/custom/slash-router.ts`: pluggable custom slash route table for scene, fallback, queue, unread, task, poll, game, and deploy-confirmation commands.
 - `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and deploy-confirmation cards.
 - `src/custom/deploy-confirmation.ts`: pure safety confirmation runtime for guarded deployment/update decisions; it records confirm/cancel state but never executes upgrades.
+- `src/custom/deploy-preflight.ts`: pure in-runtime deploy preflight summary for `/bot-deploy preflight`; it inspects the live config object but never runs shell commands or touches server files.
 - `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
 - `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter for deployment confirmation cards.
 - `src/custom/game.ts`: pure lightweight game runtime for interactive cards.

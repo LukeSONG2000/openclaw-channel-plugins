@@ -42,6 +42,7 @@ assert.equal(getSlashCommandCapability("/bot-game close guess-default-group-GROU
 assert.equal(getSlashCommandCapability("/bot-deploy"), "deploy.check");
 assert.equal(getSlashCommandCapability("/bot-deploy list"), "deploy.check");
 assert.equal(getSlashCommandCapability("/bot-deploy status deploy-default-group-GROUP_OPENID-1000-1"), "deploy.check");
+assert.equal(getSlashCommandCapability("/bot-deploy preflight"), "deploy.check");
 assert.equal(getSlashCommandCapability("/bot-deploy confirm /bot-upgrade --latest"), "deploy.apply");
 assert.equal(getSlashCommandCapability("/bot-deploy plan /bot-upgrade --version 1.7.2-luke.3"), "deploy.apply");
 assert.equal(getSlashCommandCapability("/bot-scene"), "system.status");

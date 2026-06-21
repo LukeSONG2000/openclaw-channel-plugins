@@ -701,3 +701,11 @@ Added configured scene binding inspection:
 - `/bot-task cleanup [--older-than 7d] [--limit 10]` now lists old completed/failed/cancelled tasks for the current account/peer and shows their workspace paths for audit.
 - The command is intentionally read-only and uses `system.status`; future destructive cleanup still needs `--force`, admin confirmation, and backup guardrails.
 - Added `tests/custom-task-cleanup.test.ts` and expanded task gateway/capability tests for cleanup duration parsing, bounded planning, current-peer scope, and read-only slash capability.
+
+加入聊天内部署预检摘要：
+
+- Added `src/custom/deploy-preflight.ts` as a pure in-runtime safety summary for `/bot-deploy preflight`.
+- The command checks the live config object for admin/admin-group anchors, `customRuntime.enabled`, management-group scene binding, personal update package source, hot-reload/override settings, custom update check config, and duplicate/legacy QQBot plugin entries.
+- It is read-only and uses `deploy.check`; it does not run shell commands, inspect extension directories, install packages, restart gateway, delete files, or mutate config.
+- Server-side deployment still requires `scripts/preflight-custom-runtime-deploy.mjs --require-ready` plus backup because chat preflight cannot see filesystem-level leftovers.
+- Added `tests/custom-deploy-preflight.test.ts` and expanded deploy gateway/capability tests.

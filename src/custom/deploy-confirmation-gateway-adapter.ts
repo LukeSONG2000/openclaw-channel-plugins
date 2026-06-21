@@ -4,13 +4,15 @@ import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomDeployConfirmationRuntime, normalizeDeployCommand } from "./deploy-confirmation.js";
+import { buildCustomDeployPreflightSummary, formatCustomDeployPreflightSummary } from "./deploy-preflight.js";
 import type { CustomActor, CustomDeployConfirmation, CustomPeer } from "./types.js";
 
 export type CustomDeployCommand =
   | { kind: "help" }
   | { kind: "confirm"; command: string }
   | { kind: "list" }
-  | { kind: "status"; confirmationId: string };
+  | { kind: "status"; confirmationId: string }
+  | { kind: "preflight" };
 
 export type CustomDeployCommandParseResult =
   | { matched: false }
@@ -37,6 +39,7 @@ export function parseCustomDeployCommand(rawContent: string): CustomDeployComman
   const action = (tokens.shift() ?? "help").toLowerCase();
   if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
   if (action === "list" || action === "ls") return { matched: true, command: { kind: "list" } };
+  if (action === "preflight" || action === "check" || action === "safety") return { matched: true, command: { kind: "preflight" } };
   if (action === "status" || action === "show") {
     const confirmationId = tokens.shift();
     if (!confirmationId) return { matched: true, error: "缺少 confirmationId" };
@@ -73,6 +76,12 @@ export function handleCustomDeployCommand(params: {
     return {
       handled: true,
       reply: formatDeployConfirmationList(params.confirmations.list({ accountId: params.accountId, peer, limit: 8, now: params.now })),
+    };
+  }
+  if (command.kind === "preflight") {
+    return {
+      handled: true,
+      reply: formatCustomDeployPreflightSummary(buildCustomDeployPreflightSummary(params.cfg)),
     };
   }
   if (command.kind === "status") {
@@ -206,6 +215,7 @@ function formatCustomDeployHelp(error?: string): string {
     `/bot-deploy confirm /bot-upgrade --version <version>`,
     `/bot-deploy list`,
     `/bot-deploy status <confirmationId>`,
+    `/bot-deploy preflight`,
     ``,
     `当前只创建确认卡，不自动执行升级。确认后仍需管理员手动发送确认中的升级命令。`,
   );

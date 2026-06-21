@@ -353,13 +353,15 @@ Current custom deploy confirmation cards:
 
 - `/bot-deploy confirm /bot-upgrade --latest` and `/bot-deploy confirm /bot-upgrade --version <version>` create a pending deployment confirmation in the per-account custom runtime.
 - `/bot-deploy list` and `/bot-deploy status <confirmationId>` inspect current-session confirmation state.
+- `/bot-deploy preflight` returns an in-chat read-only deploy safety summary from the live config object: admin/admin-group anchors, custom runtime enabled state, update package source, update check settings, and duplicate/legacy QQBot plugin config risks.
+- Chat preflight does not run shell commands, inspect server extension directories, install, restart, or delete anything. Real deploy still requires the server-side `scripts/preflight-custom-runtime-deploy.mjs --require-ready` plus backup.
 - C2C/group creation and pending status replies use inline callback buttons when available; channel/DM paths fall back to text.
 - Button data prefix: `custom-deploy:<confirmationId>:confirm|cancel`.
 - Button callbacks are acknowledged before local state mutation, then the bot sends a short confirmation/cancellation/status reply.
 - Confirmation buttons never execute hot reload or restart the gateway. After a card is confirmed, an admin must manually send the confirmed `/bot-upgrade ...` command in private chat after backup.
 - Callback source fields use the same custom peer mapping as polls/games. Mutations only apply from the original account/peer, except that the confirmation creator may inspect/interact across peers.
 - Deploy confirmation state persists under `~/.openclaw/qqbot/data/custom-deploy-confirmations/deploy-confirmations-<accountId>.json`.
-- Custom auth gates help/list/status through `deploy.check`; creating confirmations through confirm/plan requires `deploy.apply`.
+- Custom auth gates help/list/status/preflight through `deploy.check`; creating confirmations through confirm/plan requires `deploy.apply`.
 
 Current custom task cards:
 

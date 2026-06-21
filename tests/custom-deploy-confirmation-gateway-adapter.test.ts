@@ -56,6 +56,10 @@ assert.deepEqual(parseCustomDeployCommand("/bot-deploy status deploy-1"), {
   matched: true,
   command: { kind: "status", confirmationId: "deploy-1" },
 });
+assert.deepEqual(parseCustomDeployCommand("/bot-deploy preflight"), {
+  matched: true,
+  command: { kind: "preflight" },
+});
 assert.deepEqual(parseCustomDeployCommand("/bot-deploy confirm /bot-upgrade"), {
   matched: true,
   error: "当前只支持确认 /bot-upgrade 的带参数命令",
@@ -111,6 +115,39 @@ const list = handleCustomDeployCommand({
 });
 assert.equal(list.handled, true);
 assert.equal(list.reply?.includes(confirmationId), true);
+
+const preflight = handleCustomDeployCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        appId: "APPID",
+        clientSecret: "SECRET",
+        upgradePkg: "lukesong/openclaw-qqbot",
+        customUpdateCheck: { enabled: true },
+        customRuntime: {
+          enabled: true,
+          admins: ["ADMIN_OPENID"],
+          adminGroup: "GROUP_OPENID",
+          scenes: {
+            "qqbot:group:GROUP_OPENID": { scene: "system-admin" },
+          },
+        },
+      },
+    },
+    plugins: {
+      entries: { "openclaw-qqbot": {} },
+    },
+  } as any,
+  accountId: "default",
+  confirmations,
+  message,
+  rawContent: "/bot-deploy preflight",
+  now: 1_550,
+});
+assert.equal(preflight.handled, true);
+assert.equal(preflight.changed, undefined);
+assert.equal(preflight.reply?.includes("QQBot 二开部署预检（只读）"), true);
+assert.equal(preflight.reply?.includes("无阻断项"), true);
 
 const otherGroupStatus = handleCustomDeployCommand({
   cfg,
