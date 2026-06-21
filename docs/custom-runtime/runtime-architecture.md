@@ -172,8 +172,9 @@ Current implementation status:
   - `rateLimitWindowMs=60000`
   - `rateLimitMax=1`
 - Tracks budget by `accountId + peer.kind + peer.id` and UTC month.
-- Persists QQ group proactive acceptance state from `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE`.
-- Blocks group proactive sends while the latest local acceptance state is rejected.
+- 持久化 QQ 单聊主动消息接收状态：`C2C_MSG_REJECT` / `C2C_MSG_RECEIVE`。
+- 持久化 QQ 群主动消息接收状态：`GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE`。
+- 当最新本地接收状态为拒收时，阻止对应 C2C/group 主动发送。
 - Counts only after a proactive text or media send succeeds, so token retry or failed sends do not consume budget.
 - Persists state under `~/.openclaw/qqbot/data/custom-proactive-budget/budget-<accountId>.json`.
 - Gateway injects a guard into `src/outbound-deliver.ts`; synthetic catch-up sends without a QQ `msg_id` anchor are checked before they call proactive C2C/group APIs.

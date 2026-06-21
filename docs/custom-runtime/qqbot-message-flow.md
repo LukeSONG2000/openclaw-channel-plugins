@@ -248,7 +248,7 @@ From official send docs:
 - Group passive replies: valid for 5 minutes, max 5 replies per incoming message.
 - C2C proactive messages: 4 messages per user per month.
 - Group proactive messages: 4 messages per group per month.
-- Users/groups can disable receiving proactive messages; `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE` events indicate group proactive-message acceptance state changes.
+- 用户/群可以关闭主动消息接收；`C2C_MSG_REJECT` / `C2C_MSG_RECEIVE` 记录单聊主动消息接收状态，`GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE` 记录群主动消息接收状态。
 - C2C wakeup/recall messages are available after user interaction, one per period across same day, 1-3 days, 3-7 days, and 7-30 days.
 - Official docs state proactive push capability was adjusted from 2025-04-21 and API calls may receive errors.
 - Text sub-channel passive replies are valid for 5 minutes; sends in one sub-channel are limited to max 5 messages/second.
@@ -259,7 +259,7 @@ Implication for custom runtime:
 - Group delayed autonomous replies must be either near-term passive replies inside the 5-minute window or scarce proactive sends.
 - Ten-minute sleep catch-up cannot rely on passive group `msg_id`.
 - Because official docs say proactive push is no longer provided after 2025-04-21, unanchored C2C/group sends must be treated as best-effort and high risk even if older monthly frequency limits are still listed.
-- Delayed group speaking needs scene policy, budget tracking, and visible logging before it is safe to enable broadly.
+- 延迟群内自主发言需要场景策略、预算计数、主动消息接收状态和可见日志都齐备后，才适合扩大启用范围。
 - Follow-up after direct mention should stay inside the group passive-reply window when using passive replies.
 - Synthetic catch-up messages should not pretend to be passive replies if they have no valid QQ `msg_id` anchor.
 - Long-task completion notifications without a current `msg_id` anchor should pass through the same proactive policy/acceptance/budget layer before any actual send attempt.

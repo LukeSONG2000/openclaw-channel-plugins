@@ -2736,6 +2736,26 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           recordKnownUser({ openid: ev.author.user_openid, type: "c2c", accountId: account.accountId });
           const refs = parseRefIndices(ev.message_scene?.ext, ev.message_type, ev.msg_elements);
           await trySlashCommandOrEnqueue({ type: "c2c", senderId: ev.author.user_openid, content: ev.content, messageId: ev.id, timestamp: ev.timestamp, attachments: ev.attachments, refMsgIdx: refs.refMsgIdx, msgIdx: refs.msgIdx, msgElements: ev.msg_elements, msgType: ev.message_type });
+        } else if (t === "C2C_MSG_REJECT") {
+          const ev = d as { timestamp: number | string; openid: string };
+          log?.info(`[qqbot:${account.accountId}] C2C user ${ev.openid} rejected bot proactive messages`);
+          customMessageFlow.proactiveBudget.setAcceptance({
+            accountId: account.accountId,
+            peer: { kind: "c2c", id: ev.openid },
+            accepted: false,
+            now: normalizePlatformTimestampMs(ev.timestamp),
+          });
+          persistCustomProactiveBudgetState();
+        } else if (t === "C2C_MSG_RECEIVE") {
+          const ev = d as { timestamp: number | string; openid: string };
+          log?.info(`[qqbot:${account.accountId}] C2C user ${ev.openid} accepted bot proactive messages`);
+          customMessageFlow.proactiveBudget.setAcceptance({
+            accountId: account.accountId,
+            peer: { kind: "c2c", id: ev.openid },
+            accepted: true,
+            now: normalizePlatformTimestampMs(ev.timestamp),
+          });
+          persistCustomProactiveBudgetState();
         } else if (t === "AT_MESSAGE_CREATE") {
           const ev = d as GuildMessageEvent;
           recordKnownUser({ openid: ev.author.id, type: "c2c", nickname: ev.author.username, accountId: account.accountId });

@@ -224,13 +224,13 @@ Still intentionally open:
 
 - Real server validation is still required because official docs warn proactive push may error after the 2025-04-21 platform adjustment.
 
-Added proactive acceptance hard block:
+补齐主动消息接收状态硬拦截：
 
-- `CustomProactiveBudgetRuntime` now persists per-peer proactive acceptance state alongside monthly/rate budget entries.
-- Gateway handles `GROUP_MSG_REJECT` by marking the group rejected and saving budget state.
-- Gateway handles `GROUP_MSG_RECEIVE` by marking the group accepted and saving budget state.
-- Guard checks reject state before monthly/rate checks, so group proactive text sends are blocked locally while a group has disabled receiving proactive bot messages.
-- Expanded proactive budget/store tests to cover acceptance persistence and reject/receive state transitions.
+- `CustomProactiveBudgetRuntime` 会把每个 peer 的主动消息接收状态和月度/频率预算一起持久化。
+- Gateway 处理 `GROUP_MSG_REJECT` / `GROUP_MSG_RECEIVE`，用于标记群聊主动消息拒收/接收状态。
+- Gateway 处理 `C2C_MSG_REJECT` / `C2C_MSG_RECEIVE`，用于标记单聊主动消息拒收/接收状态。
+- Guard 会先检查拒收状态，再检查月度/频率预算；如果用户或群已经关闭主动消息接收，本地直接阻止 C2C/group 主动发送。
+- 扩展 proactive budget/store 测试，覆盖 C2C 和 group 的接收状态持久化与拒收/恢复接收状态切换。
 
 Still intentionally open:
 

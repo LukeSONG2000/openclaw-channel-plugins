@@ -84,6 +84,26 @@ rejectedBudget.setAcceptance({
 const acceptedAgain = rejectedBudget.check({ accountId: "default", peer, cfg: rateCfg, now: 8_100 });
 assert.equal(acceptedAgain.allowed, true);
 
+const c2cPeer: CustomPeer = { kind: "c2c", id: "USER_OPENID" };
+rejectedBudget.setAcceptance({
+  accountId: "default",
+  peer: c2cPeer,
+  accepted: false,
+  now: 8_200,
+});
+const c2cRejected = rejectedBudget.check({ accountId: "default", peer: c2cPeer, cfg: rateCfg, now: 8_300 });
+assert.equal(c2cRejected.allowed, false);
+assert.equal(c2cRejected.reason, "rejected");
+assert.equal(c2cRejected.accepted, false);
+assert.equal(c2cRejected.acceptanceUpdatedAt, 8_200);
+rejectedBudget.setAcceptance({
+  accountId: "default",
+  peer: c2cPeer,
+  accepted: true,
+  now: 8_400,
+});
+assert.equal(rejectedBudget.check({ accountId: "default", peer: c2cPeer, cfg: rateCfg, now: 8_500 }).allowed, true);
+
 const disabledCfg = resolveCustomProactiveConfig({
   runtime: { enabled: true, proactive: { enabled: false } },
   scene: { scene: "chat" },

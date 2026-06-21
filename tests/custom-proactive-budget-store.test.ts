@@ -27,6 +27,10 @@ try {
         updatedAt: 3_000,
         updatedBy: "MEMBER_OPENID",
       },
+      "default:c2c:USER_OPENID": {
+        accepted: true,
+        updatedAt: 4_000,
+      },
     },
   };
 
