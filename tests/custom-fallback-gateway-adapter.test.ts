@@ -199,6 +199,7 @@ assert.equal(summary.reply?.includes("上下文过长：1"), true);
 assert.equal(summary.reply?.includes("紧急绕行：1"), true);
 assert.equal(summary.reply?.includes("工具兜底：1"), true);
 assert.equal(summary.reply?.includes("最大队列：pending=8, active=2/3, senderPending=5"), true);
+assert.equal(summary.reply?.includes("最长活跃：senderActiveMs=120000, maxActiveMs=180000"), true);
 assert.equal(summary.reply?.includes("response-timeout: 1"), true);
 assert.equal(summary.reply?.includes("context-too-long: 1"), true);
 assert.equal(summary.reply?.includes("tool-fallback-text: 1"), true);

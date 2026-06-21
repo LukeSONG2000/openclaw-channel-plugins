@@ -740,6 +740,7 @@ Authorization:
 
 - Uses slash-command metadata, so list/status access requires `system.status` through admin, scene capability, or temporary grant.
 - Summary access also requires `system.status` and aggregates recent fallback kinds plus max queue pressure.
+- Summary output also reports the longest sender-active/max-active durations observed in recent fallback events.
 - List/status output expands urgent queue-bypass events with command, dropped queued-message count, queue peer id, after-clear pending counts, and active peer duration.
 - Summary output includes an urgent queue-bypass count so admins can verify whether `/new` or `/compact` recovery commands actually reached the queue bypass path.
 - Clearing events requires `config.write` and an explicit `--force`.

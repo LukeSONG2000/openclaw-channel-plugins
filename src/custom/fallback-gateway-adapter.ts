@@ -186,8 +186,13 @@ function formatCustomFallbackSummary(events: CustomFallbackEvent[], limit: numbe
   const maxActive = maxNumber(events, "queueActiveUsers");
   const maxConcurrency = maxNumber(events, "queueMaxConcurrentUsers");
   const maxSenderPending = maxNumber(events, "queueSenderPending");
+  const maxSenderActiveMs = maxNumber(events, "queueSenderActiveMs");
+  const maxActiveMs = maxNumber(events, "queueMaxActiveMs");
   if (maxPending !== null || maxActive !== null || maxConcurrency !== null || maxSenderPending !== null) {
     lines.push(`最大队列：pending=${maxPending ?? "?"}, active=${maxActive ?? "?"}/${maxConcurrency ?? "?"}, senderPending=${maxSenderPending ?? "?"}`);
+  }
+  if (maxSenderActiveMs !== null || maxActiveMs !== null) {
+    lines.push(`最长活跃：senderActiveMs=${maxSenderActiveMs ?? "?"}, maxActiveMs=${maxActiveMs ?? "?"}`);
   }
 
   lines.push(``, `类型分布：`);

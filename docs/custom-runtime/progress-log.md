@@ -23,6 +23,7 @@ Ported safe server hotfixes into the fork:
 - Immediate urgent command execution is covered while the same peer already has a blocking message in flight; queued normal messages can be dropped and `/new` or `/compact` still run outside the peer queue.
 - Urgent queue bypasses now emit `urgent-queue-bypass` fallback events with the command, queue peer id, dropped queued message count, active processing age, and before/after queue snapshots.
 - `/bot-fallback list` now expands urgent queue-bypass records with command, dropped count, queue peer id, after-clear pending counts, and active peer duration; `/bot-fallback summary` counts them separately.
+- `/bot-fallback summary` 会汇总最近事件中的最长活跃处理时长，方便直接判断是否存在队列卡住迹象。
 - Dispatch timeout now waits for user-visible block output, sends a visible timeout notice, and ignores late deliver callbacks.
 - Tool-only fallback sends a visible notice when no text/media is available.
 - Error messages retry without `msg_id` if the reply anchor is invalid, expired, or unauthorized.
