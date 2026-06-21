@@ -66,6 +66,7 @@ Out of scope for the first custom runtime:
 - `src/custom/deliver-debounce-gateway-adapter.ts`: gateway-side debounce dispatcher for static deliver payloads and debouncer handle creation/reuse.
 - `src/custom/dispatch-deliver-callback-gateway-adapter.ts`: gateway-side ordinary dispatch deliver callback orchestrator for late-deliver filtering, tool deliver fallback, block preflight, streaming handoff, static delivery, and debounce.
 - `src/custom/dispatch-deliver-gateway-adapter.ts`: gateway-side deliver callback preflight for late-timeout ignores, model-skip tokens, block-state marking, and timer cleanup.
+- `src/custom/dispatch-error-callback-gateway-adapter.ts`: gateway-side dispatcher `onError` callback orchestrator for response marking, response-timeout cleanup, streaming error handoff, and fallback notice routing.
 - `src/custom/dispatch-fallback-session-gateway-adapter.ts`: gateway-side per-dispatch fallback session for response timeout timers, tool-only timers, fallback recorder binding, and tool fallback sender wiring.
 - `src/custom/dispatch-failure-gateway-adapter.ts`: gateway-side response-timeout/context-too-long/framework-error notice and fallback-event orchestration for dispatch race, callback, and processing failures.
 - `src/custom/dispatch-finalize-gateway-adapter.ts`: gateway-side dispatch finally cleanup for tool timers, tool completion fallback, debouncer disposal, and streaming finalization.

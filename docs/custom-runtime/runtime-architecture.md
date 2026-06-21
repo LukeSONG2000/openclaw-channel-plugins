@@ -568,6 +568,22 @@ Current implementation status:
 - Marks dispatch timeout and response state through an injected state interface, keeping `CustomFallbackDispatchState` as the source of truth while removing notice orchestration from `gateway.ts`.
 - Leaves timer clearing and actual text delivery callbacks in `gateway.ts`, so OpenClaw/QQ sends stay at the boundary.
 
+### `src/custom/dispatch-error-callback-gateway-adapter.ts`
+
+Gateway-side orchestrator for the dispatcher `onError` callback.
+
+Current implementation status:
+
+- Logs the dispatcher error with the account prefix and marks the fallback session as having a response, preserving the previous no-duplicate-notice behavior.
+- Clears the response-timeout timer immediately when the dispatcher error callback fires.
+- Hands the error to `streaming-gateway-adapter.ts` first; when streaming handles the error, the callback stops without sending a duplicate fallback notice.
+- Falls back to `dispatch-failure-gateway-adapter.ts` callback-failure handling when streaming is absent or degraded to static fallback.
+
+Important boundary:
+
+- The adapter does not classify race timeout failures; it only handles the dispatcher's own error callback.
+- It does not send QQ messages directly. It uses the injected fallback recorder and visible text sender from the per-dispatch setup.
+
 ### `src/custom/outbound-deliver-context.ts`
 
 Pure helper for constructing outbound delivery contexts used by media-tag parsing and normal reply delivery.

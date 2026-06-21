@@ -1103,3 +1103,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only injects fallback session, reply/deliver contexts, send callbacks, debouncer handle setters, and outbound activity callbacks; the large inline deliver branch is no longer embedded in the model dispatch body.
 - The adapter preserves the existing boundary: no QQ API/token calls inside the custom layer, and fallback persistence still flows through the per-dispatch fallback session recorder.
 - Added `tests/custom-dispatch-deliver-callback-gateway-adapter.test.ts` for late-deliver ignore, tool branch routing, model-skip short circuit, static delivery via debounce, quote refs, tool media propagation, and outbound activity recording.
+
+抽出 dispatch error callback 网关编排层：
+
+- Added `src/custom/dispatch-error-callback-gateway-adapter.ts` to own dispatcher `onError` handling: account-prefixed logging, response-state marking, response-timeout cleanup, streaming error handoff, and fallback callback-failure routing.
+- `gateway.ts` now delegates `onError` to the adapter, leaving the model dispatch body focused on wiring callbacks instead of duplicating streaming/error fallback branches.
+- The adapter preserves duplicate-notice prevention: when streaming handles the error, it stops before `dispatch-failure-gateway-adapter.ts`; otherwise it uses the existing callback-failure policy and injected send/record callbacks.
+- Added `tests/custom-dispatch-error-callback-gateway-adapter.test.ts` for streaming-handled errors, no-controller fallback routing, response marking, timer cleanup, visible text fallback, and fallback recorder propagation.

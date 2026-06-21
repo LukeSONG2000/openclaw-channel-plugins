@@ -55,8 +55,8 @@ import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.j
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
 import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
 import { handleCustomDispatchDeliverCallbackGateway } from "./custom/dispatch-deliver-callback-gateway-adapter.js";
+import { handleCustomDispatchErrorCallbackGateway } from "./custom/dispatch-error-callback-gateway-adapter.js";
 import {
-  handleCustomDispatchCallbackFailure,
   handleCustomDispatchRaceFailure,
   handleCustomMessageProcessingFailure,
 } from "./custom/dispatch-failure-gateway-adapter.js";
@@ -65,7 +65,6 @@ import {
   recordCustomFallbackEventGateway,
 } from "./custom/fallback-record-gateway-adapter.js";
 import {
-  handleCustomStreamingError,
   handleCustomStreamingPartialReply,
 } from "./custom/streaming-gateway-adapter.js";
 import { finalizeCustomDispatchGateway } from "./custom/dispatch-finalize-gateway-adapter.js";
@@ -1151,25 +1150,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 });
               },
               onError: async (err: unknown) => {
-                log?.error(`[qqbot:${account.accountId}] Dispatch error: ${err}`);
-                fallbackState.markResponse();
-                fallbackSession.clearResponseTimeout();
-
-                // 流式模式：委托给 streaming controller 处理错误
-                const streamingError = await handleCustomStreamingError({
-                  accountId: account.accountId,
-                  controller: streamingController,
-                  err,
-                  log,
-                });
-                if (streamingError.kind === "handled") {
-                  return;
-                }
-                
-                await handleCustomDispatchCallbackFailure({
+                await handleCustomDispatchErrorCallbackGateway({
                   accountId: account.accountId,
                   err,
-                  recordFallbackEvent,
+                  fallbackSession,
+                  streamingController,
                   sendErrorMessage,
                   log,
                 });
