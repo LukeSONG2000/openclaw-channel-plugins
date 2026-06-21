@@ -1,3 +1,5 @@
+import type { CustomActor, CustomPeer } from "./types.js";
+
 export const CUSTOM_RESPONSE_TIMEOUT_MS = 300_000;
 export const CUSTOM_TOOL_ONLY_TIMEOUT_MS = 90_000;
 export const CUSTOM_TOOL_ONLY_MAX_RENEWALS = 3;
@@ -13,6 +15,44 @@ export interface CustomToolFallbackTextOptions {
   maxItems?: number;
   maxChars?: number;
   separator?: string;
+}
+
+export type CustomFallbackEventKind =
+  | "response-timeout"
+  | "context-too-long"
+  | "late-deliver-after-timeout"
+  | "tool-only-timeout"
+  | "tool-only-complete-no-block"
+  | "tool-fallback-media"
+  | "tool-fallback-text"
+  | "tool-fallback-no-output";
+
+export interface CustomFallbackEvent {
+  type: "custom-fallback";
+  kind: CustomFallbackEventKind;
+  accountId: string;
+  peer?: CustomPeer;
+  actor?: CustomActor;
+  sessionKey?: string;
+  runId?: string;
+  messageId?: string;
+  reason?: string;
+  at: number;
+  toolDeliverCount?: number;
+  toolTextCount?: number;
+  toolMediaCount?: number;
+  hasResponse?: boolean;
+  hasBlockResponse?: boolean;
+  timeoutMs?: number;
+  details?: Record<string, string | number | boolean | null>;
+}
+
+export type CustomFallbackEventDetails = Record<string, string | number | boolean | null>;
+export type CustomFallbackEventInputDetails = Record<string, string | number | boolean | null | undefined>;
+
+export interface BuildCustomFallbackEventParams extends Omit<CustomFallbackEvent, "type" | "at" | "details"> {
+  at?: number;
+  details?: CustomFallbackEventInputDetails;
 }
 
 export function isCustomModelSkipOutput(text: string | null | undefined): boolean {
@@ -62,6 +102,20 @@ export function classifyCustomDispatchFailure(err: unknown): CustomDispatchFailu
   return "other";
 }
 
+export function buildCustomFallbackEvent(params: BuildCustomFallbackEventParams): CustomFallbackEvent {
+  const event = pruneUndefinedDeep({
+    type: "custom-fallback" as const,
+    ...params,
+    at: params.at ?? Date.now(),
+    details: params.details,
+  });
+  return event as CustomFallbackEvent;
+}
+
+export function formatCustomFallbackEventLog(event: CustomFallbackEvent): string {
+  return `custom fallback event: ${JSON.stringify(event)}`;
+}
+
 function normalizePositiveInteger(raw: unknown, fallback: number): number {
   if (typeof raw !== "number" || !Number.isFinite(raw)) {
     return fallback;
@@ -104,4 +158,24 @@ function isCustomContextTooLongErrorText(errText: string): boolean {
     /reduce.*context/,
     /上下文.*(过长|超长|太长)/,
   ].some((pattern) => pattern.test(normalized));
+}
+
+function pruneUndefinedDeep<T>(value: T): T {
+  if (Array.isArray(value)) {
+    return value.map((item) => pruneUndefinedDeep(item)) as T;
+  }
+  if (!value || typeof value !== "object") {
+    return value;
+  }
+  return pruneUndefined(value as Record<string, unknown>) as T;
+}
+
+function pruneUndefined<T extends Record<string, unknown>>(value: T): T {
+  const pruned: Record<string, unknown> = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (item !== undefined) {
+      pruned[key] = pruneUndefinedDeep(item);
+    }
+  }
+  return pruned as T;
 }

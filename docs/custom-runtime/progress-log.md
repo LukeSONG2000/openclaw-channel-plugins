@@ -68,6 +68,12 @@ Added context-too-long fallback classification:
 - `gateway.ts` sends a visible recovery notice that points users to `/compact` and `/new` while releasing the message queue.
 - The fallback deliberately does not auto-reset sessions yet; automatic reset remains a later policy decision because it can discard context.
 
+Added structured fallback event logs:
+
+- `src/custom/fallbacks.ts` now builds `custom-fallback` event objects for timeout, context-too-long, late-deliver, and tool-only fallback paths.
+- `gateway.ts` logs those events with account, peer, actor, session key, run/message id, response state, and tool-deliver counts.
+- The event layer is log-only for now; future persistence or admin notification cards can reuse the same pure event shape.
+
 Extracted unread/follow-up message flow into pure runtime:
 
 - Added `src/custom/unread-runtime.ts` with no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.

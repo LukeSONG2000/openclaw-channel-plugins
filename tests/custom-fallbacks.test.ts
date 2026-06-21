@@ -4,7 +4,9 @@ import {
   CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
+  buildCustomFallbackEvent,
   classifyCustomDispatchFailure,
+  formatCustomFallbackEventLog,
   formatCustomContextTooLongNotice,
   formatCustomResponseTimeoutNotice,
   formatCustomToolNoOutputNotice,
@@ -52,5 +54,41 @@ assert.equal(classifyCustomDispatchFailure({ message: "provider failed", cause: 
 assert.equal(classifyCustomDispatchFailure(new Error("other failure")), "other");
 assert.equal(classifyCustomDispatchFailure(new Error("rate limit exceeded")), "other");
 assert.equal(classifyCustomDispatchFailure(new Error("auth token expired")), "other");
+
+const fallbackEvent = buildCustomFallbackEvent({
+  kind: "response-timeout",
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  actor: { id: "MEMBER_OPENID", label: undefined },
+  sessionKey: "agent:main:qqbot:default:group:group_openid",
+  runId: "MSG_ID",
+  messageId: "MSG_ID",
+  reason: "Response timeout",
+  at: 1234,
+  timeoutMs: CUSTOM_RESPONSE_TIMEOUT_MS,
+  hasResponse: undefined,
+  toolDeliverCount: 2,
+  toolTextCount: 1,
+  toolMediaCount: 0,
+  hasBlockResponse: false,
+  details: {
+    textChars: 10,
+    ignored: undefined,
+  },
+});
+assert.equal(fallbackEvent.type, "custom-fallback");
+assert.equal(fallbackEvent.kind, "response-timeout");
+assert.equal(fallbackEvent.at, 1234);
+assert.equal(fallbackEvent.peer?.id, "GROUP_OPENID");
+assert.equal("hasResponse" in fallbackEvent, false);
+assert.equal("ignored" in (fallbackEvent.details ?? {}), false);
+assert.deepEqual(fallbackEvent.details, { textChars: 10 });
+
+const eventLog = formatCustomFallbackEventLog(fallbackEvent);
+assert.equal(eventLog.startsWith("custom fallback event: "), true);
+assert.deepEqual(
+  JSON.parse(eventLog.slice("custom fallback event: ".length)),
+  fallbackEvent,
+);
 
 console.log("custom fallbacks tests passed");

@@ -85,12 +85,16 @@ import {
   CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
+  buildCustomFallbackEvent,
   classifyCustomDispatchFailure,
+  formatCustomFallbackEventLog,
   formatCustomContextTooLongNotice,
   formatCustomResponseTimeoutNotice,
   formatCustomToolNoOutputNotice,
   isCustomModelSkipOutput,
   selectCustomToolFallbackText,
+  type CustomFallbackEventKind,
+  type CustomFallbackEventInputDetails,
 } from "./custom/fallbacks.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import type { CustomPeer } from "./custom/types.js";
@@ -2040,9 +2044,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码
         // （包括 AI agent 调用、tool execute）都能安全获取当前会话信息，无并发竞态。
         await runWithRequestContext({ target: qualifiedTarget, accountId: account.accountId }, async () => {
-        try {
-          const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
-
           // 追踪是否有响应
           let hasResponse = false;
           let hasBlockResponse = false; // 是否收到了面向用户的 block 回复
@@ -2059,6 +2060,41 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           let toolRenewalCount = 0; // 已续期次数
           let timeoutId: ReturnType<typeof setTimeout> | null = null;
           let toolOnlyTimeoutId: ReturnType<typeof setTimeout> | null = null;
+          const fallbackPeer: CustomPeer = {
+            kind: event.type === "guild" ? "channel" : event.type === "group" ? "group" : event.type === "dm" ? "dm" : "c2c",
+            id: peerId,
+            label: isGroupChat ? undefined : event.senderName,
+          };
+          const recordFallbackEvent = (params: {
+            kind: CustomFallbackEventKind;
+            reason?: string;
+            timeoutMs?: number;
+            details?: CustomFallbackEventInputDetails;
+          }) => {
+            log?.info(formatCustomFallbackEventLog(buildCustomFallbackEvent({
+              kind: params.kind,
+              accountId: account.accountId,
+              peer: fallbackPeer,
+              actor: {
+                id: event.senderId,
+                label: event.senderName,
+                isBot: event.senderIsBot,
+              },
+              sessionKey: route.sessionKey,
+              runId: event.messageId,
+              messageId: event.messageId,
+              reason: params.reason,
+              timeoutMs: params.timeoutMs,
+              toolDeliverCount,
+              toolTextCount: toolTexts.length,
+              toolMediaCount: toolMediaUrls.length,
+              hasResponse,
+              hasBlockResponse,
+              details: params.details,
+            })));
+          };
+        try {
+          const messagesConfig = pluginRuntime.channel.reply.resolveEffectiveMessagesConfig(cfg, route.agentId);
 
           // ============ Deliver Debouncer：合并短时间内连续到达的 block deliver ============
           const debounceConfig = account.config?.deliverDebounce;
@@ -2068,6 +2104,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const sendToolFallback = async (): Promise<void> => {
             // 优先发送工具产出的媒体文件（TTS 语音、生成图片等）
             if (toolMediaUrls.length > 0) {
+              recordFallbackEvent({
+                kind: "tool-fallback-media",
+                reason: "tool produced media but no block deliver was available",
+              });
               log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding ${toolMediaUrls.length} media URL(s) from tool deliver(s)`);
               const mediaTimeout = CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS; // 单个媒体发送超时 45s
               for (const mediaUrl of toolMediaUrls) {
@@ -2090,11 +2130,20 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             // 其次转发工具产出的文本
             if (toolTexts.length > 0) {
               const text = selectCustomToolFallbackText(toolTexts) ?? "";
+              recordFallbackEvent({
+                kind: "tool-fallback-text",
+                reason: "tool produced text but no block deliver was available",
+                details: { fallbackTextChars: text.length },
+              });
               log?.info(`[qqbot:${account.accountId}] Tool fallback: forwarding tool text (${text.length} chars)`);
               await sendErrorMessage(text);
               return;
             }
             // 既无媒体也无文本，发送可见提示并释放队列
+            recordFallbackEvent({
+              kind: "tool-fallback-no-output",
+              reason: "tool-only run produced no user-sendable media or text",
+            });
             log?.info(`[qqbot:${account.accountId}] Tool fallback: no media or text collected from ${toolDeliverCount} tool deliver(s), sending timeout notice`);
             await sendErrorMessage(formatCustomToolNoOutputNotice());
           };
@@ -2149,6 +2198,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               responsePrefix: messagesConfig.responsePrefix,
               deliver: async (payload: { text?: string; mediaUrls?: string[]; mediaUrl?: string }, info: { kind: string }) => {
                 if (dispatchTimedOut) {
+                  recordFallbackEvent({
+                    kind: "late-deliver-after-timeout",
+                    reason: "deliver callback arrived after response timeout",
+                    details: {
+                      deliverKind: info.kind,
+                      textChars: payload.text?.length ?? 0,
+                      mediaCount: (payload.mediaUrls?.length ?? 0) + (payload.mediaUrl ? 1 : 0),
+                    },
+                  });
                   log?.info(`[qqbot:${account.accountId}] Late deliver ignored after response timeout, kind: ${info.kind}`);
                   return;
                 }
@@ -2219,6 +2277,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   toolOnlyTimeoutId = setTimeout(async () => {
                     if (!hasBlockResponse && !toolFallbackSent) {
                       toolFallbackSent = true;
+                      recordFallbackEvent({
+                        kind: "tool-only-timeout",
+                        reason: "tool deliver callbacks arrived but no block deliver before timeout",
+                        timeoutMs: toolOnlyTimeout,
+                      });
                       log?.error(`[qqbot:${account.accountId}] Tool-only timeout: ${toolDeliverCount} tool deliver(s) but no block within ${toolOnlyTimeout / 1000}s, sending fallback`);
                       try {
                         await sendToolFallback();
@@ -2391,6 +2454,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 }
 
                 if (dispatchFailureKind === "context-too-long") {
+                  recordFallbackEvent({
+                    kind: "context-too-long",
+                    reason: errMsg,
+                  });
                   log?.error(`[qqbot:${account.accountId}] AI context too long: ${errMsg}`);
                   await sendErrorMessage(formatCustomContextTooLongNotice());
                   return;
@@ -2439,6 +2506,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             dispatchTimedOut = dispatchFailureKind === "response-timeout";
             log?.error(`[qqbot:${account.accountId}] Dispatch failed: ${err}${!hasResponse ? " (no response received)" : ""}`);
             if (dispatchTimedOut && !hasBlockResponse && !toolFallbackSent) {
+              recordFallbackEvent({
+                kind: "response-timeout",
+                reason: String(err),
+                timeoutMs: responseTimeout,
+              });
               try {
                 await sendErrorMessage(formatCustomResponseTimeoutNotice());
                 hasResponse = true;
@@ -2446,6 +2518,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 log?.error(`[qqbot:${account.accountId}] Failed to send response-timeout notice: ${sendErr}`);
               }
             } else if (dispatchFailureKind === "context-too-long" && !hasBlockResponse && !toolFallbackSent) {
+              recordFallbackEvent({
+                kind: "context-too-long",
+                reason: String(err),
+              });
               try {
                 await sendErrorMessage(formatCustomContextTooLongNotice());
                 hasResponse = true;
@@ -2463,6 +2539,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             // dispatch 完成后，如果只有 tool 没有 block，且尚未发过兜底，立即兜底
             if (toolDeliverCount > 0 && !hasBlockResponse && !toolFallbackSent) {
               toolFallbackSent = true;
+              recordFallbackEvent({
+                kind: "tool-only-complete-no-block",
+                reason: "dispatch completed after tool deliver callbacks without block deliver",
+              });
               log?.error(`[qqbot:${account.accountId}] Dispatch completed with ${toolDeliverCount} tool deliver(s) but no block deliver, sending fallback`);
               await sendToolFallback();
             }
@@ -2534,6 +2614,10 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               await sendErrorMessage("⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。");
             } catch { /* best-effort */ }
           } else if (dispatchFailureKind === "context-too-long") {
+            recordFallbackEvent({
+              kind: "context-too-long",
+              reason: errStr,
+            });
             try {
               await sendErrorMessage(formatCustomContextTooLongNotice());
             } catch { /* best-effort */ }

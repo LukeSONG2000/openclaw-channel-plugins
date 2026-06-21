@@ -640,11 +640,12 @@ Pure fallback policy helpers for known failure modes:
 - model skip tokens such as `NO_REPLY` and `[SKIP]`
 - dispatch failure classification
 - context/token limit error classification and recovery notice text
+- structured `custom-fallback` event construction and log formatting
 
 Boundary:
 
 - It is pure TypeScript and has no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.
-- `gateway.ts` still owns queue release, timer lifecycle, logging, retry, and outbound sends.
+- `gateway.ts` still owns queue release, timer lifecycle, log emission, retry, and outbound sends.
 
 Current implemented safeguards:
 
@@ -653,13 +654,14 @@ Current implemented safeguards:
 - Response timeout sends a visible user notice and ignores late block/tool deliveries.
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
 - Context/token limit errors send a visible recovery notice that suggests `/compact` first and `/new` if needed.
+- Fallback paths emit structured log events with account, peer, actor, session key, run/message id, response state, and tool-deliver counts.
 - Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
 
 Still separate from the pure module:
 
 - automatic session reset after context-too-long errors
 - queue-stuck telemetry
-- structured fallback events with peer/session/run id
+- persisted fallback event storage and admin notification cards
 - config schema rejection formatting
 
 ### `src/custom/update-check.ts`
