@@ -1,6 +1,10 @@
 import assert from "node:assert";
 import { CustomFallbackDispatchState } from "../src/custom/fallback-dispatch-state.js";
-import { handleCustomDispatchRaceFailure } from "../src/custom/dispatch-failure-gateway-adapter.js";
+import {
+  handleCustomDispatchCallbackFailure,
+  handleCustomDispatchRaceFailure,
+  handleCustomMessageProcessingFailure,
+} from "../src/custom/dispatch-failure-gateway-adapter.js";
 import type { CustomDispatchFallbackRecordParams } from "../src/custom/fallback-record-gateway-adapter.js";
 
 function makeRecorder(records: CustomDispatchFallbackRecordParams[]) {
@@ -131,5 +135,77 @@ const otherResult = await handleCustomDispatchRaceFailure({
 });
 assert.equal(otherResult.kind, "ignored");
 assert.equal(otherRecords.length, 0);
+
+const callbackFrameworkTexts: string[] = [];
+const callbackFramework = await handleCustomDispatchCallbackFailure({
+  accountId: "default",
+  err: new Error("Unable to resolve plugin runtime module root-alias.cjs"),
+  recordFallbackEvent: makeRecorder([]),
+  sendErrorMessage: async (text) => { callbackFrameworkTexts.push(text); },
+  log,
+});
+assert.equal(callbackFramework.kind, "framework-runtime-module");
+assert.equal(callbackFrameworkTexts[0]?.includes("openclaw gateway restart"), true);
+
+const callbackContextRecords: CustomDispatchFallbackRecordParams[] = [];
+const callbackContextTexts: string[] = [];
+const callbackContext = await handleCustomDispatchCallbackFailure({
+  accountId: "default",
+  err: "prompt too long",
+  recordFallbackEvent: makeRecorder(callbackContextRecords),
+  sendErrorMessage: async (text) => { callbackContextTexts.push(text); },
+  log,
+});
+assert.equal(callbackContext.kind, "context-too-long");
+assert.equal(callbackContextRecords[0]?.kind, "context-too-long");
+assert.equal(callbackContextTexts[0]?.includes("/compact"), true);
+
+const callbackAuth = await handleCustomDispatchCallbackFailure({
+  accountId: "default",
+  err: "401 invalid api key",
+  recordFallbackEvent: makeRecorder([]),
+  sendErrorMessage: async () => {
+    throw new Error("auth log should not send notice");
+  },
+  log,
+});
+assert.equal(callbackAuth.kind, "logged");
+assert.equal(callbackAuth.kind === "logged" && callbackAuth.category, "auth");
+
+const processingFrameworkTexts: string[] = [];
+const processingFramework = await handleCustomMessageProcessingFailure({
+  accountId: "default",
+  err: "root-alias.cjs missing",
+  recordFallbackEvent: makeRecorder([]),
+  sendErrorMessage: async (text) => { processingFrameworkTexts.push(text); },
+  log,
+});
+assert.equal(processingFramework.kind, "framework-runtime-module");
+assert.equal(processingFramework.noticeSent, true);
+assert.equal(processingFrameworkTexts[0]?.includes("AI 服务暂时不可用"), true);
+
+const processingContextRecords: CustomDispatchFallbackRecordParams[] = [];
+const processingContext = await handleCustomMessageProcessingFailure({
+  accountId: "default",
+  err: "too many tokens in prompt",
+  recordFallbackEvent: makeRecorder(processingContextRecords),
+  sendErrorMessage: async () => {
+    throw new Error("send failed");
+  },
+  log,
+});
+assert.equal(processingContext.kind, "context-too-long");
+assert.equal(processingContext.noticeSent, false);
+assert.equal(processingContextRecords[0]?.kind, "context-too-long");
+
+const processingIgnored = await handleCustomMessageProcessingFailure({
+  accountId: "default",
+  err: "ordinary failure",
+  recordFallbackEvent: makeRecorder([]),
+  sendErrorMessage: async () => {
+    throw new Error("ignored processing failure should not send");
+  },
+});
+assert.equal(processingIgnored.kind, "ignored");
 
 console.log("custom dispatch failure gateway adapter tests passed");

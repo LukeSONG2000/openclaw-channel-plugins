@@ -382,6 +382,7 @@ Current implementation status:
 
 - Classifies `Promise.race([dispatch, timeout])` failures as response-timeout, context-too-long, or other using the shared fallback policy.
 - Records the matching structured fallback event and sends the visible recovery notice for response-timeout/context-too-long only when no block response or tool fallback has already handled the user.
+- Handles dispatcher `onError` and outer message-processing failures for framework runtime module errors, context-too-long fallback records, auth-error logs, and ordinary process-error logs.
 - Marks dispatch timeout and response state through an injected state interface, keeping `CustomFallbackDispatchState` as the source of truth while removing notice orchestration from `gateway.ts`.
 - Leaves timer clearing and actual text delivery callbacks in `gateway.ts`, so OpenClaw/QQ sends stay at the boundary.
 

@@ -920,3 +920,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now clears the timeout handle locally, then delegates fallback event recording, recovery notice sending, and response/timeout state marking to the adapter.
 - The adapter skips duplicate notices when a block response or tool fallback already handled the user, preserving queue recovery without double-sending fallback text.
 - Added `tests/custom-dispatch-failure-gateway-adapter.test.ts` for timeout notices, context-too-long notices, block/tool-fallback skips, send failures, and other ignored errors.
+
+收敛 dispatch callback/processing 错误处理：
+
+- Extended `src/custom/dispatch-failure-gateway-adapter.ts` to also handle dispatcher `onError` and outer message-processing failures.
+- `gateway.ts` now delegates framework runtime module notices, context-too-long fallback records, AI auth/process error logs, and best-effort outer failure notices to the adapter.
+- The framework/runtime-module recovery text is centralized, avoiding duplicated `root-alias.cjs` handling in both callback and outer catch paths.
+- Expanded `tests/custom-dispatch-failure-gateway-adapter.test.ts` for callback framework errors, callback context-too-long, auth-only logs, outer framework notices, outer context notice failures, and ignored ordinary processing errors.

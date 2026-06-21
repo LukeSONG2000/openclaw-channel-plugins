@@ -102,11 +102,13 @@ import {
   CUSTOM_RESPONSE_TIMEOUT_MS,
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
-  classifyCustomDispatchFailure,
-  formatCustomContextTooLongNotice,
   isCustomModelSkipOutput,
 } from "./custom/fallbacks.js";
-import { handleCustomDispatchRaceFailure } from "./custom/dispatch-failure-gateway-adapter.js";
+import {
+  handleCustomDispatchCallbackFailure,
+  handleCustomDispatchRaceFailure,
+  handleCustomMessageProcessingFailure,
+} from "./custom/dispatch-failure-gateway-adapter.js";
 import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import { CustomFallbackDispatchState } from "./custom/fallback-dispatch-state.js";
 import {
@@ -2118,31 +2120,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                   }
                 }
                 
-                const errMsg = String(err);
-                const dispatchFailureKind = classifyCustomDispatchFailure(err);
-
-                // 兼容 openclaw 3.23+ 的 plugin-sdk/root-alias.cjs 模块解析失败
-                if (errMsg.includes("Unable to resolve plugin runtime module") || errMsg.includes("root-alias.cjs")) {
-                  log?.error(`[qqbot:${account.accountId}] ⚠️ openclaw 框架 runtime 模块解析失败，可能是 openclaw 版本与 plugin-sdk 不兼容。请尝试: npm install -g openclaw@latest && openclaw gateway restart`);
-                  await sendErrorMessage("⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。");
-                  return;
-                }
-
-                if (dispatchFailureKind === "context-too-long") {
-                  recordFallbackEvent({
-                    kind: "context-too-long",
-                    reason: errMsg,
-                  });
-                  log?.error(`[qqbot:${account.accountId}] AI context too long: ${errMsg}`);
-                  await sendErrorMessage(formatCustomContextTooLongNotice());
-                  return;
-                }
-
-                if (errMsg.includes("401") || errMsg.includes("key") || errMsg.includes("auth")) {
-                  log?.error(`[qqbot:${account.accountId}] AI auth error: ${errMsg}`);
-                } else {
-                  log?.error(`[qqbot:${account.accountId}] AI process error: ${errMsg}`);
-                }
+                await handleCustomDispatchCallbackFailure({
+                  accountId: account.accountId,
+                  err,
+                  recordFallbackEvent,
+                  sendErrorMessage,
+                  log,
+                });
               },
             },
 
@@ -2260,23 +2244,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             }
           }
         } catch (err) {
-          const errStr = String(err);
-          const dispatchFailureKind = classifyCustomDispatchFailure(err);
-          log?.error(`[qqbot:${account.accountId}] Message processing failed: ${err}`);
-          // 兼容 openclaw 3.23+ runtime 模块解析失败：给用户发可操作的提示
-          if (errStr.includes("Unable to resolve plugin runtime module") || errStr.includes("root-alias.cjs")) {
-            try {
-              await sendErrorMessage("⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。");
-            } catch { /* best-effort */ }
-          } else if (dispatchFailureKind === "context-too-long") {
-            recordFallbackEvent({
-              kind: "context-too-long",
-              reason: errStr,
-            });
-            try {
-              await sendErrorMessage(formatCustomContextTooLongNotice());
-            } catch { /* best-effort */ }
-          }
+          await handleCustomMessageProcessingFailure({
+            accountId: account.accountId,
+            err,
+            recordFallbackEvent,
+            sendErrorMessage,
+            log,
+          });
         } finally {
           // 无论成功/失败/超时，都停止输入状态续期
           typing.keepAlive?.stop();

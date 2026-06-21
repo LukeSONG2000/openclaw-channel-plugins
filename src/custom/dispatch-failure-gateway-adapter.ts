@@ -7,6 +7,8 @@ import {
 import type { CustomDispatchFallbackRecorder } from "./fallback-record-gateway-adapter.js";
 import type { CustomToolFallbackLogger } from "./tool-fallback-gateway-adapter.js";
 
+const FRAMEWORK_RUNTIME_MODULE_NOTICE = "⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。";
+
 export interface CustomDispatchFailureState {
   readonly hasResponse: boolean;
   readonly hasBlockResponse: boolean;
@@ -46,6 +48,35 @@ export type HandleCustomDispatchRaceFailureResult =
   | {
       kind: "ignored";
       failureKind: "other";
+    };
+
+export type HandleCustomDispatchCallbackFailureResult =
+  | {
+      kind: "framework-runtime-module";
+    }
+  | {
+      kind: "context-too-long";
+    }
+  | {
+      kind: "logged";
+      failureKind: CustomDispatchFailureKind;
+      category: "auth" | "process";
+    };
+
+export type HandleCustomMessageProcessingFailureResult =
+  | {
+      kind: "framework-runtime-module";
+      noticeSent: boolean;
+      error?: unknown;
+    }
+  | {
+      kind: "context-too-long";
+      noticeSent: boolean;
+      error?: unknown;
+    }
+  | {
+      kind: "ignored";
+      failureKind: CustomDispatchFailureKind;
     };
 
 export async function handleCustomDispatchRaceFailure(
@@ -95,6 +126,77 @@ export async function handleCustomDispatchRaceFailure(
   return { kind: "ignored", failureKind: "other" };
 }
 
+export async function handleCustomDispatchCallbackFailure(params: {
+  accountId: string;
+  err: unknown;
+  recordFallbackEvent: CustomDispatchFallbackRecorder;
+  sendErrorMessage: CustomDispatchFailureSendErrorMessage;
+  log?: CustomToolFallbackLogger;
+}): Promise<HandleCustomDispatchCallbackFailureResult> {
+  const errMsg = String(params.err);
+  const failureKind = classifyCustomDispatchFailure(params.err);
+
+  if (isFrameworkRuntimeModuleError(errMsg)) {
+    params.log?.error?.(`[qqbot:${params.accountId}] ⚠️ openclaw 框架 runtime 模块解析失败，可能是 openclaw 版本与 plugin-sdk 不兼容。请尝试: npm install -g openclaw@latest && openclaw gateway restart`);
+    await params.sendErrorMessage(FRAMEWORK_RUNTIME_MODULE_NOTICE);
+    return { kind: "framework-runtime-module" };
+  }
+
+  if (failureKind === "context-too-long") {
+    params.recordFallbackEvent({
+      kind: "context-too-long",
+      reason: errMsg,
+    });
+    params.log?.error?.(`[qqbot:${params.accountId}] AI context too long: ${errMsg}`);
+    await params.sendErrorMessage(formatCustomContextTooLongNotice());
+    return { kind: "context-too-long" };
+  }
+
+  if (errMsg.includes("401") || errMsg.includes("key") || errMsg.includes("auth")) {
+    params.log?.error?.(`[qqbot:${params.accountId}] AI auth error: ${errMsg}`);
+    return { kind: "logged", failureKind, category: "auth" };
+  }
+
+  params.log?.error?.(`[qqbot:${params.accountId}] AI process error: ${errMsg}`);
+  return { kind: "logged", failureKind, category: "process" };
+}
+
+export async function handleCustomMessageProcessingFailure(params: {
+  accountId: string;
+  err: unknown;
+  recordFallbackEvent: CustomDispatchFallbackRecorder;
+  sendErrorMessage: CustomDispatchFailureSendErrorMessage;
+  log?: CustomToolFallbackLogger;
+}): Promise<HandleCustomMessageProcessingFailureResult> {
+  const errStr = String(params.err);
+  const failureKind = classifyCustomDispatchFailure(params.err);
+  params.log?.error?.(`[qqbot:${params.accountId}] Message processing failed: ${params.err}`);
+
+  if (isFrameworkRuntimeModuleError(errStr)) {
+    try {
+      await params.sendErrorMessage(FRAMEWORK_RUNTIME_MODULE_NOTICE);
+      return { kind: "framework-runtime-module", noticeSent: true };
+    } catch (error) {
+      return { kind: "framework-runtime-module", noticeSent: false, error };
+    }
+  }
+
+  if (failureKind === "context-too-long") {
+    params.recordFallbackEvent({
+      kind: "context-too-long",
+      reason: errStr,
+    });
+    try {
+      await params.sendErrorMessage(formatCustomContextTooLongNotice());
+      return { kind: "context-too-long", noticeSent: true };
+    } catch (error) {
+      return { kind: "context-too-long", noticeSent: false, error };
+    }
+  }
+
+  return { kind: "ignored", failureKind };
+}
+
 async function sendRecoverableDispatchNotice(params: {
   accountId: string;
   err: unknown;
@@ -132,4 +234,8 @@ async function sendRecoverableDispatchNotice(params: {
       error: sendErr,
     };
   }
+}
+
+function isFrameworkRuntimeModuleError(errText: string): boolean {
+  return errText.includes("Unable to resolve plugin runtime module") || errText.includes("root-alias.cjs");
 }
