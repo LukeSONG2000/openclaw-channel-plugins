@@ -619,3 +619,20 @@ Added configured scene binding inspection:
 - 该能力仍走 `/bot-scene set` 的 `config.write` 鉴权和 gateway 持久化路径，不绕过现有管理员/临时授权机制。
 - `/bot-scene status` 和 `/bot-scene bindings` 会显示当前 agent override，方便审计 codex-only/chat/system-admin/dev-lab 等场景实际会路由到哪个 agent。
 - 扩展 `tests/custom-scene-gateway-adapter.test.ts`，覆盖 agent 参数解析、写入、状态展示和清除。
+
+新增第一版轻量小游戏卡片：
+
+- Added `src/custom/game.ts` as a pure local game runtime, starting with a guess-number game over 1-4.
+- Added `src/custom/game-store.ts` for atomic JSON persistence under `~/.openclaw/qqbot/data/custom-games/games-<accountId>.json`.
+- Added `src/custom/game-gateway-adapter.ts` to parse `/bot-game` commands and handle `custom-game:<gameId>:guess:<1-4>` button callbacks.
+- Gateway state composition now restores and persists game state alongside auth/proactive/task/poll/unread state.
+- `/bot-game guess` replies with C2C/group inline keyboard buttons when available; list/status/close remain text-compatible fallbacks.
+- Game callbacks use the same account/peer visibility rule as polls: original peer can interact, the creator can interact across peers, and ordinary cross-peer replays are denied without leaking the answer.
+- Slash-command capability metadata gates `/bot-game` list/status through `system.status` and guess/close through `game.interact`.
+- Added tests for game runtime, game store, game gateway adapter, slash/interaction aggregate adapters, message-flow state restore/persist, and slash capability mapping.
+
+同步复核初始化配置目标：
+
+- 当前分支已有 `src/onboarding.ts` / `scripts/apply-custom-runtime-init.mjs` 初始化路径，首次配置必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`。
+- `qqbotPlugin.setup.validateInput` 缺管理员或管理群会返回初始化错误；交互式 onboarding 会提示补齐两者。
+- 写入管理群时仍自动为该群创建默认 `system-admin` scene 绑定，保留已有显式 scene override。

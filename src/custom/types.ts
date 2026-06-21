@@ -272,3 +272,28 @@ export interface CustomPoll {
 export interface CustomPollRuntimeState {
   polls: Record<string, CustomPoll>;
 }
+
+export interface CustomGuessGameGuess {
+  actor: CustomActor;
+  value: number;
+  correct: boolean;
+  guessedAt: number;
+}
+
+export interface CustomGuessGame {
+  id: string;
+  accountId: string;
+  peer: CustomPeer;
+  creator: CustomActor;
+  secret: number;
+  guesses: Record<string, CustomGuessGameGuess>;
+  status: "open" | "won" | "closed";
+  createdAt: number;
+  updatedAt: number;
+  winner?: CustomActor;
+  closedAt?: number;
+}
+
+export interface CustomGameRuntimeState {
+  guessGames: Record<string, CustomGuessGame>;
+}

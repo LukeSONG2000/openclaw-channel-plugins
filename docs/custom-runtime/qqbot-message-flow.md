@@ -66,12 +66,12 @@ Use this table as the first decision point when adding custom runtime behavior.
 | QQ group | `GROUP_AT_MESSAGE_CREATE`, `GROUP_MESSAGE_CREATE` | `qqbot:group:{group_openid}` | `author.member_openid` | `author.username`, mention usernames when provided | Text, mentions, quote metadata, images/GIF/files/voice observed; raw QQ group/member numbers not exposed | Text/Markdown, inline keyboard, image/voice/video/file, passive and proactive wrappers |
 | Guild channel | `AT_MESSAGE_CREATE` | `qqbot:channel:{channel_id}` | `author.id` | `author.username`, `member.nick` when provided | Basic text/attachments normalized; `MESSAGE_DELETE` / `PUBLIC_MESSAGE_DELETE` are captured as diagnostics only | Text send through `/channels/{channel_id}/messages`; custom cards/media are not the focus of current runtime |
 | Channel DM | `DIRECT_MESSAGE_CREATE` | `qqbot:dm:{guild_id}` or current queue `dm:{author.id}` needs audit | `author.id` | `author.username` when provided | Basic text/attachments normalized; `DIRECT_MESSAGE_DELETE` is captured as diagnostics only | `sendDmMessage` exists, but several current paths treat `dm` like C2C fallback; audit before adding scene behavior |
-| Interaction | `INTERACTION_CREATE` | scene-specific openid fields | `group_member_openid`, `user_openid`, or resolved `user_id` | button metadata only | C2C/group auth and poll callbacks handled | Must ACK with `PUT /interactions/{id}`; follow-up replies use C2C/group send wrappers where available |
+| Interaction | `INTERACTION_CREATE` | scene-specific openid fields | `group_member_openid`, `user_openid`, or resolved `user_id` | button metadata only | C2C/group auth, poll, and game callbacks handled | Must ACK with `PUT /interactions/{id}`; follow-up replies use C2C/group send wrappers where available |
 
 Implementation rules:
 
 - Route and authorize by openid fields only. Raw QQ numbers such as `945739251` and `1137586795` are human aliases, not event identifiers in this connector.
-- Store human labels separately from policy keys. Labels can change or be absent; openids are the durable keys for scenes, auth, proactive budgets, unread state, task sandboxes, and polls.
+- Store human labels separately from policy keys. Labels can change or be absent; openids are the durable keys for scenes, auth, proactive budgets, unread state, task sandboxes, polls, and games.
 - Treat `ref-index.jsonl` as quote/context cache, not as the source of peer mapping. Use `known-users.json`, config, and fresh inbound events for openid mapping.
 - Prefer C2C/group custom features first. They have the best local wrapper coverage for messages, media, inline keyboards, proactive acceptance, and current tests.
 - Treat channel DM behavior as unverified until there is direct server evidence. Channel and channel-DM delete events now have diagnostic logging, but they do not mutate custom runtime history.
@@ -269,7 +269,7 @@ Current send matrix:
 | --- | --- | --- | --- | --- | --- |
 | Plain text | `sendC2CMessage` | `sendGroupMessage` | `sendChannelMessage` | `sendDmMessage` for gateway slash replies | C2C/group include `msg_seq`; passive sends include `msg_id` when available; local reply dispatcher requires the proactive guard hook before unanchored C2C/group text sends |
 | Markdown text | `sendC2CMessage` when `markdownSupport=true` | `sendGroupMessage` when `markdownSupport=true` | not via current wrapper | not via current wrapper | Local C2C/group body uses `msg_type=2` and `markdown.content` |
-| Inline keyboard/cards | `sendC2CMessageWithInlineKeyboard` | `sendGroupMessageWithInlineKeyboard` | not wired for custom runtime | not wired for custom runtime | Auth approvals and polls use this path; text fallback commands remain required |
+| Inline keyboard/cards | `sendC2CMessageWithInlineKeyboard` | `sendGroupMessageWithInlineKeyboard` | not wired for custom runtime | not wired for custom runtime | Auth approvals, polls, and games use this path; text fallback commands remain required |
 | Image | `sendC2CImageMessage` | `sendGroupImageMessage` | skipped or text fallback in current outbound code | not audited | Uses rich media upload, then `msg_type=7` media send |
 | Voice | `sendC2CVoiceMessage` | `sendGroupVoiceMessage` | text fallback in current reply dispatcher | not audited | Conversion/fallback is handled outside `api.ts` |
 | Video | `sendC2CVideoMessage` | `sendGroupVideoMessage` | not the current focus | not audited | Uses media upload |
@@ -281,7 +281,7 @@ Current send matrix:
 Current local gap:
 
 - `DIRECT_MESSAGE_CREATE` is normalized as `type="dm"` and gateway slash-command text replies now resolve to `sendDmMessage` with the event `guild_id`, matching the local `/dms/{guild_id}/messages` wrapper.
-- C2C/group text sends support inline keyboards; channel/DM custom card paths currently fall back to text in custom poll/auth code.
+- C2C/group text sends support inline keyboards; channel/DM custom card paths currently fall back to text in custom poll/game/auth code.
 - Slash-command file/media replies intentionally remain unsupported for channel DM until a proper DM media upload/send path is added; they no longer fall back to C2C targeting.
 
 ## Official Limits That Affect Custom Runtime
@@ -338,6 +338,17 @@ Current custom poll cards:
 - Poll state persists under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
 - Custom auth gates mutations through `game.interact`; list/status use `system.status`.
 
+Current custom game cards:
+
+- `/bot-game guess` creates a lightweight guess-number game in the per-account custom runtime.
+- C2C/group creation replies use inline keyboard buttons for guesses 1-4 when available; channel/DM paths fall back to text.
+- Button data prefix: `custom-game:<gameId>:guess:<1-4>`.
+- Button callbacks are acknowledged before local state mutation, then the bot sends a short guess confirmation.
+- Callback source fields use the same custom peer mapping as polls. Guess mutations only apply from the original account/peer, except that the game creator may interact with their own game across peers.
+- Open game status does not reveal the secret. The answer is shown only after the game is won or closed.
+- Game state persists under `~/.openclaw/qqbot/data/custom-games/games-<accountId>.json`.
+- Custom auth gates game mutations through `game.interact`; list/status use `system.status`.
+
 Current custom task cards:
 
 - `/bot-task create`, `/bot-task status`, `/bot-task add`, and `/bot-task cancel` replies can include inline command keyboards for C2C/group sends.
@@ -352,7 +363,7 @@ Current custom scene cards:
 Potential future uses:
 
 - Richer task status cards with live progress/details once a real OpenClaw subagent executor contract is wired.
-- Additional lightweight games now that callback ACK and state storage have a first poll implementation.
+- Richer lightweight games now that callback ACK, state storage, and the first guess-number game are wired.
 - Admin-only deployment/update confirmation cards.
 
 ## Current Group/DM Logic
@@ -384,7 +395,7 @@ Current custom runtime behavior:
 - `/bot-auth requests [数量]` and `/bot-auth grants [数量]` provide admin-only operational views for pending requests and active temporary grants. Output is intentionally limited to ids, actor/peer identifiers, capabilities, expiry/remaining-use metadata, and approval command hints; it does not include cached message bodies.
 - Long-task status and mutation commands share the same task access boundary: original-peer members may inspect status, owner/admin/task-scoped grants can mutate, and cross-peer ordinary members get a generic not-current-session response without an auth request.
 - Long-task creation resolves sandbox policy from `customRuntime.tasks` plus the current scene's `tasks` override, so dev-lab/admin/chat groups can use different workspace roots and active-task limits while sharing the same per-account runtime.
-- Custom poll commands provide the first lightweight interactive-card feature on top of the same C2C/group inline keyboard send paths.
+- Custom poll and game commands provide lightweight interactive-card features on top of the same C2C/group inline keyboard send paths.
 - Response timeout and context-too-long fallbacks leave `/compact` and `/new` available even when the same peer has an active blocked run.
 - Timeout/no-output/context notices and `/bot-fallback` outputs include QQ command-input shortcuts for `/compact`, `/new`, and `/bot-fallback summary 20` as appropriate, so recovery does not require manually typing slash commands during degraded sessions.
 - `/bot-fallback summary` can be used after a timeout/context incident to confirm whether a recovery command hit the urgent queue-bypass path.
@@ -394,6 +405,6 @@ Current custom runtime behavior:
 ## Open Items
 
 - Validate custom auth inline cards on the actual deployed bot after installing the custom package; local tests only validate payload construction and handler logic.
-- Validate custom poll inline cards on the actual deployed bot after installing the custom package; local tests validate payload construction, command handling, interaction handling, and persistence only.
+- Validate custom poll/game inline cards on the actual deployed bot after installing the custom package; local tests validate payload construction, command handling, interaction handling, and persistence only.
 - Audit normal AI reply, media, proactive, and card behavior for channel DM before enabling scene-specific custom runtime behavior there; gateway slash text now uses `sendDmMessage`.
 - Capture real server samples for C2C/group recall-delete behavior before adding any history mutation or ref-index deletion logic.

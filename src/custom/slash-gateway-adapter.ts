@@ -14,6 +14,7 @@ import {
   toCustomPeerFromQueuedMessage,
 } from "./auth-gateway-adapter.js";
 import { handleCustomFallbackCommand } from "./fallback-gateway-adapter.js";
+import { handleCustomGameCommand } from "./game-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
 import { handleCustomQueueStatusCommand } from "./queue-status-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
@@ -49,6 +50,7 @@ export interface CustomSlashGatewayPersist {
   config?: { sceneKey: string; sceneConfig: CustomSceneConfig };
   tasks?: boolean;
   polls?: boolean;
+  games?: boolean;
 }
 
 export interface CustomSlashGatewayLog {
@@ -362,6 +364,29 @@ export function handleCustomSlashGatewayCommand(params: {
     });
   }
 
+  const customGameCommand = handleCustomGameCommand({
+    cfg: params.cfg,
+    accountId: params.accountId,
+    games: params.runtime.games,
+    message: params.message,
+    rawContent: params.rawContent,
+    now: params.now,
+  });
+  if (customGameCommand.handled) {
+    if (customGameCommand.changed) {
+      persist.games = true;
+    }
+    return handled({
+      reply: customGameCommand.reply
+        ? customGameCommand.keyboard
+          ? { kind: "keyboard", text: customGameCommand.reply, keyboard: customGameCommand.keyboard }
+          : { kind: "text", text: customGameCommand.reply }
+        : undefined,
+      persist,
+      logs,
+    });
+  }
+
   return { handled: false };
 }
 
@@ -388,5 +413,5 @@ function handled(params: {
 }
 
 function hasPersist(persist?: CustomSlashGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.config || persist?.tasks || persist?.polls);
+  return Boolean(persist?.auth || persist?.config || persist?.tasks || persist?.polls || persist?.games);
 }

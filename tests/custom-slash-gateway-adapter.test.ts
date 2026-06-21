@@ -259,6 +259,22 @@ assert.equal(poll.reply?.kind, "keyboard");
 assert.equal(poll.reply?.kind === "keyboard" && poll.reply.keyboard.content?.rows.length, 2);
 assert.equal(Object.keys(pollRuntime.polls.getState().polls)[0], "poll-default-group-GROUP_OPENID-4000-1");
 
+const gameRuntime = createCustomMessageFlowRuntime();
+const game = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: gameRuntime,
+  message: { ...baseMessage, content: "/bot-game guess" },
+  rawContent: "/bot-game guess",
+  now: 4_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(game.handled, true);
+assert.equal(game.persist?.games, true);
+assert.equal(game.reply?.kind, "keyboard");
+assert.equal(game.reply?.kind === "keyboard" && game.reply.keyboard.content?.rows.length, 4);
+assert.equal(Object.keys(gameRuntime.games.getState().guessGames)[0], "guess-default-group-GROUP_OPENID-4500-1");
+
 const sceneRuntime = createCustomMessageFlowRuntime();
 const sceneStatus = handleCustomSlashGatewayCommand({
   cfg,

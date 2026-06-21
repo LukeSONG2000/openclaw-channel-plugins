@@ -129,6 +129,8 @@ async function handleInteractionCreate(params: {
   persistCustomAuthState?: () => void;
   customPolls?: CustomMessageFlowRuntime["polls"];
   persistCustomPollState?: () => void;
+  customGames?: CustomMessageFlowRuntime["games"];
+  persistCustomGameState?: () => void;
   log?: { info: (msg: string) => void; warn?: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void };
 }): Promise<void> {
   const { event, account, cfg, log } = params;
@@ -272,10 +274,10 @@ async function handleInteractionCreate(params: {
     // button_data 格式：approve:<approvalId>:<decision>
     // approvalId 可能是 "exec:uuid" / "plugin:uuid"（带前缀）或纯 "uuid"（无前缀）
     const buttonData = event.data?.resolved?.button_data ?? "";
-    const customInteraction: CustomInteractionGatewayResult = params.customAuth && params.customPolls ? handleCustomInteractionGatewayButton({
+    const customInteraction: CustomInteractionGatewayResult = params.customAuth && params.customPolls && params.customGames ? handleCustomInteractionGatewayButton({
       cfg: cfg as any,
       accountId: account.accountId,
-      runtime: { auth: params.customAuth, polls: params.customPolls },
+      runtime: { auth: params.customAuth, polls: params.customPolls, games: params.customGames },
       buttonData,
       actor: {
         id: event.group_member_openid || event.user_openid || event.data?.resolved?.user_id || "unknown",
@@ -300,6 +302,9 @@ async function handleInteractionCreate(params: {
       }
       if (customInteraction.persist?.polls) {
         params.persistCustomPollState?.();
+      }
+      if (customInteraction.persist?.games) {
+        params.persistCustomGameState?.();
       }
       if (customInteraction.reply) {
         try {
@@ -737,6 +742,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const persistCustomProactiveBudgetState = customState.persistProactiveBudgetState;
   const persistCustomTaskState = customState.persistTaskState;
   const persistCustomPollState = customState.persistPollState;
+  const persistCustomGameState = customState.persistGameState;
   const persistCustomUnreadState = customState.persistUnreadState;
   let customUnreadScheduler: CustomUnreadScheduler | null = null;
   let customTaskExecutor: CustomTaskCommandExecutor | null = null;
@@ -1036,6 +1042,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         }
         if (customSlashCommand.persist?.tasks) persistCustomTaskState();
         if (customSlashCommand.persist?.polls) persistCustomPollState();
+        if (customSlashCommand.persist?.games) persistCustomGameState();
         if (customSlashCommand.reply) {
           try {
             await sendCustomSlashReply(customSlashCommand.reply);
@@ -2898,6 +2905,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             persistCustomAuthState,
             customPolls: customMessageFlow.polls,
             persistCustomPollState,
+            customGames: customMessageFlow.games,
+            persistCustomGameState,
             log,
           }).catch((err) => {
             log?.error(`[qqbot:${account.accountId}] Failed to handle interaction ${ev.id}: ${err}`);

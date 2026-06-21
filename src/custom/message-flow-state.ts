@@ -9,6 +9,11 @@ import {
   type CustomPollStoreOptions,
 } from "./poll-store.js";
 import {
+  loadCustomGameState,
+  saveCustomGameState,
+  type CustomGameStoreOptions,
+} from "./game-store.js";
+import {
   loadCustomProactiveBudgetState,
   saveCustomProactiveBudgetState,
   type CustomProactiveBudgetStoreOptions,
@@ -35,6 +40,7 @@ export interface CustomMessageFlowStateStoreOptions {
   proactiveBudget?: CustomProactiveBudgetStoreOptions;
   tasks?: CustomTaskSandboxStoreOptions;
   polls?: CustomPollStoreOptions;
+  games?: CustomGameStoreOptions;
   unread?: CustomUnreadStoreOptions;
 }
 
@@ -45,6 +51,7 @@ export interface CustomMessageFlowStateController {
   persistProactiveBudgetState: () => void;
   persistTaskState: () => void;
   persistPollState: () => void;
+  persistGameState: () => void;
   persistUnreadState: () => void;
   persistAllState: () => void;
 }
@@ -85,6 +92,12 @@ export function createCustomMessageFlowStateController(params: {
     log?.info(`[qqbot:${accountId}] Restored custom poll state: polls=${Object.keys(restoredPollState.polls).length}`);
   }
 
+  const restoredGameState = loadCustomGameState(accountId, storeOptions?.games);
+  if (restoredGameState) {
+    runtime.games.loadState(restoredGameState);
+    log?.info(`[qqbot:${accountId}] Restored custom game state: guessGames=${Object.keys(restoredGameState.guessGames).length}`);
+  }
+
   const restoredUnreadState = loadCustomUnreadState(accountId, storeOptions?.unread);
   if (restoredUnreadState) {
     runtime.unread.loadState(restoredUnreadState);
@@ -103,6 +116,9 @@ export function createCustomMessageFlowStateController(params: {
   const persistPollState = (): void => {
     saveCustomPollState(accountId, runtime.polls.getState(), storeOptions?.polls);
   };
+  const persistGameState = (): void => {
+    saveCustomGameState(accountId, runtime.games.getState(), storeOptions?.games);
+  };
   const persistUnreadState = (): void => {
     saveCustomUnreadState(accountId, runtime.unread.getState(), storeOptions?.unread);
   };
@@ -114,12 +130,14 @@ export function createCustomMessageFlowStateController(params: {
     persistProactiveBudgetState,
     persistTaskState,
     persistPollState,
+    persistGameState,
     persistUnreadState,
     persistAllState: () => {
       persistAuthState();
       persistProactiveBudgetState();
       persistTaskState();
       persistPollState();
+      persistGameState();
       persistUnreadState();
     },
   };

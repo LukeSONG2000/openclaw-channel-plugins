@@ -45,7 +45,7 @@ Owns the pure in-memory custom module composition.
 Responsibilities:
 
 - create per-account runtime state
-- expose shared scene/auth/unread/proactive/task/poll runtimes
+- expose shared scene/auth/unread/proactive/task/poll/game runtimes
 - provide inspection helpers for unread and proactive config
 - re-export stable custom runtime types used by gateway adapters
 
@@ -56,7 +56,7 @@ Owns the per-account custom runtime lifecycle and persistence boundary.
 Current implementation status:
 
 - Creates a `CustomMessageFlowRuntime` for one QQBot account.
-- Restores auth, proactive budget, task sandbox, poll, and unread state from their stores.
+- Restores auth, proactive budget, task sandbox, poll, game, and unread state from their stores.
 - Exposes small persist callbacks for each state area plus `persistAllState()`.
 - Returns restored auth intents so the gateway can keep the existing authorization logging behavior.
 - Keeps store module imports out of `gateway.ts`, reducing gateway coupling to custom state internals.
@@ -336,6 +336,7 @@ Initial slash command capability mapping:
 - `/bot-group-allways`: `config.read`; `on`/`off` require `config.write`
 - `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
 - `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
+- `/bot-game`: `system.status`; `guess`/`number`/`start`/`new`/`close`/`end` require `game.interact`
 - `/bot-scene`: `system.status` for status/list/bindings; `set`/`bind` or direct scene names require `config.write`
 - `/bot-fallback`: `system.status`; `clear`/`reset` require `config.write`
 - `/bot-queue`: `system.status`
@@ -364,7 +365,7 @@ Gateway-side custom slash command orchestration layer.
 Current implementation status:
 
 - Runs before official plugin slash command matching.
-- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, and `/bot-poll` through one adapter entry point.
+- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-fallback`, `/bot-queue`, `/bot-unread`, `/bot-task`, `/bot-poll`, and `/bot-game` through one adapter entry point.
 - Returns typed side-effect descriptions instead of sending QQ messages directly:
   - text reply
   - keyboard reply
@@ -406,6 +407,7 @@ Current implementation status:
 - Handles custom inline keyboard button payloads after QQ interaction ACK.
 - Routes `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` to the per-account auth runtime.
 - Routes `custom-poll:<pollId>:vote:<1-4>` to the per-account poll runtime.
+- Routes `custom-game:<gameId>:guess:<1-4>` to the per-account game runtime.
 - Returns typed reply/persist/log descriptions instead of sending QQ messages directly.
 - Leaves `gateway.ts` responsible for the platform ACK, reply target selection, QQ send APIs, and legacy official approval buttons.
 
@@ -709,8 +711,39 @@ Current implementation status:
 Important boundary:
 
 - This layer is intentionally only a small interactive-card proving ground.
-- It does not yet implement broader games, task cards, scene-switch cards, or deploy/update confirmation cards.
-- Poll button callbacks currently trust the signed/opaque QQ interaction delivery plus stored poll id; the gateway adapter does not yet receive enough source peer fields to enforce the same peer visibility rule inside `handleCustomPollInteraction()`.
+- It does not yet implement richer games or deploy/update confirmation cards.
+- Poll button callbacks receive source peer fields from the gateway and enforce the same account/peer visibility rule as text status/close commands.
+
+### `src/custom/game.ts`
+
+Lightweight interactive game/card runtime.
+
+Current implementation status:
+
+- Exists as a pure game state runtime with no QQ API, OpenClaw SDK, timer, or filesystem dependency.
+- Adds a first `guess-number` game where each game stores a secret number from 1 to 4, per-actor guesses, status, timestamps, and an optional winner.
+- Supports create, list, status, close, and guess operations.
+- Game ids use `guess-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
+- Exports/imports `CustomGameRuntimeState` so the gateway can restore game metadata after restart.
+- Persists state under `~/.openclaw/qqbot/data/custom-games/games-<accountId>.json`.
+- `src/custom/game-gateway-adapter.ts` handles `/bot-game` before the normal AI queue:
+  - `/bot-game guess`
+  - `/bot-game list`
+  - `/bot-game status <gameId>`
+  - `/bot-game close <gameId>`
+- For C2C/group messages, game creation replies with an inline keyboard when available; channel/DM paths fall back to text.
+- Button callbacks use `custom-game:<gameId>:guess:<1-4>`.
+- `gateway.ts` acknowledges interactions first, maps the callback source into a custom peer, then routes `custom-game:` callbacks to the per-account game runtime.
+- `/bot-game status <gameId>` and `/bot-game close <gameId>` only reveal or mutate games in the original account/peer, or games created by the current actor.
+- Button guesses apply the same account/peer visibility check before state mutation. Ordinary users cannot guess from another group/DM by replaying a callback payload; the game creator can still interact with their own game across peers.
+- Slash-command capability metadata gates game mutations through custom auth:
+  - help/list/status use `system.status`
+  - guess/close use `game.interact`
+
+Important boundary:
+
+- This first game proves the card/runtime/storage path; richer game mechanics should remain in `src/custom/game.ts` or adjacent custom modules rather than `gateway.ts`.
+- Open game status intentionally does not reveal the secret; answers are shown only after win/close.
 
 ### `src/custom/fallbacks.ts`
 

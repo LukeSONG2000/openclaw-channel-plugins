@@ -167,6 +167,34 @@ assert.equal(crossPeerVote.persist, undefined);
 assert.equal(crossPeerVote.reply?.includes("不属于当前会话"), true);
 assert.equal(pollRuntime.polls.getPoll(pollId)?.votes.OTHER_MEMBER_OPENID, undefined);
 
+const gameRuntime = createCustomMessageFlowRuntime();
+const game = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: gameRuntime,
+  message: { ...message, content: "/bot-game guess" },
+  rawContent: "/bot-game guess",
+  now: 5_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(game.handled, true);
+const gameId = Object.keys(gameRuntime.games.getState().guessGames)[0]!;
+assert.equal(gameId, "guess-default-group-GROUP_OPENID-5500-1");
+const secret = gameRuntime.games.getGuessGame(gameId)!.secret;
+const gameGuess = handleCustomInteractionGatewayButton({
+  cfg,
+  accountId: "default",
+  runtime: gameRuntime,
+  buttonData: `custom-game:${gameId}:guess:${secret}`,
+  actor: { id: "PLAYER_OPENID", label: "Player" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  now: 5_600,
+});
+assert.equal(gameGuess.handled, true);
+assert.equal(gameGuess.persist?.games, true);
+assert.equal(gameGuess.reply?.includes("猜对了"), true);
+assert.equal(gameRuntime.games.getGuessGame(gameId)?.winner?.id, "PLAYER_OPENID");
+
 assert.deepEqual(resolveCustomInteractionSourcePeer({ groupOpenid: "GROUP_OPENID" }), {
   kind: "group",
   id: "GROUP_OPENID",

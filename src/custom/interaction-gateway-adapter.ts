@@ -3,6 +3,7 @@ import {
   describeCustomAuthorizationIntents,
   handleCustomAuthInteraction,
 } from "./auth-gateway-adapter.js";
+import { handleCustomGameInteraction } from "./game-gateway-adapter.js";
 import { handleCustomPollInteraction } from "./poll-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import type { CustomPeer } from "./types.js";
@@ -15,6 +16,7 @@ export interface CustomInteractionActor {
 export interface CustomInteractionGatewayPersist {
   auth?: boolean;
   polls?: boolean;
+  games?: boolean;
 }
 
 export interface CustomInteractionGatewayLog {
@@ -34,7 +36,7 @@ export type CustomInteractionGatewayResult =
 export function handleCustomInteractionGatewayButton(params: {
   cfg: OpenClawConfig;
   accountId?: string;
-  runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls">;
+  runtime: Pick<CustomMessageFlowRuntime, "auth" | "polls" | "games">;
   buttonData: string;
   actor: CustomInteractionActor;
   sourcePeer?: CustomPeer;
@@ -81,6 +83,22 @@ export function handleCustomInteractionGatewayButton(params: {
     });
   }
 
+  const gameResult = handleCustomGameInteraction({
+    accountId: params.accountId,
+    games: params.runtime.games,
+    buttonData: params.buttonData,
+    actorId: params.actor.id,
+    actorLabel: params.actor.label,
+    sourcePeer: params.sourcePeer,
+    now: params.now,
+  });
+  if (gameResult.handled) {
+    return handled({
+      reply: gameResult.reply,
+      persist: gameResult.changed ? { games: true } : undefined,
+    });
+  }
+
   return { handled: false };
 }
 
@@ -111,5 +129,5 @@ function handled(params: {
 }
 
 function hasPersist(persist?: CustomInteractionGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.polls);
+  return Boolean(persist?.auth || persist?.polls || persist?.games);
 }

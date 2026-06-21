@@ -416,6 +416,28 @@ registerCommand({
 });
 
 /**
+ * /bot-game — custom runtime lightweight game command.
+ *
+ * The gateway handles this command against the live per-account custom runtime
+ * before normal slash command matching. This registry entry only provides help
+ * text and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-game",
+  description: "创建和管理自定义互动小游戏",
+  capability: (request) => slashGameCapability(request.args),
+  usage: [
+    `/bot-game guess`,
+    `/bot-game list`,
+    `/bot-game status <gameId>`,
+    `/bot-game close <gameId>`,
+    ``,
+    `创建、查询、关闭二开运行时维护的轻量互动小游戏卡片。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
+/**
  * /bot-scene — custom runtime scene binding command.
  *
  * The gateway handles this command against the live config object before
@@ -2700,6 +2722,17 @@ function slashPollCapability(args: string): SlashCommandCapability {
     return "system.status";
   }
   if (action === "create" || action === "new" || action === "close" || action === "end") {
+    return "game.interact";
+  }
+  return "game.interact";
+}
+
+function slashGameCapability(args: string): SlashCommandCapability {
+  const action = args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+  if (!action || action === "help" || action === "?" || action === "list" || action === "ls" || action === "status" || action === "show") {
+    return "system.status";
+  }
+  if (action === "guess" || action === "number" || action === "start" || action === "new" || action === "close" || action === "end") {
     return "game.interact";
   }
   return "game.interact";
