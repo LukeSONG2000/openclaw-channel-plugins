@@ -40,23 +40,20 @@ import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-g
 import type { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
-import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
+import { createCustomAdminGroupNotificationServiceGateway } from "./custom/admin-group-notification-service-gateway-adapter.js";
 import { handleCustomInteractionCreateGateway } from "./custom/interaction-create-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.js";
 import { createCustomRuntimeServicesGateway } from "./custom/runtime-services-gateway-adapter.js";
 import { createCustomDispatchFallbackSession } from "./custom/dispatch-fallback-session-gateway-adapter.js";
 import { runCustomDispatchReplyGateway } from "./custom/dispatch-reply-gateway-adapter.js";
-import { resolveCustomFallbackAlertCooldownMs } from "./custom/fallback-alerts.js";
 import {
   recordCustomFallbackEventGateway,
 } from "./custom/fallback-record-gateway-adapter.js";
 import { prepareCustomInboundMessageGateway } from "./custom/inbound-preparation-gateway-adapter.js";
 import { dispatchCustomInboundGatewayEvent } from "./custom/inbound-event-gateway-adapter.js";
 import {
-  buildCustomUpdateAvailableNotification,
   startCustomUpdateCheckLoop,
-  type CustomUpdateCheckResult,
 } from "./custom/update-check.js";
 import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-gateway-adapter.js";
 import { handleCustomSlashPrequeueGateway } from "./custom/slash-prequeue-gateway-adapter.js";
@@ -367,96 +364,27 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     }),
   });
 
-  const sendCustomAuthAdminGroupNotification = async (notification: {
-    groupOpenid: string;
-    text: string;
-    keyboard?: import("./types.js").InlineKeyboard;
-    requestId: string;
-    source: "slash" | "dispatch";
-  }): Promise<void> => {
-    await sendCustomAdminGroupDelivery({
-      groupOpenid: notification.groupOpenid,
-      text: notification.text,
-      keyboard: notification.keyboard,
-      label: "auth admin-group notification",
-      details: `source=${notification.source} request=${notification.requestId}`,
-    });
-  };
-
-  const fallbackAlertCooldowns = new Map<string, number>();
-  const sendCustomAdminGroupDelivery = async (delivery: {
-    groupOpenid: string;
-    text: string;
-    keyboard?: import("./types.js").InlineKeyboard;
-    label: string;
-    details: string;
-    cooldownKey?: string;
-    cooldownMs?: number;
-  }): Promise<void> => {
-    const proactive = buildCustomProactiveGuard();
-    await applyCustomAdminGroupDelivery({
-      accountId: account.accountId,
-      delivery,
-      proactiveGuard: proactive.proactiveGuard,
-      cooldowns: fallbackAlertCooldowns,
-      log,
-      sendText: async (groupOpenid, text) => {
-        const token = await getAccessToken(account.appId, account.clientSecret);
-        await sendGroupMessage(token, groupOpenid, text);
-      },
-      sendKeyboard: async (groupOpenid, text, keyboard) => {
-        const token = await getAccessToken(account.appId, account.clientSecret);
-        await sendGroupMessageWithInlineKeyboard(token, groupOpenid, text, keyboard);
-      },
-    });
-  };
-
-  const sendCustomFallbackAdminGroupAlert = async (alert: {
-    groupOpenid: string;
-    text: string;
-    keyboard?: import("./types.js").InlineKeyboard;
-    cooldownKey: string;
-    eventCount?: number;
-  }): Promise<void> => {
-    const runtime = resolveCustomRuntimeConfig(cfg as any);
-    const cooldownMs = resolveCustomFallbackAlertCooldownMs(runtime);
-    await sendCustomAdminGroupDelivery({
-      groupOpenid: alert.groupOpenid,
-      text: alert.text,
-      keyboard: alert.keyboard,
-      label: "fallback admin-group alert",
-      details: `key=${alert.cooldownKey} count=${alert.eventCount ?? "?"}`,
-      cooldownKey: alert.cooldownKey,
-      cooldownMs,
-    });
-  };
-
-  const sendCustomUpdateAvailableNotification = async (result: CustomUpdateCheckResult): Promise<void> => {
-    const notification = buildCustomUpdateAvailableNotification({
-      accountId: account.accountId,
-      runtime: resolveCustomRuntimeConfig(cfg as any),
-      result,
-    });
-    if (!notification) {
-      log?.debug?.(`[qqbot:${account.accountId}] custom update available notification skipped: missing custom runtime admin group or not notifiable`);
-      return;
-    }
-
-    await sendCustomAdminGroupDelivery({
-      groupOpenid: notification.groupOpenid,
-      text: notification.text,
-      keyboard: notification.keyboard,
-      label: "update available notification",
-      details: `package=${notification.packageName} latest=${notification.latest}`,
-    });
-  };
+  const customAdminGroupNotifications = createCustomAdminGroupNotificationServiceGateway({
+    accountId: account.accountId,
+    getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
+    buildProactiveGuard: () => buildCustomProactiveGuard().proactiveGuard,
+    log,
+    sendText: async (groupOpenid, text) => {
+      const token = await getAccessToken(account.appId, account.clientSecret);
+      await sendGroupMessage(token, groupOpenid, text);
+    },
+    sendKeyboard: async (groupOpenid, text, keyboard) => {
+      const token = await getAccessToken(account.appId, account.clientSecret);
+      await sendGroupMessageWithInlineKeyboard(token, groupOpenid, text, keyboard);
+    },
+  });
 
   // 后台二开版本检查：只检查个人包更新，不自动安装。
   const customUpdateCheck = startCustomUpdateCheckLoop({
     accountId: account.accountId,
     accountConfig: account.config,
     log,
-    onUpdateAvailable: sendCustomUpdateAvailableNotification,
+    onUpdateAvailable: customAdminGroupNotifications.sendUpdateAvailableNotification,
   });
 
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
@@ -486,7 +414,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         persistGameState: persistCustomGameState,
         persistDeployConfirmationState: persistCustomDeployConfirmationState,
         sendAdminGroupNotification: async (notification) => {
-          await sendCustomAuthAdminGroupNotification({ ...notification, source: "slash" });
+          await customAdminGroupNotifications.sendAuthAdminGroupNotification({ ...notification, source: "slash" });
         },
         sendTaskNotificationText: async (delivery) => {
           await sendTextToTarget({
@@ -960,7 +888,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               await sendGroupMessageWithInlineKeyboard(token, target.groupOpenid, text, keyboard, target.messageId);
             }
           }),
-          notifyAdminGroup: sendCustomAuthAdminGroupNotification,
+          notifyAdminGroup: customAdminGroupNotifications.sendAuthAdminGroupNotification,
           log,
         });
         if (dispatchAuth.shouldStop) {
@@ -978,7 +906,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             getRuntime: () => resolveCustomRuntimeConfig(cfg as any),
             getQueueSnapshot: () => msgQueue.getSnapshot(peerId),
             log,
-            sendAlert: (alert) => sendCustomFallbackAdminGroupAlert(alert),
+            sendAlert: (alert) => customAdminGroupNotifications.sendFallbackAdminGroupAlert(alert),
             sendGuardedMediaAuto,
             sendErrorMessage,
           });

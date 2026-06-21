@@ -233,6 +233,23 @@ Current implementation status:
 - Owns shared logging, blocked/skipped/failed result statuses, and fallback-alert cooldown handling so `gateway.ts` only builds delivery descriptions.
 - Does not build auth/fallback/update content itself; those policy modules still own the notification text and keyboard payloads.
 
+### `src/custom/admin-group-notification-service-gateway-adapter.ts`
+
+Gateway-side service wrapper for all `customRuntime.adminGroup` pushes.
+
+Current implementation status:
+
+- Provides a single service object for auth approval copies, repeated-fallback alerts, and custom fork update notifications.
+- Owns the in-process cooldown map shared by management-group deliveries, while `admin-group-delivery-gateway-adapter.ts` still owns the low-level send/guard decision.
+- Builds fallback alert delivery descriptions from `fallback-alerts.ts` config and update prompts from `update-check.ts`.
+- Keeps the proactive guard, QQ token-backed text send, and QQ inline-keyboard send as injected callbacks from `gateway.ts`.
+- Lets `gateway.ts` pass `customAdminGroupNotifications.sendAuthAdminGroupNotification`, `sendFallbackAdminGroupAlert`, and `sendUpdateAvailableNotification` into slash, dispatch, fallback, and update-check flows instead of maintaining separate closures.
+
+Important boundary:
+
+- The service does not import QQ send APIs or token helpers. It centralizes management-group policy glue without moving platform credentials out of the connector.
+- It is the operational-notification boundary for future system pushes, so additional management-group cards should attach here rather than adding more ad-hoc closures to `gateway.ts`.
+
 Example:
 
 ```json
@@ -1587,7 +1604,7 @@ Implemented behavior:
 Boundary:
 
 - The module only decides whether an alert should exist and formats the text.
-- `gateway.ts` loads recent persisted fallback events, applies cooldown, sends the group message, and commits the proactive budget only after successful QQ delivery.
+- `gateway.ts` loads recent persisted fallback events and passes alert delivery intents to `admin-group-notification-service-gateway-adapter`, which applies cooldown and commits the proactive budget only after successful QQ delivery.
 - Alert sends are best-effort and must not block the user-visible fallback reply or queue release path.
 
 ### `src/custom/queue-status-gateway-adapter.ts`

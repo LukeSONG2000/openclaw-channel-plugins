@@ -1131,3 +1131,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects token-backed `acknowledge`/`sendReply` callbacks, config API access, routing, and approval-handler lookup into the adapter, keeping QQ token/API ownership at the connector boundary.
 - The adapter preserves callback-card semantics: config interactions only send the special `claw_cfg` ACK, while normal buttons get a generic ACK before persistence/reply effects or legacy approval resolution.
 - Added `tests/custom-interaction-create-gateway-adapter.test.ts` for config interaction ACK routing, custom callback persistence/reply effects, and legacy approval handler compatibility.
+
+抽出管理群通知服务：
+
+- Added `src/custom/admin-group-notification-service-gateway-adapter.ts` to centralize `customRuntime.adminGroup` notification orchestration for auth approval copies, repeated-fallback alerts, and custom fork update prompts.
+- `gateway.ts` now injects QQ token-backed text/keyboard send callbacks and a proactive guard factory into this service instead of keeping separate auth/fallback/update notification closures.
+- The service owns shared management-group cooldown state and delegates the low-level guarded send to `admin-group-delivery-gateway-adapter.ts`, preserving the boundary that custom modules do not import QQ API token helpers.
+- Added `tests/custom-admin-group-notification-service-gateway-adapter.test.ts` for auth card delivery, fallback alert cooldown suppression, and update-available notification/skipped behavior.
