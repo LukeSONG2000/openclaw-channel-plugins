@@ -250,6 +250,13 @@ export interface CustomAuthInteractionResult {
   intent?: CustomAuthorizationIntent;
 }
 
+export interface CustomAuthAdminGroupNotification {
+  groupOpenid: string;
+  text: string;
+  keyboard?: InlineKeyboard;
+  requestId: string;
+}
+
 type CustomAuthButtonDecision = "allow-once" | "allow-count" | "allow-timed" | "deny";
 
 export interface CustomAuthButtonPayload {
@@ -466,6 +473,23 @@ export function buildCustomAuthApprovalKeyboard(request: CustomAuthorizationAppr
   };
 }
 
+export function buildCustomAuthAdminGroupNotification(params: {
+  request: CustomAuthorizationApprovalRequest;
+  sourcePeer?: CustomPeer;
+  text: string;
+  keyboard?: InlineKeyboard;
+}): CustomAuthAdminGroupNotification | null {
+  const groupOpenid = parseAdminGroupOpenid(params.request.adminGroup);
+  if (!groupOpenid) return null;
+  if (params.sourcePeer?.kind === "group" && params.sourcePeer.id === groupOpenid) return null;
+  return {
+    groupOpenid,
+    text: params.text,
+    keyboard: params.keyboard,
+    requestId: params.request.id,
+  };
+}
+
 export function parseCustomAuthButtonData(buttonData: string): CustomAuthButtonPayload | null {
   const m = buttonData.match(/^custom-auth:([^:]+):(allow-once|allow-count|allow-timed|deny)$/i);
   if (!m) return null;
@@ -473,6 +497,13 @@ export function parseCustomAuthButtonData(buttonData: string): CustomAuthButtonP
     requestId: m[1]!,
     decision: m[2]!.toLowerCase() as CustomAuthButtonDecision,
   };
+}
+
+function parseAdminGroupOpenid(adminGroup?: string): string | null {
+  const value = String(adminGroup ?? "").trim();
+  if (!value.startsWith("qqbot:group:")) return null;
+  const groupOpenid = value.slice("qqbot:group:".length).trim();
+  return groupOpenid || null;
 }
 
 export function handleCustomAuthInteraction(params: {

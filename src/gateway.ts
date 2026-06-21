@@ -58,6 +58,7 @@ import { completeCustomUnreadAfterDispatch } from "./custom/unread-completion.js
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import {
   buildCustomAuthApprovalKeyboard,
+  buildCustomAuthAdminGroupNotification,
   buildCustomAuthApprovalText,
   checkCustomDispatchAuthorization,
   describeCustomAuthorizationIntents,
@@ -722,6 +723,83 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   let customUnreadScheduler: CustomUnreadScheduler | null = null;
   let customTaskExecutor: CustomTaskCommandExecutor | null = null;
 
+  const isCustomRuntimeEnabled = (): boolean =>
+    resolveCustomRuntimeConfig(cfg as any).enabled === true;
+
+  const buildCustomProactiveGuard = () => ({
+    proactiveGuard: ({ targetType, targetId, text }: { targetType: "c2c" | "group"; targetId: string; text: string }) => {
+      if (!isCustomRuntimeEnabled()) return { allowed: true as const };
+      const peer: CustomPeer = { kind: targetType, id: targetId };
+      const proactiveCfg = inspectCustomProactiveConfig({
+        cfg: cfg as any,
+        message: {
+          accountId: account.accountId,
+          peer,
+          actor: { id: account.accountId, label: account.accountId, isBot: true },
+          content: text,
+          messageId: `custom-proactive-${Date.now()}`,
+          timestamp: Date.now(),
+          mentionedBot: false,
+        },
+      });
+      const check = customMessageFlow.proactiveBudget.check({
+        accountId: account.accountId,
+        peer,
+        cfg: proactiveCfg,
+      });
+      if (!check.allowed) {
+        const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
+        return {
+          allowed: false as const,
+          reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
+        };
+      }
+      return {
+        allowed: true as const,
+        commit: () => {
+          const recorded = customMessageFlow.proactiveBudget.record({
+            accountId: account.accountId,
+            peer,
+            cfg: proactiveCfg,
+          });
+          log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
+          persistCustomProactiveBudgetState();
+        },
+      };
+    },
+  });
+
+  const sendCustomAuthAdminGroupNotification = async (notification: {
+    groupOpenid: string;
+    text: string;
+    keyboard?: import("./types.js").InlineKeyboard;
+    requestId: string;
+    source: "slash" | "dispatch";
+  }): Promise<void> => {
+    const proactive = buildCustomProactiveGuard();
+    const proactiveDecision = proactive.proactiveGuard({
+      targetType: "group",
+      targetId: notification.groupOpenid,
+      text: notification.text,
+    });
+    if (!proactiveDecision.allowed) {
+      log?.error(`[qqbot:${account.accountId}] custom auth admin-group notification blocked: source=${notification.source} request=${notification.requestId} reason=${proactiveDecision.reason}`);
+      return;
+    }
+    try {
+      const token = await getAccessToken(account.appId, account.clientSecret);
+      if (notification.keyboard) {
+        await sendGroupMessageWithInlineKeyboard(token, notification.groupOpenid, notification.text, notification.keyboard);
+      } else {
+        await sendGroupMessage(token, notification.groupOpenid, notification.text);
+      }
+      proactiveDecision.commit?.();
+      log?.info(`[qqbot:${account.accountId}] custom auth admin-group notification sent: source=${notification.source} request=${notification.requestId} group=${notification.groupOpenid}`);
+    } catch (sendErr) {
+      log?.error(`[qqbot:${account.accountId}] Failed to send custom auth admin-group notification: source=${notification.source} request=${notification.requestId} group=${notification.groupOpenid} error=${sendErr}`);
+    }
+  };
+
   // 斜杠指令拦截：在入队前匹配插件级指令，命中则直接回复，不入队
   // 紧急命令列表：这些命令会立即执行，不进入斜杠匹配流程
   // /stop     — 停止当前 agent run，清空队列
@@ -819,12 +897,18 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         if (reply.approvalText && reply.keyboard) {
           try {
             await sendSlashKeyboardReply(reply.approvalText, reply.keyboard);
+            if (reply.adminGroupNotification) {
+              await sendCustomAuthAdminGroupNotification({ ...reply.adminGroupNotification, source: "slash" });
+            }
             return;
           } catch (sendErr) {
             log?.error(`[qqbot:${account.accountId}] Failed to send custom auth approval card, falling back to text: ${sendErr}`);
           }
         }
         await sendSlashTextReply(reply.denialText);
+        if (reply.adminGroupNotification) {
+          await sendCustomAuthAdminGroupNotification({ ...reply.adminGroupNotification, source: "slash" });
+        }
       };
 
       const customSlashCommand = handleCustomSlashGatewayCommand({
@@ -1046,52 +1130,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
       // 群历史消息缓存：非@消息写入此 Map，被@时一次性注入上下文后清空
       const groupHistories = new Map<string, HistoryEntry[]>();
-
-      const isCustomRuntimeEnabled = (): boolean =>
-        resolveCustomRuntimeConfig(cfg as any).enabled === true;
-
-      const buildCustomProactiveGuard = () => ({
-        proactiveGuard: ({ targetType, targetId, text }: { targetType: "c2c" | "group"; targetId: string; text: string }) => {
-          if (!isCustomRuntimeEnabled()) return { allowed: true as const };
-          const peer: CustomPeer = { kind: targetType, id: targetId };
-          const proactiveCfg = inspectCustomProactiveConfig({
-            cfg: cfg as any,
-            message: {
-              accountId: account.accountId,
-              peer,
-              actor: { id: account.accountId, label: account.accountId, isBot: true },
-              content: text,
-              messageId: `custom-task-notification-${Date.now()}`,
-              timestamp: Date.now(),
-              mentionedBot: false,
-            },
-          });
-          const check = customMessageFlow.proactiveBudget.check({
-            accountId: account.accountId,
-            peer,
-            cfg: proactiveCfg,
-          });
-          if (!check.allowed) {
-            const retry = check.retryAfterMs ? ` retryAfterMs=${check.retryAfterMs}` : "";
-            return {
-              allowed: false as const,
-              reason: `custom proactive budget blocked: reason=${check.reason} used=${check.used}/${check.monthlyLimit} recent=${check.recentCount}/${check.rateLimitMax}${retry}`,
-            };
-          }
-          return {
-            allowed: true as const,
-            commit: () => {
-              const recorded = customMessageFlow.proactiveBudget.record({
-                accountId: account.accountId,
-                peer,
-                cfg: proactiveCfg,
-              });
-              log?.info(`[qqbot:${account.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
-              persistCustomProactiveBudgetState();
-            },
-          };
-        },
-      });
 
       const applyCustomTaskExecutionEffects = (effects: CustomTaskExecutionEffect[], passiveMessageId?: string): CustomTaskNotificationDelivery[] => {
         const deliveries: CustomTaskNotificationDelivery[] = [];
@@ -1936,6 +1974,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             ? firstCustomAuthApprovalRequest(dispatchAuth.result.intents)
             : null;
           const denialText = formatCustomDispatchAuthorizationDeniedMessage(dispatchAuth);
+          const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+          const approvalKeyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
           if (request && (event.type === "c2c" || event.type === "group")) {
             const token = await getAccessToken(account.appId, account.clientSecret);
             try {
@@ -1943,16 +1983,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                 await sendC2CMessageWithInlineKeyboard(
                   token,
                   event.senderId,
-                  buildCustomAuthApprovalText(request),
-                  buildCustomAuthApprovalKeyboard(request),
+                  approvalText!,
+                  approvalKeyboard!,
                   event.messageId,
                 );
               } else if (event.groupOpenid) {
                 await sendGroupMessageWithInlineKeyboard(
                   token,
                   event.groupOpenid,
-                  buildCustomAuthApprovalText(request),
-                  buildCustomAuthApprovalKeyboard(request),
+                  approvalText!,
+                  approvalKeyboard!,
                   event.messageId,
                 );
               }
@@ -1962,6 +2002,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             }
           } else {
             await sendErrorMessage(denialText);
+          }
+          if (request && approvalText) {
+            const adminGroupNotification = buildCustomAuthAdminGroupNotification({
+              request,
+              sourcePeer: dispatchAuth.peer,
+              text: approvalText,
+              keyboard: approvalKeyboard,
+            });
+            if (adminGroupNotification) {
+              await sendCustomAuthAdminGroupNotification({ ...adminGroupNotification, source: "dispatch" });
+            }
           }
           typing.keepAlive?.stop();
           return;

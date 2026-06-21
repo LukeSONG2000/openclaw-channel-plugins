@@ -317,7 +317,7 @@ Current custom runtime behavior:
 - Mention replies can trigger unread catch-up after the direct reply.
 - Custom auth gates plugin-level slash commands before config mutation/deploy actions.
 - Custom auth also gates ordinary OpenClaw/model dispatch before tools run: normal chat needs `chat.send`, framework slash-like commands need `codex.run`, and codex-only scenes route ordinary dispatch checks to `codex.run`.
-- Custom auth supports temporary grants through text commands and C2C/group inline cards.
+- Custom auth supports temporary grants through text commands and C2C/group inline cards. Requests created outside `customRuntime.adminGroup` are also copied to that management group when configured, and the copy is treated as a guarded proactive group send.
 - Custom poll commands provide the first lightweight interactive-card feature on top of the same C2C/group inline keyboard send paths.
 
 ## Open Items

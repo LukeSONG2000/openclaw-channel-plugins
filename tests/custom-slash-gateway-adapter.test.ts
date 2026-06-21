@@ -77,7 +77,29 @@ if (denied.reply?.kind !== "auth-approval") throw new Error("expected auth appro
 assert.equal(denied.reply.denialText.includes("需要能力：config.write"), true);
 assert.equal(denied.reply.approvalText?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
 assert.equal(denied.reply.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-2000-1:allow-once");
+assert.equal(denied.reply.adminGroupNotification, null);
 assert.equal(denied.logs?.some((item) => item.message.includes("Slash command denied by custom auth")), true);
+
+const dmDeniedRuntime = createCustomMessageFlowRuntime();
+const dmDenied = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: dmDeniedRuntime,
+  message: {
+    ...baseMessage,
+    type: "c2c",
+    groupOpenid: undefined,
+    content: "/bot-streaming on",
+  },
+  rawContent: "/bot-streaming on",
+  now: 2_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(dmDenied.handled, true);
+assert.equal(dmDenied.reply?.kind, "auth-approval");
+if (dmDenied.reply?.kind !== "auth-approval") throw new Error("expected dm auth approval reply");
+assert.equal(dmDenied.reply.adminGroupNotification?.groupOpenid, "GROUP_OPENID");
+assert.equal(dmDenied.reply.adminGroupNotification?.requestId, "authreq-2500-1");
 
 const taskRuntime = createCustomMessageFlowRuntime();
 const task = handleCustomSlashGatewayCommand({
@@ -143,6 +165,7 @@ if (deniedTaskAdd.reply?.kind !== "auth-approval") throw new Error("expected tas
 assert.equal(deniedTaskAdd.reply.denialText.includes("需要能力：codex.longTask"), true);
 assert.equal(deniedTaskAdd.reply.approvalText?.includes(`任务：${ownerTaskId}`), true);
 assert.equal(deniedTaskAdd.reply.approvalText?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
+assert.equal(deniedTaskAdd.reply.adminGroupNotification, null);
 assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.render_data?.label, "允许此任务");
 
 const taskRequestId = Object.keys(taskAuthRuntime.auth.getState().requests)[0]!;

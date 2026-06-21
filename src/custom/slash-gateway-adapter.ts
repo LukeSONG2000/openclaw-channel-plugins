@@ -3,6 +3,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard } from "../types.js";
 import {
   buildCustomAuthApprovalKeyboard,
+  buildCustomAuthAdminGroupNotification,
   buildCustomAuthApprovalText,
   checkCustomSlashAuthorization,
   describeCustomAuthorizationIntents,
@@ -29,7 +30,13 @@ import type { CustomSceneConfig } from "./types.js";
 export type CustomSlashGatewayReply =
   | { kind: "text"; text: string }
   | { kind: "keyboard"; text: string; keyboard: InlineKeyboard }
-  | { kind: "auth-approval"; denialText: string; approvalText?: string; keyboard?: InlineKeyboard };
+  | {
+      kind: "auth-approval";
+      denialText: string;
+      approvalText?: string;
+      keyboard?: InlineKeyboard;
+      adminGroupNotification?: ReturnType<typeof buildCustomAuthAdminGroupNotification>;
+    };
 
 export interface CustomSlashGatewayPersist {
   auth?: boolean;
@@ -106,14 +113,26 @@ export function handleCustomSlashGatewayCommand(params: {
     const request = authDecision.result?.intents
       ? firstCustomAuthApprovalRequest(authDecision.result.intents)
       : null;
+    const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+    const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
     return handled({
       reply: {
         kind: "auth-approval",
         denialText: formatCustomAuthorizationDeniedMessage(authDecision),
-        ...(request && (params.message.type === "c2c" || params.message.type === "group")
+        ...(approvalText && keyboard && (params.message.type === "c2c" || params.message.type === "group")
           ? {
-              approvalText: buildCustomAuthApprovalText(request),
-              keyboard: buildCustomAuthApprovalKeyboard(request),
+              approvalText,
+              keyboard,
+            }
+          : {}),
+        ...(request && approvalText
+          ? {
+              adminGroupNotification: buildCustomAuthAdminGroupNotification({
+                request,
+                sourcePeer: authDecision.peer,
+                text: approvalText,
+                keyboard,
+              }),
             }
           : {}),
       },
@@ -179,6 +198,8 @@ export function handleCustomSlashGatewayCommand(params: {
       const request = taskAuthorization.result?.intents
         ? firstCustomAuthApprovalRequest(taskAuthorization.result.intents)
         : null;
+      const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+      const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
       return handled({
         reply: {
           kind: "auth-approval",
@@ -191,10 +212,20 @@ export function handleCustomSlashGatewayCommand(params: {
             result: taskAuthorization.result,
             reason: "denied",
           }),
-          ...(request && (params.message.type === "c2c" || params.message.type === "group")
+          ...(approvalText && keyboard && (params.message.type === "c2c" || params.message.type === "group")
             ? {
-                approvalText: buildCustomAuthApprovalText(request),
-                keyboard: buildCustomAuthApprovalKeyboard(request),
+                approvalText,
+                keyboard,
+              }
+            : {}),
+          ...(request && approvalText
+            ? {
+                adminGroupNotification: buildCustomAuthAdminGroupNotification({
+                  request,
+                  sourcePeer: taskAuthorization.peer,
+                  text: approvalText,
+                  keyboard,
+                }),
               }
             : {}),
         },

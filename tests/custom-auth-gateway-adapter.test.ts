@@ -2,6 +2,7 @@ import assert from "node:assert";
 import { CustomAuthorizationRuntime } from "../src/custom/auth.js";
 import {
   buildCustomAuthApprovalKeyboard,
+  buildCustomAuthAdminGroupNotification,
   buildCustomAuthApprovalText,
   checkCustomDispatchAuthorization,
   checkCustomSlashAuthorization,
@@ -307,6 +308,26 @@ if (!cardRequest) throw new Error("expected custom auth request");
 assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
 const keyboard = buildCustomAuthApprovalKeyboard(cardRequest.id);
 assert.equal(keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:allow-once");
+const adminGroupNotification = buildCustomAuthAdminGroupNotification({
+  request: cardRequest,
+  sourcePeer: { kind: "c2c", id: "MEMBER_OPENID" },
+  text: buildCustomAuthApprovalText(cardRequest),
+  keyboard,
+});
+assert.equal(adminGroupNotification?.groupOpenid, "GROUP_OPENID");
+assert.equal(adminGroupNotification?.requestId, "authreq-10000-1");
+assert.equal(adminGroupNotification?.keyboard, keyboard);
+assert.equal(buildCustomAuthAdminGroupNotification({
+  request: cardRequest,
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  text: buildCustomAuthApprovalText(cardRequest),
+  keyboard,
+}), null);
+assert.equal(buildCustomAuthAdminGroupNotification({
+  request: { ...cardRequest, adminGroup: undefined },
+  sourcePeer: { kind: "c2c", id: "MEMBER_OPENID" },
+  text: "approval",
+}), null);
 assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-count"), {
   requestId: "authreq-10000-1",
   decision: "allow-count",

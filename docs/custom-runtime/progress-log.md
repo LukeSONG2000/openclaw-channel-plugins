@@ -400,6 +400,14 @@ Added custom runtime admin initialization anchors:
 - `/bot-auth status` now reports bound admins, bound management group, and whether initialization is complete or missing `admins`/`adminGroup`.
 - Updated docs and tests for admin-group binding, status output, and approval-request propagation.
 
+Wired approval requests to the management group:
+
+- Added a pure `buildCustomAuthAdminGroupNotification()` helper that creates a management-group approval notification only when the request has `adminGroup` and the source peer is not already that group.
+- `src/custom/slash-gateway-adapter.ts` now returns optional management-group notification intents for denied slash/config commands and denied task mutation commands.
+- `gateway.ts` best-effort sends those management-group approval cards/text and also copies ordinary dispatch authorization requests to the management group.
+- Management-group copies are unanchored group sends, so the gateway applies the custom proactive acceptance/budget guard before calling QQ send APIs and records budget only after a successful send.
+- Expanded auth/slash gateway tests for notification creation, source-group dedupe, and missing-admin-group behavior.
+
 Still intentionally open:
 
 - Final QQBot envelope formatting and group policy/mention gating still live in `gateway.ts`; these are platform responsibilities unless a broader gateway presenter layer is introduced.
