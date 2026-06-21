@@ -317,6 +317,7 @@ Current implementation status:
 - Normalizes proactive receive/reject events (`C2C_MSG_REJECT`, `C2C_MSG_RECEIVE`, `GROUP_MSG_REJECT`, `GROUP_MSG_RECEIVE`) into peer acceptance updates with millisecond timestamps.
 - Normalizes `GROUP_ADD_ROBOT` / `GROUP_DEL_ROBOT` into loggable group robot membership events; add events still record the operator as a known group user.
 - Does not enqueue, persist known users, mutate proactive budget state, or send replies. `gateway.ts` applies the returned effects.
+- Field-level receive coverage and verification status are tracked in `docs/custom-runtime/qqbot-message-flow.md` under `Normalized Event Field Matrix`; that table is the authoritative checklist before custom policy depends on a QQ event field.
 
 ### `src/custom/interaction-event-normalizer.ts`
 
@@ -329,6 +330,7 @@ Current implementation status:
 - Resolves follow-up reply targets for group, C2C, and channel callbacks without sending messages.
 - Parses legacy OpenClaw approval button payloads (`approve:<id>:allow-once|allow-always|deny`) so gateway approval handling no longer owns regex details.
 - Custom auth/poll/game/deploy callback routing now receives normalized actor/source/button fields from `gateway.ts`; config query/update interactions still use the original QQ event for ACK payloads.
+- Interaction field coverage uses the same message-flow matrix so C2C/group cards can be deployed first while channel/DM interaction behavior stays explicitly marked as unverified.
 
 ### `src/custom/message-delete-events.ts`
 

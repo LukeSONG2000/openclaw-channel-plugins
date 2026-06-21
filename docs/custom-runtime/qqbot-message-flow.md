@@ -76,6 +76,27 @@ Implementation rules:
 - Prefer C2C/group custom features first. They have the best local wrapper coverage for messages, media, inline keyboards, proactive acceptance, and current tests.
 - Treat channel DM behavior as unverified until there is direct server evidence. Channel and channel-DM delete events now have diagnostic logging, but they do not mutate custom runtime history.
 
+## Normalized Event Field Matrix
+
+Verification labels:
+
+- 本地归一化已覆盖：local TypeScript normalizer and focused tests cover the field mapping.
+- 服务器持久数据已观察：current `laptop-home` durable data proves this field category exists in the deployed C2C/group traffic.
+- 官方文档存在但本环境未观测：official docs describe the event, but current deployed data does not include a sample.
+- 仍需实测：do not build policy/state mutation that depends on this shape until the deployed bot captures real samples.
+
+| Event | Normalizer / module | Peer key fields | Actor fields | Display / message fields | Runtime effect | Verification status |
+| --- | --- | --- | --- | --- | --- | --- |
+| `C2C_MESSAGE_CREATE` | `src/custom/inbound-event-normalizer.ts` | `author.user_openid` -> `qqbot:c2c:<user_openid>` | `author.user_openid`; `author.union_openid` is not used for routing/auth | `id`, `content`, `timestamp`, `attachments`, `message_scene.ext`, `message_type`, `msg_elements` | Creates `QueuedMessage` `type="c2c"` and a C2C known-user record | 本地归一化已覆盖；服务器持久数据已观察 C2C openids and attachments; C2C nickname remains unreliable |
+| `GROUP_AT_MESSAGE_CREATE`, `GROUP_MESSAGE_CREATE` | `src/custom/inbound-event-normalizer.ts` | `group_openid` -> `qqbot:group:<group_openid>` | `author.member_openid`; optional `author.bot` | `author.username`, `mentions`, `content`, `timestamp`, `attachments`, quote refs in `message_scene.ext` / `msg_elements` | Creates `QueuedMessage` `type="group"`, group known-user record, mention/unread inputs | 本地归一化已覆盖；服务器持久数据已观察 group/member openids and nicknames; raw QQ group/member numbers are absent |
+| `AT_MESSAGE_CREATE` | `src/custom/inbound-event-normalizer.ts` | `channel_id` -> `qqbot:channel:<channel_id>` with `guild_id` retained | `author.id` | `author.username`, optional `member.nick`, `content`, `timestamp`, `attachments` | Creates `QueuedMessage` `type="guild"`; custom scene behavior is not prioritized | 本地归一化已覆盖；官方文档存在但本环境未观测; deployed channel samples still needed |
+| `DIRECT_MESSAGE_CREATE` | `src/custom/inbound-event-normalizer.ts` | `guild_id` retained for `/dms/{guild_id}/messages`; current queue is `type="dm"` | `author.id` | `author.username`, `content`, `timestamp`, `attachments` | Creates `QueuedMessage` `type="dm"`; gateway slash text replies use `sendDmMessage` | 本地归一化已覆盖；官方文档存在但本环境未观测; channel-DM media/card paths still need audit |
+| `INTERACTION_CREATE` | `src/custom/interaction-event-normalizer.ts` | `group_openid`, `user_openid`, `channel_id`, or `guild_id` -> source peer | `group_member_openid`, `user_openid`, or `data.resolved.user_id` | `id`, `type`, `chat_type`, `scene`, `data.type`, `resolved.button_id`, `resolved.button_data`, config fields | Normalizes ACK source and routes auth/poll/game/deploy callbacks; follow-up replies use scene-specific send wrappers | 本地归一化已覆盖；actual C2C/group card clicks still need deployed validation after custom package install |
+| `C2C_MSG_REJECT`, `C2C_MSG_RECEIVE` | `src/custom/inbound-event-normalizer.ts` | `openid` -> `qqbot:c2c:<openid>` | no actor in current local shape | `timestamp` | Updates proactive acceptance state for the C2C peer | 本地归一化已覆盖；官方文档存在但本环境未观测; proactive-limit validation still needed |
+| `GROUP_MSG_REJECT`, `GROUP_MSG_RECEIVE` | `src/custom/inbound-event-normalizer.ts` | `group_openid` -> `qqbot:group:<group_openid>` | `op_member_openid` records who toggled receive state | `timestamp` | Updates proactive acceptance state for the group peer | 本地归一化已覆盖；官方文档存在但本环境未观测; proactive-limit validation still needed |
+| `GROUP_ADD_ROBOT`, `GROUP_DEL_ROBOT` | `src/custom/inbound-event-normalizer.ts` | `group_openid` -> group peer | `op_member_openid` | `timestamp` | Logs robot membership change; add events record the operator as a group known user | 本地归一化已覆盖；本环境未观测; useful for deployment/install diagnostics only |
+| `MESSAGE_DELETE`, `PUBLIC_MESSAGE_DELETE`, `DIRECT_MESSAGE_DELETE` | `src/custom/message-delete-events.ts` | `channel_id` / `guild_id` where present | `author.id` / `op_user_id` / `operator_id` / `user.id` where present | `message.id`, `timestamp`, safe top-level raw keys | Diagnostic log only; no unread/ref-index/history/task/auth mutation | 本地诊断解析已覆盖；官方 channel-side docs exist; C2C/group recall-delete remains 仍需实测 |
+
 ## C2C Fields
 
 Official docs and local type `C2CMessageEvent` expose:

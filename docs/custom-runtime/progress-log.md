@@ -759,3 +759,10 @@ Added configured scene binding inspection:
 - The normalizer also parses legacy `approve:<id>:allow-once|allow-always|deny` payloads so gateway no longer owns button regex details.
 - `gateway.ts` now feeds custom auth/poll/game/deploy callbacks with normalized actor/source/button fields; config query/update ACK logic still owns the framework `claw_cfg` payload.
 - Added `tests/custom-interaction-event-normalizer.test.ts` covering group/C2C/channel/DM fallback source mapping, reply target mapping, and legacy approval payload parsing.
+
+补充 QQ 事件字段矩阵：
+
+- `docs/custom-runtime/qqbot-message-flow.md` 新增 `Normalized Event Field Matrix`，按事件列出归一化模块、peer key、actor 字段、消息/展示字段、runtime effect 和验证状态。
+- 矩阵覆盖 C2C、群聊、频道、频道私信、互动按钮、主动消息接收/拒收、机器人入/退群、频道删除诊断事件。
+- 明确区分“本地归一化已覆盖”“服务器持久数据已观察”“官方文档存在但本环境未观测”“仍需实测”，避免后续策略误依赖尚未在部署环境验证的字段。
+- `runtime-architecture.md` 改为引用该字段矩阵作为 QQ 事件字段依赖的权威检查点；本轮未 SSH、未部署、未触碰服务器。
