@@ -1,6 +1,5 @@
 import WebSocket from "ws";
 import path from "node:path";
-import fs from "node:fs";
 import type { ResolvedQQBotAccount, WSPayload, InteractionEvent, MsgElement, TransportMode } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
 import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
@@ -41,6 +40,10 @@ import {
   resolveCustomGroupImplicitMention,
   shouldHandleCustomTextCommands,
 } from "./custom/group-message-gate-context.js";
+import {
+  resolveCustomGroupActivation,
+  type CustomGroupActivationMode,
+} from "./custom/group-activation.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -172,7 +175,7 @@ async function handleInteractionCreate(params: {
     const groupPolicy = resolveGroupPolicy(latestCfg as any, account.accountId);
     // require_mention 协议：字符串 "mention" | "always"（mention=@机器人时激活，always=总是激活）
     const configRequireMention = groupCfg?.requireMention ?? true;
-    const requireMentionMode: GroupActivationMode = configRequireMention ? "mention" : "always";
+    const requireMentionMode: CustomGroupActivationMode = configRequireMention ? "mention" : "always";
     const pluginVersion = getApiPluginVersion();
     const fwVersionRaw = getFrameworkVersion();
     const clawVer = parseFrameworkDateVersion(fwVersionRaw) ?? fwVersionRaw;
@@ -270,7 +273,7 @@ async function handleInteractionCreate(params: {
     const latestCfg = changed ? (configApi.loadConfig() as Record<string, unknown>) : currentCfg;
     const updatedGroupCfg = groupOpenid ? resolveGroupConfig(latestCfg as any, groupOpenid, account.accountId) : null;
     const updatedRequireMention = updatedGroupCfg?.requireMention ?? true;
-    const updatedRequireMentionMode: GroupActivationMode = updatedRequireMention ? "mention" : "always";
+    const updatedRequireMentionMode: CustomGroupActivationMode = updatedRequireMention ? "mention" : "always";
     const pluginVersion = getApiPluginVersion();
     const fwVersionRaw = getFrameworkVersion();
     const clawVer = parseFrameworkDateVersion(fwVersionRaw) ?? fwVersionRaw;
@@ -353,36 +356,6 @@ async function handleInteractionCreate(params: {
   }
 }
 
-// /activation 命令支持：读取 session store 中的 groupActivation 值
-// plugin-sdk 未导出 loadSessionStore，插件侧内联实现（只读）
-
-type GroupActivationMode = "mention" | "always";
-
-/** 解析 session store 文件路径 */
-function resolveSessionStorePath(cfg: Record<string, unknown>, agentId?: string): string {
-  const sessionCfg = (cfg as any)?.session;
-  const store: string | undefined = sessionCfg?.store;
-  const resolvedAgentId = agentId || "default";
-
-  if (store) {
-    let expanded = store;
-    if (expanded.includes("{agentId}")) {
-      expanded = expanded.replaceAll("{agentId}", resolvedAgentId);
-    }
-    if (expanded.startsWith("~")) {
-      const home = process.env.HOME || process.env.USERPROFILE || "";
-      expanded = expanded.replace(/^~/, home);
-    }
-    return path.resolve(expanded);
-  }
-
-  // 默认路径: ~/.openclaw/agents/{agentId}/sessions/sessions.json
-  const stateDir = process.env.OPENCLAW_STATE_DIR?.trim()
-    || process.env.CLAWDBOT_STATE_DIR?.trim()
-    || path.join(process.env.HOME || process.env.USERPROFILE || "", ".openclaw");
-  return path.join(stateDir, "agents", resolvedAgentId, "sessions", "sessions.json");
-}
-
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
 // ============ Command Detection（委托框架运行时 commands-registry） ============
@@ -409,40 +382,6 @@ function hasControlCommand(text: string): boolean {
   }
   // fallback：简单的 "/" + word 检测（宁可误判为 true 也不漏掉命令）
   return /^\/[a-z][a-z0-9_-]*/i.test(text);
-}
-
-/**
- * 解析 groupActivation（session store > 配置 requireMention > 默认值）
- * @returns "mention" | "always"
- */
-function resolveGroupActivation(params: {
-  cfg: Record<string, unknown>;
-  agentId: string;
-  sessionKey: string;
-  configRequireMention: boolean;
-}): GroupActivationMode {
-  const defaultActivation: GroupActivationMode = params.configRequireMention ? "mention" : "always";
-
-  try {
-    const storePath = resolveSessionStorePath(params.cfg, params.agentId);
-    if (!fs.existsSync(storePath)) {
-      return defaultActivation;
-    }
-    const raw = fs.readFileSync(storePath, "utf-8");
-    const store = JSON.parse(raw) as Record<string, { groupActivation?: string }>;
-    const entry = store[params.sessionKey];
-    if (!entry?.groupActivation) {
-      return defaultActivation;
-    }
-    const normalized = entry.groupActivation.trim().toLowerCase();
-    if (normalized === "mention" || normalized === "always") {
-      return normalized;
-    }
-    return defaultActivation;
-  } catch {
-    // session store 读取失败时 fallback 到配置文件
-    return defaultActivation;
-  }
 }
 
 // QQ Bot intents - 按权限级别分组
@@ -1640,7 +1579,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             groupId: event.groupOpenid,
           }) ?? true;
 
-          const activation = resolveGroupActivation({
+          const activation = resolveCustomGroupActivation({
             cfg: cfg as any,
             agentId: route.agentId,
             sessionKey: route.sessionKey,

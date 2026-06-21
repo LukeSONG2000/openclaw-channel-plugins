@@ -342,6 +342,17 @@ Current implementation status:
 - Keeps existing compatibility behavior for guild and channel-DM paths while making those mappings explicit and testable; channel-DM custom scene behavior remains marked unaudited in the message-flow document.
 - `gateway.ts` now asks this helper for routing primitives instead of repeating event-type conditionals around routing, scene lookup, request context, and reply target construction.
 
+### `src/custom/group-activation.ts`
+
+Gateway-adjacent helper for resolving group activation mode from the OpenClaw `/activation` session store.
+
+Current implementation status:
+
+- Resolves the framework session-store path from `cfg.session.store`, `{agentId}`, `~`, `OPENCLAW_STATE_DIR`, `CLAWDBOT_STATE_DIR`, and the default `~/.openclaw/agents/<agentId>/sessions/sessions.json` layout.
+- Reads the current session entry and normalizes `groupActivation` to `mention` or `always`; invalid/missing values fall back to the group config's `requireMention` default.
+- Keeps the filesystem read isolated from `gateway.ts`; tests can inject a file reader and environment so the parsing and fallback behavior are deterministic.
+- `gateway.ts` still owns framework route/session keys and only consumes the resolved activation mode before the group message gate runs.
+
 ### `src/custom/group-message-gate-context.ts`
 
 Pure helper for the group-message gate context that sits between QQ mention parsing and custom unread/autonomous flow.

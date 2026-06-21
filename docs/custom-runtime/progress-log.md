@@ -817,3 +817,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates text-command enablement, implicit quote mention lookup wrapping, mention presence detection, and synthetic unread gate overrides before reading the existing `resolveGroupMessageGate()` result.
 - The helper remains pure around side effects: gateway still owns session activation reads, ref-index cache reads, unread/history persistence, logging, framework command detection, and all QQ/OpenClaw sends.
 - Added `tests/custom-group-message-gate-context.test.ts` for text-command config, mention fallback detection, implicit mention, skip/drop/block/pass gate outcomes, command bypass, and synthetic unread catch-up pass-through.
+
+抽出群激活模式/session-store 边界：
+
+- Added `src/custom/group-activation.ts` to resolve OpenClaw `/activation` session-store paths and normalize per-session `groupActivation` values to `mention` or `always`.
+- `gateway.ts` no longer owns session-store path expansion or JSON parsing; it passes cfg, agent id, and session key into the helper and keeps only the resulting activation mode.
+- The helper preserves current fallback behavior: missing store files, invalid JSON, missing session entries, and invalid activation values fall back to the group config's `requireMention` default.
+- Added `tests/custom-group-activation.test.ts` for default mode selection, store path expansion, env state-dir fallback, valid session overrides, invalid/missing fallback, and injected reader failure handling.
