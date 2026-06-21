@@ -838,3 +838,10 @@ Added configured scene binding inspection:
 - The helper preserves single group sender prefixes, C2C/direct no-prefix behavior, mention tags, quote fragments, dynamic context prefixing, slash-command raw-body bypass, and merged group message context blocks.
 - `gateway.ts` now injects only sub-message formatting and framework envelope callbacks; face/mention/attachment parsing, envelope options, unread-history injection, and final `finalizeInboundContext()` still remain at the gateway boundary.
 - Added `tests/custom-agent-message-body-context.test.ts` for single group, command bypass, C2C quote body, merged group messages, duplicate sender id handling, and missing merged payload fallback.
+
+收窄 agentBody 未读历史注入边界：
+
+- Added `applyCustomUnreadHistoryContextToAgentBody()` in `src/custom/unread-context.ts` so group history injection, direct-message no-op behavior, and selected history source reporting are handled behind the unread context adapter.
+- `gateway.ts` now only resolves the group history limit and provides the framework envelope formatter callback; custom snapshot/mention/legacy history selection and no-op handling stay outside the main dispatch flow.
+- The helper preserves current behavior for non-group/C2C messages by returning the initial agent body unchanged without invoking the envelope formatter.
+- Expanded `tests/custom-unread-context.test.ts` to cover agentBody history injection and direct-message no-op behavior.

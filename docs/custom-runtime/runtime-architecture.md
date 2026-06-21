@@ -386,7 +386,7 @@ Current implementation status:
 - Formats single group messages with sender prefix and `(@你)` tag, while direct/C2C messages keep the existing no-prefix body shape.
 - Formats merged group messages by wrapping preceding messages in the shared merged-message context block and keeping the final message as the current request.
 - Accepts injected sub-message formatting and envelope callbacks, so face/mention/attachment parsing and framework envelope formatting remain at the gateway boundary.
-- `gateway.ts` still owns unread-history injection after this helper returns the initial `agentBody`.
+- The returned initial `agentBody` is then passed through `src/custom/unread-context.ts` for custom/legacy history injection before `finalizeInboundContext()`.
 
 ### `src/custom/inbound-media-context.ts`
 
@@ -673,6 +673,7 @@ Current implementation status:
   - legacy group history map
 - Gives synthetic snapshot history priority over mention-time history, and mention-time history priority over legacy history.
 - Builds the pending-history context body through a gateway-provided envelope formatter callback.
+- Applies the selected history context to the initial `agentBody` for group messages, and returns direct/C2C messages unchanged without invoking the envelope formatter.
 - Records legacy non-mentioned group history when custom unread is disabled for the peer.
 - Clears legacy group history after a handled reply falls back to the old history path.
 - Owns attachment-tag appending for pending history entries so gateway no longer needs to know that detail.

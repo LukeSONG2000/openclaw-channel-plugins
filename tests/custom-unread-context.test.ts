@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import {
+  applyCustomUnreadHistoryContextToAgentBody,
   buildCustomUnreadHistoryContextBody,
   clearLegacyGroupHistoryAfterDispatch,
   recordLegacyGroupHistoryBeforeDispatch,
@@ -90,6 +91,35 @@ assert.equal(built.source, "legacy");
 assert.equal(built.body.includes("[上次回复后的聊天消息 - 作为上下文]"), true);
 assert.equal(built.body.includes("[Member (MEMBER_OPENID)] legacy body MEDIA:https://example.com/a.png"), true);
 assert.equal(built.body.endsWith("current body"), true);
+
+const appliedToAgentBody = applyCustomUnreadHistoryContextToAgentBody({
+  event: {
+    type: "group",
+    groupOpenid: "GROUP_OPENID",
+  },
+  groupHistories: legacyRecordHistories,
+  historyLimit: 10,
+  currentMessage: "agent body",
+  formatEnvelope: (entry) => `[${entry.sender}] ${entry.body}`,
+});
+assert.equal(appliedToAgentBody.applied, true);
+assert.equal(appliedToAgentBody.source, "legacy");
+assert.equal(appliedToAgentBody.body.includes("agent body"), true);
+
+const c2cNoop = applyCustomUnreadHistoryContextToAgentBody({
+  event: {
+    type: "c2c",
+    groupOpenid: undefined,
+  },
+  groupHistories: legacyRecordHistories,
+  historyLimit: 10,
+  currentMessage: "direct body",
+  formatEnvelope: () => {
+    throw new Error("formatEnvelope should not run for direct messages");
+  },
+});
+assert.equal(c2cNoop.applied, false);
+assert.equal(c2cNoop.body, "direct body");
 
 clearLegacyGroupHistoryAfterDispatch({
   groupHistories: legacyRecordHistories,

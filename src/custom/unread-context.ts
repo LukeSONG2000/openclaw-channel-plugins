@@ -31,6 +31,10 @@ export interface CustomUnreadHistoryContextBuildResult {
   source: CustomUnreadHistoryContextSelection["source"];
 }
 
+export interface CustomUnreadAgentBodyHistoryResult extends CustomUnreadHistoryContextBuildResult {
+  applied: boolean;
+}
+
 export interface LegacyGroupHistoryRecordResult {
   pendingCount: number;
   attachmentCount: number;
@@ -86,6 +90,38 @@ export function buildCustomUnreadHistoryContextBody(params: {
         source: entry,
       }),
     }),
+  };
+}
+
+export function applyCustomUnreadHistoryContextToAgentBody(params: {
+  event: Pick<QueuedMessage, "type" | "groupOpenid" | "_customUnreadSnapshot">;
+  groupHistories: Map<string, HistoryEntry[]>;
+  mentionHistory?: HistoryEntry[];
+  historyLimit: number;
+  currentMessage: string;
+  formatEnvelope: (entry: CustomUnreadHistoryEnvelopeEntry) => string;
+  lineBreak?: string;
+}): CustomUnreadAgentBodyHistoryResult {
+  if (params.event.type !== "group" || !params.event.groupOpenid) {
+    return {
+      body: params.currentMessage,
+      source: "legacy",
+      applied: false,
+    };
+  }
+
+  const result = buildCustomUnreadHistoryContextBody({
+    event: params.event,
+    groupHistories: params.groupHistories,
+    mentionHistory: params.mentionHistory,
+    historyLimit: params.historyLimit,
+    currentMessage: params.currentMessage,
+    formatEnvelope: params.formatEnvelope,
+    lineBreak: params.lineBreak,
+  });
+  return {
+    ...result,
+    applied: result.body !== params.currentMessage,
   };
 }
 

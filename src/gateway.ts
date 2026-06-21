@@ -61,7 +61,7 @@ import {
   resolveCustomUnreadForQueuedGroupMessage,
 } from "./custom/unread-ingress.js";
 import {
-  buildCustomUnreadHistoryContextBody,
+  applyCustomUnreadHistoryContextToAgentBody,
   clearLegacyGroupHistoryAfterDispatch,
   recordLegacyGroupHistoryBeforeDispatch,
 } from "./custom/unread-context.js";
@@ -1721,30 +1721,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             }),
         }).agentBody;
 
-        // 被@时：将累积的非@历史消息注入上下文
-        // 消息格式使用 formatInboundEnvelope 与正常消息保持一致
-        if (event.type === "group" && event.groupOpenid) {
-          const historyLimit = resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId);
-          const envelopeOpts = pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
-          const contextBody = buildCustomUnreadHistoryContextBody({
-            event,
-            groupHistories,
-            mentionHistory: customUnreadHistoryForEvent,
-            historyLimit,
-            currentMessage: agentBody,
-            formatEnvelope: (entry) => {
-              return pluginRuntime.channel.reply.formatInboundEnvelope({
-                channel: "qqbot",
-                from: entry.sender,
-                timestamp: entry.timestamp,
-                body: entry.body,
-                chatType: "group",
-                envelope: envelopeOpts,
-              });
-            },
-          });
-          agentBody = contextBody.body;
-        }
+        // 被@时：将累积的非@历史消息注入上下文，格式与正常群消息保持一致。
+        const historyLimitForAgentBody = event.type === "group" && event.groupOpenid
+          ? resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId)
+          : 0;
+        let agentHistoryEnvelopeOpts: ReturnType<typeof pluginRuntime.channel.reply.resolveEnvelopeFormatOptions> | undefined;
+        agentBody = applyCustomUnreadHistoryContextToAgentBody({
+          event,
+          groupHistories,
+          mentionHistory: customUnreadHistoryForEvent,
+          historyLimit: historyLimitForAgentBody,
+          currentMessage: agentBody,
+          formatEnvelope: (entry) => {
+            agentHistoryEnvelopeOpts ??= pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
+            return pluginRuntime.channel.reply.formatInboundEnvelope({
+              channel: "qqbot",
+              from: entry.sender,
+              timestamp: entry.timestamp,
+              body: entry.body,
+              chatType: "group",
+              envelope: agentHistoryEnvelopeOpts,
+            });
+          },
+        }).body;
 
         log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
 
