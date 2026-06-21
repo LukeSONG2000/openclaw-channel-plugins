@@ -255,7 +255,7 @@ git merge upstream/main
 Custom runtime updates:
 
 - The OpenClaw instance checks only `@lukesong/openclaw-qqbot` unless overridden.
-- The gateway logs available custom updates automatically and sends the management group a guarded prompt with `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest` buttons when `customRuntime.adminGroup` is bound.
+- The gateway logs available custom updates automatically and sends the management group a guarded prompt with `/bot-version`, `/bot-deploy preflight`, and `/bot-deploy confirm /bot-upgrade --latest` buttons when `customRuntime.adminGroup` is bound.
 - Admin reviews the detected custom version, creates/confirms a deploy card if needed, then explicitly performs the final install command after backup.
 - Server backs up current plugin before update.
 

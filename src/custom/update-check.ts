@@ -90,6 +90,7 @@ export function buildCustomUpdateAvailableNotification(params: {
     `检查时间：${new Date(checkedAt).toISOString()}`,
     ``,
     `不会自动安装。请先查看更新内容并确认服务器已备份。`,
+    `建议先运行聊天内预检：/bot-deploy preflight`,
     `如需继续，可由管理员在管理群创建确认卡：/bot-deploy confirm /bot-upgrade --latest`,
     `确认后仍需管理员在私聊中手动发送 /bot-upgrade --latest。`,
   ].join("\n");
@@ -301,6 +302,11 @@ function buildCustomUpdateAvailableKeyboard(): InlineKeyboard {
         {
           buttons: [
             makeUpdateCommandButton("version", "查看版本", "/bot-version", true, 1),
+          ],
+        },
+        {
+          buttons: [
+            makeUpdateCommandButton("deploy_preflight", "部署预检", "/bot-deploy preflight", true, 1),
           ],
         },
         {

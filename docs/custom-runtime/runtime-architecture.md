@@ -953,7 +953,7 @@ Implemented behavior:
 - Defaults to a 6 hour interval and clamps overly small intervals to 5 minutes.
 - Logs available personal-package updates once per version.
 - Builds a management-group notification when a new personal-package version is detected and `customRuntime.adminGroup` is bound.
-- The notification includes command buttons for `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest`; it is sent through the same proactive budget/acceptance guard as other management-group pushes.
+- The notification includes command buttons for `/bot-version`, `/bot-deploy preflight`, and `/bot-deploy confirm /bot-upgrade --latest`; it is sent through the same proactive budget/acceptance guard as other management-group pushes.
 - Never installs packages; `/bot-deploy` and `/bot-upgrade` remain explicit admin-controlled paths.
 
 Still separate from runtime:

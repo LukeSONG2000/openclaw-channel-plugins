@@ -710,3 +710,10 @@ Added configured scene binding inspection:
 - The preflight response now includes QQ command buttons: refresh/version always; create-confirm-card only when blockers are zero; auth/scene diagnostics when blockers exist.
 - Server-side deployment still requires `scripts/preflight-custom-runtime-deploy.mjs --require-ready` plus backup because chat preflight cannot see filesystem-level leftovers.
 - Added `tests/custom-deploy-preflight.test.ts` and expanded deploy gateway/capability tests.
+
+把二开版本更新通知串到预检流程：
+
+- The custom update-available management-group card now includes a `/bot-deploy preflight` command button between `/bot-version` and `/bot-deploy confirm /bot-upgrade --latest`.
+- Update notification text explicitly recommends running the in-chat preflight before creating a confirmation card.
+- This still never calls `/bot-upgrade`, installs packages, restarts gateway, or touches the server; it only guides the admin through the safer manual review path.
+- Expanded `tests/custom-update-check.test.ts` for the preflight button and text.

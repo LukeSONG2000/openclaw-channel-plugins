@@ -70,8 +70,10 @@ const notification = buildCustomUpdateAvailableNotification({
 });
 assert.equal(notification?.groupOpenid, "GROUP_OPENID");
 assert.equal(notification?.text.includes("不会自动安装"), true);
+assert.equal(notification?.text.includes("/bot-deploy preflight"), true);
 assert.equal(notification?.text.includes("/bot-deploy confirm /bot-upgrade --latest"), true);
-assert.equal(notification?.keyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-deploy confirm /bot-upgrade --latest");
+assert.equal(notification?.keyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-deploy preflight");
+assert.equal(notification?.keyboard.content?.rows[2]?.buttons[0]?.action?.data, "/bot-deploy confirm /bot-upgrade --latest");
 
 assert.equal(buildCustomUpdateAvailableNotification({
   accountId: "default",
