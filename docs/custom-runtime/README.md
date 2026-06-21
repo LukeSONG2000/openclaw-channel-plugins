@@ -68,6 +68,7 @@ Out of scope for the first custom runtime:
 - `src/custom/fallback-record-context.ts`: pure builder for fallback record peer/actor/session/queue/dispatch snapshots from `QueuedMessage`.
 - `src/custom/fallbacks.ts`: pure timeout, model-skip, tool-only fallback, and dispatch failure policy helpers.
 - `src/custom/gateway-message-routing.ts`: pure gateway message routing context helper for queue peer id, framework route peer, custom scene peer, request target, and reply target.
+- `src/custom/group-message-gate-context.ts`: pure group-message gate context helper for mention detection, implicit quote mention, text-command gating, and synthetic unread catch-up overrides.
 - `src/custom/inbound-media-context.ts`: pure inbound media context builder for image/voice dynamic prompt lines, voice summary counters, and local/remote media split.
 - `src/custom/message-reference-context.ts`: pure quote/ref-index context helper for inbound quote resolution and current-message ref-index record construction.
 - `src/custom/queued-message-context.ts`: pure `QueuedMessage` to custom peer/actor mapper shared by auth, scene, task, poll, game, deploy, and fallback diagnostics adapters.

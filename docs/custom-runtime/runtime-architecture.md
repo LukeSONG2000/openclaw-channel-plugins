@@ -342,6 +342,18 @@ Current implementation status:
 - Keeps existing compatibility behavior for guild and channel-DM paths while making those mappings explicit and testable; channel-DM custom scene behavior remains marked unaudited in the message-flow document.
 - `gateway.ts` now asks this helper for routing primitives instead of repeating event-type conditionals around routing, scene lookup, request context, and reply target construction.
 
+### `src/custom/group-message-gate-context.ts`
+
+Pure helper for the group-message gate context that sits between QQ mention parsing and custom unread/autonomous flow.
+
+Current implementation status:
+
+- Normalizes the text-command body used by framework command detection without importing the framework runtime.
+- Detects any group mention from QQ `mentions` or `<@...>` fallback text, so command bypass cannot accidentally trigger on messages that mention somebody else.
+- Resolves implicit mention from quoted bot messages by accepting a ref-index lookup callback; cache reads stay in `gateway.ts`.
+- Applies the synthetic unread catch-up override in one place: catch-up messages bypass `ignoreOtherMentions` and `requireMention`, and enter the gate as mentioned.
+- Returns the existing `resolveGroupMessageGate()` decision plus the derived context fields; `gateway.ts` still owns logging, unread history writes, and all QQ/OpenClaw side effects.
+
 ### `src/custom/inbound-media-context.ts`
 
 Pure helper for inbound image/voice context derived after attachment processing.

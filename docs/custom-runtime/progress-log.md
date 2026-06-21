@@ -808,3 +808,12 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates quote prompt fragment generation, `ReplyTo*` fields, quote log message text, attachment summary creation, and voice transcript attachment metadata to this helper.
 - The helper remains pure around side effects: it accepts cache/formatter callbacks and returns the ref-index record, while `gateway.ts` still owns `getRefIndex()`, `formatMessageReferenceForAgent()`, and `setRefIndex()`.
 - Added `tests/custom-message-reference-context.test.ts` for cache hit, quote element fallback, missing quote body, non-quote refs, outbound current-message ref records, and InputNotify fallback ref ids.
+
+## 2026-06-22
+
+抽出群消息门控上下文构造：
+
+- Added `src/custom/group-message-gate-context.ts` to own group message gate context derivation for command text normalization, any-mention fallback detection, quoted-bot implicit mention, and synthetic unread catch-up overrides.
+- `gateway.ts` now delegates text-command enablement, implicit quote mention lookup wrapping, mention presence detection, and synthetic unread gate overrides before reading the existing `resolveGroupMessageGate()` result.
+- The helper remains pure around side effects: gateway still owns session activation reads, ref-index cache reads, unread/history persistence, logging, framework command detection, and all QQ/OpenClaw sends.
+- Added `tests/custom-group-message-gate-context.test.ts` for text-command config, mention fallback detection, implicit mention, skip/drop/block/pass gate outcomes, command bypass, and synthetic unread catch-up pass-through.

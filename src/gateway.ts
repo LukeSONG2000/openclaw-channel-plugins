@@ -33,9 +33,14 @@ import { parseAndSendMediaTags, prepareProactiveMediaSend, sendPlainReply, type 
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
-import { resolveGroupMessageGate } from "./message-gating.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/config.js";
 import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
+import {
+  buildCustomGroupMessageGateContext,
+  normalizeGroupMessageContentForCommand,
+  resolveCustomGroupImplicitMention,
+  shouldHandleCustomTextCommands,
+} from "./custom/group-message-gate-context.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -404,50 +409,6 @@ function hasControlCommand(text: string): boolean {
   }
   // fallback：简单的 "/" + word 检测（宁可误判为 true 也不漏掉命令）
   return /^\/[a-z][a-z0-9_-]*/i.test(text);
-}
-
-// ============ Text Command Gating ============
-
-/**
- * 判断文本命令是否启用。
- * 当 cfg.commands.text === false 时禁用；QQ Bot 仅支持文本命令（无 native slash command）。
- */
-function shouldHandleTextCommands(cfg: Record<string, unknown>): boolean {
-  const commands = cfg.commands as { text?: boolean } | undefined;
-  // 仅当显式设置为 false 时禁用（默认启用）
-  return commands?.text !== false;
-}
-
-// ============ hasAnyMention 检测 ============
-
-/**
- * 检测消息中是否包含任何 @mention（不限于 @bot）。
- * 如果消息 @ 了任何人，即使是控制命令也不应该 bypass mention 门控。
- */
-function hasAnyMention(params: {
-  mentions?: Array<{ is_you?: boolean; bot?: boolean; [key: string]: unknown }>;
-  content?: string;
-}): boolean {
-  // QQ 事件中 mentions 数组包含了消息中所有被 @ 的用户（含 bot）
-  if (params.mentions && params.mentions.length > 0) return true;
-  // 兜底：检查文本中是否有 <@xxx> 格式的 mention
-  if (params.content && /<@!?\w+>/.test(params.content)) return true;
-  return false;
-}
-
-// ============ implicitMention 检测 ============
-
-/**
- * 检测引用回复是否构成隐式 mention。
- * 如果用户回复的是 bot 发出的消息，视为隐式 mention。
- */
-function resolveImplicitMention(params: {
-  refMsgIdx?: string;
-  getRefEntry: (idx: string) => { isBot?: boolean } | null;
-}): boolean {
-  if (!params.refMsgIdx) return false;
-  const refEntry = params.getRefEntry(params.refMsgIdx);
-  return refEntry?.isBot === true;
 }
 
 /**
@@ -1669,9 +1630,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             content: event.content,
             mentionPatterns: mentionPatternsForDetect,
           });
-          if (isCustomUnreadSynthetic) {
-            wasMentioned = true;
-          }
 
           // 3. requireMention 门控
           // 优先级：session store 中的 /activation 命令 > 配置文件 requireMention > 默认值
@@ -1691,26 +1649,29 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           const requireMention = activation === "mention";
 
           // 4. 隐式 mention：引用回复 bot 的消息视为隐式 mention
-          const implicitMention = resolveImplicitMention({
+          const implicitMention = resolveCustomGroupImplicitMention({
             refMsgIdx: event.refMsgIdx,
             getRefEntry: getRefIndex,
           });
 
           // 4.5 统一门控：ignoreOtherMentions → shouldBlock → mention 门控
-          // 三层判断收敛到 resolveGroupMessageGate()
-          const contentForCommand = event.content?.trim() ?? "";
-          const allowTextCommands = shouldHandleTextCommands(cfg as Record<string, unknown>);
-          const gate = resolveGroupMessageGate({
-            ignoreOtherMentions: isCustomUnreadSynthetic ? false : resolveIgnoreOtherMentions(cfg as any, event.groupOpenid, account.accountId),
-            hasAnyMention: hasAnyMention({ mentions: event.mentions, content: event.content }),
+          // 三层判断收敛到 buildCustomGroupMessageGateContext()
+          const contentForCommand = normalizeGroupMessageContentForCommand(event.content);
+          const gateContext = buildCustomGroupMessageGateContext({
+            content: event.content,
+            contentForCommand,
+            mentions: event.mentions,
             wasMentioned,
             implicitMention,
-            allowTextCommands,
+            isCustomUnreadSynthetic,
+            ignoreOtherMentions: isCustomUnreadSynthetic ? false : resolveIgnoreOtherMentions(cfg as any, event.groupOpenid, account.accountId),
+            allowTextCommands: shouldHandleCustomTextCommands(cfg as Record<string, unknown>),
             isControlCommand: hasControlCommand(contentForCommand),
             commandAuthorized,
-            requireMention: isCustomUnreadSynthetic ? false : requireMention,
+            requireMention,
             canDetectMention: true,
           });
+          const gate = gateContext.gate;
 
           if (gate.action === "drop_other_mention") {
             // @了其他人但未 @bot：记录历史后丢弃
