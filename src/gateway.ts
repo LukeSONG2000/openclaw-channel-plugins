@@ -44,6 +44,10 @@ import {
   resolveCustomGroupActivation,
   type CustomGroupActivationMode,
 } from "./custom/group-activation.js";
+import {
+  buildCustomGroupPromptContext,
+  mergeCustomSystemPromptParts,
+} from "./custom/group-prompt-context.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -1667,29 +1671,24 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             }
           }
 
-          // 5. 发送者标签
-          senderLabel = event.senderName
-            ? `${event.senderName} (${event.senderId})`
-            : event.senderId;
-
-          // 6. 群名称（从 config 中读取，fallback 为 openid 前 8 位）
-          groupSubject = resolveGroupName(cfg as any, event.groupOpenid, account.accountId);
-
-          // 7. GroupSystemPrompt — 根据消息来源（机器人/人类）和 @状态 注入差异化 PE
-          //    基础提示从 resolveGroupIntroHint 获取（群名称、平台限制等静态信息），
-          //    然后根据运行时状态追加针对性行为指引。
-          const baseHint = qqbotPlugin.groups?.resolveGroupIntroHint?.({
+          const groupPromptContext = buildCustomGroupPromptContext({
             cfg: cfg as any,
             accountId: account.accountId,
-            groupId: event.groupOpenid,
-          }) ?? "";
-
-          let behaviorPrompt = "";
-
-          // 从配置读取群行为 PE
-          behaviorPrompt = resolveGroupPrompt(cfg as any, event.groupOpenid, account.accountId);
-
-          groupSystemPrompt = [baseHint, behaviorPrompt].filter(Boolean).join("\n");
+            event,
+            resolveGroupName: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              resolveGroupName(groupCfg as any, groupOpenid, accountId),
+            resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              qqbotPlugin.groups?.resolveGroupIntroHint?.({
+                cfg: groupCfg as any,
+                accountId,
+                groupId: groupOpenid,
+              }),
+            resolveGroupPrompt: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+              resolveGroupPrompt(groupCfg as any, groupOpenid, accountId),
+          });
+          senderLabel = groupPromptContext.senderLabel;
+          groupSubject = groupPromptContext.groupSubject;
+          groupSystemPrompt = groupPromptContext.groupSystemPrompt;
         }
 
         const mergedCount = (event as QueuedMessage)._mergedCount;
@@ -1796,7 +1795,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 通过框架的 extraSystemPrompt 机制注入 AI system prompt，
         // 不会存入 transcript 的 user turn content。
         const qqbotSystemInstruction = systemPrompts.length > 0 ? systemPrompts.join("\n") : "";
-        const mergedGroupSystemPrompt = [qqbotSystemInstruction, groupSystemPrompt].filter(Boolean).join("\n") || undefined;
+        const mergedGroupSystemPrompt = mergeCustomSystemPromptParts([qqbotSystemInstruction, groupSystemPrompt]);
 
         const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext({
           Body: body,

@@ -365,6 +365,17 @@ Current implementation status:
 - Applies the synthetic unread catch-up override in one place: catch-up messages bypass `ignoreOtherMentions` and `requireMention`, and enter the gate as mentioned.
 - Returns the existing `resolveGroupMessageGate()` decision plus the derived context fields; `gateway.ts` still owns logging, unread history writes, and all QQ/OpenClaw side effects.
 
+### `src/custom/group-prompt-context.ts`
+
+Pure helper for group prompt and metadata assembly after a group message has passed the gate.
+
+Current implementation status:
+
+- Formats the sender label as `name (openid)` when a nickname is available, otherwise uses the sender openid.
+- Resolves group subject, group intro hint, and behavior prompt through injected callbacks, so config/plugin lookups stay at the gateway boundary while string assembly is testable.
+- Joins prompt fragments with empty-value trimming and exposes a shared system-prompt merge helper for static QQBot instructions plus group prompt context.
+- `gateway.ts` still owns the actual config resolvers, plugin `resolveGroupIntroHint()`, message routing, and final `finalizeInboundContext()` call.
+
 ### `src/custom/inbound-media-context.ts`
 
 Pure helper for inbound image/voice context derived after attachment processing.

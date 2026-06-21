@@ -824,3 +824,10 @@ Added configured scene binding inspection:
 - `gateway.ts` no longer owns session-store path expansion or JSON parsing; it passes cfg, agent id, and session key into the helper and keeps only the resulting activation mode.
 - The helper preserves current fallback behavior: missing store files, invalid JSON, missing session entries, and invalid activation values fall back to the group config's `requireMention` default.
 - Added `tests/custom-group-activation.test.ts` for default mode selection, store path expansion, env state-dir fallback, valid session overrides, invalid/missing fallback, and injected reader failure handling.
+
+抽出群提示与元数据上下文：
+
+- Added `src/custom/group-prompt-context.ts` to assemble group sender labels, group subject, intro hint, behavior prompt, and merged system-prompt fragments outside `gateway.ts`.
+- `gateway.ts` now keeps config/plugin resolver callbacks at the boundary but delegates prompt string joining and sender/group metadata formatting to the helper before `finalizeInboundContext()`.
+- The helper has no QQ API, OpenClaw runtime, filesystem, unread, or auth dependencies; it only formats already-resolved group message metadata and injected prompt pieces.
+- Added `tests/custom-group-prompt-context.test.ts` for sender label formatting, prompt trimming/merge behavior, injected resolver wiring, empty prompt fallback, and static+group system prompt merging.

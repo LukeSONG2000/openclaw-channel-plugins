@@ -70,6 +70,7 @@ Out of scope for the first custom runtime:
 - `src/custom/gateway-message-routing.ts`: pure gateway message routing context helper for queue peer id, framework route peer, custom scene peer, request target, and reply target.
 - `src/custom/group-activation.ts`: gateway-adjacent group activation helper for `/activation` session-store path resolution and `mention`/`always` fallback parsing.
 - `src/custom/group-message-gate-context.ts`: pure group-message gate context helper for mention detection, implicit quote mention, text-command gating, and synthetic unread catch-up overrides.
+- `src/custom/group-prompt-context.ts`: pure group prompt context helper for sender label, group subject, group intro/behavior prompt merge, and QQBot system prompt merging.
 - `src/custom/inbound-media-context.ts`: pure inbound media context builder for image/voice dynamic prompt lines, voice summary counters, and local/remote media split.
 - `src/custom/message-reference-context.ts`: pure quote/ref-index context helper for inbound quote resolution and current-message ref-index record construction.
 - `src/custom/queued-message-context.ts`: pure `QueuedMessage` to custom peer/actor mapper shared by auth, scene, task, poll, game, deploy, and fallback diagnostics adapters.
