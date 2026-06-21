@@ -13,6 +13,20 @@ export interface QQBotConfig {
   clientSecretFile?: string;
 }
 
+export interface CustomUpdateCheckConfig {
+  /**
+   * Whether the deployed custom fork should periodically check its own update
+   * source. This never installs updates by itself.
+   * Default: true
+   */
+  enabled?: boolean;
+  /**
+   * Background check interval in milliseconds.
+   * Default: 6 hours. Values below the runtime minimum are clamped.
+   */
+  intervalMs?: number;
+}
+
 /**
  * 解析后的 QQ Bot 账户
  */
@@ -135,6 +149,11 @@ export interface QQBotAccountConfig {
    * 默认 false，避免二开实例被误切回官方包或其他包。
    */
   allowUpgradePkgOverride?: boolean;
+  /**
+   * 二开版本后台检查配置。
+   * 只检查 channels.qqbot.upgradePkg/当前安装包名对应的包，不自动安装。
+   */
+  customUpdateCheck?: CustomUpdateCheckConfig;
   /**
    * 群消息是否默认需要 @机器人才响应（默认 true）
    * 优先级低于 groups.{groupId}.requireMention 和 groups."*".requireMention

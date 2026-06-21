@@ -39,7 +39,11 @@ Recommended config:
     "qqbot": {
       "upgradePkg": "lukesong/openclaw-qqbot",
       "upgradeMode": "doc",
-      "allowUpgradePkgOverride": false
+      "allowUpgradePkgOverride": false,
+      "customUpdateCheck": {
+        "enabled": true,
+        "intervalMs": 21600000
+      }
     }
   }
 }
@@ -49,6 +53,7 @@ Behavior:
 
 - `/bot-version` shows the current plugin version and the npm package used for update checks.
 - `/bot-upgrade` checks `@lukesong/openclaw-qqbot` and returns guidance by default.
+- The gateway starts a background custom update check loop against `@lukesong/openclaw-qqbot`; it only logs availability and never installs by itself.
 - Hot reload is available only if `upgradeMode` is explicitly set to `hot-reload`; even then, install starts only after the admin sends `/bot-upgrade --latest` or `/bot-upgrade --version X`.
 - `--pkg` is rejected unless `allowUpgradePkgOverride=true`; keep it disabled on the production instance so the bot cannot be accidentally switched back to the official `@tencent-connect/openclaw-qqbot` package.
 - Hot reload downloads the upgrade script from the personal `custom-runtime` branch by default. Override `QQBOT_UPGRADE_SCRIPT_URL` only for manual emergency maintenance.
@@ -168,7 +173,7 @@ Keep rollback backups until the custom runtime has survived at least one day of 
 
 Official upstream updates:
 
-1. Fetch upstream locally:
+1. Fetch upstream locally. This only updates local git refs; it does not affect the deployed OpenClaw instance:
 
 ```bash
 git fetch upstream
@@ -187,11 +192,12 @@ git merge upstream/main
 4. Resolve conflicts in favor of keeping `src/custom/*`, personal package identity, and the custom update policy.
 5. Run build/tests.
 6. Publish a new `@lukesong/openclaw-qqbot` version only after validation.
+7. The deployed instance discovers the new personal package version through its background custom update check loop and through `/bot-version`; install still waits for explicit admin confirmation.
 
 Custom runtime updates:
 
 - The OpenClaw instance checks only `@lukesong/openclaw-qqbot` unless overridden.
-- The bot notifies/admin-displays available custom updates through `/bot-version` and `/bot-upgrade`.
+- The gateway logs available custom updates automatically; `/bot-version` and `/bot-upgrade` show the same custom package source on demand.
 - Admin explicitly approves install.
 - Server backs up current plugin before update.
 

@@ -604,13 +604,19 @@ Minimum behavior:
 
 Checks the custom fork/release, not the official plugin, for deployable updates.
 
-Desired behavior:
+Implemented behavior:
 
-- detect official upstream changes separately from custom releases
-- notify admin group/DM
-- show diff summary or release notes
-- require explicit approval before installing
-- backup current server plugin before update
+- Resolves the update source from `channels.qqbot.upgradePkg` or the installed package name.
+- Runs a gateway background loop with `customUpdateCheck.enabled !== false`.
+- Defaults to a 6 hour interval and clamps overly small intervals to 5 minutes.
+- Logs available personal-package updates once per version.
+- Never installs packages; `/bot-upgrade` remains the explicit admin confirmation path.
+
+Still separate from runtime:
+
+- Official upstream change review stays in local git workflow (`git fetch upstream`, inspect diff, then merge/cherry-pick into `custom-runtime` if desired).
+- Admin group/DM notification cards and release-note summaries are still future UX work.
+- Server backup and install remain part of the upgrade script/manual deploy path.
 
 Current update guardrails:
 
@@ -618,6 +624,7 @@ Current update guardrails:
 - Custom builds use `@lukesong/openclaw-qqbot` while keeping OpenClaw plugin id `openclaw-qqbot`.
 - `channels.qqbot.upgradePkg` can override the npm package checked by `/bot-version` and `/bot-upgrade`.
 - `channels.qqbot.upgradeMode` defaults to `doc`, so the instance reports available custom updates without installing them.
+- `channels.qqbot.customUpdateCheck.enabled` defaults to true; it only checks and logs personal package updates.
 - Hot reload remains available only after explicit config opt-in and an admin `/bot-upgrade --latest` or `/bot-upgrade --version X`.
 
 ## Gateway Integration Points

@@ -332,7 +332,7 @@ registerCommand({
     } else if (info.error) {
       lines.push(`⚠️ 版本检查失败`);
     } else if (info.hasUpdate && info.latest) {
-      lines.push(`🆕最新可用版本：v${info.latest}，点击 <qqbot-cmd-input text="/bot-upgrade" show="/bot-upgrade"/> 查看升级指引`);
+      lines.push(`🆕二开包可用版本：v${info.latest}，点击 <qqbot-cmd-input text="/bot-upgrade" show="/bot-upgrade"/> 查看升级指引`);
     } 
     lines.push(`🌟上游官方仓库：[点击前往](https://github.com/tencent-connect/openclaw-qqbot/)`);
     return lines.join("\n");

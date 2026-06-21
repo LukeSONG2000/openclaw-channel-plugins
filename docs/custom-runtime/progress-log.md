@@ -42,6 +42,13 @@ Added custom release/update guardrails:
 - Hot reload now downloads the upgrade script from the personal `custom-runtime` branch by default, with `QQBOT_UPGRADE_SCRIPT_URL` kept as an emergency override.
 - Added `tests/update-checker.test.ts` for package source normalization.
 
+Added custom update check loop for the personal package:
+
+- Added `src/custom/update-check.ts` to resolve `customUpdateCheck` config and periodically check the personal package source.
+- `gateway.ts` starts the loop on startup and stops it on abort; the loop logs available personal-package updates but never installs anything.
+- `/bot-version` now labels available versions as custom package updates to avoid implying official auto-upgrade.
+- Added `tests/custom-update-check.test.ts` for default config, disabled mode, interval clamping, and update-available behavior.
+
 Extracted unread/follow-up message flow into pure runtime:
 
 - Added `src/custom/unread-runtime.ts` with no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.

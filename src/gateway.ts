@@ -20,7 +20,6 @@ import {
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, formatMessageReferenceForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
 import { matchSlashCommand, getFrameworkVersion, parseFrameworkDateVersion, type SlashCommandContext, type SlashCommandFileResult, type SlashCommandDelegateResult } from "./slash-commands.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
-import { triggerUpdateCheck } from "./update-checker.js";
 import { startImageServer, isImageServerRunning, type ImageServerConfig } from "./image-server.js";
 import { resolveTTSConfig } from "./utils/audio-convert.js";
 import { processAttachments, formatVoiceText } from "./inbound-attachments.js";
@@ -68,6 +67,7 @@ import {
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { handleCustomSlashGatewayCommand, type CustomSlashGatewayReply } from "./custom/slash-gateway-adapter.js";
+import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import type { CustomPeer } from "./custom/types.js";
 
 // ============ Interaction 处理 ============
@@ -551,8 +551,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     log?.error(`[qqbot:${account.accountId}] ⚠️ Runtime preflight failed: ${preflightErr}. AI 消息处理可能失败`);
   }
 
-  // 后台版本检查（供 /bot-version、/bot-upgrade 指令被动查询）
-  triggerUpdateCheck(log, account.config);
+  // 后台二开版本检查：只检查个人包更新，不自动安装。
+  const customUpdateCheck = startCustomUpdateCheckLoop({
+    accountId: account.accountId,
+    accountConfig: account.config,
+    log,
+  });
 
   // 初始化 API 配置（markdown 支持）
   // 将框架 log 注入 api 模块，统一日志输出
@@ -896,6 +900,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     flushRefIndex();
     // 保存自定义消息流状态
     customState.persistAllState();
+    // 停止后台二开版本检查
+    customUpdateCheck.stop();
     // 停止审批 handler
     void approvalHandler.stop();
     unregisterApprovalHandler(account.accountId);
