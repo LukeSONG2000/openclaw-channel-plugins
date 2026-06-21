@@ -1,5 +1,5 @@
 import type { ResolvedQQBotAccount, TransportMode } from "./types.js";
-import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, initApiConfig, stopBackgroundTokenRefresh, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, sendC2CMessage, sendChannelMessage, sendGroupMessage, clearTokenCache, stopBackgroundTokenRefresh, acknowledgeInteraction, getApiPluginVersion, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -14,10 +14,8 @@ import {
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, formatMessageReferenceForAgent, flushRefIndex } from "./ref-index-store.js";
 import { getFrameworkVersion } from "./slash-commands.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
-import { startImageServer, isImageServerRunning, type ImageServerConfig } from "./image-server.js";
 import { resolveTTSConfig } from "./utils/audio-convert.js";
 import { processAttachments, formatVoiceText } from "./inbound-attachments.js";
-import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 
 import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { parseFaceTags } from "./utils/text-parsing.js";
@@ -50,6 +48,7 @@ import {
 import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
 import { startQQBotWebhookTransportGateway } from "./custom/webhook-transport-gateway-adapter.js";
 import { registerCustomOutboundRefIndexGateway } from "./custom/outbound-ref-index-gateway-adapter.js";
+import { runQQBotGatewayStartupPreflight } from "./custom/startup-preflight-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -102,12 +101,6 @@ const MAX_RECONNECT_ATTEMPTS = 100;
 const MAX_QUICK_DISCONNECT_COUNT = 3; // 连续快速断开次数阈值
 const QUICK_DISCONNECT_THRESHOLD = 5000; // 5秒内断开视为快速断开
 
-// 图床服务器配置（可通过环境变量覆盖）
-const IMAGE_SERVER_PORT = parseInt(process.env.QQBOT_IMAGE_SERVER_PORT || "18765", 10);
-// 使用绝对路径，确保文件保存和读取使用同一目录
-const IMAGE_SERVER_DIR = process.env.QQBOT_IMAGE_SERVER_DIR || getQQBotDataDir("images");
-
-
 export interface GatewayContext {
   account: ResolvedQQBotAccount;
   abortSignal: AbortSignal;
@@ -119,31 +112,6 @@ export interface GatewayContext {
     error: (msg: string) => void;
     debug?: (msg: string) => void;
   };
-}
-
-/**
- * 启动图床服务器
- */
-async function ensureImageServer(log?: GatewayContext["log"], publicBaseUrl?: string): Promise<string | null> {
-  if (isImageServerRunning()) {
-    return publicBaseUrl || `http://0.0.0.0:${IMAGE_SERVER_PORT}`;
-  }
-
-  try {
-    const config: Partial<ImageServerConfig> = {
-      port: IMAGE_SERVER_PORT,
-      storageDir: IMAGE_SERVER_DIR,
-      // 使用用户配置的公网地址，而不是 0.0.0.0
-      baseUrl: publicBaseUrl || `http://0.0.0.0:${IMAGE_SERVER_PORT}`,
-      ttlSeconds: 3600, // 1 小时过期
-    };
-    await startImageServer(config);
-    log?.info(`[qqbot] Image server started on port ${IMAGE_SERVER_PORT}, baseUrl: ${config.baseUrl}`);
-    return config.baseUrl!;
-  } catch (err) {
-    log?.error(`[qqbot] Failed to start image server: ${err}`);
-    return null;
-  }
 }
 
 // 模块级变量：per-account 首次 READY 跟踪
@@ -177,38 +145,12 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     process.removeListener("uncaughtException", wsUncaughtHandler);
   }, { once: true });
 
-  // 启动环境诊断（首次连接时执行）
-  const diag = await runDiagnostics();
-  if (diag.warnings.length > 0) {
-    for (const w of diag.warnings) {
-      log?.info(`[qqbot:${account.accountId}] ${w}`);
-    }
-  }
-
-  // 预检 openclaw runtime 模块是否可正常解析（兼容性诊断）
-  // openclaw 3.23+ 存在 plugin-sdk/root-alias.cjs 回归 bug，
-  // 内置插件（qwen-portal-auth 等）全部加载失败，导致 AI agent 调用返回
-  // "Unable to resolve plugin runtime module"。提前检测并告警。
-  try {
-    const pluginRuntime = getQQBotRuntime();
-    if (pluginRuntime?.channel?.reply?.dispatchReplyWithBufferedBlockDispatcher) {
-      log?.info(`[qqbot:${account.accountId}] Runtime module preflight: OK`);
-    } else {
-      log?.error(`[qqbot:${account.accountId}] ⚠️ Runtime preflight: dispatchReply API 不可用，AI 消息处理可能失败。请检查 openclaw 版本兼容性`);
-    }
-  } catch (preflightErr) {
-    log?.error(`[qqbot:${account.accountId}] ⚠️ Runtime preflight failed: ${preflightErr}. AI 消息处理可能失败`);
-  }
-
-  // 初始化 API 配置（markdown 支持）
-  // 将框架 log 注入 api 模块，统一日志输出
-  if (log) {
-    setApiLogger(log);
-  }
-  initApiConfig({
-    markdownSupport: account.markdownSupport,
+  await runQQBotGatewayStartupPreflight({
+    account,
+    cfg,
+    getRuntime: getQQBotRuntime,
+    log,
   });
-  log?.info(`[qqbot:${account.accountId}] API config: markdownSupport=${account.markdownSupport === true}`);
 
   // 注册出站消息 refIdx 缓存钩子
   // 所有消息发送函数在拿到 QQ 回包后，如果含 ref_idx 则自动回调此处缓存
@@ -217,29 +159,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     setRefEntry: setRefIndex,
     log,
   });
-
-  // TTS 配置验证
-  const ttsCfg = resolveTTSConfig(cfg as Record<string, unknown>);
-  if (ttsCfg) {
-    const maskedKey = ttsCfg.apiKey.length > 8
-      ? `${ttsCfg.apiKey.slice(0, 4)}****${ttsCfg.apiKey.slice(-4)}`
-      : "****";
-    log?.info(`[qqbot:${account.accountId}] TTS configured: model=${ttsCfg.model}, voice=${ttsCfg.voice}, authStyle=${ttsCfg.authStyle ?? "bearer"}, baseUrl=${ttsCfg.baseUrl}`);
-    log?.info(`[qqbot:${account.accountId}] TTS apiKey: ${maskedKey}${ttsCfg.queryParams ? `, queryParams=${JSON.stringify(ttsCfg.queryParams)}` : ""}${ttsCfg.speed !== undefined ? `, speed=${ttsCfg.speed}` : ""}`);
-  } else {
-    log?.info(`[qqbot:${account.accountId}] TTS not configured (voice messages will be unavailable)`);
-  }
-
-  // 如果配置了公网 URL，启动图床服务器
-  let imageServerBaseUrl: string | null = null;
-  if (account.imageServerBaseUrl) {
-    // 使用用户配置的公网地址作为 baseUrl
-    await ensureImageServer(log, account.imageServerBaseUrl);
-    imageServerBaseUrl = account.imageServerBaseUrl;
-    log?.info(`[qqbot:${account.accountId}] Image server enabled with URL: ${imageServerBaseUrl}`);
-  } else {
-    log?.info(`[qqbot:${account.accountId}] Image server disabled (no imageServerBaseUrl configured)`);
-  }
 
   // ============ Transport 模式标记 ============
   const transportMode: TransportMode = account.config.transport ?? "websocket";

@@ -1216,3 +1216,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now registers the outbound reference cache through this adapter instead of building attachment summaries inline; this keeps quote/reference persistence separate from dispatch and media-send code.
 - The adapter preserves outbound media metadata (`localPath`, filename, URL) and stores TTS voice source text as a `tts` transcript so later quoted voice replies can recover spoken content.
 - Added `tests/custom-outbound-ref-index-gateway-adapter.test.ts` for attachment summary construction, TTS transcript preservation, hook registration, ref-index entry shape, and cache logging.
+
+抽出 startup preflight 网关适配器：
+
+- Added `src/custom/startup-preflight-gateway-adapter.ts` to own startup diagnostics, OpenClaw runtime reply API preflight, QQBot API logger/config initialization, TTS availability logging, and optional image-server startup.
+- `gateway.ts` now calls this adapter before registering outbound ref-index hooks and starting transport, reducing startup-phase inline side effects in the main gateway file.
+- The adapter keeps secrets masked in TTS logs and preserves existing image-server behavior: disabled when no `imageServerBaseUrl`, otherwise start/return the configured public URL.
+- Added `tests/custom-startup-preflight-gateway-adapter.test.ts` for diagnostics logging, runtime OK/failure handling, markdown config setup, TTS masking, image-server enable/disable behavior, and returned startup status.

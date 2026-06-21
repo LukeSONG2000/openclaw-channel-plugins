@@ -96,6 +96,7 @@ Out of scope for the first custom runtime:
 - `src/custom/websocket-payload-policy.ts`: pure WebSocket Hello/Dispatch/Invalid-Session payload policy for identify/resume packets, heartbeat payloads, READY/RESUMED startup semantics, and invalid-session retry effects.
 - `src/custom/websocket-reconnect-policy.ts`: pure WebSocket close/connection-failure policy for token refresh, session reset, quick-disconnect backoff, and rate-limit retry decisions.
 - `src/custom/webhook-transport-gateway-adapter.ts`: gateway-side Webhook transport starter for queue processor startup, background token refresh, event fanout logging, READY greeting, error forwarding, and shutdown cleanup after the Webhook transport returns.
+- `src/custom/startup-preflight-gateway-adapter.ts`: gateway-side startup preflight for environment diagnostics, runtime API availability checks, API logger/config setup, TTS status logging, and optional image-server startup.
 - `src/custom/group-activation.ts`: gateway-adjacent group activation helper for `/activation` session-store path resolution and `mention`/`always` fallback parsing.
 - `src/custom/group-message-gate-context.ts`: pure group-message gate context helper for mention detection, implicit quote mention, text-command gating, and synthetic unread catch-up overrides.
 - `src/custom/group-dispatch-gateway-adapter.ts`: gateway-side group dispatch gate orchestrator for allow-list checks, mention/activation gates, ingress side effects, prompt context, and unread catch-up metadata.

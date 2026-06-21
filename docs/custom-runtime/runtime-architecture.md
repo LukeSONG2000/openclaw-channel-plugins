@@ -534,6 +534,23 @@ Important boundary:
 - The adapter does not normalize QQ events, own message handling, or own approval/runtime state; it only binds Webhook transport lifecycle callbacks to injected gateway side effects.
 - This keeps WebSocket and Webhook startup paths structurally similar while preserving the same `handleMessage` and `dispatchInboundEvent` core pipeline.
 
+### `src/custom/startup-preflight-gateway-adapter.ts`
+
+Gateway-side startup preflight and capability logging.
+
+Current implementation status:
+
+- Runs platform diagnostics and logs warnings with the account prefix before the transport starts.
+- Checks the OpenClaw runtime reply dispatcher API and logs a visible compatibility warning when the framework runtime is missing or degraded.
+- Initializes QQBot API module config and logger, including markdown support.
+- Logs TTS availability with masked API key details so operators can verify voice-send readiness without exposing secrets.
+- Starts the optional image server when `imageServerBaseUrl` is configured and reports the effective public URL.
+
+Important boundary:
+
+- The adapter does not register message handlers, start WebSocket/Webhook transport, or mutate custom runtime state.
+- `gateway.ts` still owns transport lifecycle, while this adapter contains startup diagnostics that should stay stable across future connector-package extraction.
+
 ### `src/custom/queued-message-context.ts`
 
 Shared mapper from gateway `QueuedMessage` values into custom runtime peer/actor identities.
