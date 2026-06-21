@@ -447,9 +447,10 @@ registerCommand({
     `/bot-fallback`,
     `/bot-fallback list [数量]`,
     `/bot-fallback status [数量]`,
+    `/bot-fallback summary [数量]`,
     `/bot-fallback clear --force`,
     ``,
-    `查看或清理最近的超时、上下文过长、工具无输出等二开兜底事件。`,
+    `查看、统计或清理最近的超时、上下文过长、工具无输出等二开兜底事件。`,
   ].join("\n"),
   handler: () => null,
 });

@@ -28,9 +28,21 @@ assert.deepEqual(parseCustomFallbackCommand("/bot-fallback 2"), {
   matched: true,
   command: { kind: "list", limit: 2 },
 });
+assert.deepEqual(parseCustomFallbackCommand("/bot-fallback summary"), {
+  matched: true,
+  command: { kind: "summary", limit: 20 },
+});
+assert.deepEqual(parseCustomFallbackCommand("/bot-fallback stats 50"), {
+  matched: true,
+  command: { kind: "summary", limit: 50 },
+});
 assert.deepEqual(parseCustomFallbackCommand("/bot-fallback list 99"), {
   matched: true,
   error: "数量需要是 1 到 20 的整数",
+});
+assert.deepEqual(parseCustomFallbackCommand("/bot-fallback summary 101"), {
+  matched: true,
+  error: "统计数量需要是 1 到 100 的整数",
 });
 assert.deepEqual(parseCustomFallbackCommand("/bot-fallback clear"), {
   matched: true,
@@ -66,6 +78,49 @@ const event = buildCustomFallbackEvent({
     queueSenderPending: 3,
   },
 });
+const contextEvent = buildCustomFallbackEvent({
+  kind: "context-too-long",
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  actor: { id: "MEMBER_OPENID", label: "Member" },
+  sessionKey: "agent:main:qqbot:default:group:group_openid",
+  runId: "RUN_CONTEXT",
+  messageId: "MSG_CONTEXT",
+  reason: "maximum context length is 128000 tokens",
+  at: Date.UTC(2026, 5, 21, 0, 1, 0),
+  toolDeliverCount: 0,
+  toolTextCount: 0,
+  toolMediaCount: 0,
+  hasResponse: false,
+  hasBlockResponse: false,
+  details: {
+    queueTotalPending: 1,
+    queueActiveUsers: 1,
+    queueMaxConcurrentUsers: 2,
+    queueSenderPending: 0,
+  },
+});
+const toolTextEvent = buildCustomFallbackEvent({
+  kind: "tool-fallback-text",
+  accountId: "default",
+  peer: { kind: "group", id: "GROUP_OPENID" },
+  actor: { id: "MEMBER_OPENID", label: "Member" },
+  sessionKey: "agent:main:qqbot:default:group:group_openid",
+  runId: "RUN_TOOL",
+  messageId: "MSG_TOOL",
+  at: Date.UTC(2026, 5, 21, 0, 2, 0),
+  toolDeliverCount: 2,
+  toolTextCount: 1,
+  toolMediaCount: 0,
+  hasResponse: false,
+  hasBlockResponse: false,
+  details: {
+    queueTotalPending: 6,
+    queueActiveUsers: 2,
+    queueMaxConcurrentUsers: 3,
+    queueSenderPending: 5,
+  },
+});
 
 const result = handleCustomFallbackCommand({
   accountId: "default",
@@ -85,6 +140,31 @@ assert.equal(result.reply?.includes("response-timeout"), true);
 assert.equal(result.reply?.includes("group:GROUP_OPENID"), true);
 assert.equal(result.reply?.includes("RUN_ID"), true);
 assert.equal(result.reply?.includes("queue：pending=4, active=1/2, senderPending=3"), true);
+
+let summaryLimit = 0;
+const summary = handleCustomFallbackCommand({
+  accountId: "default",
+  message,
+  rawContent: "/bot-fallback summary 50",
+  store: {
+    loadEvents: (_accountId, limit) => {
+      summaryLimit = limit;
+      return [event, contextEvent, toolTextEvent];
+    },
+  },
+});
+assert.equal(summary.handled, true);
+assert.equal(summaryLimit, 50);
+assert.equal(summary.reply?.includes("兜底事件摘要"), true);
+assert.equal(summary.reply?.includes("统计：3/50"), true);
+assert.equal(summary.reply?.includes("响应超时：1"), true);
+assert.equal(summary.reply?.includes("上下文过长：1"), true);
+assert.equal(summary.reply?.includes("工具兜底：1"), true);
+assert.equal(summary.reply?.includes("最大队列：pending=6, active=2/3, senderPending=5"), true);
+assert.equal(summary.reply?.includes("response-timeout: 1"), true);
+assert.equal(summary.reply?.includes("context-too-long: 1"), true);
+assert.equal(summary.reply?.includes("tool-fallback-text: 1"), true);
+assert.equal(summary.reply?.includes("最新：2026-06-21T00:02:00.000Z tool-fallback-text"), true);
 
 const empty = handleCustomFallbackCommand({
   accountId: "default",

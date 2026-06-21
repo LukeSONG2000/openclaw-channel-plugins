@@ -681,11 +681,13 @@ Implemented commands:
 - `/bot-fallback`
 - `/bot-fallback list [1-20]`
 - `/bot-fallback status [1-20]`
+- `/bot-fallback summary [1-100]`
 - `/bot-fallback clear --force`
 
 Authorization:
 
 - Uses slash-command metadata, so list/status access requires `system.status` through admin, scene capability, or temporary grant.
+- Summary access also requires `system.status` and aggregates recent fallback kinds plus max queue pressure.
 - Clearing events requires `config.write` and an explicit `--force`.
 
 Still separate from the pure module:

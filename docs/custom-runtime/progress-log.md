@@ -77,6 +77,7 @@ Added structured fallback event logs:
 - Added `src/custom/fallback-gateway-adapter.ts` and `/bot-fallback` so authorized users can inspect recent fallback events from chat.
 - Added `/bot-fallback clear --force` behind `config.write` so admins can clear old diagnostic events after verification.
 - Fallback events now include the current message queue snapshot (`totalPending`, active users, max concurrency, sender pending) and `/bot-fallback` displays it when available.
+- Added `/bot-fallback summary [数量]` to aggregate recent fallback kinds and max queue pressure from chat.
 - Future admin notification cards can reuse the same pure event shape.
 
 Extracted unread/follow-up message flow into pure runtime:
