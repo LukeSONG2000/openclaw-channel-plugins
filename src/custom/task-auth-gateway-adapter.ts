@@ -1,11 +1,12 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
-import type { CustomAuthorizationCheckResult, CustomAuthorizationRuntime } from "./auth.js";
+import { isCustomRuntimeAdmin, type CustomAuthorizationCheckResult, type CustomAuthorizationRuntime } from "./auth.js";
 import {
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
 } from "./auth-gateway-adapter.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "./config.js";
+import { evaluateCustomTaskPeerAccess, formatCustomTaskOutOfScope } from "./task-access.js";
 import type { CustomActor, CustomPeer, CustomSandboxTask, CustomTaskSandboxRuntimeState } from "./types.js";
 import type { CustomTaskSandboxRuntime } from "./task-sandbox.js";
 
@@ -17,11 +18,13 @@ export interface CustomTaskCommandAuthorizationDecision {
   peer?: CustomPeer;
   actor?: CustomActor;
   result?: CustomAuthorizationCheckResult;
-  reason?: "not_task_mutation" | "runtime_disabled" | "task_not_found" | "owner" | "authorized" | "denied";
+  blockedReply?: string;
+  reason?: "not_task_mutation" | "runtime_disabled" | "task_not_found" | "task_out_of_scope" | "owner" | "authorized" | "denied";
 }
 
 export function checkCustomTaskCommandAuthorization(params: {
   cfg: OpenClawConfig;
+  accountId: string;
   auth: CustomAuthorizationRuntime;
   tasks: CustomTaskSandboxRuntime;
   message: QueuedMessage;
@@ -48,7 +51,27 @@ export function checkCustomTaskCommandAuthorization(params: {
     };
   }
 
-  if (matchesActor(task.owner.id, actor.id)) {
+  const access = evaluateCustomTaskPeerAccess({
+    task,
+    accountId: params.accountId,
+    peer,
+    actor,
+    operation: "mutate",
+  });
+  if (!access.isSameAccount) {
+    return {
+      handled: true,
+      allowed: false,
+      task,
+      taskId: task.id,
+      peer,
+      actor,
+      blockedReply: formatCustomTaskOutOfScope(target.taskId),
+      reason: "task_out_of_scope",
+    };
+  }
+
+  if (access.isOwner) {
     return {
       handled: true,
       allowed: true,
@@ -57,6 +80,19 @@ export function checkCustomTaskCommandAuthorization(params: {
       peer,
       actor,
       reason: "owner",
+    };
+  }
+
+  if (!access.isSamePeer && !isCustomRuntimeAdmin(runtime, actor)) {
+    return {
+      handled: true,
+      allowed: false,
+      task,
+      taskId: task.id,
+      peer,
+      actor,
+      blockedReply: formatCustomTaskOutOfScope(target.taskId),
+      reason: "task_out_of_scope",
     };
   }
 
@@ -100,8 +136,4 @@ function resolveTask(state: CustomTaskSandboxRuntimeState, input: string): Custo
   if (state.tasks[input]) return state.tasks[input];
   const matches = Object.values(state.tasks).filter((task) => task.id.startsWith(input) || task.id.endsWith(input));
   return matches.length === 1 ? matches[0]! : null;
-}
-
-function matchesActor(expected: string, actual: string): boolean {
-  return expected.toUpperCase() === actual.toUpperCase();
 }

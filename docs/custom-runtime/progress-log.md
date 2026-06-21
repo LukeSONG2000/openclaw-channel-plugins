@@ -549,3 +549,11 @@ Added configured scene binding inspection:
 - 输出只包含 request/grant id、用户/会话标识、能力、场景、过期时间、剩余次数和审批命令提示，不包含原始消息正文或缓存聊天内容。
 - `/bot-auth status` 增加详情命令提示，并按当前时间只统计仍有效的待审批申请和临时授权。
 - 同步复核初始化配置目标：首次配置必须绑定 `customRuntime.admins` 和 `customRuntime.adminGroup`；onboarding/setup/install helper 继续把缺失绑定视为未完整初始化，写入管理群时仍自动绑定默认 `system-admin` 场景。
+
+收紧长任务沙盒访问边界：
+
+- 新增 `src/custom/task-access.ts`，把长任务的 account/peer/owner 访问判断抽成纯策略，供状态查看和 mutation 授权共用。
+- `/bot-task status` 继续允许原始会话成员查看任务状态，owner 可跨会话查看自己的任务；跨会话普通成员仍只看到“不属于当前会话”，不暴露工作区、发起人、结果或错误。
+- `/bot-task add` / `/bot-task cancel` 在进入 task-scoped auth 之前先检查同一 account/peer 边界；跨会话普通成员不会触发授权申请，也不会把任务 id、能力或 owner 信息推给管理群。
+- 同会话非 owner 成员仍不能直接改任务，保持通过 task-scoped `codex.longTask` 临时授权申请的路径。
+- 新增 `tests/custom-task-access.test.ts`，并扩展 task auth/slash gateway 测试覆盖跨会话 mutation 拦截。

@@ -101,51 +101,123 @@ export function handleCustomSlashGatewayCommand(params: {
     });
   }
 
-  const authDecision = checkCustomSlashAuthorization({
+  const taskAuthorization = checkCustomTaskCommandAuthorization({
     cfg: params.cfg,
+    accountId: params.accountId,
     auth: params.runtime.auth,
+    tasks: params.runtime.tasks,
     message: params.message,
     rawContent: params.rawContent,
     now: params.now,
   });
-  if (authDecision.enabled && authDecision.result?.intents.length) {
-    logs.push(...logAuthIntents(authDecision.result.intents));
-    persist.auth = true;
-  }
-  if (authDecision.enabled && authDecision.reason === "denied") {
-    logs.push({
-      level: "info",
-      message: `Slash command denied by custom auth: capability=${authDecision.capability} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
-    });
-    const request = authDecision.result?.intents
-      ? firstCustomAuthApprovalRequest(authDecision.result.intents)
-      : null;
-    const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
-    const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
-    return handled({
-      reply: {
-        kind: "auth-approval",
-        denialText: formatCustomAuthorizationDeniedMessage(authDecision),
-        ...(approvalText && keyboard && (params.message.type === "c2c" || params.message.type === "group")
-          ? {
-              approvalText,
-              keyboard,
-            }
-          : {}),
-        ...(request && approvalText
-          ? {
-              adminGroupNotification: buildCustomAuthAdminGroupNotification({
-                request,
-                sourcePeer: authDecision.peer,
-                text: approvalText,
+  if (taskAuthorization.handled) {
+    if (taskAuthorization.result?.intents.length) {
+      logs.push(...logAuthIntents(taskAuthorization.result.intents));
+      persist.auth = true;
+    }
+    if (!taskAuthorization.allowed) {
+      if (taskAuthorization.reason === "task_out_of_scope") {
+        logs.push({
+          level: "info",
+          message: `Custom task command out of scope: task=${taskAuthorization.taskId} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
+        });
+        return handled({
+          reply: taskAuthorization.blockedReply ? { kind: "text", text: taskAuthorization.blockedReply } : undefined,
+          persist,
+          logs,
+        });
+      }
+      logs.push({
+        level: "info",
+        message: `Custom task command denied by task auth: task=${taskAuthorization.taskId} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
+      });
+      const request = taskAuthorization.result?.intents
+        ? firstCustomAuthApprovalRequest(taskAuthorization.result.intents)
+        : null;
+      const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+      const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
+      return handled({
+        reply: {
+          kind: "auth-approval",
+          denialText: formatCustomAuthorizationDeniedMessage({
+            enabled: true,
+            allowed: false,
+            capability: "codex.longTask",
+            peer: taskAuthorization.peer,
+            actor: taskAuthorization.actor,
+            result: taskAuthorization.result,
+            reason: "denied",
+          }),
+          ...(approvalText && keyboard && (params.message.type === "c2c" || params.message.type === "group")
+            ? {
+                approvalText,
                 keyboard,
-              }),
-            }
-          : {}),
-      },
-      persist,
-      logs,
+              }
+            : {}),
+          ...(request && approvalText
+            ? {
+                adminGroupNotification: buildCustomAuthAdminGroupNotification({
+                  request,
+                  sourcePeer: taskAuthorization.peer,
+                  text: approvalText,
+                  keyboard,
+                }),
+              }
+            : {}),
+        },
+        persist,
+        logs,
+      });
+    }
+  }
+
+  if (!taskAuthorization.handled) {
+    const authDecision = checkCustomSlashAuthorization({
+      cfg: params.cfg,
+      auth: params.runtime.auth,
+      message: params.message,
+      rawContent: params.rawContent,
+      now: params.now,
     });
+    if (authDecision.enabled && authDecision.result?.intents.length) {
+      logs.push(...logAuthIntents(authDecision.result.intents));
+      persist.auth = true;
+    }
+    if (authDecision.enabled && authDecision.reason === "denied") {
+      logs.push({
+        level: "info",
+        message: `Slash command denied by custom auth: capability=${authDecision.capability} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
+      });
+      const request = authDecision.result?.intents
+        ? firstCustomAuthApprovalRequest(authDecision.result.intents)
+        : null;
+      const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+      const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
+      return handled({
+        reply: {
+          kind: "auth-approval",
+          denialText: formatCustomAuthorizationDeniedMessage(authDecision),
+          ...(approvalText && keyboard && (params.message.type === "c2c" || params.message.type === "group")
+            ? {
+                approvalText,
+                keyboard,
+              }
+            : {}),
+          ...(request && approvalText
+            ? {
+                adminGroupNotification: buildCustomAuthAdminGroupNotification({
+                  request,
+                  sourcePeer: authDecision.peer,
+                  text: approvalText,
+                  keyboard,
+                }),
+              }
+            : {}),
+        },
+        persist,
+        logs,
+      });
+    }
   }
 
   const customSceneCommand = handleCustomSceneCommand({
@@ -207,64 +279,6 @@ export function handleCustomSlashGatewayCommand(params: {
       persist,
       logs,
     });
-  }
-
-  const taskAuthorization = checkCustomTaskCommandAuthorization({
-    cfg: params.cfg,
-    auth: params.runtime.auth,
-    tasks: params.runtime.tasks,
-    message: params.message,
-    rawContent: params.rawContent,
-    now: params.now,
-  });
-  if (taskAuthorization.handled) {
-    if (taskAuthorization.result?.intents.length) {
-      logs.push(...logAuthIntents(taskAuthorization.result.intents));
-      persist.auth = true;
-    }
-    if (!taskAuthorization.allowed) {
-      logs.push({
-        level: "info",
-        message: `Custom task command denied by task auth: task=${taskAuthorization.taskId} sender=${params.message.senderId} content=${params.rawContent.slice(0, 80)}`,
-      });
-      const request = taskAuthorization.result?.intents
-        ? firstCustomAuthApprovalRequest(taskAuthorization.result.intents)
-        : null;
-      const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
-      const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
-      return handled({
-        reply: {
-          kind: "auth-approval",
-          denialText: formatCustomAuthorizationDeniedMessage({
-            enabled: true,
-            allowed: false,
-            capability: "codex.longTask",
-            peer: taskAuthorization.peer,
-            actor: taskAuthorization.actor,
-            result: taskAuthorization.result,
-            reason: "denied",
-          }),
-          ...(approvalText && keyboard && (params.message.type === "c2c" || params.message.type === "group")
-            ? {
-                approvalText,
-                keyboard,
-              }
-            : {}),
-          ...(request && approvalText
-            ? {
-                adminGroupNotification: buildCustomAuthAdminGroupNotification({
-                  request,
-                  sourcePeer: taskAuthorization.peer,
-                  text: approvalText,
-                  keyboard,
-                }),
-              }
-            : {}),
-        },
-        persist,
-        logs,
-      });
-    }
   }
 
   const customTaskCommand = handleCustomTaskCommand({

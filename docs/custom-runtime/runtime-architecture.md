@@ -607,6 +607,11 @@ Current implementation status:
   - applies anchored deliveries through a gateway-provided text sender
   - skips unanchored deliveries by default until proactive send policy is explicitly applied
 - `gateway.ts` applies async command-executor completion/failure notifications through the same proactive acceptance/budget guard used by autonomous sends before allowing unanchored C2C/group delivery.
+- `src/custom/task-access.ts` is the shared pure policy for account, peer, and owner boundaries:
+  - task owner can read and mutate across peers in the same account
+  - members in the original peer can read status, but mutation still flows through owner/admin/task-scoped auth
+  - ordinary members in other peers receive the same not-found/current-session reply and do not create auth requests or expose task metadata
+  - account mismatch is always denied before status or auth details are shown
 - `src/custom/task-auth-gateway-adapter.ts` gates task mutation commands before they change task state:
   - task owner can append/cancel their own task
   - custom runtime admins can append/cancel any task
@@ -619,6 +624,7 @@ Current implementation status:
   - `/bot-task add <taskId> <追加需求>`
   - `/bot-task cancel <taskId>`
 - `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
+- `/bot-task add` and `/bot-task cancel` now use the same account/peer boundary before task-scoped auth; a cross-peer ordinary member cannot trigger an approval request for a task they should not know about.
 - Task create/list/status/add replies include QQ command-input shortcuts for status, append, cancel, and new-task actions where applicable. These shortcuts only prefill commands, so append still requires the user to edit the requirement text before sending.
 - Slash-command capability metadata gates task mutations through custom auth:
   - query/help/list/status use `system.status`

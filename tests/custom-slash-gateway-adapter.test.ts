@@ -195,6 +195,28 @@ assert.equal(allowedTaskAdd.handled, true);
 assert.equal(allowedTaskAdd.persist?.tasks, true);
 assert.equal(allowedTaskAdd.reply?.kind === "text" && allowedTaskAdd.reply.text.includes("当前追加需求数：1"), true);
 
+const crossPeerTaskAdd = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: {
+    ...baseMessage,
+    groupOpenid: "OTHER_GROUP_OPENID",
+    senderId: "MEMBER_OPENID",
+    senderName: "Member",
+    content: `/bot-task add ${ownerTaskId} cross peer idea`,
+  },
+  rawContent: `/bot-task add ${ownerTaskId} cross peer idea`,
+  now: 3_950,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(crossPeerTaskAdd.handled, true);
+assert.equal(crossPeerTaskAdd.persist?.auth, undefined);
+assert.equal(crossPeerTaskAdd.persist?.tasks, undefined);
+assert.equal(crossPeerTaskAdd.reply?.kind, "text");
+assert.equal(crossPeerTaskAdd.reply?.kind === "text" && crossPeerTaskAdd.reply.text.includes("不属于当前会话"), true);
+assert.equal(Object.values(taskAuthRuntime.auth.getState().requests).filter((request) => request.status === "pending").length, 0);
+
 const pollRuntime = createCustomMessageFlowRuntime();
 const poll = handleCustomSlashGatewayCommand({
   cfg,

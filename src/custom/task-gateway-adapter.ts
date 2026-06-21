@@ -2,6 +2,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./auth-gateway-adapter.js";
 import type { CustomSandboxTask, CustomTaskIntent, CustomTaskRequirement, CustomTaskSandboxRuntimeState } from "./types.js";
 import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
+import { evaluateCustomTaskPeerAccess, formatCustomTaskOutOfScope } from "./task-access.js";
 
 export type CustomTaskCommand =
   | { kind: "help" }
@@ -95,7 +96,7 @@ export function handleCustomTaskCommand(params: {
   if (command.kind === "status") {
     const task = resolveTask(params.tasks.getState(), command.taskId);
     if (!task || !canReadTask(task, params.accountId, peer, actor)) {
-      return { handled: true, reply: `⚠️ 未找到任务，或该任务不属于当前会话：${command.taskId}` };
+      return { handled: true, reply: formatCustomTaskOutOfScope(command.taskId) };
     }
     return { handled: true, reply: formatTaskStatus(task) };
   }
@@ -219,9 +220,13 @@ function canReadTask(
   peer: ReturnType<typeof toCustomPeerFromQueuedMessage>,
   actor: ReturnType<typeof toCustomActorFromQueuedMessage>,
 ): boolean {
-  if (task.accountId !== accountId) return false;
-  if (task.owner.id.toUpperCase() === actor.id.toUpperCase()) return true;
-  return task.peer.kind === peer.kind && task.peer.id === peer.id;
+  return evaluateCustomTaskPeerAccess({
+    task,
+    accountId,
+    peer,
+    actor,
+    operation: "read",
+  }).allowed;
 }
 
 function formatTaskCommandHints(task: CustomSandboxTask, options: { includeCreate: boolean }): string {

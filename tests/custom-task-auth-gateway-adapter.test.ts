@@ -56,6 +56,7 @@ const auth = new CustomAuthorizationRuntime();
 
 assert.deepEqual(checkCustomTaskCommandAuthorization({
   cfg,
+  accountId: "default",
   auth,
   tasks,
   message: memberMessage,
@@ -69,6 +70,7 @@ assert.deepEqual(checkCustomTaskCommandAuthorization({
 
 const ownerAllowed = checkCustomTaskCommandAuthorization({
   cfg,
+  accountId: "default",
   auth,
   tasks,
   message: ownerMessage,
@@ -81,6 +83,7 @@ assert.equal(ownerAllowed.reason, "owner");
 
 const adminAllowed = checkCustomTaskCommandAuthorization({
   cfg,
+  accountId: "default",
   auth,
   tasks,
   message: adminMessage,
@@ -94,6 +97,7 @@ assert.equal(adminAllowed.result?.decision.source, "admin");
 
 const memberDenied = checkCustomTaskCommandAuthorization({
   cfg,
+  accountId: "default",
   auth,
   tasks,
   message: memberMessage,
@@ -121,6 +125,7 @@ assert.equal(approved?.kind === "approval-resolved" && approved.grant?.taskId, t
 
 const memberAllowedByTaskGrant = checkCustomTaskCommandAuthorization({
   cfg,
+  accountId: "default",
   auth,
   tasks,
   message: memberMessage,
@@ -140,6 +145,7 @@ const otherTask = tasks.createTask({
 });
 const memberDeniedOtherTask = checkCustomTaskCommandAuthorization({
   cfg,
+  accountId: "default",
   auth,
   tasks,
   message: memberMessage,
@@ -148,5 +154,20 @@ const memberDeniedOtherTask = checkCustomTaskCommandAuthorization({
 });
 assert.equal(memberDeniedOtherTask.allowed, false);
 assert.equal(memberDeniedOtherTask.result?.decision.requestId, "authreq-5000-2");
+
+const crossPeerDenied = checkCustomTaskCommandAuthorization({
+  cfg,
+  accountId: "default",
+  auth,
+  tasks,
+  message: { ...memberMessage, groupOpenid: "OTHER_GROUP_OPENID" },
+  rawContent: `/bot-task add ${taskId} cross peer should not request auth`,
+  now: 5_500,
+});
+assert.equal(crossPeerDenied.handled, true);
+assert.equal(crossPeerDenied.allowed, false);
+assert.equal(crossPeerDenied.reason, "task_out_of_scope");
+assert.equal(crossPeerDenied.blockedReply?.includes("不属于当前会话"), true);
+assert.equal(crossPeerDenied.result, undefined);
 
 console.log("custom task auth gateway adapter tests passed");
