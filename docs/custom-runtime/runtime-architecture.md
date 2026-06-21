@@ -187,6 +187,18 @@ Current implementation status:
   - `src/outbound.ts`: framework outbound/cron helper, optional `prepareUnanchoredSend`.
   - `src/proactive.ts`: legacy proactive helper, optional `prepareUnanchoredSend`.
 
+### `src/custom/admin-group-delivery-gateway-adapter.ts`
+
+Gateway-side sender adapter for management-group operational pushes.
+
+Current implementation status:
+
+- Covers auth approval copies, repeated-fallback alerts, and custom update notifications to `customRuntime.adminGroup`.
+- Applies the injected proactive guard before any unanchored group send, and commits the budget only after the caller's QQ send callback succeeds.
+- Supports inline-keyboard and text fallback callbacks without importing QQ API functions into the custom module.
+- Owns shared logging, blocked/skipped/failed result statuses, and fallback-alert cooldown handling so `gateway.ts` only builds delivery descriptions.
+- Does not build auth/fallback/update content itself; those policy modules still own the notification text and keyboard payloads.
+
 Example:
 
 ```json

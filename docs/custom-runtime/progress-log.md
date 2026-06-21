@@ -724,3 +724,10 @@ Added configured scene binding inspection:
 - `gateway.ts` no longer hand-builds proactive budget checks/records in multiple send paths; management-group pushes, reply-dispatcher unanchored sends, task notifications, and media forwarding now reuse the same guard builder.
 - The adapter still does not send QQ messages or own stores; it only resolves scene/runtime proactive config, checks budget/receive state, formats block reasons, and commits persistence after the caller confirms a successful send.
 - Added `tests/custom-proactive-gateway-adapter.test.ts` for enabled/runtime-disabled/scene-disabled guard behavior and successful budget persistence.
+
+抽出管理群推送发送适配器：
+
+- Added `src/custom/admin-group-delivery-gateway-adapter.ts` for guarded management-group delivery of auth approval copies, fallback alerts, and custom update notifications.
+- `gateway.ts` now builds typed delivery descriptions and delegates shared proactive guard application, send success commit, cooldown handling, and sent/blocked/skipped/failed logging to the adapter.
+- The adapter receives QQ send callbacks, so it still does not import QQ API functions or own network side effects; it only coordinates policy gates around the caller-confirmed send result.
+- Added `tests/custom-admin-group-delivery-gateway-adapter.test.ts` for keyboard sends, proactive blocks, cooldown skips, and failed sends without budget commits.

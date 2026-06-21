@@ -65,6 +65,7 @@ import {
   firstCustomAuthApprovalRequest,
   formatCustomDispatchAuthorizationDeniedMessage,
 } from "./custom/auth-gateway-adapter.js";
+import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, resolveCustomInteractionSourcePeer, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import { createCustomMessageFlowStateController } from "./custom/message-flow-state.js";
 import { upsertCustomSceneConfig } from "./custom/scene-gateway-adapter.js";
@@ -778,31 +779,43 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     requestId: string;
     source: "slash" | "dispatch";
   }): Promise<void> => {
-    const proactive = buildCustomProactiveGuard();
-    const proactiveDecision = proactive.proactiveGuard({
-      targetType: "group",
-      targetId: notification.groupOpenid,
+    await sendCustomAdminGroupDelivery({
+      groupOpenid: notification.groupOpenid,
       text: notification.text,
+      keyboard: notification.keyboard,
+      label: "auth admin-group notification",
+      details: `source=${notification.source} request=${notification.requestId}`,
     });
-    if (!proactiveDecision.allowed) {
-      log?.error(`[qqbot:${account.accountId}] custom auth admin-group notification blocked: source=${notification.source} request=${notification.requestId} reason=${proactiveDecision.reason}`);
-      return;
-    }
-    try {
-      const token = await getAccessToken(account.appId, account.clientSecret);
-      if (notification.keyboard) {
-        await sendGroupMessageWithInlineKeyboard(token, notification.groupOpenid, notification.text, notification.keyboard);
-      } else {
-        await sendGroupMessage(token, notification.groupOpenid, notification.text);
-      }
-      proactiveDecision.commit?.();
-      log?.info(`[qqbot:${account.accountId}] custom auth admin-group notification sent: source=${notification.source} request=${notification.requestId} group=${notification.groupOpenid}`);
-    } catch (sendErr) {
-      log?.error(`[qqbot:${account.accountId}] Failed to send custom auth admin-group notification: source=${notification.source} request=${notification.requestId} group=${notification.groupOpenid} error=${sendErr}`);
-    }
   };
 
   const fallbackAlertCooldowns = new Map<string, number>();
+  const sendCustomAdminGroupDelivery = async (delivery: {
+    groupOpenid: string;
+    text: string;
+    keyboard?: import("./types.js").InlineKeyboard;
+    label: string;
+    details: string;
+    cooldownKey?: string;
+    cooldownMs?: number;
+  }): Promise<void> => {
+    const proactive = buildCustomProactiveGuard();
+    await applyCustomAdminGroupDelivery({
+      accountId: account.accountId,
+      delivery,
+      proactiveGuard: proactive.proactiveGuard,
+      cooldowns: fallbackAlertCooldowns,
+      log,
+      sendText: async (groupOpenid, text) => {
+        const token = await getAccessToken(account.appId, account.clientSecret);
+        await sendGroupMessage(token, groupOpenid, text);
+      },
+      sendKeyboard: async (groupOpenid, text, keyboard) => {
+        const token = await getAccessToken(account.appId, account.clientSecret);
+        await sendGroupMessageWithInlineKeyboard(token, groupOpenid, text, keyboard);
+      },
+    });
+  };
+
   const sendCustomFallbackAdminGroupAlert = async (alert: {
     groupOpenid: string;
     text: string;
@@ -810,40 +823,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
     cooldownKey: string;
     eventCount?: number;
   }): Promise<void> => {
-    const now = Date.now();
     const runtime = resolveCustomRuntimeConfig(cfg as any);
     const cooldownMs = resolveCustomFallbackAlertCooldownMs(runtime);
-    const nextAllowedAt = fallbackAlertCooldowns.get(alert.cooldownKey) ?? 0;
-    if (now < nextAllowedAt) {
-      log?.info(`[qqbot:${account.accountId}] custom fallback admin-group alert skipped by cooldown: key=${alert.cooldownKey} count=${alert.eventCount ?? "?"}`);
-      return;
-    }
-
-    const proactive = buildCustomProactiveGuard();
-    const proactiveDecision = proactive.proactiveGuard({
-      targetType: "group",
-      targetId: alert.groupOpenid,
+    await sendCustomAdminGroupDelivery({
+      groupOpenid: alert.groupOpenid,
       text: alert.text,
+      keyboard: alert.keyboard,
+      label: "fallback admin-group alert",
+      details: `key=${alert.cooldownKey} count=${alert.eventCount ?? "?"}`,
+      cooldownKey: alert.cooldownKey,
+      cooldownMs,
     });
-    if (!proactiveDecision.allowed) {
-      fallbackAlertCooldowns.set(alert.cooldownKey, now + cooldownMs);
-      log?.error(`[qqbot:${account.accountId}] custom fallback admin-group alert blocked: key=${alert.cooldownKey} reason=${proactiveDecision.reason}`);
-      return;
-    }
-
-    try {
-      const token = await getAccessToken(account.appId, account.clientSecret);
-      if (alert.keyboard) {
-        await sendGroupMessageWithInlineKeyboard(token, alert.groupOpenid, alert.text, alert.keyboard);
-      } else {
-        await sendGroupMessage(token, alert.groupOpenid, alert.text);
-      }
-      proactiveDecision.commit?.();
-      fallbackAlertCooldowns.set(alert.cooldownKey, now + cooldownMs);
-      log?.info(`[qqbot:${account.accountId}] custom fallback admin-group alert sent: key=${alert.cooldownKey} count=${alert.eventCount ?? "?"} group=${alert.groupOpenid}`);
-    } catch (sendErr) {
-      log?.error(`[qqbot:${account.accountId}] Failed to send custom fallback admin-group alert: key=${alert.cooldownKey} group=${alert.groupOpenid} error=${sendErr}`);
-    }
   };
 
   const sendCustomUpdateAvailableNotification = async (result: CustomUpdateCheckResult): Promise<void> => {
@@ -857,25 +847,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       return;
     }
 
-    const proactive = buildCustomProactiveGuard();
-    const proactiveDecision = proactive.proactiveGuard({
-      targetType: "group",
-      targetId: notification.groupOpenid,
+    await sendCustomAdminGroupDelivery({
+      groupOpenid: notification.groupOpenid,
       text: notification.text,
+      keyboard: notification.keyboard,
+      label: "update available notification",
+      details: `package=${notification.packageName} latest=${notification.latest}`,
     });
-    if (!proactiveDecision.allowed) {
-      log?.error(`[qqbot:${account.accountId}] custom update available notification blocked: package=${notification.packageName} latest=${notification.latest} reason=${proactiveDecision.reason}`);
-      return;
-    }
-
-    try {
-      const token = await getAccessToken(account.appId, account.clientSecret);
-      await sendGroupMessageWithInlineKeyboard(token, notification.groupOpenid, notification.text, notification.keyboard);
-      proactiveDecision.commit?.();
-      log?.info(`[qqbot:${account.accountId}] custom update available notification sent: package=${notification.packageName} latest=${notification.latest} group=${notification.groupOpenid}`);
-    } catch (sendErr) {
-      log?.error(`[qqbot:${account.accountId}] Failed to send custom update available notification: package=${notification.packageName} latest=${notification.latest} group=${notification.groupOpenid} error=${sendErr}`);
-    }
   };
 
   // 后台二开版本检查：只检查个人包更新，不自动安装。
