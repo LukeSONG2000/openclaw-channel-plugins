@@ -1287,3 +1287,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates both Webhook and WebSocket transport parameter wiring to the runner; it keeps only the outer connection preparation and failure retry catch around handler setup.
 - The runner preserves Webhook-specific `setConnecting(false)` / approval unregister behavior and WebSocket-specific intents, heartbeat/session, reconnect, quick-disconnect, and rate-limit parameters.
 - Added `tests/custom-gateway-transport-runner-gateway-adapter.test.ts` for Webhook and WebSocket branch wiring with fake transports, lifecycle callbacks, message processing, event dispatch, startup greeting, and reconnect callback propagation.
+
+抽出 gateway connect attempt 网关连接尝试层，并同步新增初始化目标：
+
+- Added `src/custom/gateway-connect-attempt-gateway-adapter.ts` to own one `connect()` attempt: lifecycle connect lock, token-cache refresh preparation, OpenClaw runtime lookup, connection-handler creation, active task/unread service handle update, and transport runner startup.
+- `gateway.ts` now delegates per-attempt orchestration and failure retry handoff to this adapter; handler setup or transport-start errors still clear `connecting` and pass through the existing connection-failure reconnect path.
+- Added `tests/custom-gateway-connect-attempt-gateway-adapter.test.ts` for successful sequencing, concurrent-connect skip, and handler-setup failure recovery.
+- 同步复核新增初始化目标：初始化配置仍必须同时绑定 `customRuntime.admins` 与 `customRuntime.adminGroup`；本轮复跑 `tests/custom-onboarding.test.ts` 通过，管理群写入时继续默认绑定 `system-admin` 场景并保留已有显式 scene override。

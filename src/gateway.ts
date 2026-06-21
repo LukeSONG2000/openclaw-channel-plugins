@@ -1,5 +1,5 @@
 import type { ResolvedQQBotAccount } from "./types.js";
-import { clearTokenCache, stopBackgroundTokenRefresh } from "./api.js";
+import { stopBackgroundTokenRefresh } from "./api.js";
 import { flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
@@ -15,13 +15,11 @@ import type { CustomTaskCommandExecutor } from "./custom/task-command-executor.j
 import {
   isQQBotGatewayWebSocketClosable,
 } from "./custom/websocket-connection-gateway-adapter.js";
-import { handleQQBotWebSocketConnectionFailureGateway } from "./custom/websocket-close-gateway-adapter.js";
 import { createQQBotGatewayLifecycle } from "./custom/gateway-lifecycle-gateway-adapter.js";
 import { startQQBotApprovalHandlerGateway } from "./custom/approval-handler-gateway-adapter.js";
-import { createCustomConnectionHandlersGateway } from "./custom/connection-handlers-gateway-adapter.js";
 import { createCustomGatewayAccountServices } from "./custom/gateway-account-services-gateway-adapter.js";
 import { startQQBotGatewayStartup } from "./custom/gateway-startup-gateway-adapter.js";
-import { startQQBotGatewayTransportRunner } from "./custom/gateway-transport-runner-gateway-adapter.js";
+import { runQQBotGatewayConnectAttempt } from "./custom/gateway-connect-attempt-gateway-adapter.js";
 
 // ============ Mention Gating — 已抽取到 message-gating.ts ============
 
@@ -182,110 +180,80 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   };
 
   const connect = async () => {
-    // 防止并发连接
-    if (!lifecycle.beginConnect()) return;
-
-    try {
-      lifecycle.prepareConnection({
-        clearTokenCache: () => clearTokenCache(account.appId),
-      });
-
-      const pluginRuntime = getQQBotRuntime();
-
-      const connectionHandlers = createCustomConnectionHandlersGateway({
-        account,
-        cfg,
-        pluginRuntime,
-        runtime: customMessageFlow,
-        previousTaskExecutor: customTaskExecutor,
-        enqueueMessage: trySlashCommandOrEnqueue,
-        getQueueSnapshot: (peerId) => msgQueue.getSnapshot(peerId),
-        persistAuthState: persistCustomAuthState,
-        persistProactiveBudgetState: persistCustomProactiveBudgetState,
-        persistTaskState: persistCustomTaskState,
-        persistPollState: persistCustomPollState,
-        persistGameState: persistCustomGameState,
-        persistDeployConfirmationState: persistCustomDeployConfirmationState,
-        persistUnreadState: persistCustomUnreadState,
-        sendTaskStatusText: async (delivery) => {
-          const proactive = buildCustomProactiveGuard();
-          await sendTextToTarget({
-            target: delivery.target,
-            account,
-            cfg,
-            log,
-            prepareUnanchoredTextSend: proactive.proactiveGuard,
-          }, delivery.text);
-        },
-        buildProactiveGuard: buildCustomProactiveGuard,
-        sendMedia: sendMediaAuto,
-        createDebouncer: createDeliverDebouncer,
-        parseAndSendMediaTags,
-        handleStructuredPayload,
-        sendPlainReply,
-        adminGroupNotifications: customAdminGroupNotifications,
-        isCustomRuntimeEnabled,
-        isControlCommand: hasControlCommand,
-        stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
-        detectWasMentioned: (input) => detectWasMentioned(input),
-        resolveRequireMention: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-          qqbotPlugin.groups?.resolveRequireMention?.({
-            cfg: groupCfg as any,
-            accountId,
-            groupId: groupOpenid,
-          }) ?? true,
-        resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
-          qqbotPlugin.groups?.resolveGroupIntroHint?.({
-            cfg: groupCfg as any,
-            accountId,
-            groupId: groupOpenid,
-          }),
-        getConfigApi: () => getQQBotRuntime().config as {
-          loadConfig: () => Record<string, unknown>;
-          writeConfigFile: (cfg: unknown) => Promise<void>;
-        },
-        getRouting: () => getQQBotRuntime().channel?.routing,
-        getLegacyApprovalHandler: getApprovalHandler,
-        log,
-      });
-      customTaskExecutor = connectionHandlers.taskExecutor;
-      customUnreadScheduler = connectionHandlers.unreadScheduler;
-      const handleMessage = connectionHandlers.handleMessage;
-      const dispatchInboundEvent = connectionHandlers.dispatchInboundEvent;
-
-      await startQQBotGatewayTransportRunner({
-        account,
-        abortSignal,
-        transportMode,
-        lifecycle,
-        messageQueue: msgQueue,
-        handleMessage,
-        dispatchInboundEvent,
-        adminContext: adminCtx,
-        isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
-        markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
-        unregisterApprovalHandler: () => approvalHandler.unregister(),
-        scheduleReconnect,
-        onReady: (payload) => onReady?.(payload),
-        onError: (error) => onError?.(error),
-        intents: FULL_INTENTS,
-        intentsDesc: FULL_INTENTS_DESC,
-        quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
-        maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
-        rateLimitDelayMs: RATE_LIMIT_DELAY,
-        log,
-      });
-
-    } catch (err) {
-      lifecycle.setConnecting(false); // 释放锁
-      handleQQBotWebSocketConnectionFailureGateway({
-        accountId: account.accountId,
-        err,
-        rateLimitDelayMs: RATE_LIMIT_DELAY,
-        scheduleReconnect,
-        log,
-      });
-    }
+    await runQQBotGatewayConnectAttempt({
+      account,
+      cfg,
+      transportMode,
+      abortSignal,
+      lifecycle,
+      messageQueue: msgQueue,
+      runtime: customMessageFlow,
+      getPreviousTaskExecutor: () => customTaskExecutor,
+      setTaskExecutor: (executor) => { customTaskExecutor = executor; },
+      setUnreadScheduler: (scheduler) => { customUnreadScheduler = scheduler; },
+      enqueueMessage: trySlashCommandOrEnqueue,
+      getQueueSnapshot: (peerId) => msgQueue.getSnapshot(peerId),
+      persistAuthState: persistCustomAuthState,
+      persistProactiveBudgetState: persistCustomProactiveBudgetState,
+      persistTaskState: persistCustomTaskState,
+      persistPollState: persistCustomPollState,
+      persistGameState: persistCustomGameState,
+      persistDeployConfirmationState: persistCustomDeployConfirmationState,
+      persistUnreadState: persistCustomUnreadState,
+      sendTaskStatusText: async (delivery) => {
+        const proactive = buildCustomProactiveGuard();
+        await sendTextToTarget({
+          target: delivery.target,
+          account,
+          cfg,
+          log,
+          prepareUnanchoredTextSend: proactive.proactiveGuard,
+        }, delivery.text);
+      },
+      buildProactiveGuard: buildCustomProactiveGuard,
+      sendMedia: sendMediaAuto,
+      createDebouncer: createDeliverDebouncer,
+      parseAndSendMediaTags,
+      handleStructuredPayload,
+      sendPlainReply,
+      adminGroupNotifications: customAdminGroupNotifications,
+      isCustomRuntimeEnabled,
+      isControlCommand: hasControlCommand,
+      stripMentionText: (text, mentions) => stripMentionText(text, mentions as any) ?? text,
+      detectWasMentioned: (input) => detectWasMentioned(input),
+      resolveRequireMention: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+        qqbotPlugin.groups?.resolveRequireMention?.({
+          cfg: groupCfg as any,
+          accountId,
+          groupId: groupOpenid,
+        }) ?? true,
+      resolveGroupIntroHint: ({ cfg: groupCfg, accountId, groupOpenid }) =>
+        qqbotPlugin.groups?.resolveGroupIntroHint?.({
+          cfg: groupCfg as any,
+          accountId,
+          groupId: groupOpenid,
+        }),
+      getConfigApi: () => getQQBotRuntime().config as {
+        loadConfig: () => Record<string, unknown>;
+        writeConfigFile: (cfg: unknown) => Promise<void>;
+      },
+      getRouting: () => getQQBotRuntime().channel?.routing,
+      getLegacyApprovalHandler: getApprovalHandler,
+      adminContext: adminCtx,
+      isPendingFirstReady: () => _pendingFirstReady.has(account.accountId),
+      markFirstReadyConsumed: () => { _pendingFirstReady.delete(account.accountId); },
+      unregisterApprovalHandler: () => approvalHandler.unregister(),
+      scheduleReconnect,
+      onReady: (payload) => onReady?.(payload),
+      onError: (error) => onError?.(error),
+      intents: FULL_INTENTS,
+      intentsDesc: FULL_INTENTS_DESC,
+      quickDisconnectThresholdMs: QUICK_DISCONNECT_THRESHOLD,
+      maxQuickDisconnectCount: MAX_QUICK_DISCONNECT_COUNT,
+      rateLimitDelayMs: RATE_LIMIT_DELAY,
+      getRuntime: getQQBotRuntime,
+      log,
+    });
   };
 
   // 开始连接

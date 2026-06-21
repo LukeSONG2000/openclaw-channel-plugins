@@ -550,6 +550,22 @@ Important boundary:
 - The controller does not know QQ tokens, OpenClaw runtime internals, message queues, or persistence stores. `gateway.ts` injects cleanup side effects such as runtime-service disposal, token refresh stopping, known-user/ref-index flushes, custom state persistence, update-check stop, and approval-handler stop.
 - It keeps transport lifecycle state testable without opening a real WebSocket or starting Webhook transport.
 
+### `src/custom/gateway-connect-attempt-gateway-adapter.ts`
+
+Gateway-side connection-attempt runner for one QQBot account.
+
+Current implementation status:
+
+- Owns the single-attempt sequence that used to sit directly inside `connect()`: acquire the lifecycle connect lock, prepare token-cache refresh, fetch the OpenClaw plugin runtime, create the per-connection handler bundle, expose the active task executor/unread scheduler to cleanup, then start the selected transport runner.
+- Routes connection-handler setup failures and transport-start failures through the existing WebSocket connection-failure adapter, including `setConnecting(false)`, rate-limit delay, logging, and reconnect scheduling.
+- Lets tests inject fake token-cache clearing, handler creation, transport start, runtime lookup, lifecycle, and connection-failure handling, so the orchestration can be covered without QQ network access or OpenClaw runtime startup.
+- Keeps the new initialization anchor requirement unchanged: the account services and onboarding paths still require `customRuntime.admins` plus `customRuntime.adminGroup`; this runner only composes a connection attempt after startup/config has already succeeded.
+
+Important boundary:
+
+- The runner does not own long-lived lifecycle state, message-flow internals, Webhook/WebSocket branch details, or close-code policy. Those stay in lifecycle, connection-handlers, transport-runner, and WebSocket close adapters.
+- `gateway.ts` now supplies dependencies and stores returned active runtime-service handles, while this adapter owns the per-attempt try/catch and reconnect handoff.
+
 ### `src/custom/gateway-transport-runner-gateway-adapter.ts`
 
 Gateway-side transport runner for one prepared connection attempt.
@@ -564,7 +580,7 @@ Current implementation status:
 Important boundary:
 
 - The runner does not create the message handler bundle and does not classify WebSocket close codes; `connection-handlers-gateway-adapter.ts`, `websocket-connection-gateway-adapter.ts`, and `websocket-close-gateway-adapter.ts` keep those responsibilities.
-- `gateway.ts` still owns the outer try/catch around connection preparation so connection-handler setup failures can reuse the existing connection-failure retry path.
+- `gateway-connect-attempt-gateway-adapter.ts` owns the outer try/catch around connection preparation so connection-handler setup failures can reuse the existing connection-failure retry path.
 
 ### `src/custom/websocket-reconnect-policy.ts`
 

@@ -96,6 +96,7 @@ Out of scope for the first custom runtime:
 - `src/custom/message-handler-gateway-adapter.ts`: gateway-side per-account message handler binding layer that wires ingress -> context -> dispatch with QQ/OpenClaw callbacks injected once.
 - `src/custom/connection-handlers-gateway-adapter.ts`: gateway-side per-connection handler bundle that creates runtime services, message handling, interaction handling, and inbound event fanout together.
 - `src/custom/gateway-lifecycle-gateway-adapter.ts`: gateway-side connection lifecycle controller for reconnect state, abort handling, session state, heartbeat timer reset, WebSocket cleanup, and runtime-service disposal.
+- `src/custom/gateway-connect-attempt-gateway-adapter.ts`: gateway-side connection-attempt runner that gates concurrent connects, prepares token refresh, creates handlers, starts transport, and routes setup failures to reconnect handling.
 - `src/custom/websocket-close-gateway-adapter.ts`: gateway-side WebSocket close/connection-failure adapter for applying reconnect policy, session/token side effects, cleanup, and retry scheduling.
 - `src/custom/websocket-connection-gateway-adapter.ts`: gateway-side WebSocket connection binder for token/gateway URL acquisition, socket event registration, open lifecycle side effects, message/close/error delegation, heartbeat reset binding, and connection-failure scheduling.
 - `src/custom/gateway-transport-runner-gateway-adapter.ts`: gateway-side transport runner that selects Webhook or WebSocket and binds shared message/event/startup callbacks to the selected transport.
