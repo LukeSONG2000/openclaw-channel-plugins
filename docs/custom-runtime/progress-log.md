@@ -62,6 +62,12 @@ Extracted custom fallback policy helpers:
 - `gateway.ts` now imports those helpers instead of carrying fallback magic numbers and user-facing timeout strings inline.
 - Added `tests/custom-fallbacks.test.ts` to lock the current timeout values, skip-token behavior, tool fallback text selection, and timeout classification.
 
+Added context-too-long fallback classification:
+
+- `src/custom/fallbacks.ts` now classifies common context/token limit errors, including nested error causes.
+- `gateway.ts` sends a visible recovery notice that points users to `/compact` and `/new` while releasing the message queue.
+- The fallback deliberately does not auto-reset sessions yet; automatic reset remains a later policy decision because it can discard context.
+
 Extracted unread/follow-up message flow into pure runtime:
 
 - Added `src/custom/unread-runtime.ts` with no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.

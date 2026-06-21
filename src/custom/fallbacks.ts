@@ -5,8 +5,9 @@ export const CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS = 45_000;
 
 export const CUSTOM_RESPONSE_TIMEOUT_NOTICE = "这轮处理超时了，我先不挡队列，后面的消息会继续处理。";
 export const CUSTOM_TOOL_NO_OUTPUT_NOTICE = "工具这轮没产出能发的内容，我先不挡队列，后面的消息会继续处理。";
+export const CUSTOM_CONTEXT_TOO_LONG_NOTICE = "这轮上下文太长了，模型没法继续接收。我先释放队列；请先发送 /compact 压缩上下文，必要时发送 /new 开新会话后再重试。";
 
-export type CustomDispatchFailureKind = "response-timeout" | "other";
+export type CustomDispatchFailureKind = "response-timeout" | "context-too-long" | "other";
 
 export interface CustomToolFallbackTextOptions {
   maxItems?: number;
@@ -25,6 +26,10 @@ export function formatCustomResponseTimeoutNotice(): string {
 
 export function formatCustomToolNoOutputNotice(): string {
   return CUSTOM_TOOL_NO_OUTPUT_NOTICE;
+}
+
+export function formatCustomContextTooLongNotice(): string {
+  return CUSTOM_CONTEXT_TOO_LONG_NOTICE;
 }
 
 export function selectCustomToolFallbackText(
@@ -47,7 +52,14 @@ export function selectCustomToolFallbackText(
 }
 
 export function classifyCustomDispatchFailure(err: unknown): CustomDispatchFailureKind {
-  return String(err).includes("Response timeout") ? "response-timeout" : "other";
+  const errText = formatCustomErrorForMatch(err);
+  if (errText.includes("Response timeout")) {
+    return "response-timeout";
+  }
+  if (isCustomContextTooLongErrorText(errText)) {
+    return "context-too-long";
+  }
+  return "other";
 }
 
 function normalizePositiveInteger(raw: unknown, fallback: number): number {
@@ -55,4 +67,41 @@ function normalizePositiveInteger(raw: unknown, fallback: number): number {
     return fallback;
   }
   return Math.max(1, Math.floor(raw));
+}
+
+function formatCustomErrorForMatch(err: unknown): string {
+  const parts = [String(err)];
+  if (err && typeof err === "object") {
+    const record = err as Record<string, unknown>;
+    for (const key of ["name", "message", "code", "type", "status", "statusCode"]) {
+      const value = record[key];
+      if (value !== undefined && value !== null) {
+        parts.push(String(value));
+      }
+    }
+    const cause = record.cause;
+    if (cause && cause !== err) {
+      parts.push(formatCustomErrorForMatch(cause));
+    }
+  }
+  return parts.join(" ");
+}
+
+function isCustomContextTooLongErrorText(errText: string): boolean {
+  const normalized = errText.toLowerCase();
+  return [
+    /context[_\s-]*length[_\s-]*exceeded/,
+    /maximum context length/,
+    /context window/,
+    /context.*too long/,
+    /prompt.*too long/,
+    /input.*too long/,
+    /too many tokens/,
+    /tokens?.*exceed/,
+    /exceed.*tokens?/,
+    /tokens?.*limit/,
+    /limit.*tokens?/,
+    /reduce.*context/,
+    /上下文.*(过长|超长|太长)/,
+  ].some((pattern) => pattern.test(normalized));
 }

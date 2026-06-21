@@ -5,6 +5,7 @@ import {
   CUSTOM_TOOL_ONLY_MAX_RENEWALS,
   CUSTOM_TOOL_ONLY_TIMEOUT_MS,
   classifyCustomDispatchFailure,
+  formatCustomContextTooLongNotice,
   formatCustomResponseTimeoutNotice,
   formatCustomToolNoOutputNotice,
   isCustomModelSkipOutput,
@@ -24,6 +25,8 @@ assert.equal(isCustomModelSkipOutput(undefined), false);
 
 assert.equal(formatCustomResponseTimeoutNotice(), "这轮处理超时了，我先不挡队列，后面的消息会继续处理。");
 assert.equal(formatCustomToolNoOutputNotice(), "工具这轮没产出能发的内容，我先不挡队列，后面的消息会继续处理。");
+assert.match(formatCustomContextTooLongNotice(), /\/compact/);
+assert.match(formatCustomContextTooLongNotice(), /\/new/);
 
 assert.equal(selectCustomToolFallbackText([]), null);
 assert.equal(selectCustomToolFallbackText(["  ", "\n"]), null);
@@ -40,6 +43,14 @@ assert.equal(selectCustomToolFallbackText(["a", "b"], { maxItems: 0, maxChars: 0
 
 assert.equal(classifyCustomDispatchFailure(new Error("Response timeout")), "response-timeout");
 assert.equal(classifyCustomDispatchFailure("Response timeout after 300s"), "response-timeout");
+assert.equal(classifyCustomDispatchFailure(new Error("context_length_exceeded")), "context-too-long");
+assert.equal(classifyCustomDispatchFailure("maximum context length is 128000 tokens"), "context-too-long");
+assert.equal(classifyCustomDispatchFailure("too many tokens in prompt"), "context-too-long");
+assert.equal(classifyCustomDispatchFailure("上下文过长，无法继续"), "context-too-long");
+assert.equal(classifyCustomDispatchFailure({ message: "input is too long", code: "bad_request" }), "context-too-long");
+assert.equal(classifyCustomDispatchFailure({ message: "provider failed", cause: new Error("prompt exceeds token limit") }), "context-too-long");
 assert.equal(classifyCustomDispatchFailure(new Error("other failure")), "other");
+assert.equal(classifyCustomDispatchFailure(new Error("rate limit exceeded")), "other");
+assert.equal(classifyCustomDispatchFailure(new Error("auth token expired")), "other");
 
 console.log("custom fallbacks tests passed");

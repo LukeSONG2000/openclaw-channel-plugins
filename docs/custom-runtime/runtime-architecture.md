@@ -639,6 +639,7 @@ Pure fallback policy helpers for known failure modes:
 - tool text fallback selection
 - model skip tokens such as `NO_REPLY` and `[SKIP]`
 - dispatch failure classification
+- context/token limit error classification and recovery notice text
 
 Boundary:
 
@@ -651,11 +652,12 @@ Current implemented safeguards:
 - `src/message-queue.ts` now keeps immediate commands in a small pending-immediate list if the processor has not started yet, then flushes them as soon as `startProcessor()` is called.
 - Response timeout sends a visible user notice and ignores late block/tool deliveries.
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
+- Context/token limit errors send a visible recovery notice that suggests `/compact` first and `/new` if needed.
 - Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
 
 Still separate from the pure module:
 
-- context-too-long reset suggestions
+- automatic session reset after context-too-long errors
 - queue-stuck telemetry
 - structured fallback events with peer/session/run id
 - config schema rejection formatting
