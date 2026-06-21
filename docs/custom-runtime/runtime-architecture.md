@@ -305,6 +305,7 @@ Initial slash command capability mapping:
 - `/bot-task`: `system.status`; `create`/`new`/`start`/`add`/`append`/`cancel`/`stop` require `codex.longTask`
 - `/bot-poll`: `system.status`; `create`/`new`/`close`/`end` require `game.interact`
 - `/bot-scene`: `system.status`; `set`/`bind` or direct scene names require `config.write`
+- `/bot-fallback`: `system.status`
 
 Text approval commands:
 
@@ -327,7 +328,7 @@ Gateway-side custom slash command orchestration layer.
 Current implementation status:
 
 - Runs before official plugin slash command matching.
-- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-task`, and `/bot-poll` through one adapter entry point.
+- Handles `/bot-auth`, custom auth checks for plugin-level commands, `/bot-scene`, `/bot-fallback`, `/bot-task`, and `/bot-poll` through one adapter entry point.
 - Returns typed side-effect descriptions instead of sending QQ messages directly:
   - text reply
   - keyboard reply
@@ -668,6 +669,21 @@ Implemented behavior:
 - Defaults to retaining the latest 100 events.
 - Uses the same atomic write pattern as auth/unread/task/poll stores.
 - Returns an empty list on missing, incompatible, or unreadable files so fallback handling never blocks queue recovery.
+
+### `src/custom/fallback-gateway-adapter.ts`
+
+Chat command adapter for recent fallback events.
+
+Implemented commands:
+
+- `/bot-fallback`
+- `/bot-fallback list [1-20]`
+- `/bot-fallback status [1-20]`
+
+Authorization:
+
+- Uses slash-command metadata, so access requires `system.status` through admin, scene capability, or temporary grant.
+- The command is read-only and does not mutate runtime state.
 
 Still separate from the pure module:
 

@@ -38,6 +38,8 @@ assert.equal(getSlashCommandCapability("/bot-scene status"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-scene list"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-scene set dev-lab"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-scene dev-lab"), "config.write");
+assert.equal(getSlashCommandCapability("/bot-fallback"), "system.status");
+assert.equal(getSlashCommandCapability("/bot-fallback list 5"), "system.status");
 
 const blockedPkgOverride = await matchSlashCommand({
   type: "c2c",

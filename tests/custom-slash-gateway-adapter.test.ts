@@ -216,4 +216,18 @@ assert.equal(sceneSet.reply?.kind === "text" && sceneSet.reply.text.includes("�
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
 assert.equal(sceneSet.logs?.some((item) => item.message.includes("custom scene updated")), true);
 
+const fallbackStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-fallback" },
+  rawContent: "/bot-fallback",
+  now: 6_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(fallbackStatus.handled, true);
+assert.equal(fallbackStatus.persist, undefined);
+assert.equal(fallbackStatus.reply?.kind, "text");
+assert.equal(fallbackStatus.reply?.kind === "text" && fallbackStatus.reply.text.includes("最近兜底事件"), true);
+
 console.log("custom slash gateway adapter tests passed");

@@ -432,6 +432,27 @@ registerCommand({
   handler: () => null,
 });
 
+/**
+ * /bot-fallback — custom runtime fallback event query command.
+ *
+ * The gateway handles this command against the per-account fallback event store
+ * before normal slash command matching. This registry entry only provides help
+ * text and capability metadata for custom authorization.
+ */
+registerCommand({
+  name: "bot-fallback",
+  description: "查看自定义兜底事件",
+  capability: "system.status",
+  usage: [
+    `/bot-fallback`,
+    `/bot-fallback list [数量]`,
+    `/bot-fallback status [数量]`,
+    ``,
+    `查看最近的超时、上下文过长、工具无输出等二开兜底事件。`,
+  ].join("\n"),
+  handler: () => null,
+});
+
 const DEFAULT_UPGRADE_URL = "https://docs.qq.com/doc/DSGxOZk1oVnVKVkpq";
 
 function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {

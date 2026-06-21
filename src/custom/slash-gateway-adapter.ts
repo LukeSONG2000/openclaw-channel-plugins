@@ -10,6 +10,7 @@ import {
   formatCustomAuthorizationDeniedMessage,
   handleCustomAuthCommand,
 } from "./auth-gateway-adapter.js";
+import { handleCustomFallbackCommand } from "./fallback-gateway-adapter.js";
 import { handleCustomPollCommand } from "./poll-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { handleCustomSceneCommand } from "./scene-gateway-adapter.js";
@@ -139,6 +140,19 @@ export function handleCustomSlashGatewayCommand(params: {
     }
     return handled({
       reply: customSceneCommand.reply ? { kind: "text", text: customSceneCommand.reply } : undefined,
+      persist,
+      logs,
+    });
+  }
+
+  const customFallbackCommand = handleCustomFallbackCommand({
+    accountId: params.accountId,
+    message: params.message,
+    rawContent: params.rawContent,
+  });
+  if (customFallbackCommand.handled) {
+    return handled({
+      reply: customFallbackCommand.reply ? { kind: "text", text: customFallbackCommand.reply } : undefined,
       persist,
       logs,
     });
