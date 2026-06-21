@@ -353,6 +353,16 @@ Current implementation status:
 - Carries the injected unanchored-text proactive guard through the context without importing QQ send APIs or proactive runtime state.
 - `gateway.ts` still owns token retry helpers, error-message sends, and platform delivery calls; this adapter only builds the context object.
 
+### `src/custom/dispatch-send-helpers-gateway-adapter.ts`
+
+Gateway-side helper factory for ordinary-dispatch send callbacks.
+
+Current implementation status:
+
+- Binds account credentials, account id, logger, and `ReplyContext` into the token-retry and visible error-message send helpers used by dispatch auth, fallback notices, media-tag delivery, and plain replies.
+- Accepts injected `sendWithTokenRetry()` and `sendErrorToTarget()` callbacks for deterministic tests while defaulting to `reply-dispatcher.ts` at runtime.
+- Keeps actual QQ sends, token refresh behavior, and reply-dispatcher retry semantics outside the custom runtime core; the helper only wires per-message parameters.
+
 ### `src/custom/outbound-deliver-context.ts`
 
 Pure helper for constructing outbound delivery contexts used by media-tag parsing and normal reply delivery.

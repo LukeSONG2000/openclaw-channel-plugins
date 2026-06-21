@@ -25,7 +25,7 @@ import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
 import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
-import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
+import { sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
@@ -54,6 +54,7 @@ import {
   buildCustomOutboundProactiveSource,
 } from "./custom/outbound-deliver-context.js";
 import { applyCustomGuardedMediaAutoSend } from "./custom/guarded-media-send-gateway-adapter.js";
+import { buildCustomDispatchSendHelpers } from "./custom/dispatch-send-helpers-gateway-adapter.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -1793,12 +1794,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           prepareUnanchoredTextSend: replyProactive.proactiveGuard,
         });
 
-        // 简化的 token 重试包装（使用 reply-dispatcher 的通用实现）
-        const sendWithRetry = <T>(sendFn: (token: string) => Promise<T>) =>
-          sendWithTokenRetry(account.appId, account.clientSecret, sendFn, log, account.accountId);
-
-        // 发送错误提示的辅助函数
-        const sendErrorMessage = (errorText: string) => sendErrorToTarget(replyCtx, errorText);
+        const {
+          sendWithRetry,
+          sendErrorMessage,
+        } = buildCustomDispatchSendHelpers({
+          account,
+          replyContext: replyCtx,
+          log,
+        });
 
         const dispatchAuth = checkCustomDispatchAuthorization({
           cfg: cfg as any,

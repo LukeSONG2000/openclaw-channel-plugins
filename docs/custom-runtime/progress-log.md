@@ -873,3 +873,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps the actual `sendMediaAuto()` dependency and platform side effects, but no longer repeats guard/block/send/commit logic inside the main dispatch closure.
 - The adapter preserves passive reply behavior: anchored media sends bypass proactive budget checks, while unanchored media sends are checked and committed only after a successful send.
 - Added `tests/custom-guarded-media-send-gateway-adapter.test.ts` for anchored passive media, allowed unanchored media, blocked media, and send-error no-commit behavior.
+
+抽出 dispatch 发送 helper 绑定：
+
+- Added `src/custom/dispatch-send-helpers-gateway-adapter.ts` to bind account credentials, account id, logger, and `ReplyContext` into reusable `sendWithRetry` and `sendErrorMessage` callbacks.
+- `gateway.ts` now delegates token-retry/error-message helper construction, while still owning actual approval card sends, fallback notices, media-tag delivery, and plain reply side effects.
+- The adapter accepts injected `sendWithTokenRetry()` and `sendErrorToTarget()` callbacks for tests, but defaults to `reply-dispatcher.ts` at runtime.
+- Added `tests/custom-dispatch-send-helpers-gateway-adapter.test.ts` for bound credential/log/account arguments, token forwarding, and ReplyContext error-send routing.
