@@ -440,7 +440,19 @@ Current implementation status:
 - Runs the tool-completion fallback path when dispatch completed after tool delivers but no block response.
 - Disposes the deliver debouncer and clears the stored handle so buffered static replies still flush before dispatch completion.
 - Finalizes the streaming controller through `streaming-gateway-adapter.ts`.
-- Keeps unread/history completion and outer typing cleanup in `gateway.ts`.
+- Keeps unread/history completion and the outer typing stop call in `gateway.ts`.
+
+### `src/custom/typing-keepalive-gateway-adapter.ts`
+
+Gateway-side helper for C2C input-notify and typing keepalive.
+
+Current implementation status:
+
+- Starts the initial C2C/channel-DM input-notify asynchronously so attachment processing can continue in parallel.
+- Returns the delayed `refIdx` promise used by message-reference caching, matching the existing InputNotify fallback behavior.
+- Retries once after token/401/11244-style failures by clearing the token cache through an injected callback.
+- Starts the existing `TypingKeepAlive` after the initial notify succeeds and exposes a small `stop()` handle for auth denial, block delivery, and final cleanup paths.
+- No-ops for group/guild messages because QQ input-notify is only supported for the C2C path in the current connector.
 
 ### `src/custom/dispatch-failure-gateway-adapter.ts`
 

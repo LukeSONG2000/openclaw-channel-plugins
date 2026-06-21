@@ -2,7 +2,7 @@ import WebSocket from "ws";
 import path from "node:path";
 import type { ResolvedQQBotAccount, WSPayload, InteractionEvent, MsgElement, TransportMode } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
-import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
+import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession, saveSession, clearSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
@@ -26,7 +26,6 @@ import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } fro
 import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendTextToTarget, handleStructuredPayload } from "./reply-dispatcher.js";
-import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
 import { createDeliverDebouncer, type DeliverDebouncer } from "./deliver-debounce.js";
 import { runWithRequestContext } from "./request-context.js";
@@ -137,6 +136,7 @@ import {
   startCustomUpdateCheckLoop,
   type CustomUpdateCheckResult,
 } from "./custom/update-check.js";
+import { startCustomC2CInputNotifyKeepAlive } from "./custom/typing-keepalive-gateway-adapter.js";
 import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
 import { applyCustomUrgentQueueBypass } from "./custom/urgent-queue-bypass-gateway-adapter.js";
 import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-message-routing.js";
@@ -1067,56 +1067,15 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           direction: "inbound",
         });
 
-        // 发送输入状态提示 + 启动自动续期（仅 C2C 私聊有效）
-        // refIdx 通过 Promise 延迟获取，在真正需要时再 await
-        const isC2C = event.type === "c2c" || event.type === "dm";
-        // 用对象包装避免 TS 控制流分析将 null 初始值窄化为 never
-        const typing: { keepAlive: TypingKeepAlive | null } = { keepAlive: null };
-
-        const inputNotifyPromise: Promise<string | undefined> = (async () => {
-          if (!isC2C) return undefined;
-          try {
-            let token = await getAccessToken(account.appId, account.clientSecret);
-            try {
-              const notifyResponse = await sendC2CInputNotify(token, event.senderId, event.messageId, TYPING_INPUT_SECOND);
-              log?.info(`[qqbot:${account.accountId}] Sent input notify to ${event.senderId}${notifyResponse.refIdx ? `, got refIdx=${notifyResponse.refIdx}` : ""}`);
-              // 首次成功后启动定时续期
-              typing.keepAlive = new TypingKeepAlive(
-                () => getAccessToken(account.appId, account.clientSecret),
-                () => clearTokenCache(account.appId),
-                event.senderId,
-                event.messageId,
-                log,
-                `[qqbot:${account.accountId}]`,
-              );
-              typing.keepAlive.start();
-              return notifyResponse.refIdx;
-            } catch (notifyErr) {
-              const errMsg = String(notifyErr);
-              if (errMsg.includes("token") || errMsg.includes("401") || errMsg.includes("11244")) {
-                log?.info(`[qqbot:${account.accountId}] InputNotify token expired, refreshing...`);
-                clearTokenCache(account.appId);
-                token = await getAccessToken(account.appId, account.clientSecret);
-                const notifyResponse = await sendC2CInputNotify(token, event.senderId, event.messageId, TYPING_INPUT_SECOND);
-                typing.keepAlive = new TypingKeepAlive(
-                  () => getAccessToken(account.appId, account.clientSecret),
-                  () => clearTokenCache(account.appId),
-                  event.senderId,
-                  event.messageId,
-                  log,
-                  `[qqbot:${account.accountId}]`,
-                );
-                typing.keepAlive.start();
-                return notifyResponse.refIdx;
-              } else {
-                throw notifyErr;
-              }
-            }
-          } catch (err) {
-            log?.error(`[qqbot:${account.accountId}] sendC2CInputNotify error: ${err}`);
-            return undefined;
-          }
-        })();
+        // 发送输入状态提示 + 启动自动续期（仅 C2C 私聊有效）。
+        // refIdx 通过 Promise 延迟获取，在真正需要时再 await。
+        const typing = startCustomC2CInputNotifyKeepAlive({
+          accountId: account.accountId,
+          message: event,
+          getToken: () => getAccessToken(account.appId, account.clientSecret),
+          clearTokenCache: () => clearTokenCache(account.appId),
+          log,
+        });
 
         const messageRoute = resolveCustomGatewayMessageRouteContext(event);
         const { isGroupChat, peerId, routePeer } = messageRoute;
@@ -1219,8 +1178,8 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
 
         // 2. 缓存当前消息自身的 msgIdx（供将来被引用时查找）
         // 优先使用推送事件中的 msgIdx（来自 message_scene.ext），否则使用 InputNotify 返回的 refIdx
-        // inputNotifyPromise 在这里才 await，此时附件下载等工作已并行完成
-        const inputNotifyRefIdx = await inputNotifyPromise;
+        // input notify refIdx 在这里才 await，此时附件下载等工作已并行完成
+        const inputNotifyRefIdx = await typing.inputNotifyRefIdx;
         const currentRefRecord = buildCustomCurrentRefIndexRecord({
           event,
           inputNotifyRefIdx,
@@ -1571,7 +1530,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           log,
         });
         if (dispatchAuth.shouldStop) {
-          typing.keepAlive?.stop();
+          typing.stop();
           return;
         }
 
@@ -1727,7 +1686,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
                     content: event.content,
                   },
                   state: fallbackState,
-                  stopTyping: () => typing.keepAlive?.stop(),
+                  stopTyping: () => typing.stop(),
                   clearResponseTimeout: () => {
                     if (timeoutId) {
                       clearTimeout(timeoutId);
@@ -1908,7 +1867,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           });
         } finally {
           // 无论成功/失败/超时，都停止输入状态续期
-          typing.keepAlive?.stop();
+          typing.stop();
         }
         }); // end runWithRequestContext
       };

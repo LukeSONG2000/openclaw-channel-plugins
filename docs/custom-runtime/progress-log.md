@@ -1018,3 +1018,10 @@ Added configured scene binding inspection:
 - The adapter builds `claw_cfg` ACK payloads, resolves group policy/require-mention/mention patterns with scene-aware agent routing, and applies `require_mention` updates for default or named accounts through an injected config API.
 - `gateway.ts` now only injects config API, routing, plugin/framework versions, and the QQ ACK callback while keeping token ownership at the boundary.
 - Added `tests/custom-config-interaction-gateway-adapter.test.ts` for query ACKs, default-account updates, named-account updates, no-change updates, version parsing fallback, and non-config interaction no-op behavior.
+
+抽出 C2C typing keepalive 网关适配器：
+
+- Added `src/custom/typing-keepalive-gateway-adapter.ts` to start C2C input-notify asynchronously, retry token-expired failures, start `TypingKeepAlive`, and expose a small stop handle.
+- `gateway.ts` now only injects token/cache callbacks and awaits the returned refIdx promise when building the current-message ref-index record.
+- Group/guild messages remain no-op because current QQ input-notify support is C2C-only; auth denial, block delivery, and final cleanup now call the adapter's `stop()` handle.
+- Added `tests/custom-typing-keepalive-gateway-adapter.test.ts` for non-C2C no-op, success/refIdx capture, keepalive start/stop, token-refresh retry, and non-token failure logging.

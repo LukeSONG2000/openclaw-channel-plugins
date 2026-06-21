@@ -84,6 +84,7 @@ Out of scope for the first custom runtime:
 - `src/custom/group-prompt-context.ts`: pure group prompt context helper for sender label, group subject, group intro/behavior prompt merge, and QQBot system prompt merging.
 - `src/custom/guarded-media-send-gateway-adapter.ts`: gateway-side guarded media auto-send helper for proactive media guard checks, send callbacks, logging, and budget commits.
 - `src/custom/inbound-event-gateway-adapter.ts`: gateway-side inbound event dispatcher for normalized messages, proactive acceptance, group robot events, delete diagnostics, and interaction handoff.
+- `src/custom/typing-keepalive-gateway-adapter.ts`: gateway-side C2C input-notify starter with token refresh retry and keepalive stop handle.
 - `src/custom/inbound-context-payload.ts`: pure `finalizeInboundContext()` payload builder for message addresses, group metadata, voice/media fields, quote fields, and QQBot system prompts.
 - `src/custom/inbound-media-context.ts`: pure inbound media context builder for image/voice dynamic prompt lines, voice summary counters, and local/remote media split.
 - `src/custom/message-reference-context.ts`: pure quote/ref-index context helper for inbound quote resolution and current-message ref-index record construction.
