@@ -99,6 +99,7 @@ Out of scope for the first custom runtime:
 - `src/custom/slash-effects-gateway-adapter.ts`: gateway-side custom slash effect applier for logs, state/config persistence, reply delivery, and task notification results.
 - `src/custom/slash-reply-delivery-gateway-adapter.ts`: gateway-side custom slash reply delivery for text, keyboard fallback, auth approval cards, and management-group copies.
 - `src/custom/slash-router.ts`: pluggable custom slash route table for scene, fallback, queue, unread, task, poll, game, and deploy-confirmation commands.
+- `src/custom/config-interaction-gateway-adapter.ts`: gateway-side official QQ config interaction handler for `claw_cfg` query/update ACK payloads.
 - `src/custom/interaction-effects-gateway-adapter.ts`: gateway-side custom callback-card effect applier for logs, state persistence, and reply delivery.
 - `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and deploy-confirmation cards.
 - `src/custom/deploy-confirmation.ts`: pure safety confirmation runtime for guarded deployment/update decisions; it records confirm/cancel state but never executes upgrades.

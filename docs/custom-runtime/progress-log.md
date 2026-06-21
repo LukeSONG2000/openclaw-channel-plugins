@@ -1011,3 +1011,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only injects task runtime, persistence callback, proactive-guarded text sender, and account logger when command-executor complete/fail callbacks return effects.
 - Async completion/failure notifications still require explicit unanchored opt-in and the gateway keeps using the same proactive acceptance/budget guard before sending C2C/group notices.
 - Added `tests/custom-task-execution-effects-gateway-adapter.test.ts` for effect-to-delivery mapping, missing-task skip behavior, anchored sends, unanchored group/channel policy, empty no-op, and async failure logging.
+
+抽出 QQ config interaction ACK 处理：
+
+- Added `src/custom/config-interaction-gateway-adapter.ts` to handle official QQ config interaction query/update types `2001`/`2002` outside `gateway.ts`.
+- The adapter builds `claw_cfg` ACK payloads, resolves group policy/require-mention/mention patterns with scene-aware agent routing, and applies `require_mention` updates for default or named accounts through an injected config API.
+- `gateway.ts` now only injects config API, routing, plugin/framework versions, and the QQ ACK callback while keeping token ownership at the boundary.
+- Added `tests/custom-config-interaction-gateway-adapter.test.ts` for query ACKs, default-account updates, named-account updates, no-change updates, version parsing fallback, and non-config interaction no-op behavior.

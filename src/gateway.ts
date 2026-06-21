@@ -6,7 +6,7 @@ import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, send
 import { loadSession, saveSession, clearSession } from "./session-store.js";
 import { recordKnownUser, flushKnownUsers } from "./known-users.js";
 import { getQQBotRuntime } from "./runtime.js";
-import { isGroupAllowed, resolveGroupName, resolveGroupPrompt, resolveHistoryLimit, resolveGroupPolicy, resolveGroupConfig, resolveIgnoreOtherMentions, resolveMentionPatterns } from "./config.js";
+import { isGroupAllowed, resolveGroupName, resolveGroupPrompt, resolveHistoryLimit, resolveIgnoreOtherMentions, resolveMentionPatterns } from "./config.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { QQBotApprovalHandler, registerApprovalHandler, unregisterApprovalHandler, getApprovalHandler } from "./approval-handler.js";
 import {
@@ -15,7 +15,7 @@ import {
 } from "./group-history.js";
 
 import { setRefIndex, getRefIndex, formatRefEntryForAgent, formatMessageReferenceForAgent, flushRefIndex, type RefAttachmentSummary } from "./ref-index-store.js";
-import { matchSlashCommand, getFrameworkVersion, parseFrameworkDateVersion, type SlashCommandContext, type SlashCommandFileResult, type SlashCommandDelegateResult } from "./slash-commands.js";
+import { matchSlashCommand, getFrameworkVersion, type SlashCommandContext, type SlashCommandFileResult, type SlashCommandDelegateResult } from "./slash-commands.js";
 import { createMessageQueue, type QueuedMessage } from "./message-queue.js";
 import { startImageServer, isImageServerRunning, type ImageServerConfig } from "./image-server.js";
 import { resolveTTSConfig } from "./utils/audio-convert.js";
@@ -39,10 +39,7 @@ import {
   resolveCustomGroupImplicitMention,
   shouldHandleCustomTextCommands,
 } from "./custom/group-message-gate-context.js";
-import {
-  resolveCustomGroupActivation,
-  type CustomGroupActivationMode,
-} from "./custom/group-activation.js";
+import { resolveCustomGroupActivation } from "./custom/group-activation.js";
 import {
   buildCustomGroupPromptContext,
 } from "./custom/group-prompt-context.js";
@@ -76,6 +73,7 @@ import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./custom/dispatch-authorization-gateway-adapter.js";
 import { applyCustomAdminGroupDelivery } from "./custom/admin-group-delivery-gateway-adapter.js";
+import { handleCustomConfigInteractionGateway } from "./custom/config-interaction-gateway-adapter.js";
 import { applyCustomInteractionGatewayEffects } from "./custom/interaction-effects-gateway-adapter.js";
 import { handleCustomInteractionGatewayButton, type CustomInteractionGatewayResult } from "./custom/interaction-gateway-adapter.js";
 import {
@@ -145,12 +143,6 @@ import { resolveCustomGatewayMessageRouteContext } from "./custom/gateway-messag
 
 // ============ Interaction 处理 ============
 
-/** 配置查询交互类型 */
-const INTERACTION_TYPE_CONFIG_QUERY = 2001;
-
-/** 配置更新交互类型 */
-const INTERACTION_TYPE_CONFIG_UPDATE = 2002;
-
 /** 处理 INTERACTION_CREATE 事件 */
 async function handleInteractionCreate(params: {
   event: InteractionEvent;
@@ -170,135 +162,20 @@ async function handleInteractionCreate(params: {
   const token = await getAccessToken(account.appId, account.clientSecret);
   const interaction = normalizeQQBotInteractionEvent(event);
 
-  if (interaction.dataType === INTERACTION_TYPE_CONFIG_QUERY) {
-    // 从框架 configApi 读取最新配置（而非闭包中的旧 cfg），确保配置查询返回的数据与磁盘一致
-    const runtime = getQQBotRuntime();
-    const configApi = runtime.config as {
+  const configInteraction = await handleCustomConfigInteractionGateway({
+    accountId: account.accountId,
+    interaction,
+    getConfigApi: () => getQQBotRuntime().config as {
       loadConfig: () => Record<string, unknown>;
       writeConfigFile: (cfg: unknown) => Promise<void>;
-    };
-    const latestCfg = configApi.loadConfig() as Record<string, unknown>;
-
-    const groupOpenid = interaction.groupOpenid ?? "";
-    const groupCfg = groupOpenid ? resolveGroupConfig(latestCfg as any, groupOpenid, account.accountId) : null;
-    const groupPolicy = resolveGroupPolicy(latestCfg as any, account.accountId);
-    // require_mention 协议：字符串 "mention" | "always"（mention=@机器人时激活，always=总是激活）
-    const configRequireMention = groupCfg?.requireMention ?? true;
-    const requireMentionMode: CustomGroupActivationMode = configRequireMention ? "mention" : "always";
-    const pluginVersion = getApiPluginVersion();
-    const fwVersionRaw = getFrameworkVersion();
-    const clawVer = parseFrameworkDateVersion(fwVersionRaw) ?? fwVersionRaw;
-
-    // 通过路由解析 agentId（与消息处理流程一致），用于 agent-aware 的 mentionPatterns
-    const interactionAgentId = groupOpenid
-      ? (() => {
-        const peer: CustomRoutePeer = { kind: "group", id: groupOpenid };
-        const route = runtime.channel?.routing?.resolveAgentRoute?.({
-          cfg: latestCfg,
-          channel: "qqbot",
-          accountId: account.accountId,
-          peer,
-        }) as CustomAgentRoute | undefined;
-        if (!route) return undefined;
-        const scene = resolveCustomRuntimeConfig(latestCfg as any).enabled
-          ? resolveCustomSceneState(latestCfg as any, { kind: "group", id: groupOpenid })
-          : null;
-        return applyCustomSceneAgentRoute({
-          route,
-          scene,
-          routing: runtime.channel?.routing,
-          peer,
-          cfg: latestCfg,
-        }).agentId;
-      })()
-      : undefined;
-
-    // mention_patterns 协议：逗号分隔的字符串（@文本的名称提及BOT名，多个使用,分隔）
-    const mentionPatternsArr: string[] = resolveMentionPatterns(latestCfg as any, interactionAgentId);
-    const mentionPatterns = mentionPatternsArr.join(",");
-
-    const clawCfg = {
-      channel_type: "qqbot",
-      channel_ver: pluginVersion,
-      claw_type: "openclaw",
-      claw_ver: clawVer,
-      require_mention: requireMentionMode,
-      group_policy: groupPolicy,
-      mention_patterns: mentionPatterns,
-      online_state: "online",
-    };
-
-    await acknowledgeInteraction(token, event.id, 0, { claw_cfg: clawCfg });
-    log?.info(`[qqbot:${account.accountId}] Interaction ACK (type=${INTERACTION_TYPE_CONFIG_QUERY}) sent: ${event.id}, claw_cfg=${JSON.stringify(clawCfg)}`);
-  } else if (interaction.dataType === INTERACTION_TYPE_CONFIG_UPDATE) {
-    // type=2002: 配置更新交互，从 resolved.claw_cfg 获取更新信息并写入本地配置
-    const clawCfgUpdate = interaction.resolved?.claw_cfg as Record<string, unknown> | undefined;
-    const groupOpenid = interaction.groupOpenid ?? "";
-
-    const runtime = getQQBotRuntime();
-    const configApi = runtime.config as {
-      loadConfig: () => Record<string, unknown>;
-      writeConfigFile: (cfg: unknown) => Promise<void>;
-    };
-
-    const currentCfg = structuredClone(configApi.loadConfig()) as Record<string, unknown>;
-    const qqbot = ((currentCfg.channels ?? {}) as Record<string, unknown>).qqbot as Record<string, unknown> | undefined;
-
-    let changed = false;
-
-    if (clawCfgUpdate) {
-      // 更新 require_mention（群级别）——协议为 "mention" | "always"，写回配置时转为 boolean
-      if (clawCfgUpdate.require_mention !== undefined && groupOpenid && qqbot) {
-        const requireMentionBool = clawCfgUpdate.require_mention === "mention";
-        const accountId = account.accountId;
-        const isNamedAccount = accountId !== "default" && (qqbot.accounts as Record<string, Record<string, unknown>> | undefined)?.[accountId];
-
-        if (isNamedAccount) {
-          const accounts = qqbot.accounts as Record<string, Record<string, unknown>>;
-          const acct = accounts[accountId] ?? {};
-          const groups = (acct.groups ?? {}) as Record<string, Record<string, unknown>>;
-          groups[groupOpenid] = { ...groups[groupOpenid], requireMention: requireMentionBool };
-          acct.groups = groups;
-          accounts[accountId] = acct;
-          qqbot.accounts = accounts;
-        } else {
-          const groups = (qqbot.groups ?? {}) as Record<string, Record<string, unknown>>;
-          groups[groupOpenid] = { ...groups[groupOpenid], requireMention: requireMentionBool };
-          qqbot.groups = groups;
-        }
-        changed = true;
-      }
-    }
-
-    if (changed) {
-      await configApi.writeConfigFile(currentCfg);
-      log?.info(`[qqbot:${account.accountId}] Config updated via interaction ${event.id}: ${JSON.stringify({
-        require_mention: clawCfgUpdate?.require_mention,
-        group_openid: groupOpenid || undefined,
-      })}`);
-    }
-
-    // 无论更新是否成功，ACK 都上报最新的 claw_cfg 快照（写入后重新读取确保一致）
-    const latestCfg = changed ? (configApi.loadConfig() as Record<string, unknown>) : currentCfg;
-    const updatedGroupCfg = groupOpenid ? resolveGroupConfig(latestCfg as any, groupOpenid, account.accountId) : null;
-    const updatedRequireMention = updatedGroupCfg?.requireMention ?? true;
-    const updatedRequireMentionMode: CustomGroupActivationMode = updatedRequireMention ? "mention" : "always";
-    const pluginVersion = getApiPluginVersion();
-    const fwVersionRaw = getFrameworkVersion();
-    const clawVer = parseFrameworkDateVersion(fwVersionRaw) ?? fwVersionRaw;
-
-    const ackClawCfg = {
-      channel_type: "qqbot",
-      channel_ver: pluginVersion,
-      claw_type: "openclaw",
-      claw_ver: clawVer,
-      require_mention: updatedRequireMentionMode,
-      online_state: "online",
-    };
-
-    await acknowledgeInteraction(token, event.id, 0, { claw_cfg: ackClawCfg });
-    log?.info(`[qqbot:${account.accountId}] Interaction ACK (type=${INTERACTION_TYPE_CONFIG_UPDATE}) sent: ${event.id}, claw_cfg=${JSON.stringify(ackClawCfg)}`);
-  } else {
+    },
+    routing: getQQBotRuntime().channel?.routing,
+    acknowledge: (code, payload) => acknowledgeInteraction(token, event.id, code, payload),
+    pluginVersion: getApiPluginVersion(),
+    frameworkVersion: getFrameworkVersion(),
+    log,
+  });
+  if (!configInteraction.handled) {
     // 普通按钮交互：先 ACK
     await acknowledgeInteraction(token, event.id);
     log?.debug?.(`[qqbot:${account.accountId}] Interaction ACK sent: ${event.id}`);

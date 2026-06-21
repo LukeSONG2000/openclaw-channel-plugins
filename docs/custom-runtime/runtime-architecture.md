@@ -565,8 +565,21 @@ Current implementation status:
 - Maps callback source fields into a custom peer: `group_openid` -> group, `user_openid` -> C2C, `channel_id` -> channel, `guild_id` -> DM fallback.
 - Resolves follow-up reply targets for group, C2C, and channel callbacks without sending messages.
 - Parses legacy OpenClaw approval button payloads (`approve:<id>:allow-once|allow-always|deny`) so gateway approval handling no longer owns regex details.
-- Custom auth/poll/game/deploy callback routing now receives normalized actor/source/button fields from `gateway.ts`; config query/update interactions still use the original QQ event for ACK payloads.
+- Custom auth/poll/game/deploy callback routing now receives normalized actor/source/button fields from `gateway.ts`; config query/update interactions use the same normalized interaction fields before ACK.
 - Interaction field coverage uses the same message-flow matrix so C2C/group cards can be deployed first while channel/DM interaction behavior stays explicitly marked as unverified.
+
+### `src/custom/config-interaction-gateway-adapter.ts`
+
+Gateway-side handler for official QQ connector config interactions.
+
+Current implementation status:
+
+- Handles `INTERACTION_CREATE` config query/update types `2001` and `2002`.
+- Builds `claw_cfg` ACK payloads with plugin version, framework date version, group policy, current require-mention mode, mention patterns, and online state.
+- Reads the latest config snapshot before query ACKs so QQ sees the same state as disk.
+- Applies `require_mention` updates to default or named-account group config and writes the updated config through an injected config API.
+- Resolves agent-aware mention patterns through the same routing + custom scene agent override path used by normal message processing.
+- Leaves token lookup and the actual QQ ACK call in `gateway.ts` through an injected `acknowledge` callback.
 
 ### `src/custom/message-delete-events.ts`
 
@@ -763,7 +776,7 @@ Current implementation status:
 Important boundary:
 
 - The router has no QQ API dependency and does not ACK interactions.
-- Config query/update interactions still stay in `gateway.ts` because they are part of the official connector protocol.
+- Config query/update interaction ACK payload construction lives in `src/custom/config-interaction-gateway-adapter.ts`.
 - Legacy approval buttons with `approve:<approvalId>:...` still stay in `gateway.ts` because they are tied to the existing `approval-handler`.
 
 ### `src/custom/unread-runtime.ts`
