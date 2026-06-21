@@ -738,3 +738,10 @@ Added configured scene binding inspection:
 - `gateway.ts` no longer imports fallback event store helpers or alert decision policy directly; urgent queue bypass and dispatch timeout/context/tool fallback paths share the same recorder.
 - The recorder accepts an alert delivery callback and still does not send QQ messages; management-group delivery remains behind `admin-group-delivery-gateway-adapter` and its proactive guard.
 - Added `tests/custom-fallback-record-gateway-adapter.test.ts` for below-threshold persistence, threshold alert creation, prebuilt urgent events, and runtime-disabled alert skipping.
+
+抽出 dispatch fallback 状态跟踪器：
+
+- Added `src/custom/fallback-dispatch-state.ts` as a pure per-dispatch tracker for response/block state, model-output visibility, timeout state, tool deliver counts, tool text/media collections, block-media dedupe, and tool-only renewal counters.
+- `gateway.ts` now keeps timer handles and QQ sends locally, but reads fallback snapshots from the tracker when recording timeout/context/tool fallback events.
+- This reduces mutable fallback counters in the main dispatch loop and keeps the state reusable for later inbound normalization or runner-specific dispatch adapters.
+- Added `tests/custom-fallback-dispatch-state.test.ts` for response/block flags, tool collection counts, media dedupe, renewal limits, timeout state, and model-output visibility.

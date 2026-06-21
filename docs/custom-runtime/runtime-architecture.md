@@ -897,6 +897,18 @@ Still separate from the pure module:
 - automatic session reset after context-too-long errors
 - config schema rejection formatting
 
+### `src/custom/fallback-dispatch-state.ts`
+
+Pure per-dispatch fallback state tracker.
+
+Current implementation status:
+
+- Tracks whether any response arrived, whether a block response arrived, whether that block was real model output, and whether the dispatch has timed out.
+- Collects tool deliver text/media counts and mutable media URLs for fallback forwarding without spreading counters across `gateway.ts`.
+- Owns block-media dedupe state for tool media that arrives after a block reply.
+- Tracks tool-only fallback renewal count and one-shot fallback-sent state, keeping timer handles themselves in `gateway.ts`.
+- Does not log, send, persist, or know QQ/OpenClaw APIs; it only exposes a snapshot used by the fallback recorder.
+
 ### `src/custom/fallback-record-gateway-adapter.ts`
 
 Gateway-side fallback recorder and alert trigger.
