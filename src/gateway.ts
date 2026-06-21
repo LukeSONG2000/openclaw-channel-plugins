@@ -119,19 +119,16 @@ import {
   recordCustomFallbackEventGateway,
   type CustomDispatchFallbackRecorder,
 } from "./custom/fallback-record-gateway-adapter.js";
-import {
-  handleCustomToolDeliverGateway,
-  handleCustomToolOnlyCompletionFallback,
-} from "./custom/tool-deliver-gateway-adapter.js";
+import { handleCustomToolDeliverGateway } from "./custom/tool-deliver-gateway-adapter.js";
 import { sendCustomToolFallback } from "./custom/tool-fallback-gateway-adapter.js";
 import {
-  finalizeCustomStreamingController,
   handleCustomStreamingDeliver,
   handleCustomStreamingError,
   handleCustomStreamingPartialReply,
 } from "./custom/streaming-gateway-adapter.js";
 import { applyCustomStaticDeliverGateway } from "./custom/static-deliver-gateway-adapter.js";
 import { dispatchCustomDebouncedDeliver } from "./custom/deliver-debounce-gateway-adapter.js";
+import { finalizeCustomDispatchGateway } from "./custom/dispatch-finalize-gateway-adapter.js";
 import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
@@ -2130,28 +2127,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             });
 
           } finally {
-            // 清理 tool-only 兜底定时器
-            if (toolOnlyTimeoutId) {
-              clearTimeout(toolOnlyTimeoutId);
-              toolOnlyTimeoutId = null;
-            }
-            // dispatch 完成后，如果只有 tool 没有 block，且尚未发过兜底，立即兜底
-            await handleCustomToolOnlyCompletionFallback({
+            await finalizeCustomDispatchGateway({
               accountId: account.accountId,
-              state: fallbackState,
+              toolOnlyTimer: toolOnlyTimeoutId,
+              setToolOnlyTimer: (timer) => { toolOnlyTimeoutId = timer; },
+              fallbackState,
               recordFallbackEvent,
               sendToolFallback,
-              log,
-            });
-            // 销毁 debouncer，flush 剩余缓冲的文本
-            if (debouncer) {
-              await debouncer.dispose();
-              debouncer = null;
-            }
-
-            await finalizeCustomStreamingController({
-              accountId: account.accountId,
-              controller: streamingController,
+              debouncer,
+              setDebouncer: (nextDebouncer) => { debouncer = nextDebouncer; },
+              streamingController,
               log,
             });
 

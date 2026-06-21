@@ -955,3 +955,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only stores the current `DeliverDebouncer` handle and injects `createDeliverDebouncer()` plus the static deliver executor.
 - Disabled debounce still falls through to direct static delivery when the factory returns `null`.
 - Added `tests/custom-deliver-debounce-gateway-adapter.test.ts` for created debouncer, reused debouncer, and direct dispatch paths.
+
+抽出 dispatch finally 收尾清理：
+
+- Added `src/custom/dispatch-finalize-gateway-adapter.ts` to centralize ordinary dispatch `finally` cleanup for tool-only timer clearing, tool completion fallback, debouncer disposal, and streaming finalization.
+- `gateway.ts` now keeps only mutable handles for `toolOnlyTimeoutId` and `debouncer`; the adapter owns the cleanup order and reuses the existing tool/streaming adapters.
+- Unread runtime completion and outer typing cleanup intentionally remain in `gateway.ts` because they depend on group-history/runtime state beyond one dispatch send pipeline.
+- Added `tests/custom-dispatch-finalize-gateway-adapter.test.ts` for timer clearing, completion fallback, debouncer disposal, streaming finalization, and no-op cleanup paths.

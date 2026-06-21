@@ -418,6 +418,18 @@ Current implementation status:
 - Preserves disabled-debounce behavior by falling back to the injected direct deliver executor when the factory returns `null`.
 - Keeps the actual debounce implementation in `src/deliver-debounce.ts`; this adapter only wires account-specific prefix, config, executor, and handle mutation.
 
+### `src/custom/dispatch-finalize-gateway-adapter.ts`
+
+Gateway-side `finally` cleanup helper for an ordinary dispatch.
+
+Current implementation status:
+
+- Clears the tool-only fallback timer through an injected timer clearer while `gateway.ts` only owns the mutable handle.
+- Runs the tool-completion fallback path when dispatch completed after tool delivers but no block response.
+- Disposes the deliver debouncer and clears the stored handle so buffered static replies still flush before dispatch completion.
+- Finalizes the streaming controller through `streaming-gateway-adapter.ts`.
+- Keeps unread/history completion and outer typing cleanup in `gateway.ts`.
+
 ### `src/custom/dispatch-failure-gateway-adapter.ts`
 
 Gateway-side orchestration helper for dispatch race failures.
