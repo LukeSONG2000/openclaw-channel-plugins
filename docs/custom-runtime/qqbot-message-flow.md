@@ -21,12 +21,14 @@ Read-only check on `laptop-home` on 2026-06-21:
 - User-provided human alias for that test group is QQ `945739251` / `Master Luke的图书馆`; the runtime routing key must use the group openid, not the raw QQ group number.
 - `known-users.json` records 32 observed users: 7 C2C entries and 25 group-member entries, all by openid.
 - It includes group nicknames for observed group members, but C2C entries do not reliably include human-readable nicknames.
-- `known-users.json` and `ref-index.jsonl` show that the server sees group members by `member_openid`, optional nickname, and `groupOpenid`; raw QQ numbers are not present in these local records.
+- `known-users.json` shows that the server sees group members by `member_openid`, optional nickname, and `groupOpenid`; raw QQ numbers are not present in these local records.
 - `ref-index.jsonl` uses a `{ k, t, v }` wrapper where `k` is the ref index, `t` is timestamp, and `v` stores cached sender/content/attachment metadata.
-- Current `ref-index.jsonl` has 2379 records; 163 records carry attachments and 166 attachment entries were observed.
+- Current `ref-index.jsonl` has 2384 records; 164 records carry attachments and 167 attachment entries were observed.
+- `ref-index.jsonl` value keys are `content`, `senderId`, `timestamp`, optional `senderName`, optional `isBot`, and optional `attachments`; it is not a reliable source for group openid mapping.
 - Observed attachment categories include `image/jpeg`, `image/png`, `image/gif`, `image`, `file`, and `voice`.
 - Observed attachment keys include `type`, `filename`, `contentType`, `localPath`, `transcript`, and `transcriptSource`; all sampled attachments are local cached files, not raw remote URLs.
 - Two observed voice attachment entries include ASR transcript metadata.
+- A 2026-06-21 read-only refresh confirmed `openclaw-gateway.service` is active, no raw numeric QQ ids are stored in `known-users.json`, and the attachment distribution remains consistent: voice 2, JPEG 81, generic image 28, file 4, PNG 22, GIF 30.
 - `journalctl --user -u openclaw-gateway` currently reports no journal files, so the durable evidence source on this host is the QQBot data directory plus service status, not full historical event logs.
 
 Privacy note: server evidence in this document records identifiers and capability facts only. Message text from private chats/groups should not be copied into docs unless needed for a narrow debugging case.
@@ -53,6 +55,26 @@ The gateway uses full intents:
 Official event docs note that duplicate delivery of the same `msg_id` can happen in extreme cases, and passive reply code should use `msg_seq`/dedupe to avoid duplicate replies. Local `api.ts` generates `msg_seq` for C2C/group sends.
 
 Official event docs also state message order is not guaranteed to be strictly ordered; if strict ordering matters, the application should buffer and sort by event/message sequence. Local code currently processes gateway events as they arrive.
+
+## Development Capability Matrix
+
+Use this table as the first decision point when adding custom runtime behavior.
+
+| Scene | Receive event | Stable peer key | Stable actor key | Display fields | Current receive status | Current send status |
+| --- | --- | --- | --- | --- | --- | --- |
+| QQ C2C | `C2C_MESSAGE_CREATE` | `qqbot:c2c:{author.user_openid}` | `author.user_openid` | no reliable nickname in current server state | Text, quote metadata, images/GIF/files/voice observed through local processing | Text/Markdown, inline keyboard, image/voice/video/file, streaming text, passive and proactive wrappers |
+| QQ group | `GROUP_AT_MESSAGE_CREATE`, `GROUP_MESSAGE_CREATE` | `qqbot:group:{group_openid}` | `author.member_openid` | `author.username`, mention usernames when provided | Text, mentions, quote metadata, images/GIF/files/voice observed; raw QQ group/member numbers not exposed | Text/Markdown, inline keyboard, image/voice/video/file, passive and proactive wrappers |
+| Guild channel | `AT_MESSAGE_CREATE` | `qqbot:channel:{channel_id}` | `author.id` | `author.username`, `member.nick` when provided | Basic text/attachments normalized | Text send through `/channels/{channel_id}/messages`; custom cards/media are not the focus of current runtime |
+| Channel DM | `DIRECT_MESSAGE_CREATE` | `qqbot:dm:{guild_id}` or current queue `dm:{author.id}` needs audit | `author.id` | `author.username` when provided | Basic text/attachments normalized | `sendDmMessage` exists, but several current paths treat `dm` like C2C fallback; audit before adding scene behavior |
+| Interaction | `INTERACTION_CREATE` | scene-specific openid fields | `group_member_openid`, `user_openid`, or resolved `user_id` | button metadata only | C2C/group auth and poll callbacks handled | Must ACK with `PUT /interactions/{id}`; follow-up replies use C2C/group send wrappers where available |
+
+Implementation rules:
+
+- Route and authorize by openid fields only. Raw QQ numbers such as `945739251` and `1137586795` are human aliases, not event identifiers in this connector.
+- Store human labels separately from policy keys. Labels can change or be absent; openids are the durable keys for scenes, auth, proactive budgets, unread state, task sandboxes, and polls.
+- Treat `ref-index.jsonl` as quote/context cache, not as the source of peer mapping. Use `known-users.json`, config, and fresh inbound events for openid mapping.
+- Prefer C2C/group custom features first. They have the best local wrapper coverage for messages, media, inline keyboards, proactive acceptance, and current tests.
+- Treat channel DM and recall/delete state as unverified until there is direct server evidence and a gateway event mapping.
 
 ## C2C Fields
 
@@ -195,6 +217,21 @@ Local API wrappers currently provide:
 - `sendC2CStreamMessage`
 
 The connector switches text sends to Markdown when `markdownSupport` is true. Inline keyboard sending is currently wrapped for C2C and group messages, and custom auth cards use those paths.
+
+Current send matrix:
+
+| Capability | C2C | Group | Guild channel | Channel DM | Notes |
+| --- | --- | --- | --- | --- | --- |
+| Plain text | `sendC2CMessage` | `sendGroupMessage` | `sendChannelMessage` | `sendDmMessage` | C2C/group include `msg_seq`; passive sends include `msg_id` when available |
+| Markdown text | `sendC2CMessage` when `markdownSupport=true` | `sendGroupMessage` when `markdownSupport=true` | not via current wrapper | not via current wrapper | Local C2C/group body uses `msg_type=2` and `markdown.content` |
+| Inline keyboard/cards | `sendC2CMessageWithInlineKeyboard` | `sendGroupMessageWithInlineKeyboard` | not wired for custom runtime | not wired for custom runtime | Auth approvals and polls use this path; text fallback commands remain required |
+| Image | `sendC2CImageMessage` | `sendGroupImageMessage` | skipped or text fallback in current outbound code | not audited | Uses rich media upload, then `msg_type=7` media send |
+| Voice | `sendC2CVoiceMessage` | `sendGroupVoiceMessage` | text fallback in current reply dispatcher | not audited | Conversion/fallback is handled outside `api.ts` |
+| Video | `sendC2CVideoMessage` | `sendGroupVideoMessage` | not the current focus | not audited | Uses media upload |
+| File | `sendC2CFileMessage` | `sendGroupFileMessage` | not the current focus | not audited | Chunked upload helpers exist for larger C2C/group files |
+| Typing indicator | `sendC2CInputNotify` | no local wrapper | no local wrapper | no local wrapper | C2C only in current code |
+| Proactive text | `sendProactiveC2CMessage` | `sendProactiveGroupMessage` | no local proactive helper | no local proactive helper | Must pass custom proactive budget/acceptance policy before use |
+| Streaming text | `sendC2CStreamMessage` | no local stream wrapper | no local stream wrapper | no local stream wrapper | Current streaming support is C2C-only |
 
 Current local gap:
 

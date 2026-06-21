@@ -80,6 +80,13 @@ Added structured fallback event logs:
 - Added `/bot-fallback summary [数量]` to aggregate recent fallback kinds and max queue pressure from chat.
 - Future admin notification cards can reuse the same pure event shape.
 
+Refreshed QQBot receive/send capability evidence:
+
+- Confirmed the deployed gateway is active and current durable server state still stores users by openid only, with no raw numeric QQ ids in `known-users.json`.
+- Updated `docs/custom-runtime/qqbot-message-flow.md` with a development capability matrix for C2C, group, guild channel, channel DM, and interaction events.
+- Added a send capability matrix covering text/Markdown/cards/media/proactive/streaming wrappers and marking channel-DM behavior as unaudited.
+- Corrected `ref-index.jsonl` scope: it is a quote/context cache with sender/content/attachment metadata, not a reliable group-openid mapping source.
+
 Extracted unread/follow-up message flow into pure runtime:
 
 - Added `src/custom/unread-runtime.ts` with no gateway, QQ API, timer, filesystem, or OpenClaw SDK dependency.
