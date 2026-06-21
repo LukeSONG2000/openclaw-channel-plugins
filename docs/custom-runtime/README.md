@@ -71,6 +71,6 @@ Out of scope for the first custom runtime:
 - `src/custom/unread-runtime.ts`: pure unread/follow-up/sleep-digest state machine.
 - `src/custom/unread-gateway-adapter.ts`: effect bridge between unread runtime and gateway queue/history types.
 - `src/custom/unread-status-gateway-adapter.ts`: `/bot-unread` read-only status adapter for unread/follow-up/sleep-digest inspection.
-- `scripts/apply-custom-runtime-init.mjs`: shared installer helper for binding `customRuntime.admins` and `customRuntime.adminGroup` during initialization.
+- `scripts/apply-custom-runtime-init.mjs`: shared installer helper for binding `customRuntime.admins`, `customRuntime.adminGroup`, and the default management-group `system-admin` scene during initialization.
 - `src/gateway.ts`: executes custom runtime effects, persists scene/config intents, and applies plugin slash command auth checks when `channels.qqbot.customRuntime.enabled` is true; default remains off.
 - `src/message-queue.ts`: honors `_noMerge` so synthetic catch-up messages keep their snapshots.

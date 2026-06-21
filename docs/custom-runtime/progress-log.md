@@ -526,3 +526,10 @@ Added repeated fallback admin-group alerts:
 - Alerts are sent to `customRuntime.adminGroup` as guarded unanchored group sends; the existing proactive acceptance/budget guard can block them, and successful sends commit the same proactive budget.
 - Alert text includes counts, event kinds, latest timestamp, queue counters, and command-input shortcuts for `/bot-queue` and `/bot-fallback summary 20`; it does not include raw error text, prompts, or cached message bodies.
 - Added `tests/custom-fallback-alerts.test.ts` for threshold/window/peer grouping, config overrides, disabled/missing-admin-group behavior, and text redaction.
+
+Auto-bound the management group scene during initialization:
+
+- `applyCustomRuntimeAdminBindingsToConfig()` and `scripts/apply-custom-runtime-init.mjs` now bind `customRuntime.adminGroup` to the `system-admin` scene when no explicit scene exists for that management group.
+- Existing management-group scene bindings are preserved, so a user-defined `dev-lab` or other profile is not overwritten by later admin/admin-group setup.
+- This makes the management group immediately useful for status queries, authorization operations, deploy checks, and operational alerts without implicitly granting high-risk mutation capabilities.
+- Added onboarding, runtime-config, and init-script tests for automatic binding and preservation of existing scene config.

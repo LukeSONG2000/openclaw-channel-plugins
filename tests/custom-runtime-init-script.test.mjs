@@ -4,6 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import {
   applyCustomRuntimeInitializationToConfig,
+  applyCustomRuntimeAdminGroupSceneBinding,
   inspectCustomRuntimeInitialization,
   normalizeCustomRuntimeAdminGroup,
   normalizeCustomRuntimeAdminList,
@@ -40,6 +41,15 @@ assert.deepEqual(applied.channels.qqbot.customRuntime.admins, ["ADMIN_OPENID", "
 assert.equal(applied.channels.qqbot.customRuntime.adminGroup, "qqbot:group:GROUP_OPENID");
 assert.equal(applied.channels.qqbot.customRuntime.enabled, false);
 assert.equal(applied.channels.qqbot.customRuntime.scenes["qqbot:group:SCENE_GROUP"].scene, "chat");
+assert.equal(applied.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "system-admin");
+
+const preservedAdminGroupScene = applyCustomRuntimeAdminGroupSceneBinding({
+  scenes: {
+    "qqbot:group:GROUP_OPENID": { scene: "dev-lab", label: "custom admin group" },
+  },
+}, "qqbot:group:GROUP_OPENID");
+assert.equal(preservedAdminGroupScene.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
+assert.equal(preservedAdminGroupScene.scenes["qqbot:group:GROUP_OPENID"].label, "custom admin group");
 
 const status = inspectCustomRuntimeInitialization(applied);
 assert.equal(status.ready, true);
@@ -62,6 +72,7 @@ assert.equal(code, 0);
 const written = JSON.parse(fs.readFileSync(configPath, "utf8"));
 assert.deepEqual(written.channels.qqbot.customRuntime.admins, ["CLI_ADMIN"]);
 assert.equal(written.channels.qqbot.customRuntime.adminGroup, "qqbot:group:CLI_GROUP");
+assert.equal(written.channels.qqbot.customRuntime.scenes["qqbot:group:CLI_GROUP"].scene, "system-admin");
 
 const readyCode = await runCli(["--config", configPath, "--status-only", "--require-ready"], {});
 assert.equal(readyCode, 0);

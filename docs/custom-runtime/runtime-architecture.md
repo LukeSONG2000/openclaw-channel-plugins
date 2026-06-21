@@ -121,10 +121,8 @@ Scene config must live under a custom namespace, not arbitrary keys inside offic
             "label": "Default group policy"
           },
           "qqbot:group:5C1152CA05D191171B05E6997791C3F5": {
-            "scene": "dev-lab",
-            "label": "Master Luke's library",
-            "capabilities": ["chat.send", "codex.run", "codex.longTask", "deploy.check"],
-            "allowAutonomousReply": true,
+            "scene": "system-admin",
+            "label": "Management group",
             "allowProactiveSend": false
           }
         }
@@ -133,6 +131,8 @@ Scene config must live under a custom namespace, not arbitrary keys inside offic
   }
 }
 ```
+
+When `customRuntime.adminGroup` is first written by onboarding or install scripts, the same peer is also bound to `system-admin` if no explicit scene already exists. Existing scene bindings are preserved, so a management group can still be manually promoted to `dev-lab` or another custom profile.
 
 Built-in default capabilities:
 
@@ -242,6 +242,7 @@ Current implementation status:
 - QQ inline keyboard approval cards are sent for C2C/group requests when callback buttons are available; text commands remain as fallback.
 - Gateway persists grants/requests under `~/.openclaw/qqbot/data/custom-auth/auth-<accountId>.json` and restores them at startup.
 - QQBot initialization requires both `customRuntime.admins` and `customRuntime.adminGroup`; onboarding/setup/install scripts write these anchors before the runtime is enabled. `adminGroup` accepts either a raw QQ `group_openid` or `qqbot:group:<group_openid>` and is normalized to a peer key.
+- Initializing `customRuntime.adminGroup` also creates a default `system-admin` scene binding for that group when no binding exists yet, so the management group immediately has status/query/deploy-check semantics without granting high-risk mutation capabilities.
 - `scripts/apply-custom-runtime-init.mjs` is the shared installer helper for writing and inspecting those anchors. `upgrade-via-npm.sh`, `upgrade-via-source.sh`, and `upgrade-via-npm.ps1` accept `--admins`/`--admin-group` or `QQBOT_CUSTOM_ADMINS`/`QQBOT_CUSTOM_ADMIN_GROUP`; without them they report the missing initialization anchors instead of silently treating appid/secret as complete setup.
 - `/bot-auth status` reports whether the admin binding is complete. Missing admins or admin group means authorization still blocks high-risk actions, but approval requests have no reliable management anchor.
 - Approval request records carry the normalized management group key so approval cards, text fallbacks, and future system push/deploy notifications can share the same target.

@@ -63,6 +63,29 @@ export function normalizeCustomRuntimeAdminGroup(raw: unknown): string | undefin
   return resolveCustomAdminGroupKey(String(raw).trim());
 }
 
+export function applyCustomRuntimeAdminGroupSceneBinding(
+  runtime: Record<string, unknown>,
+  adminGroup: string | undefined,
+): Record<string, unknown> {
+  if (!adminGroup) return runtime;
+  const scenes = runtime.scenes && typeof runtime.scenes === "object" && !Array.isArray(runtime.scenes)
+    ? { ...(runtime.scenes as Record<string, unknown>) }
+    : {};
+  if (scenes[adminGroup]) {
+    return {
+      ...runtime,
+      scenes,
+    };
+  }
+  return {
+    ...runtime,
+    scenes: {
+      ...scenes,
+      [adminGroup]: { scene: "system-admin" },
+    },
+  };
+}
+
 export function applyCustomRuntimeAdminBindingsToConfig(
   cfg: OpenClawConfig,
   input: {
@@ -83,6 +106,7 @@ export function applyCustomRuntimeAdminBindingsToConfig(
   if (admins.length > 0) runtime.admins = admins;
   if (adminGroup) runtime.adminGroup = adminGroup;
   if (typeof input.enabled === "boolean") runtime.enabled = input.enabled;
+  const nextRuntime = applyCustomRuntimeAdminGroupSceneBinding(runtime, adminGroup);
 
   return {
     ...cfg,
@@ -90,7 +114,7 @@ export function applyCustomRuntimeAdminBindingsToConfig(
       ...cfg.channels,
       qqbot: {
         ...qqbot,
-        customRuntime: runtime,
+        customRuntime: nextRuntime,
       },
     },
   };

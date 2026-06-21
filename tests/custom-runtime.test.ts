@@ -5,7 +5,12 @@ import {
   isCustomRuntimeAdmin,
   resolveCustomAdminGroupKey,
 } from "../src/custom/auth.js";
-import { formatCustomPeerKey, resolveCustomRuntimeConfig, resolveCustomSceneConfig } from "../src/custom/config.js";
+import {
+  applyCustomRuntimeAdminGroupSceneBinding,
+  formatCustomPeerKey,
+  resolveCustomRuntimeConfig,
+  resolveCustomSceneConfig,
+} from "../src/custom/config.js";
 import { createCustomMessageFlowRuntime, inspectCustomRuntimeMessage, inspectCustomUnreadConfig } from "../src/custom/runtime.js";
 import type { CustomActor, CustomPeer } from "../src/custom/types.js";
 
@@ -69,6 +74,20 @@ assert.deepEqual(inspectCustomAdminBindings({ enabled: true, admins: [] }), {
   ready: false,
 });
 assert.equal(resolveCustomAdminGroupKey("qqbot:channel:CHANNEL_ID"), undefined);
+assert.deepEqual(applyCustomRuntimeAdminGroupSceneBinding({}, "qqbot:group:ADMIN_GROUP"), {
+  scenes: {
+    "qqbot:group:ADMIN_GROUP": { scene: "system-admin" },
+  },
+});
+assert.deepEqual(applyCustomRuntimeAdminGroupSceneBinding({
+  scenes: {
+    "qqbot:group:ADMIN_GROUP": { scene: "dev-lab", label: "custom" },
+  },
+}, "qqbot:group:ADMIN_GROUP"), {
+  scenes: {
+    "qqbot:group:ADMIN_GROUP": { scene: "dev-lab", label: "custom" },
+  },
+});
 
 const scene = resolveCustomSceneConfig(cfg, groupPeer);
 assert.equal(scene.scene, "dev-lab");

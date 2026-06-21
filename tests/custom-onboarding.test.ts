@@ -30,6 +30,25 @@ assert.equal(initializedRuntime.enabled, false);
 assert.deepEqual(initializedRuntime.admins, ["ADMIN_OPENID", "SECOND_ADMIN"]);
 assert.equal(initializedRuntime.adminGroup, "qqbot:group:ADMIN_GROUP_OPENID");
 assert.equal(initializedRuntime.scenes?.["qqbot:group:GROUP_OPENID"]?.scene, "chat");
+assert.equal(initializedRuntime.scenes?.["qqbot:group:ADMIN_GROUP_OPENID"]?.scene, "system-admin");
+
+const preservedAdminGroupScene = applyQQBotCustomRuntimeInitialization({
+  channels: {
+    qqbot: {
+      customRuntime: {
+        scenes: {
+          "qqbot:group:ADMIN_GROUP_OPENID": { scene: "dev-lab", label: "custom admin group" },
+        },
+      },
+    },
+  },
+} as any, {
+  admins: "ADMIN_OPENID",
+  adminGroup: "ADMIN_GROUP_OPENID",
+});
+const preservedRuntime = resolveCustomRuntimeConfig(preservedAdminGroupScene as any);
+assert.equal(preservedRuntime.scenes?.["qqbot:group:ADMIN_GROUP_OPENID"]?.scene, "dev-lab");
+assert.equal(preservedRuntime.scenes?.["qqbot:group:ADMIN_GROUP_OPENID"]?.label, "custom admin group");
 
 const incompleteStatus = await qqbotOnboardingAdapter.getStatus?.({
   cfg: {
@@ -91,6 +110,7 @@ assert.equal(result?.success, true);
 const configuredRuntime = resolveCustomRuntimeConfig((result as any).cfg);
 assert.deepEqual(configuredRuntime.admins, ["ADMIN_OPENID", "SECOND_ADMIN"]);
 assert.equal(configuredRuntime.adminGroup, "qqbot:group:ADMIN_GROUP_OPENID");
+assert.equal(configuredRuntime.scenes?.["qqbot:group:ADMIN_GROUP_OPENID"]?.scene, "system-admin");
 assert.equal(prompts.some((message) => message.includes("管理员")), true);
 assert.equal(prompts.some((message) => message.includes("管理群")), true);
 
@@ -107,5 +127,6 @@ const setupCfg = applyQQBotCustomRuntimeInitialization({ channels: {} } as any, 
 const setupRuntime = resolveCustomRuntimeConfig(setupCfg as any);
 assert.deepEqual(setupRuntime.admins, ["ADMIN_OPENID"]);
 assert.equal(setupRuntime.adminGroup, "qqbot:group:ADMIN_GROUP_OPENID");
+assert.equal(setupRuntime.scenes?.["qqbot:group:ADMIN_GROUP_OPENID"]?.scene, "system-admin");
 
 console.log("custom onboarding tests passed");

@@ -361,6 +361,7 @@ Current custom runtime behavior:
 - Unread/follow-up/sleep-digest state is extracted into `src/custom/unread-runtime.ts` and wired through `src/custom/unread-gateway-adapter.ts`.
 - Custom runtime defaults off unless `channels.qqbot.customRuntime.enabled=true`.
 - QQBot initialization binds `customRuntime.admins` and `customRuntime.adminGroup`; onboarding status remains incomplete until both management anchors are present.
+- Initializing `customRuntime.adminGroup` also binds that group to the `system-admin` scene if it has no explicit scene, while preserving existing scene overrides.
 - Synthetic digest messages use `_customUnreadSnapshot`, `_customUnreadSnapshotId`, and `_noMerge`.
 - Synthetic digest sends use proactive/unanchored group sends and should therefore be guarded by proactive budget/policy.
 - Mention replies can trigger unread catch-up after the direct reply.

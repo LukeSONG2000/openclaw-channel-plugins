@@ -69,6 +69,7 @@ export function applyCustomRuntimeInitializationToConfig(cfg, input) {
   if (admins.length > 0) runtime.admins = admins;
   if (adminGroup) runtime.adminGroup = adminGroup;
   if (typeof input.enabled === "boolean") runtime.enabled = input.enabled;
+  const nextRuntime = applyCustomRuntimeAdminGroupSceneBinding(runtime, adminGroup);
 
   return {
     ...cfg,
@@ -76,8 +77,26 @@ export function applyCustomRuntimeInitializationToConfig(cfg, input) {
       ...channels,
       qqbot: {
         ...qqbot,
-        customRuntime: runtime,
+        customRuntime: nextRuntime,
       },
+    },
+  };
+}
+
+export function applyCustomRuntimeAdminGroupSceneBinding(runtime, adminGroup) {
+  if (!adminGroup) return runtime;
+  const scenes = objectOrEmpty(runtime.scenes);
+  if (scenes[adminGroup]) {
+    return {
+      ...runtime,
+      scenes: { ...scenes },
+    };
+  }
+  return {
+    ...runtime,
+    scenes: {
+      ...scenes,
+      [adminGroup]: { scene: "system-admin" },
     },
   };
 }
