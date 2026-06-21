@@ -353,6 +353,17 @@ Current implementation status:
 - Counts STT/ASR/fallback transcript sources and formats the voice summary log line without reading config, filesystem, QQ APIs, or OpenClaw runtime state.
 - Splits image/media URLs into local paths and remote URLs for the framework media fields, keeping that local/remote rule covered outside the main dispatch loop.
 
+### `src/custom/message-reference-context.ts`
+
+Pure helper for inbound quote/ref-index context.
+
+Current implementation status:
+
+- Resolves quoted-message context from local `ref-index` cache first, then falls back to QQ `msg_elements[0]` for quote messages when available.
+- Builds the `[引用消息开始] ... [引用消息结束]` prompt fragment and returns structured `ReplyTo*` fields for `finalizeInboundContext()`.
+- Builds current-message `ref-index` records from parsed content, sender metadata, attachment summaries, and voice transcript metadata; `gateway.ts` still owns the actual `setRefIndex()` side effect.
+- Keeps quote logging messages and ref-index record construction testable without importing QQ send APIs, OpenClaw runtime state, or custom auth/scene runtimes.
+
 ### `src/custom/interaction-event-normalizer.ts`
 
 Gateway-side normalizer for QQ `INTERACTION_CREATE` button/config events.

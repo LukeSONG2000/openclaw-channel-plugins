@@ -2,7 +2,6 @@ import WebSocket from "ws";
 import path from "node:path";
 import fs from "node:fs";
 import type { ResolvedQQBotAccount, WSPayload, InteractionEvent, MsgElement, TransportMode } from "./types.js";
-import { MSG_TYPE_QUOTE } from "./types.js";
 import { startWebhookTransport } from "./transport/index.js";
 import { getAccessToken, getGatewayUrl, sendC2CMessage, sendChannelMessage, sendDmMessage, sendGroupMessage, clearTokenCache, initApiConfig, startBackgroundTokenRefresh, stopBackgroundTokenRefresh, sendC2CInputNotify, onMessageSent, getPluginUserAgent, sendProactiveGroupMessage, acknowledgeInteraction, getApiPluginVersion, setApiLogger, sendC2CMessageWithInlineKeyboard, sendGroupMessageWithInlineKeyboard } from "./api.js";
 import { loadSession, saveSession, clearSession } from "./session-store.js";
@@ -26,7 +25,7 @@ import { processAttachments, formatVoiceText } from "./inbound-attachments.js";
 import { getQQBotDataDir, runDiagnostics } from "./utils/platform.js";
 
 import { sendDocument, sendMedia as sendMediaAuto, type MediaTargetContext } from "./outbound.js";
-import { parseFaceTags, buildAttachmentSummaries } from "./utils/text-parsing.js";
+import { parseFaceTags } from "./utils/text-parsing.js";
 import { sendStartupGreetings, type AdminResolverContext } from "./admin-resolver.js";
 import { sendWithTokenRetry, sendErrorToTarget, sendTextToTarget, handleStructuredPayload, type ReplyContext } from "./reply-dispatcher.js";
 import { TypingKeepAlive, TYPING_INPUT_SECOND } from "./typing-keepalive.js";
@@ -105,6 +104,10 @@ import {
   buildCustomInboundMediaContext,
   formatCustomInboundVoiceSummary,
 } from "./custom/inbound-media-context.js";
+import {
+  buildCustomCurrentRefIndexRecord,
+  resolveCustomQuoteReferenceContext,
+} from "./custom/message-reference-context.js";
 import { normalizeQQBotInboundEvent } from "./custom/inbound-event-normalizer.js";
 import {
   buildCustomUpdateAvailableNotification,
@@ -1546,70 +1549,32 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           }
         }
 
-        // ============ 引用消息处理 ============
-        let replyToId: string | undefined;
-        let replyToBody: string | undefined;
-        let replyToSender: string | undefined;
-        let replyToIsQuote = false;
-
-        // 引用消息处理：优先使用本地 refIndex 缓存（同步、已处理），缓存未命中时从 msg_elements[0] 获取
-        // refMsgIdx 已由 parseRefIndices 在引用消息类型时合并了 msg_elements[0].msg_idx 的优先级
-        if (event.refMsgIdx) {
-          const refEntry = getRefIndex(event.refMsgIdx);
-          replyToId = event.refMsgIdx;
-          replyToIsQuote = true;
-
-          if (refEntry) {
-            // 缓存命中：直接使用已处理好的内容（同步，无需再下载附件）
-            replyToBody = formatRefEntryForAgent(refEntry);
-            replyToSender = refEntry.senderName ?? refEntry.senderId;
-            log?.info(`[qqbot:${account.accountId}] Quote detected via refMsgIdx cache: refMsgIdx=${event.refMsgIdx}, sender=${replyToSender}, content="${replyToBody.slice(0, 80)}..."`);
-          } else if (event.msgType === MSG_TYPE_QUOTE) {
-            // 缓存未命中且为引用消息类型，从 msg_elements[0] 获取被引用消息内容
-            const refElement = event.msgElements?.[0];
-            if (refElement) {
-              const refData = { content: refElement.content ?? "", attachments: refElement.attachments };
-              replyToBody = await formatMessageReferenceForAgent(refData, { appId: account.appId, peerId, cfg, log });
-              log?.info(`[qqbot:${account.accountId}] Quote detected via msg_elements[0] (cache miss): id=${replyToId}, sender=${replyToSender ?? "unknown"}, content="${(replyToBody ?? "").slice(0, 80)}..."`);
-            } else {
-              // 引用消息但 msg_elements 为空：AI 只能知道"用户引用了一条消息"
-              log?.info(`[qqbot:${account.accountId}] Quote detected (MSG_TYPE_QUOTE) but no msg_elements: refMsgIdx=${event.refMsgIdx}`);
-            }
-          } else {
-            // 缓存未命中且非引用消息类型：AI 只能知道"用户引用了一条消息"
-            log?.info(`[qqbot:${account.accountId}] Quote detected but no cache and msgType=${event.msgType} (not quote): refMsgIdx=${event.refMsgIdx}`);
-          }
+        const quoteRef = await resolveCustomQuoteReferenceContext({
+          event,
+          getRefEntry: getRefIndex,
+          formatRefEntry: formatRefEntryForAgent,
+          formatMessageReference: (ref) =>
+            formatMessageReferenceForAgent(ref, { appId: account.appId, peerId, cfg, log }),
+        });
+        for (const quoteLog of quoteRef.logs) {
+          log?.info(`[qqbot:${account.accountId}] ${quoteLog}`);
         }
 
         // 2. 缓存当前消息自身的 msgIdx（供将来被引用时查找）
         // 优先使用推送事件中的 msgIdx（来自 message_scene.ext），否则使用 InputNotify 返回的 refIdx
         // inputNotifyPromise 在这里才 await，此时附件下载等工作已并行完成
         const inputNotifyRefIdx = await inputNotifyPromise;
-        const currentMsgIdx = event.msgIdx ?? inputNotifyRefIdx;
-        if (currentMsgIdx) {
-          const attSummaries = buildAttachmentSummaries(event.attachments, attachmentLocalPaths);
-          // 如果有语音转录,把转录文本和来源写入对应附件摘要
-          if (attSummaries && voiceTranscripts.length > 0) {
-            let voiceIdx = 0;
-            for (const att of attSummaries) {
-              if (att.type === "voice" && voiceIdx < voiceTranscripts.length) {
-                att.transcript = voiceTranscripts[voiceIdx];
-                // 保存转录来源
-                if (voiceIdx < voiceTranscriptSources.length) {
-                  att.transcriptSource = voiceTranscriptSources[voiceIdx];
-                }
-                voiceIdx++;
-              }
-            }
-          }
-          setRefIndex(currentMsgIdx, {
-            content: parsedContent,
-            senderId: event.senderId,
-            senderName: event.senderName,
-            timestamp: new Date(event.timestamp).getTime(),
-            attachments: attSummaries,
-          });
-          log?.info(`[qqbot:${account.accountId}] Cached msgIdx=${currentMsgIdx} for future reference (source: ${event.msgIdx ? "message_scene.ext" : "InputNotify"})`);
+        const currentRefRecord = buildCustomCurrentRefIndexRecord({
+          event,
+          inputNotifyRefIdx,
+          parsedContent,
+          attachmentLocalPaths,
+          voiceTranscripts,
+          voiceTranscriptSources,
+        });
+        if (currentRefRecord) {
+          setRefIndex(currentRefRecord.refIdx, currentRefRecord.entry);
+          log?.info(`[qqbot:${account.accountId}] Cached msgIdx=${currentRefRecord.refIdx} for future reference (source: ${currentRefRecord.source})`);
         }
 
         // Body: 展示用的用户原文（Web UI 看到的）
@@ -1645,15 +1610,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 动态检测 TTS 配置状态
         const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
 
-        // 引用消息上下文
-        let quotePart = "";
-        if (replyToIsQuote) {
-          if (replyToBody) {
-            quotePart = `[引用消息开始]\n${replyToBody}\n[引用消息结束]\n`;
-          } else {
-            quotePart = `[引用消息开始]\n原始内容不可用\n[引用消息结束]\n`;
-          }
-        }
+        const quotePart = quoteRef.quotePart;
 
         // ============ 构建 contextInfo（静态/动态分离） ============
         // 设计原则：
@@ -1986,11 +1943,11 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             MediaUrl: remoteMediaUrls[0],
           } : {}),
           // 引用消息上下文
-          ...(replyToId ? {
-            ReplyToId: replyToId,
-            ReplyToBody: replyToBody,
-            ReplyToSender: replyToSender,
-            ReplyToIsQuote: replyToIsQuote,
+          ...(quoteRef.replyToId ? {
+            ReplyToId: quoteRef.replyToId,
+            ReplyToBody: quoteRef.replyToBody,
+            ReplyToSender: quoteRef.replyToSender,
+            ReplyToIsQuote: quoteRef.replyToIsQuote,
           } : {}),
         });
 

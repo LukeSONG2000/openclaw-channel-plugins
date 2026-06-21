@@ -801,3 +801,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now delegates voice path/url/ASR dedupe, transcript source counting, dynamic media prompt lines, and media path/url partitioning to that helper.
 - The helper is pure and does not read config, filesystem, QQ APIs, OpenClaw runtime state, or custom stores; it only reshapes already-processed attachment metadata for the message-flow pipeline.
 - Added `tests/custom-inbound-media-context.test.ts` for dedupe, STT/ASR/fallback counts, dynamic context formatting, voice summary formatting, and local/remote media partition.
+
+抽出引用消息/ref-index 上下文构造：
+
+- Added `src/custom/message-reference-context.ts` to resolve inbound quote context from local `ref-index` cache or QQ `msg_elements[0]`, and to build current-message ref-index records.
+- `gateway.ts` now delegates quote prompt fragment generation, `ReplyTo*` fields, quote log message text, attachment summary creation, and voice transcript attachment metadata to this helper.
+- The helper remains pure around side effects: it accepts cache/formatter callbacks and returns the ref-index record, while `gateway.ts` still owns `getRefIndex()`, `formatMessageReferenceForAgent()`, and `setRefIndex()`.
+- Added `tests/custom-message-reference-context.test.ts` for cache hit, quote element fallback, missing quote body, non-quote refs, outbound current-message ref records, and InputNotify fallback ref ids.
