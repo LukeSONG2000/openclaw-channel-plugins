@@ -125,6 +125,47 @@ Current local behavior:
 - Mentioned or implicitly mentioned group messages can inject pending unread context into the current model prompt.
 - Raw QQ group number and raw QQ member number are not reliable event fields. Use `group_openid` and `member_openid` for policy, and maintain a separate human alias table for names such as `945739251` / `Master Luke的图书馆`.
 
+## Deployed Evidence Snapshot
+
+Read-only snapshot from `laptop-home` on 2026-06-21:
+
+- `~/.openclaw/qqbot/data/known-users.json` exists with 32 entries.
+- Known-user type distribution: 7 C2C entries and 25 group-member entries.
+- 24 entries have nicknames; all 25 group-member entries have `groupOpenid`.
+- No numeric-like raw QQ ids were found in `openid` or `groupOpenid`; route/auth policy must continue to use platform openids.
+- The human test targets remain aliases only:
+  - group `945739251` / `Master Luke的图书馆`
+  - C2C `1137586795` / `Luke今天喝什么`
+
+Read-only `ref-index.jsonl` snapshot from the same host:
+
+- 2440 records total.
+- 165 records with attachments, 168 attachment summaries total.
+- Attachment type distribution:
+  - `image/jpeg`: 82
+  - `image/png`: 22
+  - `image/gif`: 30
+  - generic `image`: 28
+  - `file`: 4
+  - `voice`: 2
+- Content hints in cached message text:
+  - face/emote markers: 52
+  - URL-like text: 36
+  - quote/reference-like text: 41
+  - inline voice text marker: 0
+
+Re-run command:
+
+```bash
+node scripts/inspect-message-evidence.mjs
+```
+
+For remote validation before this script is deployed, run it locally against copied data or pipe it over SSH:
+
+```bash
+ssh laptop-home 'node - ~/.openclaw/qqbot/data' < scripts/inspect-message-evidence.mjs
+```
+
 ## Guild And Channel Fields
 
 Local type `GuildMessageEvent` is used for both `AT_MESSAGE_CREATE` and `DIRECT_MESSAGE_CREATE`:

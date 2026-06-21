@@ -446,3 +446,10 @@ Added channel-side message delete diagnostics:
 - `gateway.ts` now logs these events as `Message delete diagnostics` from the unified WebSocket/Webhook dispatch path.
 - This is intentionally diagnostic-only: it does not remove ref-index entries, unread history, group history, task context, or scene/auth state.
 - Updated message-flow and architecture docs to record that official C2C/group docs currently expose create plus active-message receive/reject events, while C2C/group recall-delete behavior still needs deployed-server evidence before runtime state can depend on it.
+
+Added reusable deployed-message evidence inspection:
+
+- Added `scripts/inspect-message-evidence.mjs`, a read-only Node script that summarizes `known-users.json` and `ref-index.jsonl` without printing raw message text or openids by default.
+- The script records known-user counts, peer type distribution, nickname/group-openid presence, numeric-like raw id hints, attachment type distribution, and text-content hints for face tags, URLs, quotes, and voice markers.
+- Recorded the 2026-06-21 `laptop-home` snapshot in `qqbot-message-flow.md`: 32 known users, 2440 ref-index records, 168 attachment summaries, and observed attachment categories for JPEG/PNG/GIF/generic image/file/voice.
+- This makes later deployment validation repeatable without relying on one-off shell snippets or memory of prior server checks.

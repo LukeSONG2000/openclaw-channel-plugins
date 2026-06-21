@@ -47,6 +47,11 @@ Out of scope for the first custom runtime:
 - `deployment-plan.md`: branch, package, deploy, rollback, and validation plan.
 - `progress-log.md`: implementation log, including current custom update guardrails and unread runtime extraction.
 
+## Evidence Scripts
+
+- `node scripts/inspect-message-evidence.mjs`: read-only summary for `~/.openclaw/qqbot/data/known-users.json` and `ref-index.jsonl`.
+- `node scripts/inspect-message-evidence.mjs /path/to/data --samples`: same summary with redacted shape samples; it reports presence/shape flags instead of raw message text or openids.
+
 ## Current Implementation Modules
 
 - `src/custom/auth.ts`: scene/capability authorization runtime, admin/admin-group binding inspection, temporary grants, and approval request intents.
