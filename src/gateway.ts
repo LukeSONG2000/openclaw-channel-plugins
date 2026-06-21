@@ -10,7 +10,6 @@ import { isGroupAllowed, resolveGroupName, resolveGroupPrompt, resolveHistoryLim
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { QQBotApprovalHandler, registerApprovalHandler, unregisterApprovalHandler, getApprovalHandler } from "./approval-handler.js";
 import {
-  buildMergedMessageContext,
   formatMessageContent,
   type HistoryEntry,
 } from "./group-history.js";
@@ -48,6 +47,7 @@ import {
   buildCustomGroupPromptContext,
   mergeCustomSystemPromptParts,
 } from "./custom/group-prompt-context.js";
+import { buildCustomAgentMessageBodyContext } from "./custom/agent-message-body-context.js";
 import { applyCustomSceneAgentRoute, type CustomAgentRoute, type CustomRoutePeer } from "./custom/route.js";
 import {
   CUSTOM_UNREAD_ACTOR_ID,
@@ -1691,27 +1691,16 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           groupSystemPrompt = groupPromptContext.groupSystemPrompt;
         }
 
-        const mergedCount = (event as QueuedMessage)._mergedCount;
-
-        // 群消息 user prompt 带上发送者昵称（合并消息已内嵌发送者前缀，不再重复添加）
-        const isMergedMsg = mergedCount && mergedCount > 1;
-        const senderPrefix = (event.type === "group" && !isMergedMsg)
-          ? `[${event.senderName ? `${event.senderName} (${event.senderId})` : event.senderId}] `
-          : "";
-        const isAtYouTag = event.type === "group"
-          ? (wasMentioned ? " (@你)" : "")
-          : "";
-
-        // 合并消息：前面的消息用 envelope 历史格式，最后一条用当前消息格式（与 mention 单条回复对齐）
         // BodyForAgent 只包含动态上下文 + 用户消息，不拼入 systemPrompts。
         // systemPrompts（[QQBot] to=...、TTS 能力声明等）通过 GroupSystemPrompt 注入到
-        // 框架的 extraSystemPrompt 中，不会存入 transcript 的 user turn content，
-        // 避免 Web UI 不显示用户 query 的问题。
-        let userMessage: string;
-        const mergedMessages = (event as QueuedMessage)._mergedMessages;
-        if (isMergedMsg && mergedMessages?.length) {
-          // --- 辅助：格式化单条子消息内容（表情解析 + mention 清理 + 附件标签） ---
-          const formatSubMsgContent = (m: QueuedMessage): string =>
+        // 框架的 extraSystemPrompt 中，不会存入 transcript 的 user turn content。
+        let agentBody = buildCustomAgentMessageBodyContext({
+          event,
+          userContent,
+          quotePart,
+          dynamicContext: dynamicCtx,
+          wasMentioned,
+          formatSubMessageContent: (m) =>
             formatMessageContent({
               content: m.content ?? "",
               chatType: m.type,
@@ -1720,46 +1709,17 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               parseFaceTags,
               stripMentionText: (text, mentions) =>
                 stripMentionText(text, mentions as any) ?? text,
-            });
-
-          // 前面的消息使用 envelope 历史格式
-          const preceding = mergedMessages.slice(0, -1);
-          const lastMsg = mergedMessages[mergedMessages.length - 1];
-
-          const envelopeParts = preceding.map((m) => {
-            const msgContent = formatSubMsgContent(m);
-            const senderName = m.senderName
-              ? (m.senderName.includes(m.senderId) ? m.senderName : `${m.senderName} (${m.senderId})`)
-              : m.senderId;
-            return pluginRuntime.channel.reply.formatInboundEnvelope({
+            }),
+          formatMergedEnvelope: (input) =>
+            pluginRuntime.channel.reply.formatInboundEnvelope({
               channel: "qqbot",
-              from: senderName,
-              timestamp: new Date(m.timestamp).getTime(),
-              body: msgContent,
+              from: input.sender,
+              timestamp: input.timestampMs,
+              body: input.body,
               chatType: "group",
               envelope: envelopeOptions,
-            });
-          });
-
-          // 最后一条消息使用简洁格式：[发送者]: 内容 (@你)
-          const lastContent = formatSubMsgContent(lastMsg);
-          const lastSenderName = lastMsg.senderName
-            ? (lastMsg.senderName.includes(lastMsg.senderId) ? lastMsg.senderName : `${lastMsg.senderName} (${lastMsg.senderId})`)
-            : lastMsg.senderId;
-          const lastPart = `[${lastSenderName}] ${lastContent}${isAtYouTag}`;
-
-          // 前置消息用段落标签包裹（类似引用消息的 [引用消息开始]...[引用消息结束]）
-          userMessage = buildMergedMessageContext({
-            precedingParts: envelopeParts,
-            currentMessage: lastPart,
-          });
-        } else {
-          // 命令直接透传，不注入上下文
-          userMessage = senderPrefix ? `${senderPrefix}${quotePart}${userContent}${isAtYouTag}` : `${quotePart}${userContent}`;
-        }
-        let agentBody = userContent.startsWith("/")
-          ? userContent
-          : `${dynamicCtx}${userMessage}`;
+            }),
+        }).agentBody;
 
         // 被@时：将累积的非@历史消息注入上下文
         // 消息格式使用 formatInboundEnvelope 与正常消息保持一致

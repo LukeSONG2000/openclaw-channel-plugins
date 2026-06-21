@@ -831,3 +831,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now keeps config/plugin resolver callbacks at the boundary but delegates prompt string joining and sender/group metadata formatting to the helper before `finalizeInboundContext()`.
 - The helper has no QQ API, OpenClaw runtime, filesystem, unread, or auth dependencies; it only formats already-resolved group message metadata and injected prompt pieces.
 - Added `tests/custom-group-prompt-context.test.ts` for sender label formatting, prompt trimming/merge behavior, injected resolver wiring, empty prompt fallback, and static+group system prompt merging.
+
+抽出当前消息正文/合并消息上下文构造：
+
+- Added `src/custom/agent-message-body-context.ts` to build the formatted current `userMessage` and initial `agentBody` outside `gateway.ts`.
+- The helper preserves single group sender prefixes, C2C/direct no-prefix behavior, mention tags, quote fragments, dynamic context prefixing, slash-command raw-body bypass, and merged group message context blocks.
+- `gateway.ts` now injects only sub-message formatting and framework envelope callbacks; face/mention/attachment parsing, envelope options, unread-history injection, and final `finalizeInboundContext()` still remain at the gateway boundary.
+- Added `tests/custom-agent-message-body-context.test.ts` for single group, command bypass, C2C quote body, merged group messages, duplicate sender id handling, and missing merged payload fallback.

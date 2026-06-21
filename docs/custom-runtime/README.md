@@ -58,6 +58,7 @@ Out of scope for the first custom runtime:
 
 ## Current Implementation Modules
 
+- `src/custom/agent-message-body-context.ts`: pure current-message body builder for group sender prefixes, merged group messages, quote fragments, mention tags, and initial agent body.
 - `src/custom/auth.ts`: scene/capability authorization runtime, admin/admin-group binding inspection, temporary grants, and approval request intents.
 - `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command and ordinary dispatch authorization checks.
 - `src/custom/dispatch-auth-delivery-gateway-adapter.ts`: gateway-facing delivery helper for ordinary-dispatch auth denials, approval cards, text fallback, and management-group copy intent.

@@ -376,6 +376,18 @@ Current implementation status:
 - Joins prompt fragments with empty-value trimming and exposes a shared system-prompt merge helper for static QQBot instructions plus group prompt context.
 - `gateway.ts` still owns the actual config resolvers, plugin `resolveGroupIntroHint()`, message routing, and final `finalizeInboundContext()` call.
 
+### `src/custom/agent-message-body-context.ts`
+
+Pure helper for building the current message body that is passed to the OpenClaw agent before unread-history injection.
+
+Current implementation status:
+
+- Preserves the existing command bypass behavior: slash-like command messages keep `agentBody` equal to the raw command, even though `userMessage` still records the formatted view.
+- Formats single group messages with sender prefix and `(@你)` tag, while direct/C2C messages keep the existing no-prefix body shape.
+- Formats merged group messages by wrapping preceding messages in the shared merged-message context block and keeping the final message as the current request.
+- Accepts injected sub-message formatting and envelope callbacks, so face/mention/attachment parsing and framework envelope formatting remain at the gateway boundary.
+- `gateway.ts` still owns unread-history injection after this helper returns the initial `agentBody`.
+
 ### `src/custom/inbound-media-context.ts`
 
 Pure helper for inbound image/voice context derived after attachment processing.
