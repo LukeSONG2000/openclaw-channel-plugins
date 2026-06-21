@@ -656,6 +656,7 @@ Current implemented safeguards:
 - Tool-only runs get a fallback path that forwards collected tool media/text, or sends a visible no-output notice.
 - Context/token limit errors send a visible recovery notice that suggests `/compact` first and `/new` if needed.
 - Fallback paths emit structured log events with account, peer, actor, session key, run/message id, response state, and tool-deliver counts.
+- Fallback events include a queue snapshot: total pending, active users, max concurrency, and sender pending.
 - Recent fallback events are persisted under `~/.openclaw/qqbot/data/custom-fallback-events/events-<accountId>.json` with a bounded ring buffer.
 - Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
 
@@ -667,6 +668,7 @@ Implemented behavior:
 
 - Stores recent `custom-fallback` events per account.
 - Defaults to retaining the latest 100 events.
+- Keeps queue snapshot fields inside event details when the gateway provides them.
 - Uses the same atomic write pattern as auth/unread/task/poll stores.
 - Returns an empty list on missing, incompatible, or unreadable files so fallback handling never blocks queue recovery.
 

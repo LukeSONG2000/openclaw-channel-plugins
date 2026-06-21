@@ -135,6 +135,7 @@ function formatCustomFallbackList(events: CustomFallbackEvent[], limit: number):
       `  run：${event.runId || event.messageId || "unknown"}`,
       `  响应：hasResponse=${event.hasResponse === undefined ? "unknown" : event.hasResponse ? "yes" : "no"}, block=${event.hasBlockResponse === undefined ? "unknown" : event.hasBlockResponse ? "yes" : "no"}`,
       `  tool：deliver=${event.toolDeliverCount ?? 0}, text=${event.toolTextCount ?? 0}, media=${event.toolMediaCount ?? 0}`,
+      ...formatQueueDetails(event),
       ...(event.timeoutMs ? [`  timeoutMs：${event.timeoutMs}`] : []),
       ...(event.reason ? [`  reason：${truncate(event.reason, 120)}`] : []),
     );
@@ -150,6 +151,20 @@ function formatPeer(event: CustomFallbackEvent): string {
 function formatEventTime(at: number): string {
   if (!Number.isFinite(at)) return "unknown-time";
   return new Date(at).toISOString();
+}
+
+function formatQueueDetails(event: CustomFallbackEvent): string[] {
+  const total = numberDetail(event, "queueTotalPending");
+  const active = numberDetail(event, "queueActiveUsers");
+  const max = numberDetail(event, "queueMaxConcurrentUsers");
+  const sender = numberDetail(event, "queueSenderPending");
+  if (total === null && active === null && max === null && sender === null) return [];
+  return [`  queue：pending=${total ?? "?"}, active=${active ?? "?"}/${max ?? "?"}, senderPending=${sender ?? "?"}`];
+}
+
+function numberDetail(event: CustomFallbackEvent, key: string): number | null {
+  const value = event.details?.[key];
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
 }
 
 function truncate(text: string, maxChars: number): string {

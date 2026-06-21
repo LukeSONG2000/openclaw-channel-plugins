@@ -2072,6 +2072,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             timeoutMs?: number;
             details?: CustomFallbackEventInputDetails;
           }) => {
+            const queueSnapshot = msgQueue.getSnapshot(peerId);
             const fallbackEvent = buildCustomFallbackEvent({
               kind: params.kind,
               accountId: account.accountId,
@@ -2091,7 +2092,13 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               toolMediaCount: toolMediaUrls.length,
               hasResponse,
               hasBlockResponse,
-              details: params.details,
+              details: {
+                ...params.details,
+                queueTotalPending: queueSnapshot.totalPending,
+                queueActiveUsers: queueSnapshot.activeUsers,
+                queueMaxConcurrentUsers: queueSnapshot.maxConcurrentUsers,
+                queueSenderPending: queueSnapshot.senderPending,
+              },
             });
             log?.info(formatCustomFallbackEventLog(fallbackEvent));
             if (!appendCustomFallbackEvent(account.accountId, fallbackEvent)) {

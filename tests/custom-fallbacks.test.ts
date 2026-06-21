@@ -73,6 +73,10 @@ const fallbackEvent = buildCustomFallbackEvent({
   hasBlockResponse: false,
   details: {
     textChars: 10,
+    queueTotalPending: 4,
+    queueActiveUsers: 1,
+    queueMaxConcurrentUsers: 2,
+    queueSenderPending: 3,
     ignored: undefined,
   },
 });
@@ -82,7 +86,13 @@ assert.equal(fallbackEvent.at, 1234);
 assert.equal(fallbackEvent.peer?.id, "GROUP_OPENID");
 assert.equal("hasResponse" in fallbackEvent, false);
 assert.equal("ignored" in (fallbackEvent.details ?? {}), false);
-assert.deepEqual(fallbackEvent.details, { textChars: 10 });
+assert.deepEqual(fallbackEvent.details, {
+  textChars: 10,
+  queueTotalPending: 4,
+  queueActiveUsers: 1,
+  queueMaxConcurrentUsers: 2,
+  queueSenderPending: 3,
+});
 
 const eventLog = formatCustomFallbackEventLog(fallbackEvent);
 assert.equal(eventLog.startsWith("custom fallback event: "), true);

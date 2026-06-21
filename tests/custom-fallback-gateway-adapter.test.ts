@@ -59,6 +59,12 @@ const event = buildCustomFallbackEvent({
   toolMediaCount: 0,
   hasResponse: false,
   hasBlockResponse: false,
+  details: {
+    queueTotalPending: 4,
+    queueActiveUsers: 1,
+    queueMaxConcurrentUsers: 2,
+    queueSenderPending: 3,
+  },
 });
 
 const result = handleCustomFallbackCommand({
@@ -78,6 +84,7 @@ assert.equal(result.reply?.includes("最近兜底事件"), true);
 assert.equal(result.reply?.includes("response-timeout"), true);
 assert.equal(result.reply?.includes("group:GROUP_OPENID"), true);
 assert.equal(result.reply?.includes("RUN_ID"), true);
+assert.equal(result.reply?.includes("queue：pending=4, active=1/2, senderPending=3"), true);
 
 const empty = handleCustomFallbackCommand({
   accountId: "default",
