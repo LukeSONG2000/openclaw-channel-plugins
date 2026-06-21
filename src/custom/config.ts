@@ -32,6 +32,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     unread: runtime.unread,
     proactive: runtime.proactive,
     tasks: runtime.tasks,
+    fallbackAlerts: runtime.fallbackAlerts,
   };
 }
 

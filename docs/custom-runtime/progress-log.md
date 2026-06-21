@@ -516,3 +516,13 @@ Added `/bot-queue` live queue status command:
 - When the current peer has pending or active work, output includes QQ command-input shortcuts for `/compact` and `/new`; idle output avoids recovery shortcuts.
 - Output deliberately contains only queue counters and durations, not queued message bodies or cached unread content.
 - Added tests for parser/status/help output, recovery shortcuts, custom slash gateway routing, and slash capability mapping.
+
+Added repeated fallback admin-group alerts:
+
+- Added `src/custom/fallback-alerts.ts` as a pure policy module for detecting repeated fallback incidents in the same peer.
+- Default policy alerts when `response-timeout` or `context-too-long` happens 3 times within 15 minutes for the same account/peer, then cools down that account/peer for 30 minutes.
+- The policy reads `channels.qqbot.customRuntime.fallbackAlerts` for optional `enabled`, `windowMs`, `threshold`, `cooldownMs`, and `kinds` overrides.
+- `gateway.ts` evaluates the alert only after a fallback event is successfully persisted, so management-group alerts correspond to `/bot-fallback` history.
+- Alerts are sent to `customRuntime.adminGroup` as guarded unanchored group sends; the existing proactive acceptance/budget guard can block them, and successful sends commit the same proactive budget.
+- Alert text includes counts, event kinds, latest timestamp, queue counters, and command-input shortcuts for `/bot-queue` and `/bot-fallback summary 20`; it does not include raw error text, prompts, or cached message bodies.
+- Added `tests/custom-fallback-alerts.test.ts` for threshold/window/peer grouping, config overrides, disabled/missing-admin-group behavior, and text redaction.

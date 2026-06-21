@@ -97,7 +97,11 @@ import {
   type CustomFallbackEventKind,
   type CustomFallbackEventInputDetails,
 } from "./custom/fallbacks.js";
-import { appendCustomFallbackEvent } from "./custom/fallback-event-store.js";
+import { appendCustomFallbackEvent, loadCustomFallbackEvents } from "./custom/fallback-event-store.js";
+import {
+  buildCustomFallbackAlertDecision,
+  resolveCustomFallbackAlertCooldownMs,
+} from "./custom/fallback-alerts.js";
 import { startCustomUpdateCheckLoop } from "./custom/update-check.js";
 import { resolveCustomSlashReplyMediaTarget, resolveCustomSlashReplyTarget } from "./custom/slash-reply-target.js";
 import { formatCustomMessageDeleteDiagnostics, inspectCustomMessageDeleteEvent, isCustomMessageDeleteEventType } from "./custom/message-delete-events.js";
@@ -811,6 +815,45 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       log?.info(`[qqbot:${account.accountId}] custom auth admin-group notification sent: source=${notification.source} request=${notification.requestId} group=${notification.groupOpenid}`);
     } catch (sendErr) {
       log?.error(`[qqbot:${account.accountId}] Failed to send custom auth admin-group notification: source=${notification.source} request=${notification.requestId} group=${notification.groupOpenid} error=${sendErr}`);
+    }
+  };
+
+  const fallbackAlertCooldowns = new Map<string, number>();
+  const sendCustomFallbackAdminGroupAlert = async (alert: {
+    groupOpenid: string;
+    text: string;
+    cooldownKey: string;
+    eventCount?: number;
+  }): Promise<void> => {
+    const now = Date.now();
+    const runtime = resolveCustomRuntimeConfig(cfg as any);
+    const cooldownMs = resolveCustomFallbackAlertCooldownMs(runtime);
+    const nextAllowedAt = fallbackAlertCooldowns.get(alert.cooldownKey) ?? 0;
+    if (now < nextAllowedAt) {
+      log?.info(`[qqbot:${account.accountId}] custom fallback admin-group alert skipped by cooldown: key=${alert.cooldownKey} count=${alert.eventCount ?? "?"}`);
+      return;
+    }
+
+    const proactive = buildCustomProactiveGuard();
+    const proactiveDecision = proactive.proactiveGuard({
+      targetType: "group",
+      targetId: alert.groupOpenid,
+      text: alert.text,
+    });
+    if (!proactiveDecision.allowed) {
+      fallbackAlertCooldowns.set(alert.cooldownKey, now + cooldownMs);
+      log?.error(`[qqbot:${account.accountId}] custom fallback admin-group alert blocked: key=${alert.cooldownKey} reason=${proactiveDecision.reason}`);
+      return;
+    }
+
+    try {
+      const token = await getAccessToken(account.appId, account.clientSecret);
+      await sendGroupMessage(token, alert.groupOpenid, alert.text);
+      proactiveDecision.commit?.();
+      fallbackAlertCooldowns.set(alert.cooldownKey, now + cooldownMs);
+      log?.info(`[qqbot:${account.accountId}] custom fallback admin-group alert sent: key=${alert.cooldownKey} count=${alert.eventCount ?? "?"} group=${alert.groupOpenid}`);
+    } catch (sendErr) {
+      log?.error(`[qqbot:${account.accountId}] Failed to send custom fallback admin-group alert: key=${alert.cooldownKey} group=${alert.groupOpenid} error=${sendErr}`);
     }
   };
 
@@ -2203,6 +2246,25 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             log?.info(formatCustomFallbackEventLog(fallbackEvent));
             if (!appendCustomFallbackEvent(account.accountId, fallbackEvent)) {
               log?.error(`[qqbot:${account.accountId}] Failed to persist custom fallback event: kind=${fallbackEvent.kind} runId=${fallbackEvent.runId ?? ""}`);
+              return;
+            }
+
+            const alertDecision = buildCustomFallbackAlertDecision({
+              runtime: resolveCustomRuntimeConfig(cfg as any),
+              accountId: account.accountId,
+              currentEvent: fallbackEvent,
+              recentEvents: loadCustomFallbackEvents(account.accountId, { limit: 100 }),
+              now: fallbackEvent.at,
+            });
+            if (alertDecision.alert && alertDecision.groupOpenid && alertDecision.text && alertDecision.cooldownKey) {
+              void sendCustomFallbackAdminGroupAlert({
+                groupOpenid: alertDecision.groupOpenid,
+                text: alertDecision.text,
+                cooldownKey: alertDecision.cooldownKey,
+                eventCount: alertDecision.eventCount,
+              });
+            } else if (alertDecision.reason && alertDecision.reason !== "below-threshold" && alertDecision.reason !== "kind-not-alerted") {
+              log?.debug?.(`[qqbot:${account.accountId}] custom fallback alert skipped: reason=${alertDecision.reason} kind=${fallbackEvent.kind}`);
             }
           };
         try {

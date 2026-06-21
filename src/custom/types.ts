@@ -83,6 +83,7 @@ export interface CustomRuntimeConfig {
   unread?: CustomUnreadConfig;
   proactive?: CustomProactiveConfig;
   tasks?: CustomTaskRuntimeConfig;
+  fallbackAlerts?: CustomFallbackAlertConfig;
 }
 
 export interface CustomUnreadConfig {
@@ -103,6 +104,14 @@ export interface CustomProactiveConfig {
 
 export interface CustomTaskRuntimeConfig {
   commandExecutor?: CustomTaskCommandExecutorConfig;
+}
+
+export interface CustomFallbackAlertConfig {
+  enabled?: boolean;
+  windowMs?: number;
+  threshold?: number;
+  cooldownMs?: number;
+  kinds?: string[];
 }
 
 export interface CustomTaskCommandExecutorConfig {

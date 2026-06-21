@@ -35,6 +35,10 @@ const cfg = {
           historyLimit: 20,
           sleepDelayMs: 60_000,
         },
+        fallbackAlerts: {
+          threshold: 2,
+          windowMs: 60_000,
+        },
       },
     },
   },
@@ -43,6 +47,10 @@ const cfg = {
 const runtime = resolveCustomRuntimeConfig(cfg);
 assert.equal(runtime.enabled, true);
 assert.equal(runtime.adminGroup, "GROUP_OPENID");
+assert.deepEqual(runtime.fallbackAlerts, {
+  threshold: 2,
+  windowMs: 60_000,
+});
 assert.equal(isCustomRuntimeAdmin(runtime, admin), true);
 assert.equal(isCustomRuntimeAdmin(runtime, user), false);
 assert.equal(resolveCustomAdminGroupKey(runtime.adminGroup), "qqbot:group:GROUP_OPENID");

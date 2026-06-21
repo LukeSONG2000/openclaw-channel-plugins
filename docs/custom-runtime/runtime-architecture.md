@@ -734,6 +734,7 @@ Current implemented safeguards:
 - Recent fallback events are persisted under `~/.openclaw/qqbot/data/custom-fallback-events/events-<accountId>.json` with a bounded ring buffer.
 - Error replies retry without `msg_id` when the passive reply anchor is invalid/expired/unauthorized.
 - `/bot-queue` reads a live queue snapshot for the current peer, so users/admins can check pending and active durations before or after a fallback event is written.
+- Repeated timeout/context fallback incidents can notify `customRuntime.adminGroup` after persistence, using the same proactive acceptance/budget guard as other unanchored management-group sends.
 
 ### `src/custom/fallback-event-store.ts`
 
@@ -773,8 +774,33 @@ Authorization:
 Still separate from the pure module:
 
 - automatic session reset after context-too-long errors
-- admin notification cards for repeated fallback events
 - config schema rejection formatting
+- interactive admin notification cards for repeated fallback events; current fallback alerts are guarded text notices with command-input shortcuts.
+
+### `src/custom/fallback-alerts.ts`
+
+Pure repeated-fallback alert policy for management-group operational notices.
+
+Implemented behavior:
+
+- Default enabled when `customRuntime.enabled=true` and `customRuntime.adminGroup` is bound.
+- Default alert kinds are `response-timeout` and `context-too-long`.
+- Default threshold is 3 matching incidents for the same account/peer within 15 minutes.
+- Default cooldown is 30 minutes per account/peer; gateway owns the in-process cooldown map.
+- Supports optional config under `channels.qqbot.customRuntime.fallbackAlerts`:
+  - `enabled`
+  - `windowMs`
+  - `threshold`
+  - `cooldownMs`
+  - `kinds`
+- Alert text includes aggregate counts, latest event timestamp, queue counters, and command-input shortcuts for `/bot-queue` and `/bot-fallback summary 20`.
+- Alert text deliberately omits raw error reasons, prompts, cached message bodies, and queued message content.
+
+Boundary:
+
+- The module only decides whether an alert should exist and formats the text.
+- `gateway.ts` loads recent persisted fallback events, applies cooldown, sends the group message, and commits the proactive budget only after successful QQ delivery.
+- Alert sends are best-effort and must not block the user-visible fallback reply or queue release path.
 
 ### `src/custom/queue-status-gateway-adapter.ts`
 
