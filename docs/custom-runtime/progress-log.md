@@ -1075,3 +1075,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now only injects proactive-guarded task notification sending, queue enqueue, and persistence callbacks; task executor status transitions and unread scheduler bootstrap no longer live inline in the WebSocket connect path.
 - The adapter keeps task notifications behind the existing unanchored/proactive guard boundary by accepting `sendTaskStatusText()` from gateway instead of calling QQ send APIs or token helpers directly.
 - Added `tests/custom-runtime-services-gateway-adapter.test.ts` for previous executor disposal, task executor config/log wiring, unread scheduler restore/config resolution, progress persistence, and async completion notification effects.
+
+抽出 ordinary dispatch setup 网关准备层：
+
+- Added `src/custom/dispatch-setup-gateway-adapter.ts` to own ordinary-dispatch delivery setup: reply context, send helpers, outbound deliver context, proactive guard source metadata, and guarded media auto-send callback.
+- `gateway.ts` now passes account/config/event/target plus proactive guard and media-send callbacks into the setup adapter, removing another inline cluster before authorization and model dispatch.
+- The adapter preserves anchored reply behavior for normal QQ messages and unanchored proactive-guard behavior for synthetic unread catch-up messages.
+- Added `tests/custom-dispatch-setup-gateway-adapter.test.ts` for normal reply anchors, synthetic snapshot anchors, proactive guard source wiring, blocked media sends, and unanchored media budget commit behavior.

@@ -32,13 +32,7 @@ import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveCustomRuntimeConfig } from "./custom/config.js";
 import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
-import { buildCustomGatewayReplyContext } from "./custom/reply-context-gateway-adapter.js";
-import {
-  buildCustomOutboundDeliverContext,
-  buildCustomOutboundProactiveSource,
-} from "./custom/outbound-deliver-context.js";
-import { applyCustomGuardedMediaAutoSend } from "./custom/guarded-media-send-gateway-adapter.js";
-import { buildCustomDispatchSendHelpers } from "./custom/dispatch-send-helpers-gateway-adapter.js";
+import { applyCustomDispatchSetupGateway } from "./custom/dispatch-setup-gateway-adapter.js";
 import type { CustomAgentRoute } from "./custom/route.js";
 import { applyCustomSceneRouteGateway } from "./custom/scene-route-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./custom/runtime.js";
@@ -1055,24 +1049,21 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         });
         const ctxPayload = agentContext.ctxPayload;
 
-        const replyProactive = buildCustomProactiveGuard();
         const {
           replyAnchorId,
           replyContext: replyCtx,
-        } = buildCustomGatewayReplyContext({
+          sendWithRetry,
+          sendErrorMessage,
+          deliverEvent,
+          deliverAccountContext: deliverActx,
+          sendGuardedMediaAuto,
+        } = applyCustomDispatchSetupGateway({
           event,
           account,
           cfg,
-          log,
-          prepareUnanchoredTextSend: replyProactive.proactiveGuard,
-        });
-
-        const {
-          sendWithRetry,
-          sendErrorMessage,
-        } = buildCustomDispatchSendHelpers({
-          account,
-          replyContext: replyCtx,
+          qualifiedTarget,
+          buildProactiveGuard: buildCustomProactiveGuard,
+          sendMedia: sendMediaAuto,
           log,
         });
 
@@ -1098,28 +1089,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
           typing.stop();
           return;
         }
-
-        const deliverProactive = buildCustomProactiveGuard(buildCustomOutboundProactiveSource(event));
-        const {
-          deliverEvent,
-          deliverAccountContext: deliverActx,
-        } = buildCustomOutboundDeliverContext({
-          event,
-          replyAnchorId,
-          account,
-          qualifiedTarget,
-          log,
-          proactiveGuard: deliverProactive.proactiveGuard,
-        });
-        const sendGuardedMediaAuto = async (mediaUrl: string, label: string): Promise<{ channel: string; error?: string }> => {
-          return applyCustomGuardedMediaAutoSend({
-            mediaUrl,
-            label,
-            event: deliverEvent,
-            accountContext: deliverActx,
-            sendMedia: sendMediaAuto,
-          });
-        };
 
         // 使用 AsyncLocalStorage 建立请求级上下文，作用域内所有异步代码
         // （包括 AI agent 调用、tool execute）都能安全获取当前会话信息，无并发竞态。

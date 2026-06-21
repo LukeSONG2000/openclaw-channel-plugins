@@ -420,6 +420,23 @@ Current implementation status:
 - Accepts injected `sendWithTokenRetry()` and `sendErrorToTarget()` callbacks for deterministic tests while defaulting to `reply-dispatcher.ts` at runtime.
 - Keeps actual QQ sends, token refresh behavior, and reply-dispatcher retry semantics outside the custom runtime core; the helper only wires per-message parameters.
 
+### `src/custom/dispatch-setup-gateway-adapter.ts`
+
+Gateway-side setup helper for ordinary dispatch after agent context has been built.
+
+Current implementation status:
+
+- Builds the reply anchor, reply target, and `ReplyContext` through `reply-context-gateway-adapter.ts`.
+- Binds token-retry send helpers and visible error-message delivery through `dispatch-send-helpers-gateway-adapter.ts`.
+- Builds the outbound deliver event/account context through `outbound-deliver-context.ts`, including the proactive source metadata from the inbound message.
+- Returns a guarded media auto-send callback that reuses `guarded-media-send-gateway-adapter.ts`.
+- Keeps passive reply semantics intact: normal replies keep the QQ `msg_id` anchor, while synthetic unread catch-up messages have no reply anchor and therefore pass through proactive guards.
+
+Important boundary:
+
+- The adapter does not run authorization or dispatch the model; it only prepares shared per-message delivery objects.
+- It accepts proactive guard and media-send callbacks from `gateway.ts`, so proactive budget state, token ownership, and QQ media APIs stay at the connector boundary.
+
 ### `src/custom/dispatch-deliver-gateway-adapter.ts`
 
 Gateway-side preflight helper for dispatch deliver callbacks.
