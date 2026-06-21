@@ -32,8 +32,7 @@ import { runWithRequestContext } from "./request-context.js";
 import { StreamingController, shouldUseStreaming } from "./streaming.js";
 import { resolveCustomRuntimeConfig, resolveCustomSceneState } from "./custom/config.js";
 import { buildCustomSceneSystemPrompt } from "./custom/scenes.js";
-import { buildCustomAgentMessageBodyContext } from "./custom/agent-message-body-context.js";
-import { buildCustomInboundContextPayload } from "./custom/inbound-context-payload.js";
+import { applyCustomAgentContextGateway } from "./custom/agent-context-gateway-adapter.js";
 import { buildCustomGatewayReplyContext } from "./custom/reply-context-gateway-adapter.js";
 import {
   buildCustomOutboundDeliverContext,
@@ -52,9 +51,6 @@ import {
   resolveCustomUnreadForQueuedGroupMessage,
 } from "./custom/unread-ingress.js";
 import { applyCustomGroupDispatchGateway } from "./custom/group-dispatch-gateway-adapter.js";
-import {
-  applyCustomUnreadHistoryContextToAgentBody,
-} from "./custom/unread-context.js";
 import { applyCustomUnreadCompletionGateway } from "./custom/unread-completion-gateway-adapter.js";
 import { CustomUnreadScheduler } from "./custom/unread-scheduler.js";
 import { describeCustomAuthorizationIntents } from "./custom/auth-gateway-adapter.js";
@@ -1004,8 +1000,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         // 动态检测 TTS 配置状态
         const hasTTS = !!resolveTTSConfig(cfg as Record<string, unknown>);
 
-        const quotePart = quoteRef.quotePart;
-
         // ============ 构建 contextInfo（静态/动态分离） ============
         // 设计原则：
         //   - 静态指引：每条消息不变的内容（场景锚定、投递地址、能力说明），
@@ -1094,15 +1088,23 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
         const customUnreadCfgForEvent = groupDispatch.customUnreadCfgForEvent;
         const customUnreadHistoryForEvent = groupDispatch.customUnreadHistoryForEvent;
 
-        // BodyForAgent 只包含动态上下文 + 用户消息，不拼入 systemPrompts。
-        // systemPrompts（[QQBot] to=...、TTS 能力声明等）通过 GroupSystemPrompt 注入到
-        // 框架的 extraSystemPrompt 中，不会存入 transcript 的 user turn content。
-        let agentBody = buildCustomAgentMessageBodyContext({
+        const fromAddress = messageRoute.fromAddress;
+        const toAddress = messageRoute.toAddress;
+        const historyLimitForAgentBody = event.type === "group" && event.groupOpenid
+          ? resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId)
+          : 0;
+        let agentHistoryEnvelopeOpts: ReturnType<typeof pluginRuntime.channel.reply.resolveEnvelopeFormatOptions> | undefined;
+        const agentContext = applyCustomAgentContextGateway({
+          accountId: account.accountId,
           event,
+          body,
           userContent,
-          quotePart,
+          quotePart: quoteRef.quotePart,
           dynamicContext: dynamicCtx,
           wasMentioned,
+          groupHistories,
+          mentionHistory: customUnreadHistoryForEvent,
+          historyLimit: historyLimitForAgentBody,
           formatSubMessageContent: (m) =>
             formatMessageContent({
               content: m.content ?? "",
@@ -1122,20 +1124,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               chatType: "group",
               envelope: envelopeOptions,
             }),
-        }).agentBody;
-
-        // 被@时：将累积的非@历史消息注入上下文，格式与正常群消息保持一致。
-        const historyLimitForAgentBody = event.type === "group" && event.groupOpenid
-          ? resolveHistoryLimit(cfg as any, event.groupOpenid, account.accountId)
-          : 0;
-        let agentHistoryEnvelopeOpts: ReturnType<typeof pluginRuntime.channel.reply.resolveEnvelopeFormatOptions> | undefined;
-        agentBody = applyCustomUnreadHistoryContextToAgentBody({
-          event,
-          groupHistories,
-          mentionHistory: customUnreadHistoryForEvent,
-          historyLimit: historyLimitForAgentBody,
-          currentMessage: agentBody,
-          formatEnvelope: (entry) => {
+          formatHistoryEnvelope: (entry) => {
             agentHistoryEnvelopeOpts ??= pluginRuntime.channel.reply.resolveEnvelopeFormatOptions(cfg);
             return pluginRuntime.channel.reply.formatInboundEnvelope({
               channel: "qqbot",
@@ -1146,25 +1135,14 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
               envelope: agentHistoryEnvelopeOpts,
             });
           },
-        }).body;
-
-        log?.info(`[qqbot:${account.accountId}] agentBody length: ${agentBody.length}`);
-
-        const fromAddress = messageRoute.fromAddress;
-        const toAddress = messageRoute.toAddress;
-
-        const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext(buildCustomInboundContextPayload({
-          event,
-          body,
-          agentBody,
+          finalizeInboundContext: (payload) => pluginRuntime.channel.reply.finalizeInboundContext(payload),
           fromAddress,
           toAddress,
           sessionKey: route.sessionKey,
-          accountId: route.accountId,
+          routeAccountId: route.accountId,
           isGroupChat,
           staticSystemPrompts: systemPrompts,
           groupSystemPrompt,
-          wasMentioned,
           senderLabel,
           groupSubject,
           hasAsrReferFallback,
@@ -1179,7 +1157,9 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
             remoteMediaUrls,
           },
           quote: quoteRef,
-        }));
+          log,
+        });
+        const ctxPayload = agentContext.ctxPayload;
 
         const replyProactive = buildCustomProactiveGuard();
         const {

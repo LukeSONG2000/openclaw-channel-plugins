@@ -551,6 +551,22 @@ Current implementation status:
 - Accepts injected sub-message formatting and envelope callbacks, so face/mention/attachment parsing and framework envelope formatting remain at the gateway boundary.
 - The returned initial `agentBody` is then passed through `src/custom/unread-context.ts` for custom/legacy history injection before `finalizeInboundContext()`.
 
+### `src/custom/agent-context-gateway-adapter.ts`
+
+Gateway-side agent context orchestrator after inbound preparation and group dispatch.
+
+Current implementation status:
+
+- Builds the current OpenClaw agent body through `src/custom/agent-message-body-context.ts`, preserving slash-command bypass, merged group-message formatting, quote fragments, dynamic media context, and `(@你)` tagging.
+- Injects unread/catch-up context through `src/custom/unread-context.ts`, preserving custom snapshot/mention history priority over legacy group history.
+- Logs final agent-body length at the gateway boundary for operational diagnostics.
+- Builds the final inbound context payload through `src/custom/inbound-context-payload.ts` and passes it through an injected framework `finalizeInboundContext()` callback.
+
+Important boundary:
+
+- It does not own QQ sends, config lookups, route resolution, or framework runtime access; `gateway.ts` injects all formatting/finalization callbacks.
+- It centralizes the last pre-dispatch context assembly step so custom message-flow changes can be tested before the OpenClaw dispatch call.
+
 ### `src/custom/inbound-preparation-gateway-adapter.ts`
 
 Gateway-side inbound message preparation orchestrator.

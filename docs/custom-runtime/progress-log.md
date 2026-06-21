@@ -1054,3 +1054,10 @@ Added configured scene binding inspection:
 - `gateway.ts` now injects attachment processing, mention stripping, quote/ref formatters, ref-index cache writes, and framework envelope formatting into the adapter, keeping QQ/OpenClaw runtime ownership at the boundary while removing another inline preparation block from the main message path.
 - The adapter preserves delayed InputNotify `refIdx` behavior: attachment/quote preparation can proceed first, then the adapter awaits the ref id only when writing the current message reference cache.
 - Added `tests/custom-inbound-preparation-gateway-adapter.test.ts` for group mention stripping with voice/attachment text, C2C mention-name replacement, quote diagnostics, msgIdx/InputNotify ref cache writes, media dynamic context, and voice summary logging.
+
+抽出 agent context 网关组装层：
+
+- Added `src/custom/agent-context-gateway-adapter.ts` to own the final pre-dispatch context assembly: current-message agent body, unread/catch-up history injection, agent-body length logging, `buildCustomInboundContextPayload()`, and framework `finalizeInboundContext()` callback.
+- `gateway.ts` now injects sub-message formatting, merged/history envelope formatting, and finalization callbacks into the adapter; route/context/media/quote fields are passed as data instead of rebuilding the payload inline.
+- The adapter preserves slash-command body bypass, merged group message formatting, custom unread snapshot/mention history priority, legacy history fallback, and group/direct payload field behavior.
+- Added `tests/custom-agent-context-gateway-adapter.test.ts` for group history injection plus finalized payload fields, and direct slash-command no-history behavior.
