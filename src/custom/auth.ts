@@ -80,6 +80,22 @@ const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
 
 export { defaultSceneCapabilities };
 
+const ADMIN_OR_GRANT_CAPABILITIES = new Set<Exclude<CustomCapability, "*">>([
+  "codex.run",
+  "codex.longTask",
+  "system.restart",
+  "config.read",
+  "config.write",
+  "auth.grant",
+  "deploy.check",
+  "deploy.apply",
+  "proactive.send",
+]);
+
+export function requiresCustomAdminOrGrant(capability: Exclude<CustomCapability, "*">): boolean {
+  return ADMIN_OR_GRANT_CAPABILITIES.has(capability);
+}
+
 export function evaluateCustomAuthorization(params: {
   runtime: CustomRuntimeConfig;
   scene: CustomSceneConfig;
@@ -106,6 +122,16 @@ export function evaluateCustomAuthorization(params: {
       actorId: actor.id,
       peerId: peer.id,
       source: "admin",
+    };
+  }
+
+  if (requiresCustomAdminOrGrant(capability)) {
+    return {
+      allowed: false,
+      reason: "missing_capability",
+      capability,
+      actorId: actor.id,
+      peerId: peer.id,
     };
   }
 

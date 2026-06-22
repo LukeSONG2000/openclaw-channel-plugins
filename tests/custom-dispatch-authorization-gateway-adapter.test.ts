@@ -100,6 +100,63 @@ assert.equal(conditionalRuleWriteDenied.shouldStop, true);
 assert.equal(conditionalRuleWriteDenied.decision.capability, "config.write");
 assert.equal(cards.at(-1)?.text.startsWith("<@ADMIN_OPENID>\n"), true);
 
+const deleteMemoryDenied = await applyCustomDispatchAuthorizationGateway({
+  cfg: authCfg,
+  auth: new CustomAuthorizationRuntime(),
+  message: { ...groupMessage, content: "删除今天的记忆" },
+  rawContent: "删除今天的记忆",
+  accountId: "default",
+  now: 10_800,
+  persistAuthState: () => {},
+  sendText: async (text) => { textFallback = text; },
+  sendApprovalCard: async (target, text) => { cards.push({ target, text }); },
+});
+assert.equal(deleteMemoryDenied.shouldStop, true);
+assert.equal(deleteMemoryDenied.decision.capability, "config.write");
+assert.equal(cards.at(-1)?.text.includes("权限：写入配置/规则（config.write）"), true);
+
+const deleteMemoryVariantDenied = await applyCustomDispatchAuthorizationGateway({
+  cfg: authCfg,
+  auth: new CustomAuthorizationRuntime(),
+  message: { ...groupMessage, content: "把今天的记忆删掉" },
+  rawContent: "把今天的记忆删掉",
+  accountId: "default",
+  now: 10_850,
+  persistAuthState: () => {},
+  sendText: async (text) => { textFallback = text; },
+  sendApprovalCard: async (target, text) => { cards.push({ target, text }); },
+});
+assert.equal(deleteMemoryVariantDenied.shouldStop, true);
+assert.equal(deleteMemoryVariantDenied.decision.capability, "config.write");
+
+const devLabReadDenied = await applyCustomDispatchAuthorizationGateway({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          admins: ["ADMIN_OPENID"],
+          adminGroup: "qqbot:group:ADMIN_GROUP",
+          scenes: {
+            "qqbot:group:GROUP_OPENID": { scene: "dev-lab" },
+          },
+        },
+      },
+    },
+  } as any,
+  auth: new CustomAuthorizationRuntime(),
+  message: { ...groupMessage, content: "查看一下当前环境" },
+  rawContent: "查看一下当前环境",
+  accountId: "default",
+  now: 10_900,
+  persistAuthState: () => {},
+  sendText: async (text) => { textFallback = text; },
+  sendApprovalCard: async (target, text) => { cards.push({ target, text }); },
+});
+assert.equal(devLabReadDenied.shouldStop, true);
+assert.equal(devLabReadDenied.decision.capability, "config.read");
+assert.equal(cards.at(-1)?.text.includes("权限：读取配置（config.read）"), true);
+
 const fallbackTexts: string[] = [];
 const fallbackErrors: string[] = [];
 const fallback = await applyCustomDispatchAuthorizationGateway({

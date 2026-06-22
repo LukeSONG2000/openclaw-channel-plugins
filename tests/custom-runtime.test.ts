@@ -108,8 +108,8 @@ const allowed = evaluateCustomAuthorization({
   actor: user,
   capability: "codex.run",
 });
-assert.equal(allowed.allowed, true);
-assert.equal(allowed.reason, "allowed");
+assert.equal(allowed.allowed, false);
+assert.equal(allowed.reason, "missing_capability");
 
 const denied = evaluateCustomAuthorization({
   runtime,
@@ -162,7 +162,7 @@ const sceneDecision = inspectCustomRuntimeMessage({
 assert.equal(sceneDecision.enabled, true);
 assert.equal(sceneDecision.sceneState.key, "qqbot:group:GROUP_OPENID");
 assert.equal(sceneDecision.sceneSystemPrompt?.includes("dev group"), true);
-assert.equal(sceneDecision.authorization?.allowed, true);
+assert.equal(sceneDecision.authorization?.allowed, false);
 
 const unreadCfg = inspectCustomUnreadConfig({
   cfg,

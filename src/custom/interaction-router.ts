@@ -158,6 +158,7 @@ function routeCustomGameInteraction(ctx: CustomInteractionRouterContext): Custom
 
 function routeCustomDeployInteraction(ctx: CustomInteractionRouterContext): CustomInteractionGatewayResult {
   const deployResult = handleCustomDeployInteraction({
+    cfg: ctx.cfg,
     accountId: ctx.accountId,
     confirmations: ctx.runtime.deployConfirmations,
     buttonData: ctx.buttonData,

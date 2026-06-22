@@ -5,6 +5,7 @@ import {
   evaluateCustomAuthorization,
   inspectCustomAdminBindings,
   isCustomRuntimeAdmin,
+  requiresCustomAdminOrGrant,
   resolveCustomAdminGroupKey,
 } from "../src/custom/auth.js";
 import {
@@ -75,15 +76,18 @@ assert.equal(isCustomAuthorizationGrantExpired({
   remainingUses: 0,
 }, 2), true);
 
-const sceneAllowed = evaluateCustomAuthorization({
+assert.equal(requiresCustomAdminOrGrant("codex.run"), true);
+assert.equal(requiresCustomAdminOrGrant("chat.send"), false);
+
+const sceneDenied = evaluateCustomAuthorization({
   runtime: runtimeCfg,
   scene: devScene,
   peer,
   actor: member,
   capability: "codex.run",
 });
-assert.equal(sceneAllowed.allowed, true);
-assert.equal(sceneAllowed.source, "scene");
+assert.equal(sceneDenied.allowed, false);
+assert.equal(sceneDenied.reason, "missing_capability");
 
 const adminAllowed = evaluateCustomAuthorization({
   runtime: runtimeCfg,

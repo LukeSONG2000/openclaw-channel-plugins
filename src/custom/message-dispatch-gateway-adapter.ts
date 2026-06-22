@@ -5,6 +5,7 @@ import { runWithRequestContext as defaultRunWithRequestContext } from "../reques
 import type { QueueSnapshot } from "../slash-commands.js";
 import type { ResolvedQQBotAccount } from "../types.js";
 import type { InlineKeyboard } from "../types.js";
+import type { CustomDispatchAuthorizationDecision } from "./auth-gateway-adapter.js";
 import { applyCustomDispatchAuthorizationGateway } from "./dispatch-authorization-gateway-adapter.js";
 import type { CustomDispatchAuthApprovalCardTarget } from "./dispatch-auth-delivery-gateway-adapter.js";
 import { createCustomDispatchFallbackSession } from "./dispatch-fallback-session-gateway-adapter.js";
@@ -124,6 +125,7 @@ export async function runCustomMessageDispatchGateway(
     params.stopTyping();
     return { action: "stopped", reason: "auth_denied" };
   }
+  applyCustomAuthorizationContextToPayload(params.ctxPayload, dispatchAuth.decision);
 
   await (params.runWithRequestContext ?? defaultRunWithRequestContext)({
     target: params.qualifiedTarget,
@@ -186,4 +188,41 @@ export async function runCustomMessageDispatchGateway(
   });
 
   return { action: "completed" };
+}
+
+function applyCustomAuthorizationContextToPayload(
+  payload: unknown,
+  decision: CustomDispatchAuthorizationDecision,
+): void {
+  if (!decision.enabled || !decision.allowed || !payload || typeof payload !== "object" || Array.isArray(payload)) return;
+  const record = payload as Record<string, unknown>;
+  const source = decision.result?.decision.source;
+  const privileged = source === "admin" || source === "temporary-grant";
+  record.CommandAuthorized = privileged;
+
+  const prompt = buildCustomAuthorizationContextPrompt(decision, privileged);
+  const current = typeof record.GroupSystemPrompt === "string" ? record.GroupSystemPrompt.trim() : "";
+  record.GroupSystemPrompt = current ? `${current}\n${prompt}` : prompt;
+}
+
+function buildCustomAuthorizationContextPrompt(
+  decision: CustomDispatchAuthorizationDecision,
+  privileged: boolean,
+): string {
+  const capability = decision.capability ?? "chat.send";
+  const source = decision.result?.decision.source ?? "unknown";
+  if (privileged) {
+    return [
+      "QQBot 自定义权限状态：当前消息已通过管理员身份或一次性临时授权。",
+      `本次授权能力：${capability}；来源：${source}。`,
+      "只能执行与本次用户请求直接相关的动作，不要扩大到其他配置、部署、文件或记忆操作。",
+    ].join("\n");
+  }
+  return [
+    "QQBot 自定义权限状态：当前发送者不是 customRuntime.admins 管理员，且没有本次高风险临时授权。",
+    `本次仅按低风险能力放行：${capability}；来源：${source}。`,
+    "只能进行普通对话或明确无副作用的轻量状态反馈。",
+    "不要运行命令、读写文件、读取配置/日志/环境/密钥、写入或删除记忆/规则、改配置、部署/升级/重启、创建长任务或主动发送消息。",
+    "如果用户要求上述高风险动作，应说明需要管理员授权；不要自行变通执行。",
+  ].join("\n");
 }

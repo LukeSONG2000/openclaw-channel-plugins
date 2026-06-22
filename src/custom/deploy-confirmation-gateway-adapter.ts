@@ -3,6 +3,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard } from "../types.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
+import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
 import { slashCommandInput } from "./command-link.js";
 import {
@@ -117,6 +118,7 @@ export function handleCustomDeployCommand(params: {
 }
 
 export function handleCustomDeployInteraction(params: {
+  cfg: OpenClawConfig;
   accountId?: string;
   confirmations: CustomDeployConfirmationRuntime;
   buttonData: string;
@@ -128,6 +130,18 @@ export function handleCustomDeployInteraction(params: {
   const payload = parseCustomDeployButtonData(params.buttonData);
   if (!payload) return { handled: false };
   const actor: CustomActor = { id: params.actorId, label: params.actorLabel };
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  if (runtime.enabled === true && !isCustomRuntimeAdmin(runtime, actor)) {
+    return {
+      handled: true,
+      changed: false,
+      reply: [
+        "⛔ 只有 customRuntime.admins 中的管理员可以处理部署确认按钮。",
+        "",
+        `当前用户：${actor.label ? `${actor.label}（openid：${actor.id}）` : `openid：${actor.id}`}`,
+      ].join("\n"),
+    };
+  }
   const confirmation = params.confirmations.get(payload.confirmationId);
   if (!canInteractWithDeployConfirmation({
     confirmation,

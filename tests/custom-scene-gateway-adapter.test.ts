@@ -66,6 +66,7 @@ const cfg = {
     qqbot: {
       customRuntime: {
         enabled: true,
+        admins: ["MEMBER_OPENID"],
         scenes: {
           "qqbot:group:ADMIN_GROUP": {
             scene: "system-admin",

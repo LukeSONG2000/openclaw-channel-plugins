@@ -22,6 +22,7 @@ const cfg = {
     qqbot: {
       customRuntime: {
         enabled: true,
+        admins: ["ADMIN_OPENID"],
       },
     },
   },
@@ -195,6 +196,7 @@ assert.equal(creatorDmStatus.keyboard?.content?.rows[0]?.buttons.length, 2);
 assert.equal(formatDeployConfirmationStatusDirect(confirmations.get(confirmationId)!, 1_700).includes("部署确认状态"), true);
 
 const crossPeerConfirm = handleCustomDeployInteraction({
+  cfg,
   accountId: "default",
   confirmations,
   buttonData: `custom-deploy:${confirmationId}:confirm`,
@@ -205,10 +207,11 @@ const crossPeerConfirm = handleCustomDeployInteraction({
 });
 assert.equal(crossPeerConfirm.handled, true);
 assert.equal(crossPeerConfirm.changed, false);
-assert.equal(crossPeerConfirm.reply?.includes("不属于当前会话"), true);
+assert.equal(crossPeerConfirm.reply?.includes("只有 customRuntime.admins 中的管理员可以处理部署确认按钮"), true);
 assert.equal(confirmations.get(confirmationId)?.status, "pending");
 
 const confirm = handleCustomDeployInteraction({
+  cfg,
   accountId: "default",
   confirmations,
   buttonData: `custom-deploy:${confirmationId}:confirm`,
@@ -224,6 +227,7 @@ assert.equal(confirm.reply?.includes("请管理员在私聊中手动发送该命
 assert.equal(confirmations.get(confirmationId)?.status, "confirmed");
 
 const repeat = handleCustomDeployInteraction({
+  cfg,
   accountId: "default",
   confirmations,
   buttonData: `custom-deploy:${confirmationId}:cancel`,

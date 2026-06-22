@@ -165,4 +165,88 @@ function baseParams(event: QueuedMessage) {
   assert.equal(unreadSnapshotId, "snapshot-1");
 }
 
+{
+  const ctxPayload: Record<string, unknown> = {
+    CommandAuthorized: true,
+    GroupSystemPrompt: "原始场景提示",
+  };
+  let deliveredPayload: Record<string, unknown> | null = null;
+  const result = await runCustomMessageDispatchGateway({
+    ...baseParams(groupMessage),
+    ctxPayload,
+    setupGateway: () => fakeSetup(),
+    authorizeGateway: async () => ({
+      shouldStop: false,
+      decision: {
+        enabled: true,
+        allowed: true,
+        capability: "chat.send",
+        result: {
+          decision: {
+            allowed: true,
+            reason: "allowed",
+            capability: "chat.send",
+            actorId: "MEMBER_OPENID",
+            peerId: "GROUP_OPENID",
+            source: "scene",
+          },
+          intents: [],
+        },
+        reason: "allowed",
+      } as any,
+    }),
+    dispatchReplyGateway: async (params) => {
+      deliveredPayload = params.ctxPayload as Record<string, unknown>;
+      return {};
+    },
+  });
+
+  assert.deepEqual(result, { action: "completed" });
+  assert.equal(deliveredPayload?.CommandAuthorized, false);
+  assert.equal(String(deliveredPayload?.GroupSystemPrompt).includes("当前发送者不是 customRuntime.admins 管理员"), true);
+  assert.equal(String(deliveredPayload?.GroupSystemPrompt).includes("不要运行命令、读写文件"), true);
+}
+
+{
+  const ctxPayload: Record<string, unknown> = {
+    CommandAuthorized: false,
+  };
+  let deliveredPayload: Record<string, unknown> | null = null;
+  const result = await runCustomMessageDispatchGateway({
+    ...baseParams(groupMessage),
+    ctxPayload,
+    setupGateway: () => fakeSetup(),
+    authorizeGateway: async () => ({
+      shouldStop: false,
+      decision: {
+        enabled: true,
+        allowed: true,
+        capability: "codex.run",
+        result: {
+          decision: {
+            allowed: true,
+            reason: "allowed",
+            capability: "codex.run",
+            actorId: "MEMBER_OPENID",
+            peerId: "GROUP_OPENID",
+            source: "temporary-grant",
+            grantId: "grant-1",
+          },
+          intents: [],
+        },
+        reason: "allowed",
+      } as any,
+    }),
+    dispatchReplyGateway: async (params) => {
+      deliveredPayload = params.ctxPayload as Record<string, unknown>;
+      return {};
+    },
+  });
+
+  assert.deepEqual(result, { action: "completed" });
+  assert.equal(deliveredPayload?.CommandAuthorized, true);
+  assert.equal(String(deliveredPayload?.GroupSystemPrompt).includes("一次性临时授权"), true);
+  assert.equal(String(deliveredPayload?.GroupSystemPrompt).includes("本次授权能力：codex.run"), true);
+}
+
 console.log("custom message dispatch gateway adapter tests passed");

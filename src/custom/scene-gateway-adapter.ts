@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard } from "../types.js";
-import { toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
+import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { formatCustomActorIdentity, formatCustomPeerIdentity } from "./identity-presentation.js";
@@ -70,6 +70,17 @@ export function handleCustomSceneCommand(params: {
   }
 
   const key = formatCustomPeerKey(peer);
+  const actor = toCustomActorFromQueuedMessage(params.message);
+  if (runtime.enabled === true && !isCustomRuntimeAdmin(runtime, actor)) {
+    return {
+      handled: true,
+      reply: [
+        "⛔ 只有 customRuntime.admins 中的管理员可以绑定场景。",
+        "",
+        `当前用户：${formatCustomActorIdentity(actor, { idLabel: params.message.type === "group" ? "member_openid" : "user_openid" })}`,
+      ].join("\n"),
+    };
+  }
   const sceneConfig: CustomSceneConfig = {
     ...runtime.scenes?.[key],
     scene: command.scene,

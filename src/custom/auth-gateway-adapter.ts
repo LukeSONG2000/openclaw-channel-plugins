@@ -58,6 +58,9 @@ export function resolveCustomDispatchCapability(params: {
   if (content.startsWith("/")) return "codex.run";
 
   if (detectCustomRuleWriteIntent(content)) return "config.write";
+  if (detectCustomDeployApplyIntent(content)) return "deploy.apply";
+  if (detectCustomConfigReadIntent(content)) return "config.read";
+  if (detectCustomCodexRunIntent(content)) return "codex.run";
 
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   const peer = toCustomPeerFromQueuedMessage(params.message);
@@ -84,6 +87,8 @@ export function detectCustomRuleWriteIntent(content: string): boolean {
     return /(写入|写进|写到|保存|追加|新增|添加|修改|改成|删除|移除|更新|规则|记忆|指令)/.test(text);
   }
 
+  if (/(删除|删掉|移除|清空|擦除|抹掉|重置|忘记|忘掉|改掉|修改|更新).{0,24}(今天|今日|所有|全部|这次|当前|机器人|bot|ai|AI)?.{0,16}(记忆|memory|Memory|MEMORY)/i.test(text)) return true;
+  if (/(记忆|memory|Memory|MEMORY).{0,24}(删除|删掉|移除|清空|擦除|抹掉|重置|忘记|忘掉|改掉|修改|更新|别记了|不要记)/i.test(text)) return true;
   if (/(保存到记忆|存到记忆|写入记忆|写进记忆|保存进记忆|记到记忆|记下来|记住)/.test(text)) return true;
   if (/(新增|添加|修改|改成|删除|移除|更新).{0,12}(规则|指令|提示词|prompt)/i.test(text)) return true;
   if (/(规则|指令|提示词|prompt).{0,12}(新增|添加|修改|改成|删除|移除|更新|写入|保存)/i.test(text)) return true;
@@ -94,6 +99,38 @@ export function detectCustomRuleWriteIntent(content: string): boolean {
   if (/以后.{0,24}(回复|回答|回|说|输出).{0,32}(规则|记忆)/.test(text)) return true;
 
   return lower.includes("agent.md") && /(写|改|删|规则|记忆)/.test(text);
+}
+
+export function detectCustomDeployApplyIntent(content: string): boolean {
+  const text = content.replace(/<@[^>]+>/g, " ").trim();
+  if (!text) return false;
+  return [
+    /(安装|卸载|升级|更新|重启|启动|停止|部署|发布|回滚).{0,40}(openclaw|gateway|服务|service|插件|plugin|npm|pnpm|yarn|pip|python|node|dnf|yum|apt|gh|github|GitHub|系统|服务器|环境)/i,
+    /(openclaw|gateway|服务|service|插件|plugin|npm|pnpm|yarn|pip|python|node|dnf|yum|apt|gh|github|GitHub).{0,40}(安装|卸载|升级|更新|重启|启动|停止|部署|发布|回滚|登录)/i,
+    /(帮我|给我|现在|继续).{0,24}(安装|升级|更新|重启|部署|配置|配).{0,24}(github|GitHub|gh|ssh|key|环境|服务|插件|openclaw)/i,
+    /(cli|CLI).{0,12}(登录|登陆|auth|login)/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+export function detectCustomConfigReadIntent(content: string): boolean {
+  const text = content.replace(/<@[^>]+>/g, " ").trim();
+  if (!text) return false;
+  return [
+    /(查看|看一下|查一下|检查|读取|读一下|列出|找一下|有没有|当前).{0,32}(环境|配置|变量|密钥|秘钥|token|secret|ssh|key|文件|目录|workspace|日志|log|仓库|repo|git|github|GitHub)/i,
+    /(环境|配置|变量|密钥|秘钥|token|secret|ssh|key|文件|目录|workspace|日志|log|仓库|repo|git|github|GitHub).{0,32}(查看|看一下|查一下|检查|读取|读一下|列出|有没有|是什么|在哪)/i,
+    /(查看|看一下|查一下|读取|读一下|列出|有哪些|什么).{0,20}(记忆|memory|Memory|MEMORY).{0,20}(文件|信息|内容)?/i,
+    /(记忆|memory|Memory|MEMORY).{0,12}(文件|内容|信息).{0,20}(查看|看一下|查一下|读取|有哪些|是什么)?/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+export function detectCustomCodexRunIntent(content: string): boolean {
+  const text = content.replace(/<@[^>]+>/g, " ").trim();
+  if (!text) return false;
+  return [
+    /(执行|运行|跑一下|调用|打开|创建|生成|修改|改一下|修复|删除|清空).{0,40}(命令|shell|终端|脚本|代码|仓库|repo|文件|目录|workspace|当前环境|本地|服务器)/i,
+    /(帮我|给我|继续).{0,30}(配|配置|改|修|写|建|生成|删除|清空|执行|运行).{0,40}(github|GitHub|git|ssh|key|命令|脚本|代码|文件|目录|workspace|当前环境|本地|服务器)/i,
+    /(当前环境|本地|服务器|workspace|仓库|repo).{0,40}(执行|运行|配置|修改|写入|删除|清空|创建|生成|修复)/i,
+  ].some((pattern) => pattern.test(text));
 }
 
 export function checkCustomDispatchAuthorization(params: {

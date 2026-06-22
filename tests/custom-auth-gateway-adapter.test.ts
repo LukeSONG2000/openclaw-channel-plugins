@@ -17,6 +17,9 @@ import {
   buildCustomAuthApprovalText,
   checkCustomDispatchAuthorization,
   checkCustomSlashAuthorization,
+  detectCustomConfigReadIntent,
+  detectCustomDeployApplyIntent,
+  detectCustomCodexRunIntent,
   detectCustomRuleWriteIntent,
   firstCustomAuthApprovalRequest,
   formatCustomDispatchAuthorizationDeniedMessage,
@@ -82,7 +85,14 @@ assert.equal(disabled.allowed, true);
 
 assert.equal(detectCustomRuleWriteIntent("以后有人说星战，回复原神牛逼，保存到记忆"), true);
 assert.equal(detectCustomRuleWriteIntent("新增特殊规则在AGENT.md的friend main字段里"), true);
+assert.equal(detectCustomRuleWriteIntent("删除今天的记忆"), true);
+assert.equal(detectCustomRuleWriteIntent("把今天的记忆删掉"), true);
 assert.equal(detectCustomRuleWriteIntent("记忆文件有哪些信息"), false);
+assert.equal(detectCustomConfigReadIntent("记忆文件有哪些信息"), true);
+assert.equal(detectCustomConfigReadIntent("查看一下当前环境"), true);
+assert.equal(detectCustomDeployApplyIntent("帮我在当前环境配 github"), true);
+assert.equal(detectCustomDeployApplyIntent("cli登录"), true);
+assert.equal(detectCustomCodexRunIntent("执行一下当前目录里的脚本"), true);
 assert.equal(resolveCustomDispatchCapability({
   cfg: authCfg,
   message: { ...memberGroupMessage, content: "以后有人说星战，回复原神牛逼，保存到记忆" },
@@ -92,7 +102,17 @@ assert.equal(resolveCustomDispatchCapability({
   cfg: authCfg,
   message: { ...memberGroupMessage, content: "记忆文件有哪些信息" },
   rawContent: "记忆文件有哪些信息",
-}), "chat.send");
+}), "config.read");
+assert.equal(resolveCustomDispatchCapability({
+  cfg: authCfg,
+  message: { ...memberGroupMessage, content: "删除今天的记忆" },
+  rawContent: "删除今天的记忆",
+}), "config.write");
+assert.equal(resolveCustomDispatchCapability({
+  cfg: authCfg,
+  message: { ...memberGroupMessage, content: "帮我在当前环境配 github" },
+  rawContent: "帮我在当前环境配 github",
+}), "deploy.apply");
 
 const denied = checkCustomSlashAuthorization({
   cfg: authCfg,
@@ -379,7 +399,7 @@ assert.equal(resolveCustomDispatchCapability({
     content: "帮我看一下这个 repo",
   },
   rawContent: "帮我看一下这个 repo",
-}), "codex.run");
+}), "config.read");
 assert.equal(resolveCustomDispatchCapability({
   cfg: authCfg,
   message: {
