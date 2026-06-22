@@ -1,5 +1,9 @@
 import assert from "node:assert";
 import { CustomAuthorizationRuntime } from "../src/custom/auth.js";
+import {
+  parseCustomAuthButtonData as parseCustomAuthButtonDataDirect,
+  parseCustomAuthCommand as parseCustomAuthCommandDirect,
+} from "../src/custom/auth-command-parser.js";
 import { checkCustomTaskCommandAuthorization } from "../src/custom/task-auth-gateway-adapter.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 import {
@@ -94,6 +98,10 @@ assert.deepEqual(parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 
     grantTtlMs: undefined,
   },
 });
+assert.deepEqual(
+  parseCustomAuthCommandDirect("/bot-auth approve authreq-2000-1 count 3"),
+  parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 3"),
+);
 assert.deepEqual(parseCustomAuthCommand("/bot-auth allow-count authreq-2000-1 2"), {
   matched: true,
   command: {
@@ -373,6 +381,7 @@ const cardRequest = firstCustomAuthApprovalRequest(cardDenied.result?.intents ??
 assert.equal(cardRequest?.id, "authreq-10000-1");
 if (!cardRequest) throw new Error("expected custom auth request");
 assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
+assert.equal((buildCustomAuthApprovalText(cardRequest).match(/能力：/g) ?? []).length, 1);
 const keyboard = buildCustomAuthApprovalKeyboard(cardRequest.id);
 assert.equal(keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:allow-once");
 assert.equal(keyboard.content?.rows[0]?.buttons[2]?.action?.data, "custom-auth:authreq-10000-1:allow-timed");
@@ -401,6 +410,10 @@ assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-co
   requestId: "authreq-10000-1",
   decision: "allow-count",
 });
+assert.deepEqual(
+  parseCustomAuthButtonDataDirect("custom-auth:authreq-10000-1:allow-count"),
+  parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-count"),
+);
 assert.deepEqual(parseCustomAuthButtonData("custom-auth:authreq-10000-1:allow-timed"), {
   requestId: "authreq-10000-1",
   decision: "allow-timed",

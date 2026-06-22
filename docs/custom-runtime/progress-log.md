@@ -1351,3 +1351,9 @@ Added configured scene binding inspection:
 
 - Added `src/custom/task-presentation.ts` to own long-task reply text, QQ command-input shortcuts, and inline keyboard builders, keeping `task-gateway-adapter.ts` focused on command dispatch, sandbox runtime mutation, and access checks.
 - `tests/custom-task-gateway-adapter.test.ts` now verifies both the compatibility keyboard export and direct presentation import, so future card/text tuning can happen without coupling to task state mutation.
+
+继续拆分 auth command 解析层：
+
+- Added `src/custom/auth-command-parser.ts` to own pure `/bot-auth` command parsing and `custom-auth:*` approval-button payload parsing, so parser behavior can evolve without pulling in gateway/runtime dependencies.
+- `src/custom/auth-command-gateway-adapter.ts` now delegates parsing to the new parser and keeps compatibility re-exports through both auth adapters, while focusing on admin checks, status/list rendering, approval resolution, cards, and management-group notification intents.
+- Fixed duplicated capability text in auth approval cards and added direct parser import assertions in `tests/custom-auth-gateway-adapter.test.ts`.

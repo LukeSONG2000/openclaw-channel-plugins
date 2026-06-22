@@ -68,7 +68,8 @@ Out of scope for the first custom runtime:
 - `src/custom/agent-message-body-context.ts`: pure current-message body builder for group sender prefixes, merged group messages, quote fragments, mention tags, and initial agent body.
 - `src/custom/auth.ts`: scene/capability authorization runtime, admin/admin-group binding inspection, temporary grants, and approval request intents.
 - `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command and ordinary dispatch authorization checks.
-- `src/custom/auth-command-gateway-adapter.ts`: gateway-adjacent `/bot-auth` command parser, status/list rendering, approval-card button handling, and management-group notification payload builder.
+- `src/custom/auth-command-parser.ts`: pure `/bot-auth` text-command parser and `custom-auth:*` approval-button payload parser.
+- `src/custom/auth-command-gateway-adapter.ts`: gateway-adjacent `/bot-auth` admin handling, status/list rendering, approval-card handling, and management-group notification payload builder.
 - `src/custom/approval-handler-gateway-adapter.ts`: gateway-side binding layer for the legacy OpenClaw approval handler start/register/stop/unregister lifecycle.
 - `src/custom/gateway-account-services-gateway-adapter.ts`: gateway-side account bootstrap for queue, custom state, proactive guard, admin-group notifications, update checks, and slash prequeue handling.
 - `src/custom/gateway-startup-gateway-adapter.ts`: gateway-side startup bootstrap for credential validation, process guard, preflight, outbound ref-index hook, transport mode, READY marker, and session restore.
