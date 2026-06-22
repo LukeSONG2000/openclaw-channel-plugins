@@ -176,11 +176,11 @@ AI 可直接发送视频，支持本地文件和公网 URL。
 
 <img width="360" src="docs/images/slash-version.jpg" alt="Version 演示" />
 
-#### `/bot-help` — 指令列表
+#### `/help` / `/bot-help` — 指令列表
 
-> **你**：`/bot-help`
+> **你**：`/help`
 >
-> **QQBot**：列出所有可用的斜杠指令及说明，指令可点击快速输入。
+> **QQBot**：按分类列出全量斜杠指令，注明使用范围和权限范围；新增指令应在注册表补齐分类、范围和权限说明，确保自动出现在列表中。
 
 <img width="360" src="docs/images/slash-help.jpg" alt="Help 演示" />
 

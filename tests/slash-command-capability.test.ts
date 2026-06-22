@@ -7,6 +7,7 @@ assert.deepEqual(parseSlashCommandRequest("/bot-upgrade --latest"), {
 });
 assert.equal(parseSlashCommandRequest("bot-upgrade"), null);
 
+assert.equal(getSlashCommandCapability("/help"), null);
 assert.equal(getSlashCommandCapability("/bot-help"), null);
 assert.equal(getSlashCommandCapability("/unknown"), null);
 assert.equal(getSlashCommandCapability("/bot-version"), "deploy.check");
@@ -82,5 +83,56 @@ const blockedPkgOverride = await matchSlashCommand({
 });
 assert.equal(typeof blockedPkgOverride, "string");
 assert.match(blockedPkgOverride as string, /已锁定二开更新源/);
+
+const help = await matchSlashCommand({
+  type: "group",
+  senderId: "USER_OPENID",
+  messageId: "MSG_ID",
+  eventTimestamp: new Date(0).toISOString(),
+  receivedAt: 0,
+  rawContent: "/help",
+  args: "",
+  accountId: "default",
+  appId: "APP_ID",
+  accountConfig: {},
+  queueSnapshot: {
+    totalPending: 0,
+    activeUsers: 0,
+    maxConcurrentUsers: 1,
+    senderPending: 0,
+  },
+});
+assert.equal(typeof help, "string");
+assert.match(help as string, /QQBot 指令总览/);
+assert.match(help as string, /#### 基础/);
+assert.match(help as string, /#### 二开运行时/);
+assert.match(help as string, /#### 互动/);
+assert.match(help as string, /#### 部署运维/);
+assert.match(help as string, /#### 管理/);
+assert.match(help as string, /#### 存储/);
+for (const name of [
+  "help",
+  "bot-help",
+  "bot-ping",
+  "bot-version",
+  "bot-task",
+  "bot-poll",
+  "bot-game",
+  "bot-deploy",
+  "bot-scene",
+  "bot-fallback",
+  "bot-queue",
+  "bot-unread",
+  "bot-upgrade",
+  "bot-logs",
+  "bot-clear-storage",
+  "bot-streaming",
+  "bot-approve",
+  "bot-group-allways",
+]) {
+  assert.match(help as string, new RegExp(`/${name}\\b`));
+}
+assert.match(help as string, /权限：查看 deploy\.check；执行升级 deploy\.apply/);
+assert.match(help as string, /范围：仅私聊/);
 
 console.log("slash command capability tests passed");

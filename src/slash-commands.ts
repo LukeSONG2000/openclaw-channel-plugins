@@ -257,8 +257,14 @@ type SlashCommandCapabilityResolver = SlashCommandCapability | ((request: SlashC
 interface SlashCommand {
   /** 指令名（不含 /） */
   name: string;
+  /** Help 分类。新增指令必须显式归类，确保 /help 不遗漏。 */
+  category: "基础" | "二开运行时" | "互动" | "部署运维" | "管理" | "存储";
   /** 简要描述 */
   description: string;
+  /** 使用范围，例如“全部会话”或“仅私聊”。 */
+  scope: string;
+  /** 权限范围，例如“system.status”或“查看 deploy.check；执行 deploy.apply”。 */
+  access: string;
   /** 详细用法说明（支持多行），用于 /指令 ? 查询 */
   usage?: string;
   /** 自定义运行时鉴权所需能力；未设置则不由插件级权限拦截 */
@@ -275,6 +281,37 @@ function registerCommand(cmd: SlashCommand): void {
   commands.set(cmd.name.toLowerCase(), cmd);
 }
 
+const HELP_CATEGORY_ORDER: SlashCommand["category"][] = [
+  "基础",
+  "二开运行时",
+  "互动",
+  "部署运维",
+  "管理",
+  "存储",
+];
+
+function formatSlashCommandHelp(): string {
+  const lines = [
+    `### QQBot 指令总览`,
+    ``,
+    `权限说明：无=不走 customRuntime 鉴权；其余为所需 capability，非管理员缺少能力时会创建授权申请。`,
+    `用法：发送 /<指令> ? 查看单条指令详情。`,
+  ];
+
+  for (const category of HELP_CATEGORY_ORDER) {
+    const items = Array.from(commands.values()).filter((cmd) => cmd.category === category);
+    if (!items.length) continue;
+    lines.push(``, `#### ${category}`);
+    for (const cmd of items) {
+      lines.push(`<qqbot-cmd-input text="/${cmd.name}" show="/${cmd.name}"/> — ${cmd.description}`);
+      lines.push(`范围：${cmd.scope}；权限：${cmd.access}`);
+    }
+  }
+
+  lines.push(``, `> 插件版本 v${PLUGIN_VERSION}`);
+  return lines.join("\n");
+}
+
 // ============ 内置指令 ============
 
 /**
@@ -282,7 +319,10 @@ function registerCommand(cmd: SlashCommand): void {
  */
 registerCommand({
   name: "bot-ping",
+  category: "基础",
   description: "测试当前 openclaw 与 QQ 连接的网络延迟",
+  scope: "全部会话",
+  access: "system.status",
   capability: "system.status",
   usage: [
     `/bot-ping`,
@@ -315,7 +355,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-version",
+  category: "基础",
   description: "查看插件版本号",
+  scope: "全部会话",
+  access: "deploy.check",
   capability: "deploy.check",
   usage: [
     `/bot-version`,
@@ -348,26 +391,32 @@ registerCommand({
  */
 registerCommand({
   name: "bot-help",
+  category: "基础",
   description: "查看所有指令以及用途",
+  scope: "全部会话",
+  access: "无",
   usage: [
     `/bot-help`,
     ``,
     `列出所有可用的 QQBot 插件内置指令及其简要说明。`,
     `使用 /指令名 ? 可查看某条指令的详细用法。`,
   ].join("\n"),
-  handler: (ctx) => {
-    // 群聊场景排除仅限私聊的指令
-    const GROUP_EXCLUDED_COMMANDS = new Set(["bot-upgrade", "bot-clear-storage", "bot-logs", "bot-approve", "bot-group-allways", "bot-streaming"]);
-    const isGroup = ctx.type === "group";
+  handler: () => formatSlashCommandHelp(),
+});
 
-    const lines = [`### QQBot插件内置调试指令`, ``];
-    for (const [name, cmd] of commands) {
-      if (isGroup && GROUP_EXCLUDED_COMMANDS.has(name)) continue;
-      lines.push(`<qqbot-cmd-input text="/${name}" show="/${name}"/> ${cmd.description}`);
-    }
-    lines.push(``, `> 插件版本 v${PLUGIN_VERSION}`);
-    return lines.join("\n");
-  },
+registerCommand({
+  name: "help",
+  category: "基础",
+  description: "查看所有指令以及用途",
+  scope: "全部会话",
+  access: "无",
+  usage: [
+    `/help`,
+    ``,
+    `按分类列出全部 QQBot 插件指令、使用范围和权限范围。`,
+    `使用 /指令名 ? 可查看某条指令的详细用法。`,
+  ].join("\n"),
+  handler: () => formatSlashCommandHelp(),
 });
 
 /**
@@ -379,7 +428,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-task",
+  category: "二开运行时",
   description: "管理自定义长任务沙箱",
+  scope: "全部会话",
+  access: "查看 system.status；创建/追加/取消 codex.longTask",
   capability: (request) => slashTaskCapability(request.args),
   usage: [
     `/bot-task create <任务描述>`,
@@ -403,7 +455,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-poll",
+  category: "互动",
   description: "创建和管理自定义互动投票",
+  scope: "全部会话",
+  access: "查看 system.status；创建/关闭 game.interact",
   capability: (request) => slashPollCapability(request.args),
   usage: [
     `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`,
@@ -425,7 +480,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-game",
+  category: "互动",
   description: "创建和管理自定义互动小游戏",
+  scope: "全部会话",
+  access: "查看 system.status；创建/关闭 game.interact",
   capability: (request) => slashGameCapability(request.args),
   usage: [
     `/bot-game guess`,
@@ -447,7 +505,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-deploy",
+  category: "部署运维",
   description: "创建和查看自定义部署确认卡",
+  scope: "全部会话",
+  access: "查看 deploy.check；创建确认 deploy.apply",
   capability: (request) => slashDeployCapability(request.args),
   usage: [
     `/bot-deploy confirm /bot-upgrade --latest`,
@@ -470,7 +531,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-scene",
+  category: "二开运行时",
   description: "查看和绑定自定义场景",
+  scope: "全部会话",
+  access: "查看 system.status；绑定 config.write",
   capability: (request) => slashSceneCapability(request.args),
   usage: [
     `/bot-scene status`,
@@ -492,7 +556,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-fallback",
+  category: "二开运行时",
   description: "查看自定义兜底事件",
+  scope: "全部会话",
+  access: "查看 system.status；清理 config.write",
   capability: (request) => slashFallbackCapability(request.args),
   usage: [
     `/bot-fallback`,
@@ -515,7 +582,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-queue",
+  category: "二开运行时",
   description: "查看当前会话队列状态",
+  scope: "全部会话",
+  access: "system.status",
   capability: "system.status",
   usage: [
     `/bot-queue`,
@@ -535,7 +605,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-unread",
+  category: "二开运行时",
   description: "查看自定义未读追读状态",
+  scope: "全部会话",
+  access: "system.status",
   capability: "system.status",
   usage: [
     `/bot-unread`,
@@ -1388,7 +1461,10 @@ let _upgrading = false; // 升级锁
 
 registerCommand({
   name: "bot-upgrade",
+  category: "部署运维",
   description: "检查更新并查看升级指引",
+  scope: "仅私聊；/bot-deploy 可在群里创建确认卡",
+  access: "查看 deploy.check；执行升级 deploy.apply",
   capability: (request) => slashUpgradeCapability(request.args),
   usage: [
     `/bot-upgrade              检查是否有新版本`,
@@ -1871,7 +1947,10 @@ function collectRecentLogFiles(logDirs: string[]): LogCandidate[] {
 
 registerCommand({
   name: "bot-logs",
+  category: "部署运维",
   description: "导出本地日志文件",
+  scope: "仅私聊",
+  access: "config.read",
   capability: "config.read",
   usage: [
     `/bot-logs`,
@@ -2010,7 +2089,10 @@ function formatBytes(bytes: number): string {
  */
 registerCommand({
   name: "bot-clear-storage",
+  category: "存储",
   description: "清理通过QQBot对话产生的文件以及下载的资源（保存在 OpenClaw 运行环境的主机上）",
+  scope: "仅私聊",
+  access: "查看 config.read；确认删除 config.write",
   capability: (request) => hasSlashFlag(request.args, "--force") ? "config.write" : "config.read",
   usage: [
     `/bot-clear-storage`,
@@ -2161,7 +2243,10 @@ function removeEmptyDirs(dirPath: string): void {
  */
 registerCommand({
   name: "bot-streaming",
+  category: "管理",
   description: "一键开关流式消息",
+  scope: "仅私聊",
+  access: "查看 config.read；开关 config.write",
   capability: (request) => commandArgsMutateConfig(request.args, new Set(["on", "off"])) ? "config.write" : "config.read",
   usage: [
     `/bot-streaming on     开启流式消息`,
@@ -2276,7 +2361,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-approve",
+  category: "管理",
   description: "管理命令执行审批配置",
+  scope: "仅私聊",
+  access: "查看 config.read；修改 auth.grant",
   capability: (request) => {
     const arg = request.args.trim().toLowerCase();
     return !arg || arg === "status" ? "config.read" : "auth.grant";
@@ -2529,7 +2617,10 @@ registerCommand({
  */
 registerCommand({
   name: "bot-group-allways",
+  category: "管理",
   description: "修改群消息默认响应模式",
+  scope: "仅私聊",
+  access: "查看 config.read；开关 config.write",
   capability: (request) => commandArgsMutateConfig(request.args, new Set(["on", "off"])) ? "config.write" : "config.read",
   usage: [
     `/bot-group-allways on   AI 自主判断何时发言（无需 @）`,

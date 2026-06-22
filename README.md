@@ -181,11 +181,11 @@ Shows framework version, plugin version, and a direct link to the official repos
 
 <img width="360" src="docs/images/slash-version.jpg" alt="Version Demo" />
 
-#### `/bot-help` — Command List
+#### `/help` / `/bot-help` — Command List
 
-> **You**: `/bot-help`
+> **You**: `/help`
 >
-> **QQBot**: Lists all available slash commands with clickable shortcuts.
+> **QQBot**: Lists every slash command by category with scope and permission requirements. New commands should fill in category, scope, and access metadata in the command registry so they appear automatically.
 
 <img width="360" src="docs/images/slash-help.jpg" alt="Help Demo" />
 
