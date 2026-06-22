@@ -17,6 +17,7 @@ import {
   formatCustomAuthRequests,
   formatCustomAuthStatus,
 } from "./auth-presentation.js";
+import { formatCustomActorIdentity } from "./identity-presentation.js";
 import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
 import type {
   CustomActor,
@@ -82,7 +83,7 @@ export function handleCustomAuthCommand(params: {
       reply: [
         `⛔ 只有 customRuntime.admins 中的管理员可以处理授权申请。`,
         ``,
-        `当前用户：${actor.label || actor.id}`,
+        `当前用户：${formatCustomActorIdentity(actor, { idLabel: params.message.type === "group" ? "member_openid" : "user_openid" })}`,
       ].join("\n"),
     };
   }
@@ -97,15 +98,15 @@ export function handleCustomAuthCommand(params: {
   }
 
   if (command.kind === "status") {
-    return { handled: true, reply: formatCustomAuthStatus(params.auth, runtime, params.now) };
+    return { handled: true, reply: formatCustomAuthStatus(params.auth, runtime, params.now, params.cfg) };
   }
 
   if (command.kind === "requests") {
-    return { handled: true, reply: formatCustomAuthRequests(params.auth, command.limit, params.now) };
+    return { handled: true, reply: formatCustomAuthRequests(params.auth, command.limit, params.now, params.cfg) };
   }
 
   if (command.kind === "grants") {
-    return { handled: true, reply: formatCustomAuthGrants(params.auth, command.limit, params.now) };
+    return { handled: true, reply: formatCustomAuthGrants(params.auth, command.limit, params.now, params.cfg) };
   }
 
   return resolveCustomAuthRequest({
@@ -113,6 +114,7 @@ export function handleCustomAuthCommand(params: {
     actor,
     command,
     now: params.now,
+    cfg: params.cfg,
   });
 }
 
@@ -122,6 +124,7 @@ export function handleCustomAuthInteraction(params: {
   buttonData: string;
   actorId: string;
   actorLabel?: string;
+  sourcePeer?: { kind: string };
   now?: number;
 }): CustomAuthInteractionResult {
   const payload = parseCustomAuthButtonData(params.buttonData);
@@ -139,7 +142,7 @@ export function handleCustomAuthInteraction(params: {
       reply: [
         `⛔ 只有 customRuntime.admins 中的管理员可以处理授权按钮。`,
         ``,
-        `当前用户：${actor.label || actor.id}`,
+        `当前用户：${formatCustomActorIdentity(actor, { idLabel: params.sourcePeer?.kind === "group" ? "member_openid" : "user_openid" })}`,
       ].join("\n"),
     };
   }
@@ -170,6 +173,7 @@ export function handleCustomAuthInteraction(params: {
     actor,
     command,
     now: params.now,
+    cfg: params.cfg,
   });
 }
 
@@ -178,6 +182,7 @@ function resolveCustomAuthRequest(params: {
   actor: CustomActor;
   command: Extract<CustomAuthCommand, { kind: "resolve" }>;
   now?: number;
+  cfg?: OpenClawConfig;
 }): CustomAuthCommandResult {
   const state = params.auth.getState();
   const requestId = findPendingRequestId(Object.keys(state.requests), params.command.requestId);
@@ -207,7 +212,7 @@ function resolveCustomAuthRequest(params: {
   return {
     handled: true,
     intent,
-    reply: formatApprovalResolution(intent),
+    reply: formatApprovalResolution(intent, params.cfg),
   };
 }
 

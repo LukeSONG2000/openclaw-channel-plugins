@@ -99,7 +99,7 @@ export function handleCustomSlashGatewayCommand(params: {
       const request = taskAuthorization.result?.intents
         ? firstCustomAuthApprovalRequest(taskAuthorization.result.intents)
         : null;
-      const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+      const approvalText = request ? buildCustomAuthApprovalText(request, params.cfg) : undefined;
       const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
       return handled({
         reply: {
@@ -107,6 +107,7 @@ export function handleCustomSlashGatewayCommand(params: {
           denialText: formatCustomAuthorizationDeniedMessage({
             enabled: true,
             allowed: false,
+            cfg: params.cfg,
             capability: "codex.longTask",
             peer: taskAuthorization.peer,
             actor: taskAuthorization.actor,
@@ -156,7 +157,7 @@ export function handleCustomSlashGatewayCommand(params: {
       const request = authDecision.result?.intents
         ? firstCustomAuthApprovalRequest(authDecision.result.intents)
         : null;
-      const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+      const approvalText = request ? buildCustomAuthApprovalText(request, params.cfg) : undefined;
       const keyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
       return handled({
         reply: {

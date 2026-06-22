@@ -1,8 +1,14 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import {
   inspectCustomAdminBindings,
   type CustomAuthorizationRuntime,
 } from "./auth.js";
+import {
+  formatCustomActorIdentity,
+  formatCustomAdminGroupIdentity,
+  formatCustomPeerIdentity,
+} from "./identity-presentation.js";
 import {
   formatCapabilityForDisplay,
   formatDurationZh,
@@ -24,18 +30,18 @@ export interface CustomAuthAdminGroupNotification {
   requestId: string;
 }
 
-export function buildCustomAuthApprovalText(request: CustomAuthorizationApprovalRequest): string {
+export function buildCustomAuthApprovalText(request: CustomAuthorizationApprovalRequest, cfg?: OpenClawConfig): string {
   const expiresInSec = Math.max(0, Math.round((request.expiresAt - Date.now()) / 1000));
   const lines = [
     `🔐 自定义权限申请`,
     ``,
-    `用户：${request.actor.label || request.actor.id}`,
-    `会话：${request.peer.label || request.peer.id}`,
+    `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
+    `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `能力：${formatCapabilityForDisplay(request.capability)}`,
     `场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
     ...(request.taskId ? [`任务：${request.taskId}`] : []),
     `申请：${request.id}`,
-    ...(request.adminGroup ? [`管理群：${request.adminGroup}`] : []),
+    ...(request.adminGroup ? [`管理群：${formatCustomAdminGroupIdentity(request.adminGroup, cfg)}`] : []),
     ``,
     `超时：${expiresInSec} 秒`,
     request.taskId
@@ -152,6 +158,7 @@ export function formatCustomAuthStatus(
   auth: CustomAuthorizationRuntime,
   runtime?: CustomRuntimeConfig,
   now: number = Date.now(),
+  cfg?: OpenClawConfig,
 ): string {
   const state = auth.getState();
   const requests = activePendingRequests(state, now);
@@ -162,7 +169,7 @@ export function formatCustomAuthStatus(
     ``,
     ...(adminBindings ? [
       `管理员：${adminBindings.admins.length ? adminBindings.admins.join(", ") : "未绑定"}`,
-      `管理群：${adminBindings.adminGroup ?? "未绑定"}`,
+      `管理群：${formatCustomAdminGroupIdentity(adminBindings.adminGroup, cfg) ?? "未绑定"}`,
       `初始化：${adminBindings.ready ? "完整" : `缺少 ${formatAdminBindingMissing(adminBindings.missing).join(", ")}`}`,
       ``,
     ] : []),
@@ -176,9 +183,9 @@ export function formatCustomAuthStatus(
     lines.push(
       ``,
       `- ${request.id}`,
-      `  用户：${request.actor.label || request.actor.id}`,
+      `  用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
       `  能力：${formatCapabilityForDisplay(request.capability)}`,
-      `  会话：${request.peer.label || request.peer.id}`,
+      `  会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
     );
   }
   if (requests.length > 5) {
@@ -188,7 +195,7 @@ export function formatCustomAuthStatus(
   return lines.join("\n");
 }
 
-export function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit: number, now: number = Date.now()): string {
+export function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit: number, now: number = Date.now(), cfg?: OpenClawConfig): string {
   const state = auth.getState();
   const requests = activePendingRequests(state, now)
     .sort((a, b) => a.requestedAt - b.requestedAt)
@@ -209,8 +216,8 @@ export function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit
     lines.push(
       ``,
       `- ${request.id}`,
-      `  用户：${request.actor.label || request.actor.id}`,
-      `  会话：${formatCustomAuthPeer(request.peer)}`,
+      `  用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
+      `  会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
       `  能力：${formatCapabilityForDisplay(request.capability)}`,
       `  场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
       ...(request.taskId ? [`  任务：${request.taskId}`] : []),
@@ -225,7 +232,7 @@ export function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit
   return lines.join("\n");
 }
 
-export function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: number, now: number = Date.now()): string {
+export function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: number, now: number = Date.now(), cfg?: OpenClawConfig): string {
   const state = auth.getState();
   const allGrants = activeGrants(state, now)
     .sort((a, b) => b.createdAt - a.createdAt);
@@ -245,8 +252,8 @@ export function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: 
     lines.push(
       ``,
       `- ${grant.id}`,
-      `  用户：${grant.actorId}`,
-      `  会话：${grant.peerId}`,
+      `  用户：${formatCustomActorIdentity({ id: grant.actorId }, { idLabel: "openid" })}`,
+      `  会话：${formatCustomStoredPeerId(grant.peerId, cfg)}`,
       `  能力：${formatCapabilityForDisplay(grant.capability)}`,
       `  授权人：${grant.grantedBy}`,
       ...(grant.taskId ? [`  任务：${grant.taskId}`] : []),
@@ -261,14 +268,15 @@ export function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: 
   return lines.join("\n");
 }
 
-export function formatApprovalResolution(intent: Extract<CustomAuthorizationIntent, { kind: "approval-resolved" }>): string {
+export function formatApprovalResolution(intent: Extract<CustomAuthorizationIntent, { kind: "approval-resolved" }>, cfg?: OpenClawConfig): string {
   const request = intent.request;
   if (!intent.approved) {
     return [
       `✅ 已拒绝授权申请`,
       ``,
       `申请：${request.id}`,
-      `用户：${request.actor.label || request.actor.id}`,
+      `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
+      `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
       `能力：${formatCapabilityForDisplay(request.capability)}`,
     ].join("\n");
   }
@@ -285,7 +293,8 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
     `✅ 已批准临时授权`,
     ``,
     `申请：${request.id}`,
-    `用户：${request.actor.label || request.actor.id}`,
+    `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
+    `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `能力：${formatCapabilityForDisplay(request.capability)}`,
     grantDesc,
   ].join("\n");
@@ -318,9 +327,14 @@ function activeGrants(
     });
 }
 
-function formatCustomAuthPeer(peer: CustomPeer): string {
-  const key = `${peer.kind}:${peer.id}`;
-  return peer.label ? `${key} (${peer.label})` : key;
+function formatCustomStoredPeerId(peerId: string, cfg?: OpenClawConfig): string {
+  if (peerId.startsWith("qqbot:group:")) {
+    return formatCustomPeerIdentity({ kind: "group", id: peerId.slice("qqbot:group:".length) }, cfg);
+  }
+  if (peerId.startsWith("group:")) {
+    return formatCustomPeerIdentity({ kind: "group", id: peerId.slice("group:".length) }, cfg);
+  }
+  return peerId;
 }
 
 function formatCustomAuthTime(ms: number): string {

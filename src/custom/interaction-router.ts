@@ -81,6 +81,7 @@ function routeCustomAuthInteraction(ctx: CustomInteractionRouterContext): Custom
     buttonData: ctx.buttonData,
     actorId: ctx.actor.id,
     actorLabel: ctx.actor.label,
+    sourcePeer: ctx.sourcePeer,
     now: ctx.now,
   });
   if (!authResult.handled) return { handled: false };

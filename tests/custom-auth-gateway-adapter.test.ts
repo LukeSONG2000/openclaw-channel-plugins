@@ -169,7 +169,7 @@ const status = handleCustomAuthCommand({
 });
 assert.equal(status.handled, true);
 assert.equal(status.reply?.includes("管理员：ADMIN_OPENID"), true);
-assert.equal(status.reply?.includes("管理群：qqbot:group:GROUP_OPENID"), true);
+assert.equal(status.reply?.includes("管理群：群聊（group_openid：GROUP_OPENID）"), true);
 assert.equal(status.reply?.includes("初始化：完整"), true);
 assert.equal(status.reply?.includes("查看详情：/bot-auth requests 或 /bot-auth grants"), true);
 
@@ -184,8 +184,8 @@ assert.equal(pendingRequests.handled, true);
 assert.equal(pendingRequests.reply?.includes("待审批授权申请"), true);
 assert.equal(pendingRequests.reply?.includes("authreq-2000-1"), true);
 assert.equal(pendingRequests.reply?.includes("能力：config.write"), true);
-assert.equal(pendingRequests.reply?.includes("用户：Member"), true);
-assert.equal(pendingRequests.reply?.includes("会话：group:GROUP_OPENID"), true);
+assert.equal(pendingRequests.reply?.includes("用户：Member（member_openid：MEMBER_OPENID）"), true);
+assert.equal(pendingRequests.reply?.includes("会话：群聊（group_openid：GROUP_OPENID）"), true);
 assert.equal(pendingRequests.reply?.includes("/bot-auth approve authreq-2000-1 once"), true);
 assert.equal(pendingRequests.reply?.includes(memberGroupMessage.content), false);
 
@@ -230,7 +230,7 @@ const activeGrants = handleCustomAuthCommand({
 assert.equal(activeGrants.handled, true);
 assert.equal(activeGrants.reply?.includes("临时授权列表"), true);
 assert.equal(activeGrants.reply?.includes("grant-3000-1"), true);
-assert.equal(activeGrants.reply?.includes("用户：MEMBER_OPENID"), true);
+assert.equal(activeGrants.reply?.includes("用户：openid：MEMBER_OPENID"), true);
 assert.equal(activeGrants.reply?.includes("会话：GROUP_OPENID"), true);
 assert.equal(activeGrants.reply?.includes("能力：config.write"), true);
 assert.equal(activeGrants.reply?.includes("剩余：1 次"), true);

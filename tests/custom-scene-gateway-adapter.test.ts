@@ -91,7 +91,7 @@ const status = handleCustomSceneCommand({
 assert.equal(status.handled, true);
 assert.equal(status.changed, undefined);
 assert.equal(status.reply?.includes("场景：日常聊天（chat）"), true);
-assert.equal(status.reply?.includes("目标：qqbot:group:GROUP_OPENID"), true);
+assert.equal(status.reply?.includes("目标：群聊（group_openid：GROUP_OPENID）"), true);
 assert.equal(status.reply?.includes("智能体：默认路由"), true);
 assert.equal(status.keyboard?.content?.rows.length, 5);
 assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.type, 1);

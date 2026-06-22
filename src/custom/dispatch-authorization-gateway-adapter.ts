@@ -64,6 +64,7 @@ export async function applyCustomDispatchAuthorizationGateway(
 
   params.log?.info?.(`[qqbot:${params.accountId}] Message dispatch denied by custom auth: capability=${decision.capability} sender=${params.message.senderId}`);
   const denialDelivery = await applyCustomDispatchAuthDenialDelivery({
+    cfg: params.cfg as any,
     decision,
     message: params.message,
     sendText: params.sendText,

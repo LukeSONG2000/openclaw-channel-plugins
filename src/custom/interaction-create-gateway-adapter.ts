@@ -1,4 +1,5 @@
 import type { InteractionEvent } from "../types.js";
+import { getKnownUser as defaultGetKnownUser } from "../known-users.js";
 import type { CustomConfigInteractionConfigApi, CustomConfigInteractionRoutingApi } from "./config-interaction-gateway-adapter.js";
 import {
   handleCustomConfigInteractionGateway,
@@ -18,6 +19,7 @@ import {
   type CustomInteractionReplyTarget,
 } from "./interaction-event-normalizer.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
+import { resolveKnownCustomActorLabel } from "./identity-presentation.js";
 
 export interface CustomInteractionCreateGatewayLogger {
   info?: (msg: string) => void;
@@ -56,6 +58,7 @@ export interface HandleCustomInteractionCreateGatewayParams {
   handleConfigInteraction?: typeof handleCustomConfigInteractionGateway;
   handleButton?: typeof handleCustomInteractionGatewayButton;
   applyEffects?: typeof applyCustomInteractionGatewayEffects;
+  getKnownUser?: typeof defaultGetKnownUser;
 }
 
 export type HandleCustomInteractionCreateGatewayResult =
@@ -109,6 +112,12 @@ export async function handleCustomInteractionCreateGateway(
   params.log?.debug?.(`[qqbot:${params.accountId}] Interaction ACK sent: ${interaction.id}`);
 
   const handleButton = params.handleButton ?? handleCustomInteractionGatewayButton;
+  const actorLabel = resolveKnownCustomActorLabel({
+    accountId: params.accountId,
+    actorId: interaction.actorId,
+    peer: interaction.sourcePeer,
+    getKnownUser: params.getKnownUser ?? defaultGetKnownUser,
+  });
   const customInteraction = params.runtime ? handleButton({
     cfg: params.cfg as any,
     accountId: params.accountId,
@@ -116,6 +125,7 @@ export async function handleCustomInteractionCreateGateway(
     buttonData: interaction.buttonData,
     actor: {
       id: interaction.actorId,
+      label: actorLabel,
     },
     sourcePeer: interaction.sourcePeer,
     now: params.now ?? Date.now(),

@@ -5,6 +5,10 @@ import {
   normalizeCustomRuntimeAdminList,
   resolveCustomRuntimeConfig,
 } from "./config.js";
+import {
+  formatCustomActorIdentity,
+  formatCustomPeerIdentity,
+} from "./identity-presentation.js";
 
 export interface CustomInitBindConfigPersist {
   admins: string[];
@@ -101,8 +105,8 @@ export function handleCustomInitBindCommand(params: {
         changed: false,
         reply: [
           "⚠️ 已绑定管理群，不能通过一次性码直接切换到其他群。",
-          `当前管理群：${currentAdminGroup}`,
-          `本次发送群：${adminGroup}`,
+          `当前管理群：${formatCustomPeerIdentity({ kind: "group", id: currentAdminGroup.slice("qqbot:group:".length) }, params.cfg)}`,
+          `本次发送群：${formatCustomPeerIdentity({ kind: "group", id: params.message.groupOpenid }, params.cfg)}`,
           "如需迁移管理群，请先在服务器配置中显式迁移并备份，避免出现没有管理群的状态。",
         ].join("\n"),
         log: `custom init bind refused admin group switch current=${currentAdminGroup} requested=${adminGroup}`,
@@ -120,8 +124,8 @@ export function handleCustomInitBindCommand(params: {
       },
       reply: [
         "✅ 初始化绑定完成。",
-        `管理员 member_openid：${params.message.senderId}`,
-        `管理群 group_openid：${params.message.groupOpenid}`,
+        `管理员：${formatCustomActorIdentity({ id: params.message.senderId, label: params.message.senderName, isBot: params.message.senderIsBot }, { idLabel: "member_openid" })}`,
+        `管理群：${formatCustomPeerIdentity({ kind: "group", id: params.message.groupOpenid }, params.cfg)}`,
         "已写入 customRuntime.admins / customRuntime.adminGroup，并将管理群默认绑定到 system-admin 场景。",
       ].join("\n"),
       log: `custom init bind completed via group group=${params.message.groupOpenid} admin=${params.message.senderId}`,
@@ -141,9 +145,9 @@ export function handleCustomInitBindCommand(params: {
     },
     reply: [
       "✅ 已绑定管理员单聊 openid。",
-      `管理员 user_openid：${params.message.senderId}`,
+      `管理员：${formatCustomActorIdentity({ id: params.message.senderId, label: params.message.senderName }, { idLabel: "user_openid" })}`,
       complete
-        ? "管理群已存在，初始化绑定已完成。"
+        ? `管理群已存在：${formatCustomPeerIdentity({ kind: "group", id: currentAdminGroup!.slice("qqbot:group:".length) }, params.cfg)}。初始化绑定已完成。`
         : "还需要在目标管理群发送同一个 /bot-init-bind 命令，以绑定 group_openid。",
     ].join("\n"),
     log: `custom init bind admin captured via c2c admin=${params.message.senderId} complete=${complete}`,

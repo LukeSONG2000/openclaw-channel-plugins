@@ -6,6 +6,7 @@ import {
   formatCustomPeerKey,
   getCustomSceneProfile,
 } from "./scenes.js";
+import { formatCustomPeerIdentity } from "./identity-presentation.js";
 import {
   formatBooleanYesNo,
   formatCapabilitiesForDisplay,
@@ -88,7 +89,7 @@ export function formatCustomSceneStatus(cfg: OpenClawConfig, peer: CustomPeer): 
   return [
     `🧭 当前会话场景`,
     ``,
-    `目标：${formatCustomPeerKey(peer)}`,
+    `目标：${formatCustomPeerIdentity(peer, cfg)}`,
     `场景：${formatSceneKind(resolved.config.scene)}`,
     `来源：${formatSceneSource(resolved.source)}`,
     `配置键：${resolved.key}`,
@@ -103,11 +104,12 @@ export function formatCustomSceneBoundReply(params: {
   key: string;
   scene: CustomSceneKind;
   agentId?: string;
+  target?: string;
 }): string {
   return [
     `✅ 当前会话场景已绑定`,
     ``,
-    `目标：${params.key}`,
+    `目标：${params.target ?? params.key}`,
     `场景：${formatSceneKind(params.scene)}`,
     `智能体：${params.agentId ?? "默认路由"}`,
     `说明：${getCustomSceneProfile(params.scene).description}`,

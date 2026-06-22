@@ -4,6 +4,7 @@ import type { InlineKeyboard } from "../types.js";
 import { toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
+import { formatCustomActorIdentity, formatCustomPeerIdentity } from "./identity-presentation.js";
 import { formatCustomPeerKey } from "./scenes.js";
 import { parseCustomSceneCommand, type CustomSceneCommand } from "./scene-command-parser.js";
 import {
@@ -90,6 +91,7 @@ export function handleCustomSceneCommand(params: {
     keyboard: buildCustomSceneSwitchKeyboard(command.scene),
     reply: formatCustomSceneBoundReply({
       key,
+      target: formatCustomPeerIdentity(peer, params.cfg),
       scene: command.scene,
       agentId: sceneConfig.agentId,
     }),
@@ -116,7 +118,7 @@ export function handleCustomSceneInteraction(params: {
       reply: [
         "⛔ 只有 customRuntime.admins 中的管理员可以通过按钮切换场景。",
         "",
-        `当前用户：${params.actor.label || params.actor.id}`,
+        `当前用户：${formatCustomActorIdentity(params.actor, { idLabel: params.sourcePeer?.kind === "group" ? "member_openid" : "user_openid" })}`,
       ].join("\n"),
     };
   }
@@ -137,6 +139,7 @@ export function handleCustomSceneInteraction(params: {
     sceneConfig,
     reply: formatCustomSceneBoundReply({
       key,
+      target: formatCustomPeerIdentity(params.sourcePeer, params.cfg),
       scene: payload.scene,
       agentId: sceneConfig.agentId,
     }),

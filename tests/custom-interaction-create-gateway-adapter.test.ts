@@ -163,6 +163,53 @@ function groupInteraction(buttonData: string, type = 1): InteractionEvent {
 }
 
 {
+  let sentReply: unknown = null;
+  const result = await handleCustomInteractionCreateGateway({
+    accountId: "default",
+    event: groupInteraction("custom-scene:set:dev-lab"),
+    cfg: {
+      channels: {
+        qqbot: {
+          customRuntime: {
+            enabled: true,
+            admins: ["ADMIN_OPENID"],
+            scenes: {},
+          },
+        },
+      },
+    },
+    runtime: createCustomMessageFlowRuntime(),
+    getConfigApi: () => ({
+      loadConfig: () => ({}),
+      writeConfigFile: async () => {},
+    }),
+    getKnownUser: () => ({
+      openid: "MEMBER_OPENID",
+      type: "group",
+      nickname: "测试成员",
+      groupOpenid: "GROUP_OPENID",
+      accountId: "default",
+      firstSeenAt: 1,
+      lastSeenAt: 2,
+      interactionCount: 3,
+    }),
+    acknowledge: async () => {},
+    pluginVersion: "1.2.3",
+    frameworkVersion: "2026.6.22",
+    sendReply: async (target, text) => {
+      sentReply = { target, text };
+    },
+  });
+
+  assert.equal(result.kind, "custom-button");
+  assert.equal(result.kind === "custom-button" && result.customInteraction.reply?.includes("测试成员（member_openid：MEMBER_OPENID）"), true);
+  assert.deepEqual(sentReply, {
+    target: { kind: "group", groupOpenid: "GROUP_OPENID" },
+    text: result.kind === "custom-button" ? result.customInteraction.reply : undefined,
+  });
+}
+
+{
   const approvalId = "exec:123e4567-e89b-12d3-a456-426614174000";
   const ackCalls: Array<{ code?: 0 }> = [];
   let resolved: unknown = null;

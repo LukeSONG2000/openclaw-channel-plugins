@@ -10,6 +10,10 @@ import {
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
 } from "./queued-message-context.js";
+import {
+  formatCustomActorIdentity,
+  formatCustomPeerIdentity,
+} from "./identity-presentation.js";
 import { formatCapabilityForDisplay } from "./presentation-labels.js";
 import type {
   CustomActor,
@@ -25,6 +29,7 @@ export {
 export interface CustomSlashAuthorizationDecision {
   enabled: boolean;
   allowed: boolean;
+  cfg?: OpenClawConfig;
   capability?: Exclude<CustomCapability, "*">;
   peer?: CustomPeer;
   actor?: CustomActor;
@@ -35,6 +40,7 @@ export interface CustomSlashAuthorizationDecision {
 export interface CustomDispatchAuthorizationDecision {
   enabled: boolean;
   allowed: boolean;
+  cfg?: OpenClawConfig;
   capability?: Exclude<CustomCapability, "*">;
   peer?: CustomPeer;
   actor?: CustomActor;
@@ -76,7 +82,7 @@ export function checkCustomDispatchAuthorization(params: {
 }): CustomDispatchAuthorizationDecision {
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   if (!runtime.enabled) {
-    return { enabled: false, allowed: true, reason: "runtime_disabled" };
+    return { enabled: false, allowed: true, cfg: params.cfg, reason: "runtime_disabled" };
   }
 
   const peer = toCustomPeerFromQueuedMessage(params.message);
@@ -99,6 +105,7 @@ export function checkCustomDispatchAuthorization(params: {
   return {
     enabled: true,
     allowed: result.decision.allowed,
+    cfg: params.cfg,
     capability,
     peer,
     actor,
@@ -116,12 +123,12 @@ export function checkCustomSlashAuthorization(params: {
 }): CustomSlashAuthorizationDecision {
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   if (!runtime.enabled) {
-    return { enabled: false, allowed: true, reason: "runtime_disabled" };
+    return { enabled: false, allowed: true, cfg: params.cfg, reason: "runtime_disabled" };
   }
 
   const capability = getSlashCommandCapability(params.rawContent);
   if (!capability) {
-    return { enabled: true, allowed: true, reason: "not_custom_command" };
+    return { enabled: true, allowed: true, cfg: params.cfg, reason: "not_custom_command" };
   }
 
   const peer = toCustomPeerFromQueuedMessage(params.message);
@@ -139,6 +146,7 @@ export function checkCustomSlashAuthorization(params: {
   return {
     enabled: true,
     allowed: result.decision.allowed,
+    cfg: params.cfg,
     capability,
     peer,
     actor,
@@ -149,8 +157,10 @@ export function checkCustomSlashAuthorization(params: {
 
 export function formatCustomDispatchAuthorizationDeniedMessage(decision: CustomDispatchAuthorizationDecision): string {
   const capability = decision.capability ? formatCapabilityForDisplay(decision.capability) : "未知";
-  const actor = decision.actor?.label || decision.actor?.id || "当前用户";
-  const peer = decision.peer?.label || decision.peer?.id || "当前会话";
+  const actor = decision.actor
+    ? formatCustomActorIdentity(decision.actor, { idLabel: decision.peer?.kind === "group" ? "member_openid" : "user_openid" })
+    : "当前用户";
+  const peer = decision.peer ? formatCustomPeerIdentity(decision.peer, decision.cfg) : "当前会话";
   const requestId = decision.result?.decision.requestId;
   const lines = [
     `⛔ 当前场景不允许这类对话或任务`,
@@ -172,8 +182,10 @@ export function formatCustomDispatchAuthorizationDeniedMessage(decision: CustomD
 
 export function formatCustomAuthorizationDeniedMessage(decision: CustomSlashAuthorizationDecision): string {
   const capability = decision.capability ? formatCapabilityForDisplay(decision.capability) : "未知";
-  const actor = decision.actor?.label || decision.actor?.id || "当前用户";
-  const peer = decision.peer?.label || decision.peer?.id || "当前会话";
+  const actor = decision.actor
+    ? formatCustomActorIdentity(decision.actor, { idLabel: decision.peer?.kind === "group" ? "member_openid" : "user_openid" })
+    : "当前用户";
+  const peer = decision.peer ? formatCustomPeerIdentity(decision.peer, decision.cfg) : "当前会话";
   const requestId = decision.result?.decision.requestId;
   const lines = [
     `⛔ 当前没有执行该插件命令的权限`,

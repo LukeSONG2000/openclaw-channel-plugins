@@ -1,4 +1,5 @@
 import type { QueuedMessage } from "../message-queue.js";
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { InlineKeyboard } from "../types.js";
 import {
   buildCustomAuthAdminGroupNotification,
@@ -22,6 +23,7 @@ export interface CustomDispatchAuthDenialDeliveryResult {
 }
 
 export async function applyCustomDispatchAuthDenialDelivery(params: {
+  cfg?: OpenClawConfig;
   decision: CustomDispatchAuthorizationDecision;
   message: QueuedMessage;
   sendText: (text: string) => Promise<void>;
@@ -40,7 +42,7 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
     ? firstCustomAuthApprovalRequest(params.decision.result.intents)
     : null;
   const denialText = formatCustomDispatchAuthorizationDeniedMessage(params.decision);
-  const approvalText = request ? buildCustomAuthApprovalText(request) : undefined;
+  const approvalText = request ? buildCustomAuthApprovalText(request, params.cfg ?? params.decision.cfg) : undefined;
   const approvalKeyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
 
   const cardTarget = resolveDispatchAuthApprovalCardTarget(params.message);
