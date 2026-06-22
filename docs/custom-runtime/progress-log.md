@@ -1440,3 +1440,21 @@ Added configured scene binding inspection:
 - Added `src/custom/auth-requests.ts` for pure approval-request construction, denial-reason normalization, pending request lookup/dedupe, and defensive peer/actor/admin copying.
 - `src/custom/auth.ts` now delegates pending approval request creation/dedupe to the pure module while retaining runtime maps, grant mutation, pruning, and typed intent orchestration.
 - `tests/custom-auth-runtime.test.ts` now verifies direct auth-request helper imports alongside the existing runtime approval flow.
+
+## 2026-06-22 线上验证部署记录
+
+完成 `laptop-home` 生产实例的 QQBot 二开版灰度部署：
+
+- 远端备份目录：`/home/PPfavorite/.openclaw/backups/qqbot-custom-runtime-20260622-094824`，包含 `openclaw.json`、脱敏配置、`~/.openclaw/qqbot` 状态、gateway status/journal tail、QQBot-like 插件目录与压缩包。
+- 部署前停止 `openclaw-gateway.service`，确认 `18789` 端口不再监听，避免官方/二开 QQBot 使用同一 AppID/Secret 并发连接。
+- 通过源码包部署 `@lukesong/openclaw-qqbot@1.7.2-luke.1` 到 `~/.openclaw/extensions/openclaw-qqbot`，保留 OpenClaw plugin id `openclaw-qqbot` 和 channel id `qqbot`。
+- 生产配置已锁定更新策略：`upgradePkg=lukesong/openclaw-qqbot`、`upgradeMode=doc`、`allowUpgradePkgOverride=false`、`customUpdateCheck.enabled=true`、`intervalMs=21600000`。
+- 首次初始化采用对话式绑定：已写入 24 小时有效的一次性 `/bot-init-bind` challenge，绑定完成后自动启用 `customRuntime.enabled`；未把一次性 code 写入仓库文档。
+- 为避免误加载官方包，已把 `~/.openclaw/extensions/node_modules/@tencent-connect/openclaw-qqbot` 移到备份目录 `disabled-active-official-node-modules/` 下。
+- 重启后 `openclaw-gateway.service` 为 `active`，日志显示 QQBot WebSocket connected、Session resumed、Gateway ready。
+
+当前待验证项：
+
+- 管理员需要在目标 QQ 管理群发送一次性 `/bot-init-bind <code>`，让运行时从真实入站事件绑定 `member_openid` 和 `group_openid`。
+- 绑定完成前，预检预期仍有 `custom_runtime_admins_missing`、`custom_runtime_admin_group_missing`、`custom_runtime_disabled`；绑定后需要重新跑 `/bot-deploy preflight` 或远端 `preflight-custom-runtime-deploy.mjs --require-ready`。
+- 线上功能验证顺序建议：`/bot-auth status`、`/bot-scene status`、`/bot-scene bindings`、`/bot-deploy preflight`、`/bot-fallback summary 20`，再测投票/小游戏按钮和非管理员改配置审批流。
