@@ -1458,3 +1458,18 @@ Added configured scene binding inspection:
 - 管理员需要在目标 QQ 管理群发送一次性 `/bot-init-bind <code>`，让运行时从真实入站事件绑定 `member_openid` 和 `group_openid`。
 - 绑定完成前，预检预期仍有 `custom_runtime_admins_missing`、`custom_runtime_admin_group_missing`、`custom_runtime_disabled`；绑定后需要重新跑 `/bot-deploy preflight` 或远端 `preflight-custom-runtime-deploy.mjs --require-ready`。
 - 线上功能验证顺序建议：`/bot-auth status`、`/bot-scene status`、`/bot-scene bindings`、`/bot-deploy preflight`、`/bot-fallback summary 20`，再测投票/小游戏按钮和非管理员改配置审批流。
+
+## 2026-06-22 初始化绑定验证
+
+完成线上首次初始化绑定验证：
+
+- 管理员在目标 QQ 管理群通过 `@机器人 /bot-init-bind <code>` 触发 `GROUP_AT_MESSAGE_CREATE`，gateway 成功捕获管理员 `member_openid` 与管理群 `group_openid`。
+- `customRuntime.admins`、`customRuntime.adminGroup`、默认 `system-admin` scene 已写入 `~/.openclaw/openclaw.json`，`customRuntime.enabled=true`，一次性 `initBind` 已清除。
+- QQBot 回复消息发送成功，QQ API 返回 `200 OK`。
+- 远端执行 `preflight-custom-runtime-deploy.mjs --require-ready` 通过，结论为无阻断项、无警告；升级检查源仍为 `@lukesong/openclaw-qqbot (personal)`。
+- 记录中不保存一次性 code 和完整 openid；如需回滚，仍使用部署备份目录 `/home/PPfavorite/.openclaw/backups/qqbot-custom-runtime-20260622-094824`。
+
+下一步线上验证重点：
+
+- 在管理群测试 `/bot-auth status`、`/bot-scene status`、`/bot-scene bindings`、`/bot-deploy preflight`、`/bot-fallback summary 20`。
+- 再测试投票/小游戏按钮、非管理员配置修改审批流、普通非 @ 消息记录与后续 catch-up 行为。
