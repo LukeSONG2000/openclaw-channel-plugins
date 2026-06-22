@@ -95,8 +95,10 @@ Out of scope for the first custom runtime:
 - `src/custom/config.ts`: custom runtime config resolution under `channels.qqbot.customRuntime`.
 - `src/custom/init-bind-gateway-adapter.ts`: one-time `/bot-init-bind <code>` conversation binding that captures QQBot openids from C2C/group inbound events for first-time admin/admin-group initialization.
 - `src/custom/fallback-alerts.ts`: pure repeated-fallback alert policy for management-group operational notices.
+- `src/custom/fallback-command-parser.ts`: pure `/bot-fallback` parser and bounded list/summary limit constants.
 - `src/custom/fallback-event-store.ts`: bounded JSON persistence for recent custom fallback events.
-- `src/custom/fallback-gateway-adapter.ts`: `/bot-fallback` status command adapter for recent fallback events.
+- `src/custom/fallback-gateway-adapter.ts`: `/bot-fallback` status command adapter for recent fallback events, now limited to store mutation/load orchestration.
+- `src/custom/fallback-presentation.ts`: pure `/bot-fallback` help/list/summary/clear-confirmation text and recovery shortcut rendering.
 - `src/custom/fallback-record-context.ts`: pure builder for fallback record peer/actor/session/queue/dispatch snapshots from `QueuedMessage`; dispatch recorder wiring lives in `fallback-record-gateway-adapter.ts`.
 - `src/custom/fallbacks.ts`: pure timeout, model-skip, tool-only fallback, and dispatch failure policy helpers.
 - `src/custom/tool-deliver-gateway-adapter.ts`: gateway-side tool deliver observer for immediate media forwarding, tool-only timeout scheduling, and completion fallback triggering.

@@ -1391,3 +1391,10 @@ Added configured scene binding inspection:
 - Added `src/custom/deploy-presentation.ts` for deploy confirmation help/list/status/created/resolved text and confirm/cancel keyboard builders, keeping safety-card UX independent of runtime mutation.
 - `src/custom/deploy-confirmation-gateway-adapter.ts` now focuses on runtime enablement, current account/peer/actor binding, confirmation visibility checks, preflight delegation, and deploy-confirmation state mutation.
 - `tests/custom-deploy-confirmation-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside compatibility exports.
+
+拆出 fallback 命令解析与呈现层：
+
+- Added `src/custom/fallback-command-parser.ts` to own pure `/bot-fallback` command parsing and bounded list/summary limits, keeping storage and gateway side effects out of parser evolution.
+- Added `src/custom/fallback-presentation.ts` for fallback help/list/summary/clear-confirmation text, queue/urgent diagnostics formatting, and recovery command-input shortcuts.
+- `src/custom/fallback-gateway-adapter.ts` now focuses on event-store load/clear orchestration and re-exports parser/presentation helpers for compatibility.
+- `tests/custom-fallback-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside the gateway compatibility path.

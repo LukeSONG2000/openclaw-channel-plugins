@@ -1963,9 +1963,29 @@ Implemented behavior:
 - Uses the same atomic write pattern as auth/unread/task/poll stores.
 - Returns an empty list on missing, incompatible, or unreadable files so fallback handling never blocks queue recovery.
 
+### `src/custom/fallback-command-parser.ts`
+
+Pure parser for `/bot-fallback` diagnostics commands.
+
+Responsibilities:
+
+- Parses `help`/`list`/`status`/`summary`/`clear` aliases without loading event storage.
+- Owns bounded defaults and max limits for list and summary output.
+- Returns structured parser errors so gateway authorization and persistence stay separate from UX wording.
+
+### `src/custom/fallback-presentation.ts`
+
+Pure renderer for `/bot-fallback` diagnostics replies.
+
+Responsibilities:
+
+- Formats help, clear confirmation, recent event lists, and aggregate summaries.
+- Renders queue pressure, urgent bypass details, response/tool counters, and recovery command-input shortcuts.
+- Does not load or clear event storage, so text/card tuning can evolve without touching gateway side effects.
+
 ### `src/custom/fallback-gateway-adapter.ts`
 
-Chat command adapter for recent fallback events.
+Chat command adapter for recent fallback events. It delegates parsing to `fallback-command-parser.ts` and reply rendering to `fallback-presentation.ts`, while retaining only store load/clear orchestration and compatibility re-exports.
 
 Implemented commands:
 

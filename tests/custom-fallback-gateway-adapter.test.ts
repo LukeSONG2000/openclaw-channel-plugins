@@ -3,6 +3,11 @@ import {
   handleCustomFallbackCommand,
   parseCustomFallbackCommand,
 } from "../src/custom/fallback-gateway-adapter.js";
+import { parseCustomFallbackCommand as parseCustomFallbackCommandDirect } from "../src/custom/fallback-command-parser.js";
+import {
+  formatCustomFallbackList,
+  formatCustomFallbackSummary,
+} from "../src/custom/fallback-presentation.js";
 import { buildCustomFallbackEvent } from "../src/custom/fallbacks.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -32,6 +37,11 @@ assert.deepEqual(parseCustomFallbackCommand("/bot-fallback summary"), {
   matched: true,
   command: { kind: "summary", limit: 20 },
 });
+assert.deepEqual(parseCustomFallbackCommandDirect("/bot-fallback summary 2"), {
+  matched: true,
+  command: { kind: "summary", limit: 2 },
+});
+assert.deepEqual(parseCustomFallbackCommand("/bot-fallback summary 2"), parseCustomFallbackCommandDirect("/bot-fallback summary 2"));
 assert.deepEqual(parseCustomFallbackCommand("/bot-fallback stats 50"), {
   matched: true,
   command: { kind: "summary", limit: 50 },
@@ -166,6 +176,7 @@ assert.equal(result.reply?.includes("RUN_ID"), true);
 assert.equal(result.reply?.includes("queue：pending=4, active=1/2, senderPending=3"), true);
 assert.equal(result.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
 assert.equal(result.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
+assert.equal(formatCustomFallbackList([event], 1).includes("response-timeout"), true);
 
 const urgentList = handleCustomFallbackCommand({
   accountId: "default",
@@ -209,6 +220,7 @@ assert.equal(summary.reply?.includes("urgent-queue-bypass: 1"), true);
 assert.equal(summary.reply?.includes("最新：2026-06-21T00:03:00.000Z urgent-queue-bypass"), true);
 assert.equal(summary.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
 assert.equal(summary.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
+assert.equal(formatCustomFallbackSummary([event, contextEvent, toolTextEvent, urgentEvent], 50).includes("最长活跃：senderActiveMs=120000, maxActiveMs=180000"), true);
 
 const empty = handleCustomFallbackCommand({
   accountId: "default",
