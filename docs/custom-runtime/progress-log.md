@@ -1335,3 +1335,9 @@ Added configured scene binding inspection:
 - Added `src/custom/auth-command-gateway-adapter.ts` to own `/bot-auth` command parsing, admin-only status/request/grant rendering, approval-card button data parsing, task/count/timed grant conversion, and management-group notification payload construction.
 - `src/custom/auth-gateway-adapter.ts` now keeps only dispatch/slash authorization decisions and denial text formatting, re-exporting auth command/card helpers for existing callers while reducing auth gateway coupling.
 - Re-ran auth/slash/interaction/dispatch authorization tests plus TypeScript validation to confirm the split is behavior-preserving.
+
+继续拆分核心未读消息流：
+
+- Added `src/custom/unread-config.ts` for runtime/scene unread config merging and default timing constants, so follow-up/sleep-digest state transitions no longer own config-shape parsing.
+- Added `src/custom/unread-inspection.ts` for `/bot-unread` safe summaries and `src/custom/unread-catchup-prompt.ts` for the default autonomous catch-up prompt, isolating status formatting and prompt tuning from the unread state machine.
+- `src/custom/unread-runtime.ts` now focuses on pure history/window/snapshot transitions while re-exporting the moved helpers for existing callers; `tests/unread-runtime.test.ts` covers both compatibility exports and direct module imports.

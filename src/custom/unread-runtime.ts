@@ -1,14 +1,23 @@
 import type {
   CustomAttachment,
   CustomInboundMessage,
-  CustomRuntimeConfig,
-  CustomSceneConfig,
-  CustomUnreadConfig,
 } from "./types.js";
+import { buildDefaultCatchupPrompt } from "./unread-catchup-prompt.js";
+import type { ResolvedCustomUnreadConfig } from "./unread-config.js";
 
-export const DEFAULT_UNREAD_FOLLOWUP_DELAY_MS = 60_000;
-export const DEFAULT_UNREAD_SLEEP_DELAY_MS = 10 * 60_000;
-export const DEFAULT_UNREAD_HISTORY_LIMIT = 50;
+export {
+  DEFAULT_UNREAD_FOLLOWUP_DELAY_MS,
+  DEFAULT_UNREAD_HISTORY_LIMIT,
+  DEFAULT_UNREAD_SLEEP_DELAY_MS,
+  resolveCustomUnreadConfig,
+  type ResolvedCustomUnreadConfig,
+} from "./unread-config.js";
+export {
+  inspectCustomUnreadRuntimeState,
+  type CustomUnreadPeerInspection,
+  type CustomUnreadRuntimeInspection,
+} from "./unread-inspection.js";
+
 export const CUSTOM_UNREAD_ACTOR_ID = "__qqbot_digest__";
 
 export type CustomUnreadIntentKind =
@@ -77,133 +86,12 @@ export interface CustomUnreadRuntimeState {
   snapshots: Record<string, CustomUnreadCatchupSnapshot>;
 }
 
-export interface CustomUnreadPeerInspection {
-  peerId: string;
-  pendingCount: number;
-  oldestPendingAt?: number;
-  newestPendingAt?: number;
-  followupActive: boolean;
-  scheduledFollowupDueAt?: number;
-  scheduledSleepDigestDueAt?: number;
-  snapshotCount: number;
-  policyGatedSnapshotCount: number;
-}
-
-export interface CustomUnreadRuntimeInspection {
-  peerCount: number;
-  totalPendingCount: number;
-  snapshotCount: number;
-  policyGatedSnapshotCount: number;
-  scheduledFollowupCount: number;
-  scheduledSleepDigestCount: number;
-  peers: CustomUnreadPeerInspection[];
-}
-
-export interface ResolvedCustomUnreadConfig {
-  enabled: boolean;
-  historyLimit: number;
-  followupDelayMs: number;
-  sleepDelayMs: number;
-  allowAutonomousReply: boolean;
-  allowProactiveSend: boolean;
-}
-
 interface PeerState {
   history: CustomUnreadHistoryEntry[];
   followupActive: boolean;
   catchupAnchor?: number;
   scheduledFollowupDueAt?: number;
   scheduledSleepDigestDueAt?: number;
-}
-
-export function resolveCustomUnreadConfig(params: {
-  runtime?: CustomRuntimeConfig | null;
-  scene?: CustomSceneConfig | null;
-}): ResolvedCustomUnreadConfig {
-  const runtimeUnread = params.runtime?.unread ?? {};
-  const sceneUnread = params.scene?.unread ?? {};
-  const enabled = sceneUnread.enabled ?? runtimeUnread.enabled ?? true;
-  const historyLimit = normalizePositiveInt(
-    sceneUnread.historyLimit ?? runtimeUnread.historyLimit,
-    DEFAULT_UNREAD_HISTORY_LIMIT,
-  );
-  return {
-    enabled,
-    historyLimit,
-    followupDelayMs: normalizePositiveInt(
-      sceneUnread.followupDelayMs ?? runtimeUnread.followupDelayMs,
-      DEFAULT_UNREAD_FOLLOWUP_DELAY_MS,
-    ),
-    sleepDelayMs: normalizePositiveInt(
-      sceneUnread.sleepDelayMs ?? runtimeUnread.sleepDelayMs,
-      DEFAULT_UNREAD_SLEEP_DELAY_MS,
-    ),
-    allowAutonomousReply:
-      sceneUnread.allowAutonomousReply
-      ?? params.scene?.allowAutonomousReply
-      ?? runtimeUnread.allowAutonomousReply
-      ?? false,
-    allowProactiveSend:
-      sceneUnread.allowProactiveSend
-      ?? params.scene?.allowProactiveSend
-      ?? runtimeUnread.allowProactiveSend
-      ?? false,
-  };
-}
-
-export function inspectCustomUnreadRuntimeState(
-  state: CustomUnreadRuntimeState,
-  options: { limit?: number } = {},
-): CustomUnreadRuntimeInspection {
-  const snapshotCounts = new Map<string, { total: number; gated: number }>();
-  let snapshotCount = 0;
-  let policyGatedSnapshotCount = 0;
-  for (const snapshot of Object.values(state.snapshots ?? {})) {
-    snapshotCount++;
-    if (snapshot.policyGated) policyGatedSnapshotCount++;
-    const counts = snapshotCounts.get(snapshot.peerId) ?? { total: 0, gated: 0 };
-    counts.total++;
-    if (snapshot.policyGated) counts.gated++;
-    snapshotCounts.set(snapshot.peerId, counts);
-  }
-
-  const peers = Object.entries(state.peers ?? {}).map(([peerId, peer]) => {
-    const timestamps = (peer.history ?? [])
-      .map((entry) => entry.timestamp)
-      .filter((timestamp) => Number.isFinite(timestamp));
-    const snapshotSummary = snapshotCounts.get(peerId);
-    return {
-      peerId,
-      pendingCount: peer.history?.length ?? 0,
-      oldestPendingAt: timestamps.length ? Math.min(...timestamps) : undefined,
-      newestPendingAt: timestamps.length ? Math.max(...timestamps) : undefined,
-      followupActive: peer.followupActive === true,
-      scheduledFollowupDueAt: peer.scheduledFollowupDueAt,
-      scheduledSleepDigestDueAt: peer.scheduledSleepDigestDueAt,
-      snapshotCount: snapshotSummary?.total ?? 0,
-      policyGatedSnapshotCount: snapshotSummary?.gated ?? 0,
-    };
-  });
-
-  peers.sort((a, b) => {
-    const nextA = Math.min(a.scheduledFollowupDueAt ?? Number.POSITIVE_INFINITY, a.scheduledSleepDigestDueAt ?? Number.POSITIVE_INFINITY);
-    const nextB = Math.min(b.scheduledFollowupDueAt ?? Number.POSITIVE_INFINITY, b.scheduledSleepDigestDueAt ?? Number.POSITIVE_INFINITY);
-    if (nextA !== nextB) return nextA - nextB;
-    if (b.pendingCount !== a.pendingCount) return b.pendingCount - a.pendingCount;
-    return a.peerId.localeCompare(b.peerId);
-  });
-
-  const limit = normalizeInspectionLimit(options.limit);
-  const visiblePeers = peers.slice(0, limit);
-  return {
-    peerCount: peers.length,
-    totalPendingCount: peers.reduce((sum, peer) => sum + peer.pendingCount, 0),
-    snapshotCount,
-    policyGatedSnapshotCount,
-    scheduledFollowupCount: peers.filter((peer) => peer.scheduledFollowupDueAt !== undefined).length,
-    scheduledSleepDigestCount: peers.filter((peer) => peer.scheduledSleepDigestDueAt !== undefined).length,
-    peers: visiblePeers,
-  };
 }
 
 export class CustomUnreadRuntime {
@@ -463,18 +351,6 @@ export class CustomUnreadRuntime {
   }
 }
 
-function normalizePositiveInt(value: unknown, fallback: number): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n <= 0) return fallback;
-  return Math.floor(n);
-}
-
-function normalizeInspectionLimit(value: unknown): number {
-  const n = Number(value);
-  if (!Number.isFinite(n) || n < 1) return 20;
-  return Math.floor(n);
-}
-
 function toHistoryEntry(message: CustomInboundMessage): CustomUnreadHistoryEntry {
   return {
     actorId: message.actor.id,
@@ -496,13 +372,4 @@ function cloneHistoryEntry(entry: CustomUnreadHistoryEntry): CustomUnreadHistory
 function trimHistory(history: CustomUnreadHistoryEntry[], limit: number): void {
   if (history.length <= limit) return;
   history.splice(0, history.length - limit);
-}
-
-function buildDefaultCatchupPrompt(): string {
-  return [
-    "你刚刚看了一眼这个QQ群过去一会儿的未读消息。",
-    "请结合群聊历史，像群里的真人成员一样自然接一句。",
-    "只发一条简短回复；不要逐条总结；不要提到任务、定时器、机制、系统提示或自己在查看历史。",
-    "不要使用工具，除非群友明确求助。",
-  ].join("");
 }

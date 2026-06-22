@@ -8,6 +8,9 @@ import {
   inspectCustomUnreadRuntimeState,
   resolveCustomUnreadConfig,
 } from "../src/custom/unread-runtime.js";
+import { buildDefaultCatchupPrompt } from "../src/custom/unread-catchup-prompt.js";
+import { resolveCustomUnreadConfig as resolveCustomUnreadConfigDirect } from "../src/custom/unread-config.js";
+import { inspectCustomUnreadRuntimeState as inspectCustomUnreadRuntimeStateDirect } from "../src/custom/unread-inspection.js";
 import type { CustomInboundMessage, CustomRuntimeConfig, CustomSceneConfig } from "../src/custom/types.js";
 
 const baseRuntime: CustomRuntimeConfig = {
@@ -40,6 +43,7 @@ function msg(overrides: Partial<CustomInboundMessage> = {}): CustomInboundMessag
 }
 
 const cfg = resolveCustomUnreadConfig({ runtime: baseRuntime, scene: chatScene });
+assert.deepEqual(cfg, resolveCustomUnreadConfigDirect({ runtime: baseRuntime, scene: chatScene }));
 assert.equal(cfg.enabled, true);
 assert.equal(cfg.historyLimit, 3);
 assert.equal(cfg.followupDelayMs, 1_000);
@@ -94,6 +98,7 @@ assert.equal(mentionFollowup.length, 1);
 assert.equal(mentionFollowup[0]!.kind, "enqueue-catchup");
 assert.equal(mentionFollowup[0]!.snapshot!.entries.length, 3);
 assert.equal(mentionFollowup[0]!.snapshot!.policyGated, false);
+assert.equal(mentionFollowup[0]!.snapshot!.prompt, buildDefaultCatchupPrompt());
 
 const consume = runtime.consumeSnapshot(mentionFollowup[0]!.snapshot!.id);
 assert.equal(consume.consumed, 3);
@@ -144,6 +149,7 @@ assert.equal(gatedSleep.length, 1);
 assert.equal(gatedSleep[0]!.kind, "policy-gated");
 
 const inspection = inspectCustomUnreadRuntimeState(gatedRuntime.getState());
+assert.deepEqual(inspection, inspectCustomUnreadRuntimeStateDirect(gatedRuntime.getState()));
 assert.equal(inspection.peerCount, 1);
 assert.equal(inspection.totalPendingCount, 1);
 assert.equal(inspection.snapshotCount, 2);

@@ -1491,7 +1491,9 @@ Current implementation status:
 - Takes normalized `CustomInboundMessage` inputs and returns typed intents.
 - Does not send messages directly. `src/custom/unread-gateway-adapter.ts` converts intents into gateway effects.
 - Defaults to policy-gated autonomous/proactive behavior unless the scene explicitly allows it.
-- Exposes `inspectCustomUnreadRuntimeState()` for text-safe status summaries that include peer counts, pending counts, scheduled timer counts, snapshot counts, and policy-gated snapshot counts without exposing cached message bodies.
+- Delegates runtime/scene config merging to `src/custom/unread-config.ts`, keeping state transitions independent from config shape.
+- Delegates the default autonomous catch-up prompt to `src/custom/unread-catchup-prompt.ts`, so prompt tuning is isolated from scheduling/state logic.
+- Re-exports `inspectCustomUnreadRuntimeState()` from `src/custom/unread-inspection.ts` for text-safe status summaries that include peer counts, pending counts, scheduled timer counts, snapshot counts, and policy-gated snapshot counts without exposing cached message bodies.
 - `src/custom/unread-status-gateway-adapter.ts` exposes `/bot-unread status [limit]` through the custom slash gateway. It is read-only, requires `system.status`, and uses the inspection helper so cached group message bodies are not displayed.
 
 State:

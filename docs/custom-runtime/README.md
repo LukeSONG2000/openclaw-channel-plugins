@@ -169,6 +169,9 @@ Out of scope for the first custom runtime:
 - `src/custom/unread-context.ts`: gateway-side adapter for selecting custom/legacy history, applying it to the initial agent body, legacy history record/clear, and attachment tag formatting.
 - `src/custom/unread-completion-gateway-adapter.ts`: gateway-side unread completion adapter for custom unread effects/persistence and legacy history clearing after dispatch.
 - `src/custom/unread-runtime.ts`: pure unread/follow-up/sleep-digest state machine.
+- `src/custom/unread-config.ts`: pure unread/follow-up/sleep-digest config resolver with runtime and scene overrides.
+- `src/custom/unread-inspection.ts`: text-safe unread runtime inspection summaries for `/bot-unread` and diagnostics.
+- `src/custom/unread-catchup-prompt.ts`: default autonomous catch-up prompt kept separate from state transitions.
 - `src/custom/unread-gateway-adapter.ts`: effect bridge between unread runtime and gateway queue/history types.
 - `src/custom/unread-status-gateway-adapter.ts`: `/bot-unread` read-only status adapter for unread/follow-up/sleep-digest inspection.
 - `scripts/apply-custom-runtime-init.mjs`: shared installer helper for binding `customRuntime.admins`, `customRuntime.adminGroup`, and the default management-group `system-admin` scene during initialization.
