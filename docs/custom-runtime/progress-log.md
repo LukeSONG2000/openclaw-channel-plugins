@@ -1434,3 +1434,9 @@ Added configured scene binding inspection:
 - Added `src/custom/auth-state.ts` for default approval TTL, grant expiry/use-count derivation, wildcard id matching, grant expiry checks, defensive grant/request cloning, and restored-state sequence parsing.
 - `src/custom/auth.ts` now delegates grant/request lifecycle helpers to the pure module and stays focused on authorization decisions, temporary grant mutation, approval request dedupe, and typed intents.
 - `tests/custom-auth-runtime.test.ts` now verifies direct auth-state imports alongside the existing `auth.ts` compatibility exports.
+
+拆出鉴权审批请求辅助模块：
+
+- Added `src/custom/auth-requests.ts` for pure approval-request construction, denial-reason normalization, pending request lookup/dedupe, and defensive peer/actor/admin copying.
+- `src/custom/auth.ts` now delegates pending approval request creation/dedupe to the pure module while retaining runtime maps, grant mutation, pruning, and typed intent orchestration.
+- `tests/custom-auth-runtime.test.ts` now verifies direct auth-request helper imports alongside the existing runtime approval flow.

@@ -13,6 +13,11 @@ import {
   resolveCustomAdminGroupKey as resolveCustomAdminGroupKeyDirect,
 } from "../src/custom/auth-admin.js";
 import {
+  buildCustomAuthorizationApprovalRequest,
+  findMatchingPendingCustomAuthorizationRequest,
+  normalizeCustomAuthorizationRequestReason,
+} from "../src/custom/auth-requests.js";
+import {
   DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
   cloneCustomAuthorizationRequest,
   expiresAtForCustomGrantUse,
@@ -124,6 +129,27 @@ clonedRequest.peer.id = "CHANGED";
 clonedRequest.admins.push("OTHER_ADMIN");
 assert.equal(denied.intents[0].request.peer.id, peer.id);
 assert.deepEqual(denied.intents[0].request.admins, ["ADMIN_OPENID"]);
+assert.equal(normalizeCustomAuthorizationRequestReason("allowed"), "missing_capability");
+const directBuiltRequest = buildCustomAuthorizationApprovalRequest({
+  id: "authreq-direct",
+  peer,
+  actor: member,
+  capability: "system.restart",
+  scene: chatScene,
+  reason: "allowed",
+  admins: ["ADMIN_OPENID"],
+  now: 1_250,
+  ttlMs: 500,
+});
+assert.equal(directBuiltRequest.reason, "missing_capability");
+assert.equal(directBuiltRequest.expiresAt, 1_750);
+assert.equal(findMatchingPendingCustomAuthorizationRequest({
+  requests: [denied.intents[0].request, directBuiltRequest],
+  peer,
+  actor: member,
+  capability: "system.restart",
+  now: 1_300,
+})?.id, requestId);
 
 const duplicate = authRuntime.check({
   runtime: runtimeCfg,

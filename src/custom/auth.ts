@@ -17,6 +17,10 @@ import {
   resolveCustomAdminGroupKey,
 } from "./auth-admin.js";
 import {
+  buildCustomAuthorizationApprovalRequest,
+  findMatchingPendingCustomAuthorizationRequest,
+} from "./auth-requests.js";
+import {
   DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
   cloneCustomAuthorizationGrant,
   cloneCustomAuthorizationRequest,
@@ -39,6 +43,14 @@ export {
   resolveCustomAdminGroupKey,
   type CustomAdminBindingStatus,
 } from "./auth-admin.js";
+
+export {
+  buildCustomAuthorizationApprovalRequest,
+  findMatchingPendingCustomAuthorizationRequest,
+  normalizeCustomAuthorizationRequestReason,
+  type CustomAuthorizationApprovalRequestBuildParams,
+  type CustomAuthorizationPendingRequestLookup,
+} from "./auth-requests.js";
 
 export {
   DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
@@ -342,35 +354,31 @@ export class CustomAuthorizationRuntime {
     taskId?: string;
   }): { request: CustomAuthorizationApprovalRequest; deduped: boolean } | null {
     if (params.admins.length === 0) return null;
-    const reason = params.reason === "allowed" ? "missing_capability" : params.reason;
-    for (const request of this.requests.values()) {
-      if (
-        request.status === "pending"
-        && request.expiresAt > params.now
-        && request.peer.id === params.peer.id
-        && request.actor.id.toUpperCase() === params.actor.id.toUpperCase()
-        && request.capability === params.capability
-        && request.taskId === params.taskId
-      ) {
-        return { request: cloneCustomAuthorizationRequest(request), deduped: true };
-      }
+    const pending = findMatchingPendingCustomAuthorizationRequest({
+      requests: this.requests.values(),
+      peer: params.peer,
+      actor: params.actor,
+      capability: params.capability,
+      now: params.now,
+      taskId: params.taskId,
+    });
+    if (pending) {
+      return { request: pending, deduped: true };
     }
 
-    const request: CustomAuthorizationApprovalRequest = {
+    const request = buildCustomAuthorizationApprovalRequest({
       id: `authreq-${params.now}-${++this.requestSeq}`,
-      peer: { ...params.peer },
-      actor: { ...params.actor },
+      peer: params.peer,
+      actor: params.actor,
       capability: params.capability,
-      scene: params.scene.scene,
-      sceneLabel: params.scene.label,
-      reason,
-      requestedAt: params.now,
-      expiresAt: params.now + params.ttlMs,
-      admins: params.admins.slice(),
+      scene: params.scene,
+      reason: params.reason,
+      admins: params.admins,
       adminGroup: params.adminGroup,
+      now: params.now,
+      ttlMs: params.ttlMs,
       taskId: params.taskId,
-      status: "pending",
-    };
+    });
     this.requests.set(request.id, request);
     return { request: cloneCustomAuthorizationRequest(request), deduped: false };
   }
