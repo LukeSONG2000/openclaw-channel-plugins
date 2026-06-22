@@ -139,6 +139,11 @@ export async function handleCustomInteractionCreateGateway(
       cfg: params.cfg as any,
       getConfigApi: params.getConfigApi,
       replyTarget: interaction.replyTarget,
+      sourcePeer: interaction.sourcePeer,
+      feedbackActor: {
+        id: interaction.actorId,
+        label: actorLabel,
+      },
       persistAuthState: params.persistAuthState,
       persistPollState: params.persistPollState,
       persistGameState: params.persistGameState,

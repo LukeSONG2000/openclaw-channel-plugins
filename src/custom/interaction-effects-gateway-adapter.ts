@@ -2,7 +2,9 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { CustomInteractionGatewayResult } from "./interaction-gateway-adapter.js";
 import type { CustomInteractionReplyTarget } from "./interaction-event-normalizer.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
+import { prefixCustomUserFeedbackMention } from "./identity-presentation.js";
 import { upsertCustomSceneConfig } from "./scene-gateway-adapter.js";
+import type { CustomActor, CustomPeer } from "./types.js";
 
 export type CustomInteractionGatewayHandledResult = Extract<CustomInteractionGatewayResult, { handled: true }>;
 
@@ -22,6 +24,8 @@ export interface ApplyCustomInteractionGatewayEffectsParams {
   cfg?: OpenClawConfig;
   getConfigApi?: () => CustomInteractionGatewayConfigApi;
   replyTarget?: CustomInteractionReplyTarget;
+  sourcePeer?: CustomPeer;
+  feedbackActor?: CustomActor;
   persistAuthState?: () => void;
   persistPollState?: () => void;
   persistGameState?: () => void;
@@ -85,7 +89,7 @@ export async function applyCustomInteractionGatewayEffects(
       return result;
     }
     try {
-      await params.sendReply(params.replyTarget, params.result.reply);
+      await params.sendReply(params.replyTarget, formatCustomInteractionFeedbackReply(params));
       result.replyDelivered = true;
     } catch (sendErr) {
       result.replyFailed = true;
@@ -94,6 +98,14 @@ export async function applyCustomInteractionGatewayEffects(
   }
 
   return result;
+}
+
+function formatCustomInteractionFeedbackReply(params: ApplyCustomInteractionGatewayEffectsParams): string {
+  const reply = params.result.reply ?? "";
+  return prefixCustomUserFeedbackMention(reply, {
+    peer: params.sourcePeer,
+    actor: params.feedbackActor,
+  });
 }
 
 function logCustomInteractionGatewayResult(params: ApplyCustomInteractionGatewayEffectsParams): void {

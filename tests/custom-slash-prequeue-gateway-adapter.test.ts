@@ -100,7 +100,7 @@ assert.equal(normalizeCustomSlashPrequeueContent({
     handleCustomSlashCommand: () => ({ handled: true, reply: { kind: "text", text: "custom ok" } }),
   });
   assert.equal(result.kind, "custom-slash");
-  assert.deepEqual(t.sentText, [{ kind: "group", text: "custom ok" }]);
+  assert.deepEqual(t.sentText, [{ kind: "group", text: "<@MEMBER_OPENID>\ncustom ok" }]);
 }
 
 {

@@ -103,6 +103,20 @@ assert.equal(c2cReply.replyDelivered, true);
 assert.equal(c2cReply.configPersisted, false);
 assert.deepEqual(sentReplies.at(-1), { target: { kind: "c2c", userOpenid: "USER_OPENID" }, text: "c2c done" });
 
+const mentionedGroupReply = await applyCustomInteractionGatewayEffects({
+  accountId: "default",
+  result: { handled: true, reply: "button done" },
+  replyTarget: { kind: "group", groupOpenid: "GROUP_OPENID" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  feedbackActor: { id: "MEMBER_OPENID", label: "Member" },
+  sendReply: async (target, text) => { sentReplies.push({ target, text }); },
+});
+assert.equal(mentionedGroupReply.replyDelivered, true);
+assert.deepEqual(sentReplies.at(-1), {
+  target: { kind: "group", groupOpenid: "GROUP_OPENID" },
+  text: "<@MEMBER_OPENID>\nbutton done",
+});
+
 const channelReply = await applyCustomInteractionGatewayEffects({
   accountId: "default",
   result: { handled: true, reply: "channel done" },

@@ -20,6 +20,10 @@ import {
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import type { CustomTaskExecutor } from "./task-executor-adapter.js";
 import { applyCustomUrgentQueueBypass, type CustomUrgentQueueBypassQueue } from "./urgent-queue-bypass-gateway-adapter.js";
+import {
+  toCustomActorFromQueuedMessage,
+  toCustomPeerFromQueuedMessage,
+} from "./queued-message-context.js";
 
 export interface CustomSlashPrequeueLogger {
   info?: (msg: string) => void;
@@ -107,6 +111,8 @@ export async function handleCustomSlashPrequeueGateway(
         cfg: params.cfg,
         result: customPlainTextCommand,
         ...params.effects,
+        sourcePeer: toCustomPeerFromQueuedMessage(params.message, { queuePeerId: peerId }),
+        feedbackActor: toCustomActorFromQueuedMessage(params.message),
         sendText: async (text) => { await sendSlashTextReply(params, text); },
         sendKeyboard: (text, keyboard) => sendSlashKeyboardReply(params, text, keyboard),
         log: params.log,
@@ -163,6 +169,8 @@ export async function handleCustomSlashPrequeueGateway(
         cfg: params.cfg,
         result: customSlashCommand,
         ...params.effects,
+        sourcePeer: toCustomPeerFromQueuedMessage(params.message, { queuePeerId: peerId }),
+        feedbackActor: toCustomActorFromQueuedMessage(params.message),
         sendText: async (text) => { await sendSlashTextReply(params, text); },
         sendKeyboard: (text, keyboard) => sendSlashKeyboardReply(params, text, keyboard),
         log: params.log,

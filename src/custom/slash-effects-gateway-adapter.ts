@@ -7,6 +7,7 @@ import {
 } from "./config.js";
 import { upsertCustomSceneConfig } from "./scene-gateway-adapter.js";
 import type { CustomSlashGatewayResult } from "./slash-gateway-adapter.js";
+import { prefixCustomUserFeedbackMention } from "./identity-presentation.js";
 import {
   deliverCustomSlashGatewayReply,
   type CustomSlashAdminGroupNotification,
@@ -17,6 +18,7 @@ import {
   type CustomTaskNotificationDeliveryResult,
   type CustomTaskNotificationSendText,
 } from "./task-notification-gateway-adapter.js";
+import type { CustomActor, CustomPeer } from "./types.js";
 
 export type CustomSlashGatewayHandledResult = Extract<CustomSlashGatewayResult, { handled: true }>;
 
@@ -34,6 +36,8 @@ export interface ApplyCustomSlashGatewayEffectsParams {
   accountId: string;
   cfg: OpenClawConfig;
   result: CustomSlashGatewayHandledResult;
+  sourcePeer?: CustomPeer;
+  feedbackActor?: CustomActor;
   log?: CustomSlashGatewayEffectsLogger;
   getConfigApi?: () => CustomSlashGatewayConfigApi;
   persistAuthState?: () => void;
@@ -110,7 +114,7 @@ export async function applyCustomSlashGatewayEffects(
     try {
       await deliverCustomSlashGatewayReply({
         accountId: params.accountId,
-        reply: params.result.reply,
+        reply: formatCustomSlashFeedbackReply(params, params.result.reply),
         sendText: params.sendText,
         sendKeyboard: params.sendKeyboard,
         sendAdminGroupNotification: params.sendAdminGroupNotification,
@@ -125,6 +129,27 @@ export async function applyCustomSlashGatewayEffects(
 
   result.taskNotificationResults = await deliverCustomSlashTaskNotifications(params);
   return result;
+}
+
+function formatCustomSlashFeedbackReply(
+  params: ApplyCustomSlashGatewayEffectsParams,
+  reply: NonNullable<CustomSlashGatewayHandledResult["reply"]>,
+): NonNullable<CustomSlashGatewayHandledResult["reply"]> {
+  const prefix = (text: string) => prefixCustomUserFeedbackMention(text, {
+    peer: params.sourcePeer,
+    actor: params.feedbackActor,
+  });
+  if (reply.kind === "text") {
+    return { ...reply, text: prefix(reply.text) };
+  }
+  if (reply.kind === "keyboard") {
+    return { ...reply, text: prefix(reply.text) };
+  }
+  return {
+    ...reply,
+    denialText: prefix(reply.denialText),
+    approvalText: reply.approvalText ? prefix(reply.approvalText) : undefined,
+  };
 }
 
 function logCustomSlashGatewayResult(params: ApplyCustomSlashGatewayEffectsParams): void {

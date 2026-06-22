@@ -110,7 +110,7 @@ function groupInteraction(buttonData: string, type = 1): InteractionEvent {
   assert.equal(pollPersisted, 1);
   assert.deepEqual(sentReply, {
     target: { kind: "group", groupOpenid: "GROUP_OPENID" },
-    text: "已记录投票：B",
+    text: "<@MEMBER_OPENID>\n已记录投票：B",
   });
   assert.equal(result.kind === "custom-button" && result.effects.replyDelivered, true);
 }
@@ -158,7 +158,7 @@ function groupInteraction(buttonData: string, type = 1): InteractionEvent {
   assert.equal(writtenCfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
   assert.deepEqual(sentReply, {
     target: { kind: "group", groupOpenid: "GROUP_OPENID" },
-    text: result.kind === "custom-button" ? result.customInteraction.reply : undefined,
+    text: result.kind === "custom-button" ? `<@MEMBER_OPENID>\n${result.customInteraction.reply}` : undefined,
   });
 }
 
@@ -205,7 +205,7 @@ function groupInteraction(buttonData: string, type = 1): InteractionEvent {
   assert.equal(result.kind === "custom-button" && result.customInteraction.reply?.includes("测试成员（member_openid：MEMBER_OPENID）"), true);
   assert.deepEqual(sentReply, {
     target: { kind: "group", groupOpenid: "GROUP_OPENID" },
-    text: result.kind === "custom-button" ? result.customInteraction.reply : undefined,
+    text: result.kind === "custom-button" ? `<@MEMBER_OPENID>\n${result.customInteraction.reply}` : undefined,
   });
 }
 

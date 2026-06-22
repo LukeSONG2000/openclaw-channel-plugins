@@ -35,6 +35,36 @@ export function formatCustomPeerIdentity(peer: CustomPeer | undefined, cfg?: Ope
   return `${peer.kind}：${peer.id}`;
 }
 
+export function formatCustomGroupMention(actor: Pick<CustomActor, "id"> | undefined): string | undefined {
+  const id = String(actor?.id ?? "").trim();
+  return id ? `<@${id}>` : undefined;
+}
+
+export function prefixCustomUserFeedbackMention(text: string, params: {
+  peer?: CustomPeer;
+  actor?: Pick<CustomActor, "id">;
+}): string {
+  if (params.peer?.kind !== "group") return text;
+  const mention = formatCustomGroupMention(params.actor);
+  if (!mention) return text;
+  if (text.trimStart().startsWith(mention)) return text;
+  return `${mention}\n${text}`;
+}
+
+export function prefixCustomUsersFeedbackMention(text: string, params: {
+  peer?: CustomPeer;
+  actors?: Array<Pick<CustomActor, "id">>;
+}): string {
+  if (params.peer?.kind !== "group") return text;
+  const mentions = [...new Set((params.actors ?? [])
+    .map(formatCustomGroupMention)
+    .filter((mention): mention is string => Boolean(mention)))]
+    .join(" ");
+  if (!mentions) return text;
+  if (text.trimStart().startsWith(mentions)) return text;
+  return `${mentions}\n${text}`;
+}
+
 export function formatCustomAdminGroupIdentity(adminGroup: string | undefined, cfg?: OpenClawConfig): string | undefined {
   const groupOpenid = parseGroupOpenid(adminGroup);
   if (!groupOpenid) return adminGroup;
