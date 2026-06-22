@@ -1422,3 +1422,9 @@ Added configured scene binding inspection:
 - Added `src/custom/task-command-config.ts` for command-executor defaults and config normalization, including command/cwd, timeout, output limits, stdin forwarding, and notification audiences.
 - `src/custom/task-command-executor.ts` now delegates config policy to the new pure module and stays focused on process lifecycle, workspace/env setup, timeout/cancel/dispose, and executor callbacks.
 - `tests/custom-task-command-executor.test.ts` now verifies direct config imports alongside compatibility exports from the executor module.
+
+拆出鉴权管理员绑定辅助模块：
+
+- Added `src/custom/auth-admin.ts` for pure custom runtime admin matching, admin list normalization, management-group key normalization, and initialization readiness inspection.
+- `src/custom/auth.ts` now focuses on scene/capability decisions, temporary grants, approval requests, state import/export, and runtime intents while re-exporting admin helpers for compatibility.
+- `tests/custom-auth-runtime.test.ts` now verifies direct admin-helper imports alongside the existing `auth.ts` compatibility exports.

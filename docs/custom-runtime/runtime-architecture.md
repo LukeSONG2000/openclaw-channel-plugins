@@ -436,7 +436,7 @@ Authorization is evaluated before tool dispatch and before config mutation.
 Current implementation status:
 
 - Exists as a pure runtime with no QQ API, timer, filesystem, or OpenClaw SDK dependency.
-- Evaluates admins, scene capabilities, wildcard capabilities, and disabled runtime state.
+- Evaluates scene capabilities, wildcard capabilities, disabled runtime state, and admin status through `auth-admin.ts`.
 - Maintains in-memory temporary grants:
   - once
   - count-limited
@@ -445,6 +445,7 @@ Current implementation status:
 - Emits typed intents for approval requests, approval resolution, grant consumption, and grant expiry.
 - Deduplicates pending approval requests by peer, actor, capability, and task id.
 - Can import/export `CustomAuthorizationRuntimeState` so the gateway can persist temporary grants and approval requests.
+- `src/custom/auth-admin.ts` owns pure admin helpers: admin list normalization, wildcard admin matching, `customRuntime.adminGroup` normalization into `qqbot:group:<openid>`, and initialization readiness inspection for missing `admins` / `adminGroup`.
 - `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks, while re-exporting auth command helpers for compatibility.
 - `src/custom/auth-command-parser.ts` owns pure `/bot-auth` text-command parsing and `custom-auth:*` approval-button payload parsing; `src/custom/auth-presentation.ts` owns status/request/grant rendering, approval-card construction, management-group notification payloads, and intent summaries; `src/custom/auth-command-gateway-adapter.ts` owns admin checks, approval handling, and grant command conversion.
 - `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.

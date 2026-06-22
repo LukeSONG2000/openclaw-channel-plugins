@@ -7,6 +7,11 @@ import {
   isCustomRuntimeAdmin,
   resolveCustomAdminGroupKey,
 } from "../src/custom/auth.js";
+import {
+  inspectCustomAdminBindings as inspectCustomAdminBindingsDirect,
+  isCustomRuntimeAdmin as isCustomRuntimeAdminDirect,
+  resolveCustomAdminGroupKey as resolveCustomAdminGroupKeyDirect,
+} from "../src/custom/auth-admin.js";
 import type { CustomActor, CustomPeer, CustomRuntimeConfig, CustomSceneConfig } from "../src/custom/types.js";
 
 const peer: CustomPeer = { kind: "group", id: "GROUP_OPENID", label: "Master Luke" };
@@ -28,6 +33,7 @@ const devScene: CustomSceneConfig = {
 
 assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send"]);
 assert.equal(resolveCustomAdminGroupKey(runtimeCfg.adminGroup), "qqbot:group:ADMIN_GROUP_OPENID");
+assert.equal(resolveCustomAdminGroupKey(runtimeCfg.adminGroup), resolveCustomAdminGroupKeyDirect(runtimeCfg.adminGroup));
 assert.deepEqual(inspectCustomAdminBindings(runtimeCfg), {
   enabled: true,
   admins: ["ADMIN_OPENID"],
@@ -35,7 +41,9 @@ assert.deepEqual(inspectCustomAdminBindings(runtimeCfg), {
   missing: [],
   ready: true,
 });
+assert.deepEqual(inspectCustomAdminBindings(runtimeCfg), inspectCustomAdminBindingsDirect(runtimeCfg));
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, admin), true);
+assert.equal(isCustomRuntimeAdmin(runtimeCfg, admin), isCustomRuntimeAdminDirect(runtimeCfg, admin));
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, member), false);
 
 const sceneAllowed = evaluateCustomAuthorization({

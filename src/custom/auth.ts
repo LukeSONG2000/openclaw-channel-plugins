@@ -12,9 +12,23 @@ import type {
   CustomSceneConfig,
 } from "./types.js";
 import {
+  boundCustomRuntimeAdmins,
+  isCustomRuntimeAdmin,
+  resolveCustomAdminGroupKey,
+} from "./auth-admin.js";
+import {
   applySceneDefaults,
   defaultSceneCapabilities,
 } from "./scenes.js";
+
+export {
+  boundCustomRuntimeAdmins,
+  inspectCustomAdminBindings,
+  isCustomRuntimeAdmin,
+  normalizeCustomAdmins,
+  resolveCustomAdminGroupKey,
+  type CustomAdminBindingStatus,
+} from "./auth-admin.js";
 
 const DEFAULT_APPROVAL_TTL_MS = 10 * 60_000;
 
@@ -32,42 +46,6 @@ const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
   "proactive.send",
   "game.interact",
 ];
-
-export interface CustomAdminBindingStatus {
-  enabled: boolean;
-  admins: string[];
-  adminGroup?: string;
-  missing: Array<"admins" | "adminGroup">;
-  ready: boolean;
-}
-
-export function isCustomRuntimeAdmin(runtime: CustomRuntimeConfig, actor: CustomActor): boolean {
-  return normalizeCustomAdmins(runtime).some((admin) => admin === "*" || admin.toUpperCase() === actor.id.toUpperCase());
-}
-
-export function resolveCustomAdminGroupKey(raw?: string | null): string | undefined {
-  const value = String(raw ?? "").trim();
-  if (!value) return undefined;
-  if (value.startsWith("qqbot:group:")) return value;
-  if (value.startsWith("qqbot:")) return undefined;
-  if (value.startsWith("group:")) return `qqbot:${value}`;
-  return `qqbot:group:${value}`;
-}
-
-export function inspectCustomAdminBindings(runtime: CustomRuntimeConfig): CustomAdminBindingStatus {
-  const admins = normalizeCustomAdmins(runtime);
-  const adminGroup = resolveCustomAdminGroupKey(runtime.adminGroup);
-  const missing: CustomAdminBindingStatus["missing"] = [];
-  if (runtime.enabled && admins.length === 0) missing.push("admins");
-  if (runtime.enabled && !adminGroup) missing.push("adminGroup");
-  return {
-    enabled: runtime.enabled === true,
-    admins,
-    adminGroup,
-    missing,
-    ready: runtime.enabled !== true || missing.length === 0,
-  };
-}
 
 export { defaultSceneCapabilities };
 
@@ -171,7 +149,7 @@ export class CustomAuthorizationRuntime {
         capability: params.capability,
         scene: params.scene,
         reason: base.reason,
-        admins: boundAdmins(params.runtime),
+        admins: boundCustomRuntimeAdmins(params.runtime),
         adminGroup: resolveCustomAdminGroupKey(params.runtime.adminGroup),
         now,
         ttlMs: params.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS,
@@ -387,17 +365,6 @@ export class CustomAuthorizationRuntime {
     const seq = parseTrailingSeq(id);
     if (seq > this.requestSeq) this.requestSeq = seq;
   }
-}
-
-function boundAdmins(runtime: CustomRuntimeConfig): string[] {
-  return normalizeCustomAdmins(runtime).filter((admin) => admin !== "*");
-}
-
-function normalizeCustomAdmins(runtime: CustomRuntimeConfig): string[] {
-  return (runtime.admins ?? [])
-    .filter((admin): admin is string => typeof admin === "string")
-    .map((admin) => admin.trim())
-    .filter(Boolean);
 }
 
 function expiresAtForUse(use: CustomGrantUse, now: number, ttlMs?: number): number | undefined {

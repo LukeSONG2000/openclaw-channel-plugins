@@ -66,7 +66,8 @@ Out of scope for the first custom runtime:
 ## Current Implementation Modules
 
 - `src/custom/agent-message-body-context.ts`: pure current-message body builder for group sender prefixes, merged group messages, quote fragments, mention tags, and initial agent body.
-- `src/custom/auth.ts`: scene/capability authorization runtime, admin/admin-group binding inspection, temporary grants, and approval request intents.
+- `src/custom/auth.ts`: scene/capability authorization runtime, temporary grants, and approval request intents.
+- `src/custom/auth-admin.ts`: pure admin/admin-group binding normalization and readiness inspection helpers.
 - `src/custom/auth-gateway-adapter.ts`: gateway adapter for plugin slash command and ordinary dispatch authorization checks.
 - `src/custom/auth-command-parser.ts`: pure `/bot-auth` text-command parser and `custom-auth:*` approval-button payload parser.
 - `src/custom/auth-presentation.ts`: pure auth status/request/grant text, approval-card keyboard, management-group notification payload, and auth intent summary helpers.
