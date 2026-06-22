@@ -78,8 +78,9 @@ interface QQBotChannelConfig extends QQBotAccountConfig {
 
 const DEFAULT_GROUP_POLICY: GroupPolicy = "open";
 
-/** 群历史缓存条数默认值 */
-const DEFAULT_GROUP_HISTORY_LIMIT = 50;
+/** 群历史缓存条数默认值：保守限制，防止群聊长时间累积导致上下文过大 */
+const DEFAULT_GROUP_HISTORY_LIMIT = 12;
+const MAX_GROUP_HISTORY_LIMIT = 12;
 
 const DEFAULT_GROUP_CONFIG: Omit<Required<GroupConfig>, "prompt"> = {
   requireMention: true,
@@ -146,7 +147,7 @@ export function resolveGroupConfig(cfg: OpenClawConfig, groupOpenid: string, acc
 
 /** 解析群历史消息缓存条数 */
 export function resolveHistoryLimit(cfg: OpenClawConfig, groupOpenid: string, accountId?: string): number {
-  return Math.max(0, resolveGroupConfig(cfg, groupOpenid, accountId).historyLimit);
+  return Math.min(MAX_GROUP_HISTORY_LIMIT, Math.max(0, resolveGroupConfig(cfg, groupOpenid, accountId).historyLimit));
 }
 
 /** 解析群行为 PE（具体群 > "*" > 默认值） */

@@ -87,6 +87,12 @@ export interface CustomRuntimeConfig {
   tasks?: CustomTaskRuntimeConfig;
   fallbackAlerts?: CustomFallbackAlertConfig;
   initBind?: CustomRuntimeInitBindConfig;
+  context?: CustomRuntimeContextConfig;
+}
+
+export interface CustomRuntimeContextConfig {
+  /** Rotate the underlying OpenClaw session after this many handled messages. Defaults to 16. */
+  maxSessionTurns?: number;
 }
 
 export interface CustomRuntimeAuthConfig {

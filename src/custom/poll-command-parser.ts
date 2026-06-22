@@ -20,14 +20,7 @@ export type CustomPollButtonPayload =
 
 export function parseCustomPollCommand(rawContent: string): CustomPollCommandParseResult {
   const content = rawContent.trim();
-  if (!content.startsWith("/")) {
-    const plain = stripPlainPollTrigger(content);
-    if (plain === null) return { matched: false };
-    const command = parseCreateCommand(plain);
-    return command
-      ? { matched: true, command }
-      : { matched: true, error: formatMissingCreateFields() };
-  }
+  if (!content.startsWith("/")) return { matched: false };
   const [rawName = "", ...tokens] = content.slice(1).split(/\s+/).filter(Boolean);
   if (rawName.toLowerCase() !== "bot-poll") return { matched: false };
   const action = (tokens.shift() ?? "help").toLowerCase();
@@ -163,13 +156,6 @@ function stripDuration(text: string): string {
     .replace(/(?:持续|时长|限时|截止|收集|投票|统计|结束)?\s*(?:[0-9]+(?:\.[0-9]+)?|一|二|两|三|四|五|六|七|八|九|十|半)\s*(?:分钟|分|min|m|小时|时|h|天|日|d)(?:后)?(?:收集|统计|结束|截止)?/gi, " ")
     .replace(/(?:后)?(?:收集|统计|结束|截止)$/g, " ")
     .trim();
-}
-
-function stripPlainPollTrigger(content: string): string | null {
-  const text = content.trim();
-  const m = text.match(/^(?:请|帮我|麻烦)?\s*(?:创建|发起|新建|开|弄|搞)?\s*(?:一个|个)?\s*(?:投票|投票收集)(?:一下)?[，,：:\s]*(.*)$/);
-  if (!m) return null;
-  return m[1]!.trim();
 }
 
 function splitLooseSegments(text: string): string[] {

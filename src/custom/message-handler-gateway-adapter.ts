@@ -8,6 +8,7 @@ import type { ResolvedQQBotAccount } from "../types.js";
 import { resolveTTSConfig } from "../utils/audio-convert.js";
 import { parseFaceTags } from "../utils/text-parsing.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
+import { applyCustomSessionContextWindow } from "./session-context-window.js";
 import type { CustomAdminGroupNotificationService } from "./admin-group-notification-service-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
 import { runCustomMessageContextGateway } from "./message-context-gateway-adapter.js";
@@ -84,7 +85,21 @@ export function createCustomMessageHandlerGateway(
     const typing = ingress.typing;
     const messageRoute = ingress.messageRoute;
     const { peerId } = messageRoute;
-    const route = ingress.route;
+    const runtimeConfig = resolveCustomRuntimeConfig(cfg as any);
+    const routeWindow = applyCustomSessionContextWindow({
+      route: ingress.route,
+      peerId,
+      content: normalizeSessionWindowCommandContent(event, params.stripMentionText),
+      runtime: runtimeConfig,
+    });
+    if (routeWindow.rotated) {
+      log?.info?.(`[qqbot:${account.accountId}] Session context window rotated for ${peerId}: generation=${routeWindow.generation} reason=${routeWindow.reason}`);
+    }
+    const route = routeWindow.route;
+    const windowedIngress = {
+      ...ingress,
+      route,
+    };
     const envelopeOptions = ingress.envelopeOptions;
     const qualifiedTarget = messageRoute.requestTarget;
     let agentHistoryEnvelopeOpts: unknown;
@@ -93,7 +108,7 @@ export function createCustomMessageHandlerGateway(
       cfg: cfg as any,
       account,
       event,
-      ingress,
+      ingress: windowedIngress,
       unread: params.runtime.unread,
       groupHistories: params.groupHistories,
       initialCustomUnreadCfg: event._customUnreadSnapshotId
@@ -220,4 +235,15 @@ export function createCustomMessageHandlerGateway(
       log,
     });
   };
+}
+
+function normalizeSessionWindowCommandContent(
+  event: QueuedMessage,
+  stripMentionText: CreateCustomMessageHandlerGatewayParams["stripMentionText"],
+): string {
+  const raw = (event.content ?? "").trim();
+  if (event.type === "group" && event.mentions?.length) {
+    return (stripMentionText(raw, event.mentions as NonNullable<QueuedMessage["mentions"]>) ?? raw).trim();
+  }
+  return raw;
 }

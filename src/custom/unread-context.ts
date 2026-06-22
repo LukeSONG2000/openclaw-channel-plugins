@@ -126,13 +126,20 @@ export function applyCustomUnreadHistoryContextToAgentBody(params: {
 }
 
 export function recordLegacyGroupHistoryBeforeDispatch(params: {
-  event: Pick<QueuedMessage, "type" | "groupOpenid" | "senderName" | "senderId" | "timestamp" | "messageId" | "attachments">;
+  event: Pick<QueuedMessage, "type" | "groupOpenid" | "senderName" | "senderId" | "senderIsBot" | "timestamp" | "messageId" | "attachments">;
   groupHistories: Map<string, HistoryEntry[]>;
   historyLimit: number;
   content: string;
 }): LegacyGroupHistoryRecordResult {
   if (params.event.type !== "group" || !params.event.groupOpenid) {
     return { pendingCount: 0, attachmentCount: 0, recorded: false };
+  }
+  if (params.event.senderIsBot) {
+    return {
+      pendingCount: (params.groupHistories.get(params.event.groupOpenid) ?? []).length,
+      attachmentCount: 0,
+      recorded: false,
+    };
   }
 
   const sender = params.event.senderName

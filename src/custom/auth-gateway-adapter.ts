@@ -1,7 +1,6 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import { getSlashCommandCapability } from "../slash-commands.js";
-import { parseCustomPollCommand } from "./poll-command-parser.js";
 import {
   type CustomAuthorizationCheckResult,
   type CustomAuthorizationRuntime,
@@ -188,8 +187,7 @@ export function checkCustomSlashAuthorization(params: {
     return { enabled: false, allowed: true, cfg: params.cfg, reason: "runtime_disabled" };
   }
 
-  const capability = getSlashCommandCapability(params.rawContent)
-    ?? (parseCustomPollCommand(params.rawContent).matched ? "game.interact" : null);
+  const capability = getSlashCommandCapability(params.rawContent);
   if (!capability) {
     return { enabled: true, allowed: true, cfg: params.cfg, reason: "not_custom_command" };
   }

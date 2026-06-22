@@ -35,6 +35,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     tasks: runtime.tasks,
     fallbackAlerts: runtime.fallbackAlerts,
     initBind: normalizeCustomRuntimeInitBindConfig(runtime.initBind),
+    context: runtime.context,
   };
 }
 

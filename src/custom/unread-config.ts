@@ -2,7 +2,8 @@ import type { CustomRuntimeConfig, CustomSceneConfig } from "./types.js";
 
 export const DEFAULT_UNREAD_FOLLOWUP_DELAY_MS = 60_000;
 export const DEFAULT_UNREAD_SLEEP_DELAY_MS = 10 * 60_000;
-export const DEFAULT_UNREAD_HISTORY_LIMIT = 50;
+export const DEFAULT_UNREAD_HISTORY_LIMIT = 12;
+const MAX_UNREAD_HISTORY_LIMIT = 12;
 
 export interface ResolvedCustomUnreadConfig {
   enabled: boolean;
@@ -20,10 +21,10 @@ export function resolveCustomUnreadConfig(params: {
   const runtimeUnread = params.runtime?.unread ?? {};
   const sceneUnread = params.scene?.unread ?? {};
   const enabled = sceneUnread.enabled ?? runtimeUnread.enabled ?? true;
-  const historyLimit = normalizePositiveInt(
+  const historyLimit = Math.min(MAX_UNREAD_HISTORY_LIMIT, normalizePositiveInt(
     sceneUnread.historyLimit ?? runtimeUnread.historyLimit,
     DEFAULT_UNREAD_HISTORY_LIMIT,
-  );
+  ));
   return {
     enabled,
     historyLimit,

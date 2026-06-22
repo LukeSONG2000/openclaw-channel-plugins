@@ -17,6 +17,10 @@ const MERGED_CTX_START = "[以下是合并消息 - 作为上下文]";
 const MERGED_CTX_END = "[当前消息 - 结合上下文回复]";
 /** 历史 Map 最大 key 数量（LRU 淘汰，防止无限增长） */
 const MAX_HISTORY_KEYS = 1000;
+/** 单条历史消息注入上限，避免大段粘贴/合并消息撑爆上下文 */
+const MAX_HISTORY_ENTRY_BODY_CHARS = 700;
+/** 单次历史上下文注入总字符上限 */
+const MAX_HISTORY_CONTEXT_CHARS = 8000;
 
 // ---------------------------------------------------------------------------
 // 类型
@@ -280,10 +284,19 @@ export function buildPendingHistoryContext(params: {
   if (entries.length === 0) return params.currentMessage;
 
   const lineBreak = params.lineBreak ?? "\n";
-  const historyText = entries.map(params.formatEntry).join(lineBreak);
+  const selectedEntries = entries.slice(-params.limit);
+  const formatted = selectedEntries.map((entry) => params.formatEntry({
+    ...entry,
+    body: truncateText(entry.body, MAX_HISTORY_ENTRY_BODY_CHARS),
+  }));
+  const { text: historyText, omitted } = fitNewestLines(formatted, MAX_HISTORY_CONTEXT_CHARS, lineBreak);
+  const omittedPrefix = omitted > 0
+    ? [`[已省略 ${omitted} 条较早历史消息，防止上下文过长]`]
+    : [];
 
   return [
     HISTORY_CTX_START,
+    ...omittedPrefix,
     historyText,
     "",
     HISTORY_CTX_END,
@@ -325,4 +338,30 @@ export function clearPendingHistory(params: {
 }): void {
   if (params.limit <= 0) return;
   params.historyMap.set(params.historyKey, []);
+}
+
+function truncateText(text: string, maxChars: number): string {
+  if (text.length <= maxChars) return text;
+  return `${text.slice(0, maxChars)}...[已截断 ${text.length - maxChars} 字]`;
+}
+
+function fitNewestLines(lines: string[], maxChars: number, lineBreak: string): { text: string; omitted: number } {
+  const kept: string[] = [];
+  let used = 0;
+  for (let i = lines.length - 1; i >= 0; i--) {
+    const line = lines[i] ?? "";
+    const added = line.length + (kept.length > 0 ? lineBreak.length : 0);
+    if (kept.length > 0 && used + added > maxChars) break;
+    if (kept.length === 0 && line.length > maxChars) {
+      kept.unshift(truncateText(line, maxChars));
+      used = maxChars;
+      break;
+    }
+    kept.unshift(line);
+    used += added;
+  }
+  return {
+    text: kept.join(lineBreak),
+    omitted: Math.max(0, lines.length - kept.length),
+  };
 }

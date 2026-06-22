@@ -2,7 +2,6 @@ import type { ResolvedQQBotAccount } from "./types.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { qqbotPlugin, stripMentionText, detectWasMentioned } from "./channel.js";
 import { getApprovalHandler } from "./approval-handler.js";
-import { getPluginVersion } from "./slash-commands.js";
 import { sendMedia as sendMediaAuto } from "./outbound.js";
 import { handleStructuredPayload, sendTextToTarget } from "./reply-dispatcher.js";
 import { parseAndSendMediaTags, sendPlainReply } from "./outbound-deliver.js";
@@ -131,18 +130,6 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
   const customAdminGroupNotifications = accountServices.adminGroupNotifications;
   const customUpdateCheck = accountServices.updateCheck;
   const trySlashCommandOrEnqueue = accountServices.trySlashCommandOrEnqueue;
-
-  void customAdminGroupNotifications.sendSystemStatusNotification({
-    title: "QQBot 二开服务已启动/重启",
-    lines: [
-      `账号：${account.accountId}`,
-      `插件版本：${getPluginVersion()}`,
-      `状态：gateway 正在连接，系统级状态变化已通知管理群和管理员。`,
-    ],
-    dedupeKey: `gateway-start:${account.accountId}:${getPluginVersion()}:${Date.now()}`,
-  }).catch((err) => {
-    log?.error(`[qqbot:${account.accountId}] Failed to send custom system status notification: ${err}`);
-  });
 
   registerQQBotGatewayAbortCleanup({
     account,
