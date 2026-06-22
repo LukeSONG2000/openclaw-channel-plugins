@@ -24,6 +24,10 @@ import {
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
 } from "./queued-message-context.js";
+import {
+  isCustomPollCreateNeedingModel,
+  resolveCustomPollCreateWithModel,
+} from "./poll-llm-parser.js";
 
 export interface CustomSlashPrequeueLogger {
   info?: (msg: string) => void;
@@ -66,6 +70,7 @@ export interface HandleCustomSlashPrequeueGatewayParams {
   sendFile: (target: CustomSlashPrequeueSendFileTarget, filePath: string, message: QueuedMessage) => Promise<void>;
   matchSlashCommand?: (ctx: SlashCommandContext) => Promise<SlashCommandResult>;
   handleCustomSlashCommand?: typeof handleCustomSlashGatewayCommand;
+  resolvePollCreateWithModel?: typeof resolveCustomPollCreateWithModel;
   now?: () => number;
   log?: CustomSlashPrequeueLogger;
 }
@@ -74,6 +79,7 @@ export type HandleCustomSlashPrequeueGatewayResult =
   | { kind: "not-slash-enqueued"; content: string }
   | { kind: "urgent-bypass"; command: string; peerId: string; droppedQueuedMessages: number }
   | { kind: "custom-slash"; content: string; result: Extract<CustomSlashGatewayResult, { handled: true }> }
+  | { kind: "model-poll-parse-reply"; content: string }
   | { kind: "framework-null-enqueued"; content: string }
   | { kind: "framework-delegate-enqueued"; content: string; delegatePrompt: string }
   | { kind: "framework-reply"; content: string; fileSent: boolean }
@@ -84,7 +90,7 @@ export type HandleCustomSlashPrequeueGatewayResult =
 export async function handleCustomSlashPrequeueGateway(
   params: HandleCustomSlashPrequeueGatewayParams,
 ): Promise<HandleCustomSlashPrequeueGatewayResult> {
-  const content = normalizeCustomSlashPrequeueContent({
+  let content = normalizeCustomSlashPrequeueContent({
     message: params.message,
     stripMentionText: params.stripMentionText,
   });
@@ -138,6 +144,24 @@ export async function handleCustomSlashPrequeueGateway(
       peerId: urgentBypass.peerId,
       droppedQueuedMessages: urgentBypass.droppedQueuedMessages,
     };
+  }
+
+  if (isCustomPollCreateNeedingModel(content)) {
+    const modelParsed = await (params.resolvePollCreateWithModel ?? resolveCustomPollCreateWithModel)({
+      cfg: params.cfg,
+      rawContent: content,
+    });
+    if (modelParsed.handled && modelParsed.reply) {
+      await sendSlashTextReply(params, modelParsed.reply);
+      return { kind: "model-poll-parse-reply", content };
+    }
+    if (modelParsed.handled && modelParsed.content) {
+      params.log?.info?.(`[qqbot:${params.account.accountId}] /bot-poll model parsed: ${content.slice(0, 80)} -> ${modelParsed.content.slice(0, 120)}`);
+      content = modelParsed.content;
+      params.message.content = modelParsed.content;
+    } else if (modelParsed.error) {
+      params.log?.error?.(`[qqbot:${params.account.accountId}] /bot-poll model parse failed, fallback to local parser: ${modelParsed.error}`);
+    }
   }
 
   const commandContext = buildSlashCommandContext({

@@ -74,17 +74,17 @@ function parseCreateCommand(input: string): Extract<CustomPollCommand, { kind: "
   const pipeParts = text.split("|").map((part) => part.trim()).filter(Boolean);
   if (pipeParts.length >= 3) {
     const [question, ...options] = pipeParts;
-    return compactCreateCommand({ question: question!, options, multiple, anonymous, durationMs });
+    return normalizeCustomPollCreateCommand({ question: question!, options, multiple, anonymous, durationMs });
   }
 
   const optionBlock = extractOptionBlock(text) ?? inferOptionBlockFromSegments(text);
   if (!optionBlock) return null;
   const options = splitOptions(optionBlock.optionsText);
   const question = summarizeQuestion(optionBlock.questionText, options);
-  return compactCreateCommand({ question, options, multiple, anonymous, durationMs });
+  return normalizeCustomPollCreateCommand({ question, options, multiple, anonymous, durationMs });
 }
 
-function compactCreateCommand(params: {
+export function normalizeCustomPollCreateCommand(params: {
   question: string;
   options: string[];
   multiple?: boolean;
@@ -193,8 +193,32 @@ function parseDurationNumber(value: string): number {
   return map[value] ?? Number.NaN;
 }
 
-function formatMissingCreateFields(): string {
+export function formatCustomPollCreateCommand(command: Extract<CustomPollCommand, { kind: "create" }>): string {
+  const flags = [
+    command.multiple ? "多选" : "单选",
+    command.anonymous ? "匿名" : "不匿名",
+    command.durationMs ? formatDurationForCommand(command.durationMs) : "",
+  ].filter(Boolean);
+  const parts = [
+    `${flags.join(" ")} ${escapePipe(command.question)}`.trim(),
+    ...command.options.map(escapePipe),
+  ];
+  return `/bot-poll create ${parts.join(" | ")}`;
+}
+
+export function formatMissingCreateFields(): string {
   return `我还没识别到完整投票信息：请至少提供标题和 2 个选项。\n\n例如：${slashCommandInput("/bot-poll 晚上吃什么，肯德基，麦当劳，德克士，2分钟后收集")}`;
+}
+
+function escapePipe(value: string): string {
+  return value.replace(/\|/g, "/").trim();
+}
+
+function formatDurationForCommand(durationMs: number): string {
+  const minutes = Math.max(1, Math.round(durationMs / 60_000));
+  if (minutes % (24 * 60) === 0) return `${minutes / (24 * 60)}天`;
+  if (minutes % 60 === 0) return `${minutes / 60}小时`;
+  return `${minutes}分钟`;
 }
 
 function parsePage(value: string | undefined): number {

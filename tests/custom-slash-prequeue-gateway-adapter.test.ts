@@ -104,6 +104,39 @@ assert.equal(normalizeCustomSlashPrequeueContent({
 }
 
 {
+  const msg = event({ content: "/bot-poll 晚上吃什么，肯德基还是麦当劳" });
+  const t = baseParams(msg);
+  let routedContent = "";
+  const result = await handleCustomSlashPrequeueGateway({
+    ...t.params,
+    resolvePollCreateWithModel: async () => ({
+      handled: true,
+      content: "/bot-poll create 单选 不匿名 10分钟 晚上吃什么 | 肯德基 | 麦当劳",
+    }),
+    handleCustomSlashCommand: ({ rawContent }) => {
+      routedContent = rawContent;
+      return { handled: true, reply: { kind: "text", text: "poll ok" } };
+    },
+  });
+  assert.equal(result.kind, "custom-slash");
+  assert.equal(routedContent, "/bot-poll create 单选 不匿名 10分钟 晚上吃什么 | 肯德基 | 麦当劳");
+  assert.equal(msg.content, routedContent);
+}
+
+{
+  const t = baseParams(event({ content: "/bot-poll 晚上吃什么" }));
+  const result = await handleCustomSlashPrequeueGateway({
+    ...t.params,
+    resolvePollCreateWithModel: async () => ({
+      handled: true,
+      reply: "缺少选项",
+    }),
+  });
+  assert.equal(result.kind, "model-poll-parse-reply");
+  assert.deepEqual(t.sentText, [{ kind: "group", text: "缺少选项" }]);
+}
+
+{
   const t = baseParams(event({ content: "/unknown" }));
   const result = await handleCustomSlashPrequeueGateway({
     ...t.params,

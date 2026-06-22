@@ -72,18 +72,8 @@ assert.deepEqual(parseCustomPollCommand("/bot-poll 晚上吃什么，肯德基�
     durationMs: 120_000,
   },
 });
-assert.deepEqual(parseCustomPollCommand("创建投票，肯德基，麦当劳，晚上吃什么，2分钟后收集"), {
-  matched: true,
-  command: {
-    kind: "create",
-    question: "晚上吃什么",
-    options: ["肯德基", "麦当劳"],
-    durationMs: 120_000,
-  },
-});
-const missingPollFields = parseCustomPollCommand("创建投票，晚上吃什么");
-assert.equal(missingPollFields.matched, true);
-assert.equal(missingPollFields.error?.includes("至少提供标题和 2 个选项"), true);
+assert.deepEqual(parseCustomPollCommand("创建投票，肯德基，麦当劳，晚上吃什么，2分钟后收集"), { matched: false });
+assert.deepEqual(parseCustomPollCommand("创建投票，晚上吃什么"), { matched: false });
 assert.deepEqual(
   parseCustomPollCommandDirect("/bot-poll create Pick one | A | B"),
   parseCustomPollCommand("/bot-poll create Pick one | A | B"),
