@@ -5,6 +5,11 @@ import type {
   CustomSceneConfig,
   CustomSceneKind,
 } from "./types.js";
+import {
+  CUSTOM_SCENE_LABELS,
+  formatCapabilitiesForDisplay,
+  formatOnOff,
+} from "./presentation-labels.js";
 
 export interface CustomSceneProfile {
   scene: CustomSceneKind;
@@ -30,8 +35,8 @@ type ConcreteCapability = Exclude<CustomCapability, "*">;
 const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
   "codex-only": {
     scene: "codex-only",
-    label: "Codex only",
-    description: "Only Codex CLI/task work is expected; casual chat and system mutation stay gated.",
+    label: CUSTOM_SCENE_LABELS["codex-only"],
+    description: "仅处理明确的 Codex CLI 或开发任务；闲聊和系统变更保持受控。",
     capabilities: ["codex.run", "codex.longTask"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
@@ -43,8 +48,8 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
   },
   chat: {
     scene: "chat",
-    label: "Chat",
-    description: "Normal chat group with safe conversational replies.",
+    label: CUSTOM_SCENE_LABELS.chat,
+    description: "日常群聊场景，可以进行安全的自然对话。",
     capabilities: ["chat.send"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
@@ -55,8 +60,8 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
   },
   "system-admin": {
     scene: "system-admin",
-    label: "System admin",
-    description: "System status, authorization, and guarded administration.",
+    label: CUSTOM_SCENE_LABELS["system-admin"],
+    description: "用于系统状态查询、授权审批和受控管理操作。",
     capabilities: ["system.status", "deploy.check", "config.read"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
@@ -68,8 +73,8 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
   },
   "dev-lab": {
     scene: "dev-lab",
-    label: "Development lab",
-    description: "Self-development group with Codex work and guarded operations.",
+    label: CUSTOM_SCENE_LABELS["dev-lab"],
+    description: "用于二次开发协作、Codex 任务和受控运维操作。",
     capabilities: ["chat.send", "codex.run", "codex.longTask", "system.status", "deploy.check", "config.read"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
@@ -82,8 +87,8 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
   },
   "default-dm": {
     scene: "default-dm",
-    label: "Direct message",
-    description: "Default direct-message behavior.",
+    label: CUSTOM_SCENE_LABELS["default-dm"],
+    description: "默认私聊场景，支持轻量问答、Codex 协助和状态查询。",
     capabilities: ["chat.send", "codex.run", "system.status", "deploy.check", "config.read"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
@@ -184,12 +189,10 @@ export function buildCustomSceneSystemPrompt(resolved: ResolvedCustomScene): str
       "当前场景已禁用，不应继续执行对话或工具调用。",
     ].join("\n");
   }
-  const capabilityText = resolved.capabilities.length > 0
-    ? resolved.capabilities.join(", ")
-    : "none";
+  const capabilityText = formatCapabilitiesForDisplay(resolved.capabilities);
   const autonomy = [
-    `autonomousReply=${resolved.profile.allowAutonomousReply ? "on" : "off"}`,
-    `proactiveSend=${resolved.profile.allowProactiveSend ? "on" : "off"}`,
+    `自主回复=${formatOnOff(resolved.profile.allowAutonomousReply)}`,
+    `主动发送=${formatOnOff(resolved.profile.allowProactiveSend)}`,
   ].join(", ");
   return [
     `QQBot 自定义场景：${resolved.profile.label} (${resolved.profile.scene})`,

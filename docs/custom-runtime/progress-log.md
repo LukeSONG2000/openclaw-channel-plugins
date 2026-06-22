@@ -1473,3 +1473,18 @@ Added configured scene binding inspection:
 
 - 在管理群测试 `/bot-auth status`、`/bot-scene status`、`/bot-scene bindings`、`/bot-deploy preflight`、`/bot-fallback summary 20`。
 - 再测试投票/小游戏按钮、非管理员配置修改审批流、普通非 @ 消息记录与后续 catch-up 行为。
+
+## 2026-06-22 中文适配与全局文案检查
+
+完成二开 QQBot 运行时用户可见输出的中文适配：
+
+- 新增 `src/custom/presentation-labels.ts`，集中维护场景、能力、布尔值、来源、任务/投票/小游戏/部署状态和中文时长格式，避免各呈现层重复硬编码英文标签。
+- `/bot-scene status/list/bindings` 和场景切换按钮已改为中文展示：场景显示为“中文名（配置 ID）”，来源显示为“精确绑定/默认规则”等，能力显示为“能力 ID（中文说明）”。
+- `/bot-fallback`、兜底告警、`/bot-queue`、`/bot-unread`、长任务状态/通知/命令输出、部署确认、投票、小游戏等用户可见状态摘要已从 `pending/active/unknown/yes/no/open/closed/Agent` 等英文提示改为中文表达。
+- 部署预检中的布尔值和部分英文风险描述已中文化，同时保留必要的配置键、能力 ID、命令参数和包名，便于排障时定位真实配置。
+- 全局 `rg` 扫描剩余英文命中主要为 TypeScript 类型、内部日志、配置键、命令参数或测试夹具；未发现截图中同类的场景卡片英文按钮/字段遗留。
+
+验证：
+
+- `npx tsc --noEmit`
+- `for f in tests/*.test.ts; do npx tsx "$f"; done` 与 `for f in tests/*.test.mjs; do node "$f"; done` 全量通过。

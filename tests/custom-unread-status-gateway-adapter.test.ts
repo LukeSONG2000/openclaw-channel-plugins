@@ -64,9 +64,9 @@ const status = handleCustomUnreadStatusCommand({
 });
 assert.equal(status.handled, true);
 assert.equal(status.reply?.includes("自定义未读状态"), true);
-assert.equal(status.reply?.includes("peer：2"), true);
-assert.equal(status.reply?.includes("pending：2"), true);
-assert.equal(status.reply?.includes("snapshots：1"), true);
+assert.equal(status.reply?.includes("会话数：2"), true);
+assert.equal(status.reply?.includes("待处理消息：2"), true);
+assert.equal(status.reply?.includes("快照：1"), true);
 assert.equal(status.reply?.includes("显示：1/2"), true);
 assert.equal(status.reply?.includes("secret chat content"), false);
 

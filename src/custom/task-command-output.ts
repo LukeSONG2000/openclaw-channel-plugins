@@ -82,13 +82,13 @@ export function formatCustomTaskCommandOutput(params: {
   maxOutputChars: number;
 }): string {
   const lines: string[] = [];
-  if (params.killedByTimeout) lines.push("Timed out and terminated.");
-  lines.push(`Exit code: ${params.code ?? "null"}${params.signal ? ` signal=${params.signal}` : ""}`);
-  if (params.stdout.trim()) lines.push("", "STDOUT:", params.stdout.trim());
-  if (params.stderr.trim()) lines.push("", "STDERR:", params.stderr.trim());
-  const text = lines.join("\n").trim() || "Command completed without output.";
+  if (params.killedByTimeout) lines.push("已超时并终止。");
+  lines.push(`退出码：${params.code ?? "无"}${params.signal ? `，信号=${params.signal}` : ""}`);
+  if (params.stdout.trim()) lines.push("", "标准输出：", params.stdout.trim());
+  if (params.stderr.trim()) lines.push("", "标准错误：", params.stderr.trim());
+  const text = lines.join("\n").trim() || "命令已完成，无输出。";
   if (text.length <= params.maxOutputChars) return text;
-  return `${text.slice(text.length - params.maxOutputChars)}\n...(output truncated)`;
+  return `${text.slice(text.length - params.maxOutputChars)}\n...（输出已截断）`;
 }
 
 function safeJsonParse(value: string): unknown {

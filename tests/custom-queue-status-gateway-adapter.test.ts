@@ -48,8 +48,8 @@ assert.equal(status.reply?.includes("当前会话：group:GROUP_OPENID"), true);
 assert.equal(status.reply?.includes("本会话待处理：1"), true);
 assert.equal(status.reply?.includes("全局待处理：4"), true);
 assert.equal(status.reply?.includes("活跃用户：2/5"), true);
-assert.equal(status.reply?.includes("本会话活跃：1m5s"), true);
-assert.equal(status.reply?.includes("最长活跃：2m5s"), true);
+assert.equal(status.reply?.includes("本会话活跃：1分钟5秒"), true);
+assert.equal(status.reply?.includes("最长活跃：2分钟5秒"), true);
 assert.equal(status.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
 assert.equal(status.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
 assert.equal(status.reply?.includes("hidden cached message"), false);
@@ -82,7 +82,7 @@ const activeOnly = handleCustomQueueStatusCommand({
   },
 });
 assert.equal(activeOnly.handled, true);
-assert.equal(activeOnly.reply?.includes("本会话活跃：999ms"), true);
+assert.equal(activeOnly.reply?.includes("本会话活跃：999毫秒"), true);
 assert.equal(activeOnly.reply?.includes("qqbot-cmd-input text=\"/compact\""), true);
 
 const missingSnapshot = handleCustomQueueStatusCommand({

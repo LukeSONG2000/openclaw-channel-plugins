@@ -4,6 +4,7 @@ import {
   formatCustomTaskCleanupDuration,
   type CustomTaskCleanupPlan,
 } from "./task-cleanup.js";
+import { formatTaskStatusForDisplay } from "./presentation-labels.js";
 
 export function buildCustomTaskKeyboard(task: CustomSandboxTask): InlineKeyboard {
   const buttons: KeyboardButton[] = [
@@ -96,7 +97,7 @@ export function formatTaskCreated(task: CustomSandboxTask): string {
     `🧪 长任务已创建`,
     ``,
     `任务：${task.id}`,
-    `状态：${task.status}`,
+    `状态：${formatTaskStatusForDisplay(task.status)}`,
     `标题：${task.title}`,
     `工作区：${task.workspace}`,
     ``,
@@ -110,7 +111,7 @@ export function formatTaskList(tasks: CustomSandboxTask[]): string {
   if (tasks.length === 0) return `🧪 当前会话暂无长任务。`;
   const lines = [`🧪 当前会话长任务`, ``];
   for (const task of tasks) {
-    lines.push(`- ${task.id} [${task.status}] ${task.title}`);
+    lines.push(`- ${task.id} [${formatTaskStatusForDisplay(task.status)}] ${task.title}`);
     lines.push(`  ${cmdInput(`/bot-task status ${task.id}`, "查看")}`);
   }
   return lines.join("\n");
@@ -136,7 +137,7 @@ export function formatTaskCleanupPlan(plan: CustomTaskCleanupPlan): string {
 
   lines.push(``, `候选列表：`);
   for (const item of plan.items) {
-    lines.push(`- ${item.taskId} [${item.status}] ${item.title}`);
+    lines.push(`- ${item.taskId} [${formatTaskStatusForDisplay(item.status)}] ${item.title}`);
     lines.push(`  更新时间：${new Date(item.updatedAt).toISOString()}；工作区：${item.workspace}`);
   }
   if (plan.truncated) {
@@ -155,7 +156,7 @@ export function formatTaskStatus(task: CustomSandboxTask): string {
     `🧪 长任务状态`,
     ``,
     `任务：${task.id}`,
-    `状态：${task.status}`,
+    `状态：${formatTaskStatusForDisplay(task.status)}`,
     `标题：${task.title}`,
     `发起人：${task.owner.label || task.owner.id}`,
     `工作区：${task.workspace}`,
@@ -163,7 +164,7 @@ export function formatTaskStatus(task: CustomSandboxTask): string {
   ];
   if (task.execution?.executorId) lines.push(`执行器：${task.execution.executorId}`);
   if (task.execution?.runId) lines.push(`运行：${task.execution.runId}`);
-  if (task.execution?.agentId) lines.push(`Agent：${task.execution.agentId}`);
+  if (task.execution?.agentId) lines.push(`智能体：${task.execution.agentId}`);
   if (task.execution?.lastHeartbeatAt) lines.push(`心跳：${new Date(task.execution.lastHeartbeatAt).toISOString()}`);
   if (task.progress) {
     lines.push(...formatTaskProgressLines(task.progress));

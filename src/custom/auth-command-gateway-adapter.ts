@@ -70,7 +70,7 @@ export function handleCustomAuthCommand(params: {
       reply: [
         `ℹ️ customRuntime 未启用`,
         ``,
-        `请先在 channels.qqbot.customRuntime.enabled=true 后再使用 /bot-auth。`,
+        `请先开启 channels.qqbot.customRuntime.enabled 后再使用 /bot-auth。`,
       ].join("\n"),
     };
   }
@@ -200,7 +200,7 @@ function resolveCustomAuthRequest(params: {
   if (!intent || intent.kind !== "approval-resolved") {
     return {
       handled: true,
-      reply: `⚠️ 授权申请已不存在或不再是 pending：${requestId}`,
+      reply: `⚠️ 授权申请已不存在或不再处于待审批状态：${requestId}`,
     };
   }
 

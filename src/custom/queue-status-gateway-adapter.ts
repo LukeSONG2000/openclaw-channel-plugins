@@ -1,4 +1,5 @@
 import type { QueueSnapshot } from "../slash-commands.js";
+import { formatDurationZh } from "./presentation-labels.js";
 
 export type CustomQueueStatusCommand =
   | { kind: "help" }
@@ -58,7 +59,7 @@ function formatQueueStatusHelp(error?: string): string {
     `/bot-queue`,
     `/bot-queue status`,
     ``,
-    `查看当前会话的队列 pending、全局活跃用户数和活跃处理时长。`,
+    `查看当前会话待处理数量、全局活跃用户数和活跃处理时长。`,
   );
   return lines.join("\n");
 }
@@ -86,12 +87,7 @@ function formatQueueStatus(peerId: string, snapshot: QueueSnapshot): string {
 }
 
 function formatDuration(ms?: number): string {
-  if (typeof ms !== "number" || !Number.isFinite(ms) || ms <= 0) return "-";
-  if (ms < 1000) return `${Math.floor(ms)}ms`;
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const remainSeconds = seconds % 60;
-  return minutes > 0 ? `${minutes}m${remainSeconds}s` : `${seconds}s`;
+  return formatDurationZh(ms);
 }
 
 function commandInput(text: string, show: string): string {

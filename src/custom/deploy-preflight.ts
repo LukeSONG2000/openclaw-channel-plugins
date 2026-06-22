@@ -68,7 +68,7 @@ export function buildCustomDeployPreflightSummary(cfg: OpenClawConfig): CustomDe
     findings.push(blocker("custom_runtime_admin_group_missing", "未绑定 customRuntime.adminGroup。"));
   }
   if (!customRuntimeEnabled) {
-    findings.push(warning("custom_runtime_disabled", "customRuntime.enabled 不是 true，二开消息流/鉴权/场景不会生效。"));
+    findings.push(warning("custom_runtime_disabled", "customRuntime.enabled 未开启，二开消息流/鉴权/场景不会生效。"));
   }
   if (adminGroup && !objectOrEmpty(runtime.scenes)[adminGroup]) {
     findings.push(warning("admin_group_scene_missing", "管理群没有显式 scene 绑定，建议绑定 system-admin。"));
@@ -82,17 +82,17 @@ export function buildCustomDeployPreflightSummary(cfg: OpenClawConfig): CustomDe
     findings.push(warning("unknown_upgrade_package", `upgradePkg 不是已知个人包：${upgradePkgRaw}`));
   }
   if (qqbot.allowUpgradePkgOverride === true) {
-    findings.push(warning("upgrade_pkg_override_enabled", "allowUpgradePkgOverride=true，生产实例建议关闭。"));
+    findings.push(warning("upgrade_pkg_override_enabled", "allowUpgradePkgOverride 已开启，生产实例建议关闭。"));
   }
   if (qqbot.upgradeMode === "hot-reload") {
-    findings.push(warning("hot_reload_enabled", "upgradeMode=hot-reload，执行升级前必须确认已备份。"));
+    findings.push(warning("hot_reload_enabled", "当前为 hot-reload 热更新模式，执行升级前必须确认已备份。"));
   }
 
   const customUpdateCheck = objectOrUndefined(qqbot.customUpdateCheck);
   if (!customUpdateCheck) {
     findings.push(warning("custom_update_check_missing", "未配置 customUpdateCheck，实例不会主动发现个人二开版本更新。"));
   } else if (customUpdateCheck.enabled === false) {
-    findings.push(warning("custom_update_check_disabled", "customUpdateCheck.enabled=false。"));
+    findings.push(warning("custom_update_check_disabled", "customUpdateCheck 已关闭。"));
   }
 
   findings.push(...inspectPluginConfig(objectOrEmpty((cfg as Record<string, unknown>).plugins)));
@@ -126,11 +126,11 @@ function inspectPluginConfig(plugins: Record<string, unknown>): CustomDeployPref
     ...Object.keys(installs).filter(isQQBotLikePluginId),
   ]);
   if (activeIds.length > 1) {
-    findings.push(blocker("multiple_qqbot_plugins_configured", `配置中存在多个 QQBot-like 插件：${activeIds.join(", ")}`));
+    findings.push(blocker("multiple_qqbot_plugins_configured", `配置中存在多个疑似 QQBot 插件：${activeIds.join(", ")}`));
   }
   for (const id of activeIds) {
     if (LEGACY_QQBOT_PLUGIN_IDS.has(id.toLowerCase())) {
-      findings.push(blocker("legacy_qqbot_plugin_active", `旧/官方 QQBot 插件仍处于 active 配置：${id}`));
+      findings.push(blocker("legacy_qqbot_plugin_active", `旧/官方 QQBot 插件仍处于启用配置：${id}`));
     }
   }
   for (const id of allow) {
@@ -148,7 +148,7 @@ function inspectPluginConfig(plugins: Record<string, unknown>): CustomDeployPref
     }
   }
   if (activeIds.length > 0 && !activeIds.includes(DESIRED_PLUGIN_ID)) {
-    findings.push(warning("custom_plugin_entry_missing", `active QQBot 插件不是 ${DESIRED_PLUGIN_ID}。`));
+    findings.push(warning("custom_plugin_entry_missing", `当前启用的 QQBot 插件不是 ${DESIRED_PLUGIN_ID}。`));
   }
   return findings;
 }

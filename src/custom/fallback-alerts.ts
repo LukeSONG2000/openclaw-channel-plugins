@@ -2,6 +2,7 @@ import { resolveCustomAdminGroupKey } from "./auth.js";
 import type { CustomFallbackEvent, CustomFallbackEventKind } from "./fallbacks.js";
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomRuntimeConfig } from "./types.js";
+import { formatDurationZh } from "./presentation-labels.js";
 
 export const DEFAULT_CUSTOM_FALLBACK_ALERT_WINDOW_MS = 15 * 60_000;
 export const DEFAULT_CUSTOM_FALLBACK_ALERT_THRESHOLD = 3;
@@ -66,9 +67,9 @@ export function buildCustomFallbackAlertDecision(params: {
     ``,
     `账号：${params.accountId}`,
     `会话：${formatFallbackAlertPeerLabel(params.currentEvent)}`,
-    `窗口：${formatDuration(cfg.windowMs)} 内 ${matchingEvents.length} 次`,
-    `类型：${[...byKind.entries()].map(([kind, count]) => `${kind}=${count}`).join(", ")}`,
-    `最新：${new Date(latest.at).toISOString()} ${latest.kind}`,
+    `窗口：${formatDurationZh(cfg.windowMs)} 内 ${matchingEvents.length} 次`,
+    `类型：${[...byKind.entries()].map(([kind, count]) => `${formatFallbackKind(kind)}=${count}`).join(", ")}`,
+    `最新：${new Date(latest.at).toISOString()} ${formatFallbackKind(latest.kind)}`,
     ...(queueSummary ? [`队列：${queueSummary}`] : []),
     ``,
     `建议先在原会话查看：`,
@@ -178,12 +179,12 @@ function parseAdminGroupOpenid(raw?: string): string | undefined {
 
 function formatFallbackAlertPeerKey(event: CustomFallbackEvent): string {
   const peer = event.peer;
-  return peer ? `${peer.kind}:${peer.id}` : "unknown";
+  return peer ? `${peer.kind}:${peer.id}` : "未知";
 }
 
 function formatFallbackAlertPeerLabel(event: CustomFallbackEvent): string {
   const peer = event.peer;
-  if (!peer) return "unknown";
+  if (!peer) return "未知";
   return peer.label ? `${peer.kind}:${peer.id} (${peer.label})` : `${peer.kind}:${peer.id}`;
 }
 
@@ -209,12 +210,12 @@ function formatQueueSummary(event: CustomFallbackEvent): string | null {
   const maxActiveMs = details.queueMaxActiveMs;
   const parts = [];
   if (typeof pending === "number" || typeof active === "number" || typeof senderPending === "number") {
-    parts.push(`pending=${pending ?? "?"}`);
-    parts.push(`active=${active ?? "?"}/${max ?? "?"}`);
-    parts.push(`senderPending=${senderPending ?? "?"}`);
+    parts.push(`待处理=${pending ?? "?"}`);
+    parts.push(`活跃=${active ?? "?"}/${max ?? "?"}`);
+    parts.push(`当前会话待处理=${senderPending ?? "?"}`);
   }
   if (typeof senderActiveMs === "number" || typeof maxActiveMs === "number") {
-    parts.push(`activeMs=${senderActiveMs ?? "?"}/${maxActiveMs ?? "?"}`);
+    parts.push(`活跃时长=${formatDurationOrQuestion(senderActiveMs)}/${formatDurationOrQuestion(maxActiveMs)}`);
   }
   return parts.length ? parts.join(", ") : null;
 }
@@ -228,13 +229,23 @@ function normalizePositiveInteger(raw: unknown, fallback: number): number {
   return Math.max(1, Math.floor(raw));
 }
 
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000);
-  const minutes = Math.floor(seconds / 60);
-  const hours = Math.floor(minutes / 60);
-  if (hours > 0) return `${hours}h${minutes % 60}m`;
-  if (minutes > 0) return `${minutes}m`;
-  return `${seconds}s`;
+function formatFallbackKind(kind: string): string {
+  const labels: Record<string, string> = {
+    "response-timeout": "响应超时",
+    "context-too-long": "上下文过长",
+    "late-deliver-after-timeout": "超时后迟到回复",
+    "tool-only-timeout": "工具等待超时",
+    "tool-only-complete-no-block": "工具完成但无回复",
+    "tool-fallback-media": "工具媒体兜底",
+    "tool-fallback-text": "工具文本兜底",
+    "tool-fallback-no-output": "工具无输出",
+    "urgent-queue-bypass": "紧急队列绕行",
+  };
+  return labels[kind] ? `${labels[kind]}（${kind}）` : kind;
+}
+
+function formatDurationOrQuestion(value: unknown): string {
+  return typeof value === "number" && Number.isFinite(value) ? formatDurationZh(value) : "?";
 }
 
 function commandInput(text: string, show: string): string {

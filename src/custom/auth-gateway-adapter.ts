@@ -10,6 +10,7 @@ import {
   toCustomActorFromQueuedMessage,
   toCustomPeerFromQueuedMessage,
 } from "./queued-message-context.js";
+import { formatCapabilityForDisplay } from "./presentation-labels.js";
 import type {
   CustomActor,
   CustomCapability,
@@ -147,7 +148,7 @@ export function checkCustomSlashAuthorization(params: {
 }
 
 export function formatCustomDispatchAuthorizationDeniedMessage(decision: CustomDispatchAuthorizationDecision): string {
-  const capability = decision.capability ?? "unknown";
+  const capability = decision.capability ? formatCapabilityForDisplay(decision.capability) : "未知";
   const actor = decision.actor?.label || decision.actor?.id || "当前用户";
   const peer = decision.peer?.label || decision.peer?.id || "当前会话";
   const requestId = decision.result?.decision.requestId;
@@ -170,7 +171,7 @@ export function formatCustomDispatchAuthorizationDeniedMessage(decision: CustomD
 }
 
 export function formatCustomAuthorizationDeniedMessage(decision: CustomSlashAuthorizationDecision): string {
-  const capability = decision.capability ?? "unknown";
+  const capability = decision.capability ? formatCapabilityForDisplay(decision.capability) : "未知";
   const actor = decision.actor?.label || decision.actor?.id || "当前用户";
   const peer = decision.peer?.label || decision.peer?.id || "当前会话";
   const requestId = decision.result?.decision.requestId;

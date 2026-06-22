@@ -1,6 +1,10 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { summarizePollResults } from "./poll.js";
 import type { CustomPoll } from "./types.js";
+import {
+  formatPollStatusForDisplay,
+  formatUnknown,
+} from "./presentation-labels.js";
 
 export function buildCustomPollKeyboard(poll: CustomPoll): InlineKeyboard {
   const rows = poll.options.map((option) => ({
@@ -38,7 +42,7 @@ export function formatPollList(polls: CustomPoll[]): string {
   if (polls.length === 0) return "🗳 当前会话暂无投票。";
   const lines = ["🗳 当前会话投票", ""];
   for (const poll of polls) {
-    lines.push(`- ${poll.id} [${poll.status}] ${poll.question}`);
+    lines.push(`- ${poll.id} [${formatPollStatusForDisplay(poll.status)}] ${poll.question}`);
   }
   return lines.join("\n");
 }
@@ -49,7 +53,7 @@ export function formatPollStatus(poll: CustomPoll): string {
     `🗳 投票状态`,
     ``,
     `投票：${poll.id}`,
-    `状态：${poll.status}`,
+    `状态：${formatPollStatusForDisplay(poll.status)}`,
     `问题：${poll.question}`,
     `总票数：${total}`,
     ``,
@@ -66,7 +70,7 @@ export function formatPollVoteAck(poll: CustomPoll, actorId: string): string {
   const vote = poll.votes[actorId];
   const option = vote ? poll.options.find((item) => item.id === vote.optionId) : null;
   return [
-    `✅ 已记录投票：${option?.label ?? vote?.optionId ?? "unknown"}`,
+    `✅ 已记录投票：${formatUnknown(option?.label ?? vote?.optionId)}`,
     ``,
     `投票：${poll.id}`,
     `当前总票数：${Object.keys(poll.votes).length}`,

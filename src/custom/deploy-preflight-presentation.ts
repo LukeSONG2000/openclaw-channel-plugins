@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomDeployPreflightFinding, CustomDeployPreflightSummary } from "./deploy-preflight.js";
+import { formatBooleanYesNo } from "./presentation-labels.js";
 
 export function formatCustomDeployPreflightSummary(summary: CustomDeployPreflightSummary): string {
   const lines = [
@@ -8,7 +9,7 @@ export function formatCustomDeployPreflightSummary(summary: CustomDeployPrefligh
     `结论：${summary.ok ? "无阻断项" : `发现 ${summary.blockers} 个阻断项`}${summary.warnings ? `，${summary.warnings} 个警告` : ""}`,
     `管理员：${summary.admins.length ? summary.admins.join(", ") : "未绑定"}`,
     `管理群：${summary.adminGroup ?? "未绑定"}`,
-    `customRuntime.enabled：${summary.customRuntimeEnabled ? "true" : "false"}`,
+    `customRuntime.enabled：${formatBooleanYesNo(summary.customRuntimeEnabled)}`,
     `升级检查包：${summary.upgradePkg || "未解析"}`,
     "",
   ];

@@ -173,7 +173,7 @@ assert.equal(result.reply?.includes("最近兜底事件"), true);
 assert.equal(result.reply?.includes("response-timeout"), true);
 assert.equal(result.reply?.includes("group:GROUP_OPENID"), true);
 assert.equal(result.reply?.includes("RUN_ID"), true);
-assert.equal(result.reply?.includes("queue：pending=4, active=1/2, senderPending=3"), true);
+assert.equal(result.reply?.includes("队列：待处理=4, 活跃=1/2, 当前会话待处理=3"), true);
 assert.equal(result.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
 assert.equal(result.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
 assert.equal(formatCustomFallbackList([event], 1).includes("response-timeout"), true);
@@ -188,8 +188,8 @@ const urgentList = handleCustomFallbackCommand({
 });
 assert.equal(urgentList.handled, true);
 assert.equal(urgentList.reply?.includes("urgent-queue-bypass"), true);
-assert.equal(urgentList.reply?.includes("queue：pending=8, active=2/3, senderPending=2, activeMs=120000/180000"), true);
-assert.equal(urgentList.reply?.includes("urgent：command=/compact, dropped=2, queuePeer=group:GROUP_OPENID, afterPending=6, afterSenderPending=0, afterSenderActiveMs=121000"), true);
+assert.equal(urgentList.reply?.includes("队列：待处理=8, 活跃=2/3, 当前会话待处理=2, 活跃时长=2分钟/3分钟"), true);
+assert.equal(urgentList.reply?.includes("紧急绕行：命令=/compact, 丢弃排队=2, 队列会话=group:GROUP_OPENID, 绕行后待处理=6, 绕行后当前会话待处理=0, 绕行后活跃=2分钟1秒"), true);
 
 let summaryLimit = 0;
 const summary = handleCustomFallbackCommand({
@@ -211,16 +211,16 @@ assert.equal(summary.reply?.includes("响应超时：1"), true);
 assert.equal(summary.reply?.includes("上下文过长：1"), true);
 assert.equal(summary.reply?.includes("紧急绕行：1"), true);
 assert.equal(summary.reply?.includes("工具兜底：1"), true);
-assert.equal(summary.reply?.includes("最大队列：pending=8, active=2/3, senderPending=5"), true);
-assert.equal(summary.reply?.includes("最长活跃：senderActiveMs=120000, maxActiveMs=180000"), true);
-assert.equal(summary.reply?.includes("response-timeout: 1"), true);
-assert.equal(summary.reply?.includes("context-too-long: 1"), true);
-assert.equal(summary.reply?.includes("tool-fallback-text: 1"), true);
-assert.equal(summary.reply?.includes("urgent-queue-bypass: 1"), true);
-assert.equal(summary.reply?.includes("最新：2026-06-21T00:03:00.000Z urgent-queue-bypass"), true);
+assert.equal(summary.reply?.includes("最大队列：待处理=8, 活跃=2/3, 当前会话待处理=5"), true);
+assert.equal(summary.reply?.includes("最长活跃：当前会话=2分钟, 全局=3分钟"), true);
+assert.equal(summary.reply?.includes("响应超时（response-timeout）：1"), true);
+assert.equal(summary.reply?.includes("上下文过长（context-too-long）：1"), true);
+assert.equal(summary.reply?.includes("工具文本兜底（tool-fallback-text）：1"), true);
+assert.equal(summary.reply?.includes("紧急队列绕行（urgent-queue-bypass）：1"), true);
+assert.equal(summary.reply?.includes("最新：2026-06-21T00:03:00.000Z 紧急队列绕行（urgent-queue-bypass）"), true);
 assert.equal(summary.reply?.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
 assert.equal(summary.reply?.includes(`<qqbot-cmd-input text="/new" show="新会话"/>`), true);
-assert.equal(formatCustomFallbackSummary([event, contextEvent, toolTextEvent, urgentEvent], 50).includes("最长活跃：senderActiveMs=120000, maxActiveMs=180000"), true);
+assert.equal(formatCustomFallbackSummary([event, contextEvent, toolTextEvent, urgentEvent], 50).includes("最长活跃：当前会话=2分钟, 全局=3分钟"), true);
 
 const empty = handleCustomFallbackCommand({
   accountId: "default",

@@ -3,6 +3,11 @@ import {
   CUSTOM_FALLBACK_MAX_LIST_LIMIT,
   CUSTOM_FALLBACK_MAX_SUMMARY_LIMIT,
 } from "./fallback-command-parser.js";
+import {
+  formatBooleanYesNoUnknown,
+  formatDurationZh,
+  formatUnknown,
+} from "./presentation-labels.js";
 
 export function formatCustomFallbackHelp(error?: string): string {
   const lines = [];
@@ -49,16 +54,16 @@ export function formatCustomFallbackList(events: CustomFallbackEvent[], limit: n
   for (const event of events.slice().reverse()) {
     lines.push(
       ``,
-      `- ${formatEventTime(event.at)} ${event.kind}`,
+      `- ${formatEventTime(event.at)} ${formatFallbackKind(event.kind)}`,
       `  会话：${formatPeer(event)}`,
-      `  用户：${event.actor?.label || event.actor?.id || "unknown"}`,
-      `  run：${event.runId || event.messageId || "unknown"}`,
-      `  响应：hasResponse=${event.hasResponse === undefined ? "unknown" : event.hasResponse ? "yes" : "no"}, block=${event.hasBlockResponse === undefined ? "unknown" : event.hasBlockResponse ? "yes" : "no"}`,
-      `  tool：deliver=${event.toolDeliverCount ?? 0}, text=${event.toolTextCount ?? 0}, media=${event.toolMediaCount ?? 0}`,
+      `  用户：${formatUnknown(event.actor?.label || event.actor?.id)}`,
+      `  运行：${formatUnknown(event.runId || event.messageId)}`,
+      `  响应：有回复=${formatBooleanYesNoUnknown(event.hasResponse)}, 阻断回复=${formatBooleanYesNoUnknown(event.hasBlockResponse)}`,
+      `  工具：发送=${event.toolDeliverCount ?? 0}, 文本=${event.toolTextCount ?? 0}, 媒体=${event.toolMediaCount ?? 0}`,
       ...formatQueueDetails(event),
       ...formatUrgentDetails(event),
-      ...(event.timeoutMs ? [`  timeoutMs：${event.timeoutMs}`] : []),
-      ...(event.reason ? [`  reason：${truncate(event.reason, 120)}`] : []),
+      ...(event.timeoutMs ? [`  超时：${formatDurationZh(event.timeoutMs)}`] : []),
+      ...(event.reason ? [`  原因：${truncate(event.reason, 120)}`] : []),
     );
   }
   lines.push(``, ...formatRecoveryShortcuts());
@@ -95,21 +100,21 @@ export function formatCustomFallbackSummary(events: CustomFallbackEvent[], limit
   const maxSenderActiveMs = maxNumber(events, "queueSenderActiveMs");
   const maxActiveMs = maxNumber(events, "queueMaxActiveMs");
   if (maxPending !== null || maxActive !== null || maxConcurrency !== null || maxSenderPending !== null) {
-    lines.push(`最大队列：pending=${maxPending ?? "?"}, active=${maxActive ?? "?"}/${maxConcurrency ?? "?"}, senderPending=${maxSenderPending ?? "?"}`);
+    lines.push(`最大队列：待处理=${maxPending ?? "?"}, 活跃=${maxActive ?? "?"}/${maxConcurrency ?? "?"}, 当前会话待处理=${maxSenderPending ?? "?"}`);
   }
   if (maxSenderActiveMs !== null || maxActiveMs !== null) {
-    lines.push(`最长活跃：senderActiveMs=${maxSenderActiveMs ?? "?"}, maxActiveMs=${maxActiveMs ?? "?"}`);
+    lines.push(`最长活跃：当前会话=${formatDurationDetail(maxSenderActiveMs)}, 全局=${formatDurationDetail(maxActiveMs)}`);
   }
 
   lines.push(``, `类型分布：`);
   for (const [kind, count] of [...byKind.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))) {
-    lines.push(`- ${kind}: ${count}`);
+    lines.push(`- ${formatFallbackKind(kind)}：${count}`);
   }
 
   if (latest) {
     lines.push(
       ``,
-      `最新：${formatEventTime(latest.at)} ${latest.kind}`,
+      `最新：${formatEventTime(latest.at)} ${formatFallbackKind(latest.kind)}`,
     );
   }
   lines.push(``, ...formatRecoveryShortcuts());
@@ -125,12 +130,12 @@ function countByKind(events: CustomFallbackEvent[]): Map<string, number> {
 }
 
 function formatPeer(event: CustomFallbackEvent): string {
-  if (!event.peer) return "unknown";
+  if (!event.peer) return "未知";
   return `${event.peer.kind}:${event.peer.label || event.peer.id}`;
 }
 
 function formatEventTime(at: number): string {
-  if (!Number.isFinite(at)) return "unknown-time";
+  if (!Number.isFinite(at)) return "未知时间";
   return new Date(at).toISOString();
 }
 
@@ -143,9 +148,9 @@ function formatQueueDetails(event: CustomFallbackEvent): string[] {
   const maxActiveMs = numberDetail(event, "queueMaxActiveMs");
   if (total === null && active === null && max === null && sender === null && senderActiveMs === null && maxActiveMs === null) return [];
   const activeAge = senderActiveMs !== null || maxActiveMs !== null
-    ? `, activeMs=${senderActiveMs ?? "?"}/${maxActiveMs ?? "?"}`
+    ? `, 活跃时长=${formatDurationDetail(senderActiveMs)}/${formatDurationDetail(maxActiveMs)}`
     : "";
-  return [`  queue：pending=${total ?? "?"}, active=${active ?? "?"}/${max ?? "?"}, senderPending=${sender ?? "?"}${activeAge}`];
+  return [`  队列：待处理=${total ?? "?"}, 活跃=${active ?? "?"}/${max ?? "?"}, 当前会话待处理=${sender ?? "?"}${activeAge}`];
 }
 
 function numberDetail(event: CustomFallbackEvent, key: string): number | null {
@@ -166,8 +171,8 @@ function formatUrgentDetails(event: CustomFallbackEvent): string[] {
   const afterTotal = numberDetail(event, "queueAfterTotalPending");
   const afterSender = numberDetail(event, "queueAfterSenderPending");
   const afterSenderActiveMs = numberDetail(event, "queueAfterSenderActiveMs");
-  const afterActive = afterSenderActiveMs !== null ? `, afterSenderActiveMs=${afterSenderActiveMs}` : "";
-  return [`  urgent：command=${command}, dropped=${dropped ?? "?"}, queuePeer=${queuePeerId}, afterPending=${afterTotal ?? "?"}, afterSenderPending=${afterSender ?? "?"}${afterActive}`];
+  const afterActive = afterSenderActiveMs !== null ? `, 绕行后活跃=${formatDurationZh(afterSenderActiveMs)}` : "";
+  return [`  紧急绕行：命令=${command}, 丢弃排队=${dropped ?? "?"}, 队列会话=${queuePeerId}, 绕行后待处理=${afterTotal ?? "?"}, 绕行后当前会话待处理=${afterSender ?? "?"}${afterActive}`];
 }
 
 function maxNumber(events: CustomFallbackEvent[], key: string): number | null {
@@ -183,6 +188,25 @@ function maxNumber(events: CustomFallbackEvent[], key: string): number | null {
 
 function truncate(text: string, maxChars: number): string {
   return text.length > maxChars ? `${text.slice(0, maxChars - 3)}...` : text;
+}
+
+function formatFallbackKind(kind: string): string {
+  const labels: Record<string, string> = {
+    "response-timeout": "响应超时",
+    "context-too-long": "上下文过长",
+    "late-deliver-after-timeout": "超时后迟到回复",
+    "tool-only-timeout": "工具等待超时",
+    "tool-only-complete-no-block": "工具完成但无回复",
+    "tool-fallback-media": "工具媒体兜底",
+    "tool-fallback-text": "工具文本兜底",
+    "tool-fallback-no-output": "工具无输出",
+    "urgent-queue-bypass": "紧急队列绕行",
+  };
+  return labels[kind] ? `${labels[kind]}（${kind}）` : kind;
+}
+
+function formatDurationDetail(ms: number | null): string {
+  return ms === null ? "?" : formatDurationZh(ms);
 }
 
 function formatRecoveryShortcuts(): string[] {

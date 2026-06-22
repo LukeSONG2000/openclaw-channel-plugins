@@ -1,4 +1,5 @@
 import type { CustomSandboxTask } from "./types.js";
+import { formatTaskStatusForDisplay } from "./presentation-labels.js";
 
 export type CustomTaskNotificationAudience = "peer" | "owner";
 
@@ -28,11 +29,11 @@ export function notificationForCustomTaskStatus(params: {
     "",
     `任务：${task.id}`,
     `标题：${task.title}`,
-    `状态：${task.status}`,
+    `状态：${formatTaskStatusForDisplay(task.status)}`,
   ];
 
   if (task.execution?.runId) lines.push(`运行：${task.execution.runId}`);
-  if (task.execution?.agentId) lines.push(`Agent：${task.execution.agentId}`);
+  if (task.execution?.agentId) lines.push(`智能体：${task.execution.agentId}`);
   if (task.progress) lines.push(`进度：${formatTaskProgress(task.progress)}`);
   if (task.updatedAt) lines.push(`更新时间：${new Date(task.updatedAt).toISOString()}`);
   if (params.includeWorkspace) lines.push(`工作区：${task.workspace}`);

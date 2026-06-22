@@ -3,6 +3,11 @@ import {
   inspectCustomAdminBindings,
   type CustomAuthorizationRuntime,
 } from "./auth.js";
+import {
+  formatCapabilityForDisplay,
+  formatDurationZh,
+  formatSceneKind,
+} from "./presentation-labels.js";
 import type {
   CustomAuthorizationApprovalRequest,
   CustomAuthorizationGrant,
@@ -26,8 +31,8 @@ export function buildCustomAuthApprovalText(request: CustomAuthorizationApproval
     ``,
     `用户：${request.actor.label || request.actor.id}`,
     `会话：${request.peer.label || request.peer.id}`,
-    `能力：${request.capability}`,
-    `场景：${request.sceneLabel || request.scene}`,
+    `能力：${formatCapabilityForDisplay(request.capability)}`,
+    `场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
     ...(request.taskId ? [`任务：${request.taskId}`] : []),
     `申请：${request.id}`,
     ...(request.adminGroup ? [`管理群：${request.adminGroup}`] : []),
@@ -158,7 +163,7 @@ export function formatCustomAuthStatus(
     ...(adminBindings ? [
       `管理员：${adminBindings.admins.length ? adminBindings.admins.join(", ") : "未绑定"}`,
       `管理群：${adminBindings.adminGroup ?? "未绑定"}`,
-      `初始化：${adminBindings.ready ? "完整" : `缺少 ${adminBindings.missing.join(", ")}`}`,
+      `初始化：${adminBindings.ready ? "完整" : `缺少 ${formatAdminBindingMissing(adminBindings.missing).join(", ")}`}`,
       ``,
     ] : []),
     `待审批：${requests.length}`,
@@ -172,7 +177,7 @@ export function formatCustomAuthStatus(
       ``,
       `- ${request.id}`,
       `  用户：${request.actor.label || request.actor.id}`,
-      `  能力：${request.capability}`,
+      `  能力：${formatCapabilityForDisplay(request.capability)}`,
       `  会话：${request.peer.label || request.peer.id}`,
     );
   }
@@ -206,8 +211,8 @@ export function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit
       `- ${request.id}`,
       `  用户：${request.actor.label || request.actor.id}`,
       `  会话：${formatCustomAuthPeer(request.peer)}`,
-      `  能力：${request.capability}`,
-      `  场景：${request.sceneLabel || request.scene}`,
+      `  能力：${formatCapabilityForDisplay(request.capability)}`,
+      `  场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
       ...(request.taskId ? [`  任务：${request.taskId}`] : []),
       `  过期：${formatCustomAuthTime(request.expiresAt)}（剩余 ${formatRemainingMs(request.expiresAt - now)}）`,
       `  操作：/bot-auth approve ${request.id} once 或 /bot-auth deny ${request.id}`,
@@ -242,7 +247,7 @@ export function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: 
       `- ${grant.id}`,
       `  用户：${grant.actorId}`,
       `  会话：${grant.peerId}`,
-      `  能力：${grant.capability}`,
+      `  能力：${formatCapabilityForDisplay(grant.capability)}`,
       `  授权人：${grant.grantedBy}`,
       ...(grant.taskId ? [`  任务：${grant.taskId}`] : []),
       `  剩余：${grant.remainingUses === undefined ? "不限次数" : `${grant.remainingUses} 次`}`,
@@ -264,7 +269,7 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
       ``,
       `申请：${request.id}`,
       `用户：${request.actor.label || request.actor.id}`,
-      `能力：${request.capability}`,
+      `能力：${formatCapabilityForDisplay(request.capability)}`,
     ].join("\n");
   }
 
@@ -281,7 +286,7 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
     ``,
     `申请：${request.id}`,
     `用户：${request.actor.label || request.actor.id}`,
-    `能力：${request.capability}`,
+    `能力：${formatCapabilityForDisplay(request.capability)}`,
     grantDesc,
   ].join("\n");
 }
@@ -323,13 +328,13 @@ function formatCustomAuthTime(ms: number): string {
 }
 
 function formatRemainingMs(ms: number): string {
-  const totalSeconds = Math.max(0, Math.floor(ms / 1000));
-  const days = Math.floor(totalSeconds / 86_400);
-  const hours = Math.floor((totalSeconds % 86_400) / 3_600);
-  const minutes = Math.floor((totalSeconds % 3_600) / 60);
-  const seconds = totalSeconds % 60;
-  if (days > 0) return `${days}d${hours}h`;
-  if (hours > 0) return `${hours}h${minutes}m`;
-  if (minutes > 0) return `${minutes}m${seconds}s`;
-  return `${seconds}s`;
+  return formatDurationZh(ms, "0秒");
+}
+
+function formatAdminBindingMissing(missing: string[]): string[] {
+  return missing.map((item) => {
+    if (item === "admins") return "管理员";
+    if (item === "adminGroup") return "管理群";
+    return item;
+  });
 }

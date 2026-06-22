@@ -108,7 +108,7 @@ const statusBySuffix = handleCustomTaskCommand({
 assert.equal(statusBySuffix.handled, true);
 assert.equal(statusBySuffix.reply?.includes("长任务状态"), true);
 assert.equal(statusBySuffix.reply?.includes("执行器：executor-1"), true);
-assert.equal(statusBySuffix.reply?.includes("Agent：dev-agent"), true);
+assert.equal(statusBySuffix.reply?.includes("智能体：dev-agent"), true);
 assert.equal(statusBySuffix.reply?.includes("进度：60% / coding / 正在实现任务状态卡"), true);
 assert.equal(statusBySuffix.reply?.includes(`<qqbot-cmd-input text="/bot-task cancel ${taskId}" show="取消任务"/>`), true);
 assert.equal(statusBySuffix.reply?.includes(`<qqbot-cmd-input text="/bot-task create " show="新建长任务"/>`), true);
@@ -174,7 +174,7 @@ const cancelledStatus = handleCustomTaskCommand({
   now: 5_500,
 });
 assert.equal(cancelledStatus.handled, true);
-assert.equal(cancelledStatus.reply?.includes("状态：cancelled"), true);
+assert.equal(cancelledStatus.reply?.includes("状态：已取消（cancelled）"), true);
 assert.equal(cancelledStatus.reply?.includes(`show="追加需求"`), false);
 assert.equal(cancelledStatus.reply?.includes(`show="取消任务"`), false);
 assert.equal(cancelledStatus.reply?.includes("新建长任务"), true);

@@ -88,9 +88,9 @@ const status = handleCustomSceneCommand({
 });
 assert.equal(status.handled, true);
 assert.equal(status.changed, undefined);
-assert.equal(status.reply?.includes("场景：chat"), true);
+assert.equal(status.reply?.includes("场景：日常聊天（chat）"), true);
 assert.equal(status.reply?.includes("目标：qqbot:group:GROUP_OPENID"), true);
-assert.equal(status.reply?.includes("Agent：默认路由"), true);
+assert.equal(status.reply?.includes("智能体：默认路由"), true);
 assert.equal(status.keyboard?.content?.rows.length, 5);
 assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.type, 2);
 assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "/bot-scene set codex-only");
@@ -114,13 +114,13 @@ assert.equal(bindings.handled, true);
 assert.equal(bindings.reply?.includes("已配置自定义场景绑定"), true);
 assert.equal(bindings.reply?.includes("数量：2"), true);
 assert.equal(bindings.reply?.includes("- qqbot:group:ADMIN_GROUP"), true);
-assert.equal(bindings.reply?.includes("scene=system-admin, enabled=yes"), true);
-assert.equal(bindings.reply?.includes("label=Admin group"), true);
-assert.equal(bindings.reply?.includes("agent=admin-agent"), true);
+assert.equal(bindings.reply?.includes("场景：系统管理（system-admin）；启用：是"), true);
+assert.equal(bindings.reply?.includes("名称：Admin group"), true);
+assert.equal(bindings.reply?.includes("智能体：admin-agent"), true);
 assert.equal(bindings.reply?.includes("- qqbot:c2c:USER_OPENID"), true);
-assert.equal(bindings.reply?.includes("scene=default-dm, enabled=no"), true);
-assert.equal(bindings.reply?.includes("capabilities=system.status"), true);
-assert.equal(formatCustomSceneBindingsDirect(cfg.channels.qqbot.customRuntime).includes("agent=admin-agent"), true);
+assert.equal(bindings.reply?.includes("场景：私聊默认（default-dm）；启用：否"), true);
+assert.equal(bindings.reply?.includes("能力：system.status（系统状态）"), true);
+assert.equal(formatCustomSceneBindingsDirect(cfg.channels.qqbot.customRuntime).includes("智能体：admin-agent"), true);
 
 const set = handleCustomSceneCommand({
   cfg,
@@ -131,9 +131,9 @@ assert.equal(set.handled, true);
 assert.equal(set.changed, true);
 assert.equal(set.sceneKey, "qqbot:group:GROUP_OPENID");
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
-assert.equal(set.reply?.includes("场景：dev-lab"), true);
-assert.equal(set.reply?.includes("Agent：默认路由"), true);
-assert.equal(set.keyboard?.content?.rows[3]?.buttons[0]?.render_data?.label, "当前：dev-lab");
+assert.equal(set.reply?.includes("场景：开发实验室（dev-lab）"), true);
+assert.equal(set.reply?.includes("智能体：默认路由"), true);
+assert.equal(set.keyboard?.content?.rows[3]?.buttons[0]?.render_data?.label, "当前：开发实验室");
 assert.equal(buildCustomSceneSwitchKeyboard("chat").content?.rows[1]?.buttons[0]?.render_data?.style, 4);
 assert.deepEqual(buildCustomSceneSwitchKeyboardDirect("chat"), buildCustomSceneSwitchKeyboard("chat"));
 
@@ -145,16 +145,16 @@ const setAgent = handleCustomSceneCommand({
 assert.equal(setAgent.handled, true);
 assert.equal(setAgent.changed, true);
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].agentId, "Dev-Agent");
-assert.equal(setAgent.reply?.includes("Agent：Dev-Agent"), true);
+assert.equal(setAgent.reply?.includes("智能体：Dev-Agent"), true);
 
 const updatedStatus = handleCustomSceneCommand({
   cfg,
   message,
   rawContent: "/bot-scene status",
 });
-assert.equal(updatedStatus.reply?.includes("场景：dev-lab"), true);
-assert.equal(updatedStatus.reply?.includes("来源：exact"), true);
-assert.equal(updatedStatus.reply?.includes("Agent：Dev-Agent"), true);
+assert.equal(updatedStatus.reply?.includes("场景：开发实验室（dev-lab）"), true);
+assert.equal(updatedStatus.reply?.includes("来源：精确绑定"), true);
+assert.equal(updatedStatus.reply?.includes("智能体：Dev-Agent"), true);
 
 const clearAgent = handleCustomSceneCommand({
   cfg,
@@ -164,7 +164,7 @@ const clearAgent = handleCustomSceneCommand({
 assert.equal(clearAgent.handled, true);
 assert.equal(clearAgent.changed, true);
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].agentId, undefined);
-assert.equal(clearAgent.reply?.includes("Agent：默认路由"), true);
+assert.equal(clearAgent.reply?.includes("智能体：默认路由"), true);
 
 const emptyBindings = handleCustomSceneCommand({
   cfg: {

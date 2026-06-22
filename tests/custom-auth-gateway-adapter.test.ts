@@ -207,7 +207,7 @@ const missingInitStatus = handleCustomAuthCommand({
 });
 assert.equal(missingInitStatus.handled, true);
 assert.equal(missingInitStatus.reply?.includes("管理群：未绑定"), true);
-assert.equal(missingInitStatus.reply?.includes("初始化：缺少 adminGroup"), true);
+assert.equal(missingInitStatus.reply?.includes("初始化：缺少 管理群"), true);
 
 const approved = handleCustomAuthCommand({
   cfg: authCfg,

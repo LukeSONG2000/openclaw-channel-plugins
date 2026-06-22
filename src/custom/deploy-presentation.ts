@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomDeployConfirmation } from "./types.js";
+import { formatDeployStatusForDisplay } from "./presentation-labels.js";
 
 export function buildCustomDeployConfirmationKeyboard(confirmation: CustomDeployConfirmation): InlineKeyboard {
   return {
@@ -63,7 +64,7 @@ export function formatDeployConfirmationList(confirmations: CustomDeployConfirma
   if (confirmations.length === 0) return "🚀 当前会话暂无部署确认。";
   const lines = ["🚀 当前会话部署确认", ""];
   for (const confirmation of confirmations) {
-    lines.push(`- ${confirmation.id} [${confirmation.status}] ${confirmation.command}`);
+    lines.push(`- ${confirmation.id} [${formatDeployStatusForDisplay(confirmation.status)}] ${confirmation.command}`);
   }
   return lines.join("\n");
 }
@@ -73,7 +74,7 @@ export function formatDeployConfirmationStatus(confirmation: CustomDeployConfirm
     `🚀 部署确认状态`,
     ``,
     `确认：${confirmation.id}`,
-    `状态：${confirmation.status}`,
+    `状态：${formatDeployStatusForDisplay(confirmation.status)}`,
     `命令：${confirmation.command}`,
     `发起人：${confirmation.creator.label || confirmation.creator.id}`,
     `过期：${formatExpiresIn(confirmation.expiresAt, now)}`,
@@ -95,7 +96,7 @@ export function formatDeployConfirmationResolved(confirmation: CustomDeployConfi
       `⚠️ 部署确认已处理`,
       ``,
       `确认：${confirmation.id}`,
-      `状态：${confirmation.status}`,
+      `状态：${formatDeployStatusForDisplay(confirmation.status)}`,
       `命令：${confirmation.command}`,
     ].join("\n");
   }

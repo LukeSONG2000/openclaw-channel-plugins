@@ -6,6 +6,12 @@ import {
   formatCustomPeerKey,
   getCustomSceneProfile,
 } from "./scenes.js";
+import {
+  formatBooleanYesNo,
+  formatCapabilitiesForDisplay,
+  formatSceneKind,
+  formatSceneSource,
+} from "./presentation-labels.js";
 import type { CustomPeer, CustomRuntimeConfig, CustomSceneConfig, CustomSceneKind } from "./types.js";
 
 export function buildCustomSceneSwitchKeyboard(currentScene?: CustomSceneKind): InlineKeyboard {
@@ -30,7 +36,7 @@ export function formatCustomSceneHelp(error?: string): string {
     `/bot-scene set <scene> [--agent <agentId>]`,
     `/bot-scene set <scene> --clear-agent`,
     ``,
-    `可选 scene：${CUSTOM_SCENE_KINDS.join(", ")}`,
+    `可选场景：${CUSTOM_SCENE_KINDS.map(formatSceneKind).join(", ")}`,
   );
   return lines.join("\n");
 }
@@ -39,7 +45,7 @@ export function formatCustomSceneList(): string {
   const lines = [`🧭 可用自定义场景`, ``];
   for (const scene of CUSTOM_SCENE_KINDS) {
     const profile = getCustomSceneProfile(scene);
-    lines.push(`- ${scene}: ${profile.description}`);
+    lines.push(`- ${formatSceneKind(scene)}：${profile.description}`);
   }
   return lines.join("\n");
 }
@@ -65,16 +71,13 @@ export function formatCustomSceneBindings(runtime: CustomRuntimeConfig): string 
 
   for (const [key, scene] of entries) {
     const profile = getCustomSceneProfile(scene.scene);
-    const capabilities = scene.capabilities?.length
-      ? scene.capabilities.join(", ")
-      : profile.capabilities.join(", ");
     lines.push(
       ``,
       `- ${key}`,
-      `  scene=${scene.scene}, enabled=${scene.enabled === false ? "no" : "yes"}`,
-      `  label=${scene.label ?? profile.label}`,
-      `  agent=${scene.agentId ?? "default"}`,
-      `  capabilities=${capabilities || "none"}`,
+      `  场景：${formatSceneKind(scene.scene)}；启用：${formatBooleanYesNo(scene.enabled !== false)}`,
+      `  名称：${scene.label ?? profile.label}`,
+      `  智能体：${scene.agentId ?? "默认路由"}`,
+      `  能力：${formatCapabilitiesForDisplay(scene.capabilities?.length ? scene.capabilities : profile.capabilities)}`,
     );
   }
   return lines.join("\n");
@@ -86,12 +89,12 @@ export function formatCustomSceneStatus(cfg: OpenClawConfig, peer: CustomPeer): 
     `🧭 当前会话场景`,
     ``,
     `目标：${formatCustomPeerKey(peer)}`,
-    `场景：${resolved.config.scene}`,
-    `来源：${resolved.source}`,
+    `场景：${formatSceneKind(resolved.config.scene)}`,
+    `来源：${formatSceneSource(resolved.source)}`,
     `配置键：${resolved.key}`,
-    `启用：${resolved.enabled ? "是" : "否"}`,
-    `Agent：${resolved.config.agentId ?? "默认路由"}`,
-    `能力：${resolved.capabilities.length ? resolved.capabilities.join(", ") : "none"}`,
+    `启用：${formatBooleanYesNo(resolved.enabled)}`,
+    `智能体：${resolved.config.agentId ?? "默认路由"}`,
+    `能力：${formatCapabilitiesForDisplay(resolved.capabilities)}`,
     `说明：${resolved.profile.description}`,
   ].join("\n");
 }
@@ -105,8 +108,8 @@ export function formatCustomSceneBoundReply(params: {
     `✅ 当前会话场景已绑定`,
     ``,
     `目标：${params.key}`,
-    `场景：${params.scene}`,
-    `Agent：${params.agentId ?? "默认路由"}`,
+    `场景：${formatSceneKind(params.scene)}`,
+    `智能体：${params.agentId ?? "默认路由"}`,
     `说明：${getCustomSceneProfile(params.scene).description}`,
     ``,
     `配置已写入当前运行时，并将由 gateway 持久化到 openclaw.json。`,
@@ -118,8 +121,8 @@ function makeSceneSwitchButton(scene: CustomSceneKind, current: boolean): Keyboa
   return {
     id: `scene_${scene.replace(/[^a-z0-9_]/gi, "_")}`,
     render_data: {
-      label: current ? `当前：${scene}` : profile.label,
-      visited_label: `切换 ${scene}`,
+      label: current ? `当前：${profile.label}` : profile.label,
+      visited_label: `切换到 ${profile.label}`,
       style: current ? 4 : 1,
     },
     action: {

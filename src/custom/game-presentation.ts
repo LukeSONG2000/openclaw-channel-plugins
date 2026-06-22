@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomGuessGame } from "./types.js";
+import { formatGameStatusForDisplay } from "./presentation-labels.js";
 
 export function buildCustomGuessGameKeyboard(game: CustomGuessGame): InlineKeyboard {
   return {
@@ -43,7 +44,7 @@ export function formatGuessGameList(games: CustomGuessGame[]): string {
   if (games.length === 0) return "🎮 当前会话暂无小游戏。";
   const lines = ["🎮 当前会话小游戏", ""];
   for (const game of games) {
-    lines.push(`- ${game.id} [${game.status}] guess 参与=${Object.keys(game.guesses).length}`);
+    lines.push(`- ${game.id} [${formatGameStatusForDisplay(game.status)}] 猜数字，参与=${Object.keys(game.guesses).length}`);
   }
   return lines.join("\n");
 }
@@ -53,7 +54,7 @@ export function formatGuessGameStatus(game: CustomGuessGame): string {
     `🎮 猜数字状态`,
     ``,
     `游戏：${game.id}`,
-    `状态：${game.status}`,
+    `状态：${formatGameStatusForDisplay(game.status)}`,
     `参与人数：${Object.keys(game.guesses).length}`,
   ];
   if (game.status !== "open") lines.push(`答案：${game.secret}`);

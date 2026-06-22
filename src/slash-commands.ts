@@ -521,7 +521,7 @@ registerCommand({
     `/bot-queue`,
     `/bot-queue status`,
     ``,
-    `查看当前会话的队列 pending、活跃用户数和活跃处理时长；不展示缓存消息正文。`,
+    `查看当前会话待处理数量、活跃用户数和活跃处理时长；不展示缓存消息正文。`,
   ].join("\n"),
   handler: () => null,
 });
@@ -542,7 +542,7 @@ registerCommand({
     `/bot-unread status [数量]`,
     `/bot-unread summary [数量]`,
     ``,
-    `查看未读追读、follow-up 和 sleep-digest 的只读摘要，不展示缓存消息正文。`,
+    `查看未读追读、后续跟进和睡眠摘要的只读摘要，不展示缓存消息正文。`,
   ].join("\n"),
   handler: () => null,
 });

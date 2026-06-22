@@ -1,5 +1,6 @@
 import type { CustomUnreadRuntime } from "./unread-runtime.js";
 import { inspectCustomUnreadRuntimeState } from "./unread-runtime.js";
+import { formatBooleanYesNo } from "./presentation-labels.js";
 
 const DEFAULT_PEER_LIMIT = 5;
 const MAX_PEER_LIMIT = 20;
@@ -68,7 +69,7 @@ function formatCustomUnreadStatusHelp(error?: string): string {
     `/bot-unread status [数量]`,
     `/bot-unread summary [数量]`,
     ``,
-    `查看未读追读、follow-up 和 sleep-digest 的只读摘要；不会展示缓存消息正文。数量范围：1-${MAX_PEER_LIMIT}。`,
+    `查看未读追读、后续跟进和睡眠摘要的只读状态；不会展示缓存消息正文。数量范围：1-${MAX_PEER_LIMIT}。`,
   );
   return lines.join("\n");
 }
@@ -78,10 +79,10 @@ function formatCustomUnreadStatus(unread: CustomUnreadRuntime, limit: number): s
   const lines = [
     `👀 自定义未读状态`,
     ``,
-    `peer：${summary.peerCount}`,
-    `pending：${summary.totalPendingCount}`,
-    `snapshots：${summary.snapshotCount}（policy-gated=${summary.policyGatedSnapshotCount}）`,
-    `timers：followup=${summary.scheduledFollowupCount}, sleep=${summary.scheduledSleepDigestCount}`,
+    `会话数：${summary.peerCount}`,
+    `待处理消息：${summary.totalPendingCount}`,
+    `快照：${summary.snapshotCount}（策略拦截=${summary.policyGatedSnapshotCount}）`,
+    `定时器：后续跟进=${summary.scheduledFollowupCount}, 睡眠摘要=${summary.scheduledSleepDigestCount}`,
     `显示：${summary.peers.length}/${summary.peerCount}`,
   ];
 
@@ -89,9 +90,9 @@ function formatCustomUnreadStatus(unread: CustomUnreadRuntime, limit: number): s
     lines.push(
       ``,
       `- ${peer.peerId}`,
-      `  pending=${peer.pendingCount}, snapshots=${peer.snapshotCount}, gated=${peer.policyGatedSnapshotCount}`,
-      `  followupActive=${peer.followupActive ? "yes" : "no"}, followupDue=${formatTime(peer.scheduledFollowupDueAt)}, sleepDue=${formatTime(peer.scheduledSleepDigestDueAt)}`,
-      `  oldest=${formatTime(peer.oldestPendingAt)}, newest=${formatTime(peer.newestPendingAt)}`,
+      `  待处理=${peer.pendingCount}, 快照=${peer.snapshotCount}, 策略拦截=${peer.policyGatedSnapshotCount}`,
+      `  后续跟进启用=${formatBooleanYesNo(peer.followupActive)}, 后续跟进时间=${formatTime(peer.scheduledFollowupDueAt)}, 睡眠摘要时间=${formatTime(peer.scheduledSleepDigestDueAt)}`,
+      `  最早待处理=${formatTime(peer.oldestPendingAt)}, 最新待处理=${formatTime(peer.newestPendingAt)}`,
     );
   }
 

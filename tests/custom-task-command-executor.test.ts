@@ -98,7 +98,7 @@ assert.match(formatCustomTaskCommandOutput({
   stdout: "ok",
   stderr: "boom",
   maxOutputChars: 1000,
-}), /Exit code: 7/);
+}), /退出码：7/);
 
 const disabled = new CustomTaskCommandExecutor({
   config: { enabled: false, command: process.execPath },
@@ -322,7 +322,7 @@ applyCustomTaskExecutionIntents({
 });
 await waitFor(() => failedCallbacks.length === 1);
 assert.equal(failedCallbacks[0]?.taskId, failedTaskId);
-assert.match(failedCallbacks[0]?.error ?? "", /Exit code: 7/);
+assert.match(failedCallbacks[0]?.error ?? "", /退出码：7/);
 assert.match(failedCallbacks[0]?.error ?? "", /boom/);
 assert.equal(failedRuntime.getTask(failedTaskId)?.status, "failed");
 
