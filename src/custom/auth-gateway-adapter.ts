@@ -87,6 +87,9 @@ export function detectCustomRuleWriteIntent(content: string): boolean {
   if (/(新增|添加|修改|改成|删除|移除|更新).{0,12}(规则|指令|提示词|prompt)/i.test(text)) return true;
   if (/(规则|指令|提示词|prompt).{0,12}(新增|添加|修改|改成|删除|移除|更新|写入|保存)/i.test(text)) return true;
   if (/以后.{0,24}(有人|群里|大家|谁|用户).{0,24}(说|发|问|询问|提到|触发).{0,32}(回复|回答|回|说|输出)/.test(text)) return true;
+  if (/(当|如果|若|只要|遇到|看到|收到).{0,40}(用户|有人|群里|大家|谁|成员|对方)?.{0,24}(说|发|发送|问|询问|提到|触发|输入|出现|包含).{0,48}(回复|回答|回|说|输出)/.test(text)) return true;
+  if (/(说|发|发送|问|询问|提到|触发|输入|出现|包含).{0,40}(时|的时候|后|就|则|，|,).{0,32}(回复|回答|回|说|输出)/.test(text)
+    && /(当|如果|若|只要|遇到|看到|收到|用户|有人|群里|大家|谁|成员|对方)/.test(text)) return true;
   if (/以后.{0,24}(回复|回答|回|说|输出).{0,32}(规则|记忆)/.test(text)) return true;
 
   return lower.includes("agent.md") && /(写|改|删|规则|记忆)/.test(text);
