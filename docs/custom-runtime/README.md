@@ -160,7 +160,9 @@ Out of scope for the first custom runtime:
 - `src/custom/deploy-confirmation.ts`: pure safety confirmation runtime for guarded deployment/update decisions; it records confirm/cancel state but never executes upgrades.
 - `src/custom/deploy-preflight.ts`: pure in-runtime deploy preflight summary for `/bot-deploy preflight`; it inspects the live config object but never runs shell commands or touches server files.
 - `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
-- `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter for deployment confirmation cards.
+- `src/custom/deploy-command-parser.ts`: pure `/bot-deploy` command parser and `custom-deploy:*` confirmation-button payload parser.
+- `src/custom/deploy-presentation.ts`: pure deploy confirmation help/list/status/result text and confirmation-card keyboard helpers.
+- `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter focused on runtime mutation and account/peer visibility checks.
 - `src/custom/task-execution-effects-gateway-adapter.ts`: gateway-side long-task execution effect applier for executor logs, async persistence, and guarded task notification delivery.
 - `src/custom/poll.ts`: pure lightweight poll runtime for interactive cards.
 - `src/custom/poll-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-polls`.

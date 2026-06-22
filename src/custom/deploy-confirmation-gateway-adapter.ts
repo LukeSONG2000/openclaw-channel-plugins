@@ -1,26 +1,44 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
-import type { InlineKeyboard, KeyboardButton } from "../types.js";
+import type { InlineKeyboard } from "../types.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
-import { CustomDeployConfirmationRuntime, normalizeDeployCommand } from "./deploy-confirmation.js";
+import { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
 import {
   buildCustomDeployPreflightKeyboard,
   buildCustomDeployPreflightSummary,
   formatCustomDeployPreflightSummary,
 } from "./deploy-preflight.js";
+import { parseCustomDeployButtonData, parseCustomDeployCommand } from "./deploy-command-parser.js";
+import {
+  buildCustomDeployConfirmationKeyboard,
+  formatCustomDeployHelp,
+  formatDeployConfirmationCreated,
+  formatDeployConfirmationList,
+  formatDeployConfirmationResolved,
+  formatDeployConfirmationStatus,
+  formatDeployDecision,
+} from "./deploy-presentation.js";
 import type { CustomActor, CustomDeployConfirmation, CustomPeer } from "./types.js";
 
-export type CustomDeployCommand =
-  | { kind: "help" }
-  | { kind: "confirm"; command: string }
-  | { kind: "list" }
-  | { kind: "status"; confirmationId: string }
-  | { kind: "preflight" };
+export {
+  parseCustomDeployButtonData,
+  parseCustomDeployCommand,
+  type CustomDeployButtonDecision,
+  type CustomDeployButtonPayload,
+  type CustomDeployCommand,
+  type CustomDeployCommandParseResult,
+} from "./deploy-command-parser.js";
 
-export type CustomDeployCommandParseResult =
-  | { matched: false }
-  | { matched: true; command?: CustomDeployCommand; error?: string };
+export {
+  buildCustomDeployConfirmationKeyboard,
+  formatCustomDeployHelp,
+  formatDeployConfirmationCreated,
+  formatDeployConfirmationList,
+  formatDeployConfirmationResolved,
+  formatDeployConfirmationStatus,
+  formatDeployDecision,
+} from "./deploy-presentation.js";
 
 export interface CustomDeployCommandResult {
   handled: boolean;
@@ -33,29 +51,6 @@ export interface CustomDeployInteractionResult {
   handled: boolean;
   reply?: string;
   changed?: boolean;
-}
-
-export function parseCustomDeployCommand(rawContent: string): CustomDeployCommandParseResult {
-  const content = rawContent.trim();
-  if (!content.startsWith("/")) return { matched: false };
-  const [rawName = "", ...tokens] = content.slice(1).split(/\s+/).filter(Boolean);
-  if (rawName.toLowerCase() !== "bot-deploy") return { matched: false };
-  const action = (tokens.shift() ?? "help").toLowerCase();
-  if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
-  if (action === "list" || action === "ls") return { matched: true, command: { kind: "list" } };
-  if (action === "preflight" || action === "check" || action === "safety") return { matched: true, command: { kind: "preflight" } };
-  if (action === "status" || action === "show") {
-    const confirmationId = tokens.shift();
-    if (!confirmationId) return { matched: true, error: "缺少 confirmationId" };
-    return { matched: true, command: { kind: "status", confirmationId } };
-  }
-  if (action === "confirm" || action === "plan") {
-    const command = tokens.join(" ").trim();
-    if (!command) return { matched: true, error: "缺少需要确认的升级命令，例如 /bot-deploy confirm /bot-upgrade --latest" };
-    if (!normalizeDeployCommand(command)) return { matched: true, error: "当前只支持确认 /bot-upgrade 的带参数命令" };
-    return { matched: true, command: { kind: "confirm", command } };
-  }
-  return { matched: true, error: `未知子命令：${action}` };
 }
 
 export function handleCustomDeployCommand(params: {
@@ -120,12 +115,6 @@ export function handleCustomDeployCommand(params: {
   return { handled: true, reply: formatCustomDeployHelp() };
 }
 
-export function parseCustomDeployButtonData(buttonData: string): { confirmationId: string; decision: "confirm" | "cancel" } | null {
-  const m = buttonData.match(/^custom-deploy:([^:]+):(confirm|cancel)$/i);
-  if (!m) return null;
-  return { confirmationId: m[1]!, decision: m[2]!.toLowerCase() as "confirm" | "cancel" };
-}
-
 export function handleCustomDeployInteraction(params: {
   accountId?: string;
   confirmations: CustomDeployConfirmationRuntime;
@@ -164,154 +153,6 @@ export function handleCustomDeployInteraction(params: {
   };
 }
 
-export function buildCustomDeployConfirmationKeyboard(confirmation: CustomDeployConfirmation): InlineKeyboard {
-  return {
-    content: {
-      rows: [
-        {
-          buttons: [
-            makeDeployButton({
-              id: "confirm",
-              label: "确认",
-              visitedLabel: "已确认",
-              data: `custom-deploy:${confirmation.id}:confirm`,
-              style: 1,
-            }),
-            makeDeployButton({
-              id: "cancel",
-              label: "取消",
-              visitedLabel: "已取消",
-              data: `custom-deploy:${confirmation.id}:cancel`,
-              style: 3,
-            }),
-          ],
-        },
-      ],
-    },
-  };
-}
-
-function makeDeployButton(params: {
-  id: string;
-  label: string;
-  visitedLabel: string;
-  data: string;
-  style: 0 | 1 | 3;
-}): KeyboardButton {
-  return {
-    id: `deploy_${params.id}`,
-    render_data: { label: params.label, visited_label: params.visitedLabel, style: params.style },
-    action: {
-      type: 1,
-      data: params.data,
-      permission: { type: 2 },
-      click_limit: 1,
-    },
-    group_id: "custom-deploy",
-  };
-}
-
-function formatCustomDeployHelp(error?: string): string {
-  const lines = [];
-  if (error) lines.push(`❌ ${error}`, ``);
-  lines.push(
-    `🚀 自定义部署确认命令`,
-    ``,
-    `/bot-deploy confirm /bot-upgrade --latest`,
-    `/bot-deploy confirm /bot-upgrade --version <version>`,
-    `/bot-deploy list`,
-    `/bot-deploy status <confirmationId>`,
-    `/bot-deploy preflight`,
-    ``,
-    `当前只创建确认卡，不自动执行升级。确认后仍需管理员手动发送确认中的升级命令。`,
-  );
-  return lines.join("\n");
-}
-
-function formatDeployConfirmationCreated(confirmation: CustomDeployConfirmation): string {
-  return [
-    `🚀 部署确认已创建`,
-    ``,
-    `确认：${confirmation.id}`,
-    `命令：${confirmation.command}`,
-    `发起人：${confirmation.creator.label || confirmation.creator.id}`,
-    `过期：${formatExpiresIn(confirmation.expiresAt)}`,
-    ``,
-    `点击确认只会记录确认状态，不会自动执行热更新。`,
-    `确认后请在管理员私聊中手动发送：${confirmation.command}`,
-  ].join("\n");
-}
-
-function formatDeployConfirmationList(confirmations: CustomDeployConfirmation[]): string {
-  if (confirmations.length === 0) return "🚀 当前会话暂无部署确认。";
-  const lines = ["🚀 当前会话部署确认", ""];
-  for (const confirmation of confirmations) {
-    lines.push(`- ${confirmation.id} [${confirmation.status}] ${confirmation.command}`);
-  }
-  return lines.join("\n");
-}
-
-function formatDeployConfirmationStatus(confirmation: CustomDeployConfirmation, now?: number): string {
-  return [
-    `🚀 部署确认状态`,
-    ``,
-    `确认：${confirmation.id}`,
-    `状态：${confirmation.status}`,
-    `命令：${confirmation.command}`,
-    `发起人：${confirmation.creator.label || confirmation.creator.id}`,
-    `过期：${formatExpiresIn(confirmation.expiresAt, now)}`,
-    ...(confirmation.resolvedBy ? [`处理人：${confirmation.resolvedBy.label || confirmation.resolvedBy.id}`] : []),
-  ].join("\n");
-}
-
-function formatDeployConfirmationResolved(confirmation: CustomDeployConfirmation, reason: string): string {
-  if (reason === "expired") {
-    return [
-      `⚠️ 部署确认已过期`,
-      ``,
-      `确认：${confirmation.id}`,
-      `命令：${confirmation.command}`,
-    ].join("\n");
-  }
-  if (reason === "not_pending") {
-    return [
-      `⚠️ 部署确认已处理`,
-      ``,
-      `确认：${confirmation.id}`,
-      `状态：${confirmation.status}`,
-      `命令：${confirmation.command}`,
-    ].join("\n");
-  }
-  if (confirmation.status === "confirmed") {
-    return [
-      `✅ 已确认部署操作`,
-      ``,
-      `确认：${confirmation.id}`,
-      `命令：${confirmation.command}`,
-      ``,
-      `安全起见，本卡片不会自动执行热更新。`,
-      `请管理员在私聊中手动发送该命令，并确保已完成服务器备份。`,
-    ].join("\n");
-  }
-  if (confirmation.status === "cancelled") {
-    return [
-      `✅ 已取消部署操作`,
-      ``,
-      `确认：${confirmation.id}`,
-      `命令：${confirmation.command}`,
-    ].join("\n");
-  }
-  return formatDeployDecision(reason);
-}
-
-function formatDeployDecision(reason: string): string {
-  if (reason === "invalid_command") return "⚠️ 当前只支持确认 /bot-upgrade 的带参数命令。";
-  if (reason === "not_found") return "⚠️ 部署确认不存在。";
-  if (reason === "not_pending") return "⚠️ 部署确认已处理。";
-  if (reason === "expired") return "⚠️ 部署确认已过期。";
-  return `⚠️ 操作失败：${reason}`;
-}
-
 function resolveDeployConfirmation(
   confirmations: CustomDeployConfirmationRuntime,
   input: string,
@@ -346,8 +187,4 @@ function canInteractWithDeployConfirmation(params: {
   if (confirmation.creator.id.toUpperCase() === params.actor.id.toUpperCase()) return true;
   if (!params.sourcePeer) return true;
   return confirmation.peer.kind === params.sourcePeer.kind && confirmation.peer.id === params.sourcePeer.id;
-}
-
-function formatExpiresIn(expiresAt: number, now: number = Date.now()): string {
-  return `${Math.max(0, Math.ceil((expiresAt - now) / 1000))} 秒后`;
 }

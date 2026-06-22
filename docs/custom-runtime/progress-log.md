@@ -1384,3 +1384,10 @@ Added configured scene binding inspection:
 - Added `src/custom/game-presentation.ts` for guess-game help/list/status/closed/guess-ack text and inline guess keyboard builders, keeping card/text tuning independent of game runtime mutation.
 - `src/custom/game-gateway-adapter.ts` now focuses on runtime enablement, current account/peer/actor binding, game visibility checks, and state mutation, while re-exporting parser/presentation helpers for compatibility.
 - `tests/custom-game-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside compatibility exports.
+
+拆出 deploy 确认解析与呈现层：
+
+- Added `src/custom/deploy-command-parser.ts` for pure `/bot-deploy` command parsing and `custom-deploy:*` confirm/cancel button payload parsing.
+- Added `src/custom/deploy-presentation.ts` for deploy confirmation help/list/status/created/resolved text and confirm/cancel keyboard builders, keeping safety-card UX independent of runtime mutation.
+- `src/custom/deploy-confirmation-gateway-adapter.ts` now focuses on runtime enablement, current account/peer/actor binding, confirmation visibility checks, preflight delegation, and deploy-confirmation state mutation.
+- `tests/custom-deploy-confirmation-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside compatibility exports.

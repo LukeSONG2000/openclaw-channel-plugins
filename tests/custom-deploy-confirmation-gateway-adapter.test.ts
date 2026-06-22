@@ -6,6 +6,14 @@ import {
   parseCustomDeployButtonData,
   parseCustomDeployCommand,
 } from "../src/custom/deploy-confirmation-gateway-adapter.js";
+import {
+  parseCustomDeployButtonData as parseCustomDeployButtonDataDirect,
+  parseCustomDeployCommand as parseCustomDeployCommandDirect,
+} from "../src/custom/deploy-command-parser.js";
+import {
+  buildCustomDeployConfirmationKeyboard as buildCustomDeployConfirmationKeyboardDirect,
+  formatDeployConfirmationStatus as formatDeployConfirmationStatusDirect,
+} from "../src/custom/deploy-presentation.js";
 import { CustomDeployConfirmationRuntime } from "../src/custom/deploy-confirmation.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -48,6 +56,10 @@ assert.deepEqual(parseCustomDeployCommand("/bot-deploy confirm /bot-upgrade --la
   matched: true,
   command: { kind: "confirm", command: "/bot-upgrade --latest" },
 });
+assert.deepEqual(
+  parseCustomDeployCommandDirect("/bot-deploy confirm /bot-upgrade --latest"),
+  parseCustomDeployCommand("/bot-deploy confirm /bot-upgrade --latest"),
+);
 assert.deepEqual(parseCustomDeployCommand("/bot-deploy plan /bot-upgrade --version 1.7.2-luke.3"), {
   matched: true,
   command: { kind: "confirm", command: "/bot-upgrade --version 1.7.2-luke.3" },
@@ -72,6 +84,10 @@ assert.deepEqual(parseCustomDeployButtonData("custom-deploy:deploy-default-group
   confirmationId: "deploy-default-group-GROUP_OPENID-1000-1",
   decision: "confirm",
 });
+assert.deepEqual(
+  parseCustomDeployButtonDataDirect("custom-deploy:deploy-default-group-GROUP_OPENID-1000-1:confirm"),
+  parseCustomDeployButtonData("custom-deploy:deploy-default-group-GROUP_OPENID-1000-1:confirm"),
+);
 assert.equal(parseCustomDeployButtonData("custom-game:game-1:guess:1"), null);
 
 const disabled = handleCustomDeployCommand({
@@ -104,6 +120,7 @@ const confirmationId = Object.keys(confirmations.getState().confirmations)[0]!;
 assert.equal(confirmationId, "deploy-default-group-GROUP_OPENID-1000-1");
 const keyboard = buildCustomDeployConfirmationKeyboard(confirmations.get(confirmationId)!);
 assert.equal(keyboard.content?.rows[0]?.buttons[1]?.action?.data, `custom-deploy:${confirmationId}:cancel`);
+assert.deepEqual(buildCustomDeployConfirmationKeyboardDirect(confirmations.get(confirmationId)!), keyboard);
 
 const list = handleCustomDeployCommand({
   cfg,
@@ -175,6 +192,7 @@ const creatorDmStatus = handleCustomDeployCommand({
 assert.equal(creatorDmStatus.handled, true);
 assert.equal(creatorDmStatus.reply?.includes("部署确认状态"), true);
 assert.equal(creatorDmStatus.keyboard?.content?.rows[0]?.buttons.length, 2);
+assert.equal(formatDeployConfirmationStatusDirect(confirmations.get(confirmationId)!, 1_700).includes("部署确认状态"), true);
 
 const crossPeerConfirm = handleCustomDeployInteraction({
   accountId: "default",

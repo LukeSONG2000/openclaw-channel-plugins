@@ -2093,6 +2093,18 @@ Behavior:
 - Adds QQ command-input shortcuts for `/compact` and `/new` only when the current peer has pending or active work.
 - Does not display queued message bodies, unread snapshots, or cached chat content.
 
+### `src/custom/deploy-confirmation-gateway-adapter.ts`
+
+Gateway-facing deploy confirmation command and callback layer.
+
+Current implementation status:
+
+- `src/custom/deploy-command-parser.ts` parses `/bot-deploy` text commands and `custom-deploy:<confirmationId>:confirm|cancel` button payloads without depending on runtime state.
+- `src/custom/deploy-presentation.ts` formats deploy confirmation help/list/status/created/resolved text and builds confirm/cancel inline keyboards.
+- `src/custom/deploy-confirmation-gateway-adapter.ts` binds parsed commands to the current account/peer/actor, checks account/peer visibility, mutates the per-account deploy confirmation runtime, and returns persistence-worthy changes.
+- `/bot-deploy confirm /bot-upgrade ...` creates a confirmation card only; the card records confirm/cancel state and never executes upgrades, restarts, package installs, or shell commands.
+- `/bot-deploy list` and `/bot-deploy status <confirmationId>` only reveal confirmations in the original account/peer, or confirmations created by the current actor.
+
 ### `src/custom/deploy-preflight.ts`
 
 Read-only deploy safety summary for chat.
