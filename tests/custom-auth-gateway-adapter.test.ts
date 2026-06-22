@@ -127,6 +127,17 @@ assert.equal(denied.capability, "config.write");
 assert.equal(denied.result?.decision.requestId, "authreq-2000-1");
 assert.equal(denied.result?.intents[0]?.kind === "request-approval" && denied.result.intents[0].request.adminGroup, "qqbot:group:GROUP_OPENID");
 assert.equal(formatCustomAuthorizationDeniedMessage(denied).includes("权限：写入配置/规则（config.write）"), true);
+
+const deniedPlainPoll = checkCustomSlashAuthorization({
+  cfg: authCfg,
+  auth,
+  message: memberGroupMessage,
+  rawContent: "创建投票，晚上吃什么，肯德基，麦当劳",
+  now: 2_100,
+});
+assert.equal(deniedPlainPoll.enabled, true);
+assert.equal(deniedPlainPoll.allowed, false);
+assert.equal(deniedPlainPoll.capability, "game.interact");
 assert.deepEqual(parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 3"), {
   matched: true,
   command: {

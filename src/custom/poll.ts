@@ -26,7 +26,7 @@ export class CustomPollRuntime {
     const question = params.question.replace(/\s+/g, " ").trim();
     if (!question) return { allowed: false, reason: "invalid_question" };
     const optionLabels = normalizeOptions(params.options);
-    if (optionLabels.length < 2 || optionLabels.length > 4) return { allowed: false, reason: "invalid_options" };
+    if (optionLabels.length < 2 || optionLabels.length > 10) return { allowed: false, reason: "invalid_options" };
     const now = params.now ?? Date.now();
     const poll: CustomPoll = {
       id: this.nextPollId(params.accountId, params.peer, now),
@@ -207,7 +207,7 @@ function normalizeOptions(options: string[]): string[] {
     seen.add(key);
     result.push(label.slice(0, 30));
   }
-  return result.slice(0, 4);
+  return result.slice(0, 10);
 }
 
 function normalizeDurationMs(durationMs: number | undefined): number {

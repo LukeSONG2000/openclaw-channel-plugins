@@ -47,7 +47,7 @@ assert.equal(created.poll.question, "Pick a path");
 assert.equal(created.poll.multiple, false);
 assert.equal(created.poll.anonymous, false);
 assert.equal(created.poll.expiresAt, 603_000);
-assert.deepEqual(created.poll.options.map((option) => option.label), ["Ship", "Wait", "Refactor", "Document"]);
+assert.deepEqual(created.poll.options.map((option) => option.label), ["Ship", "Wait", "Refactor", "Document", "Extra"]);
 
 const vote = runtime.vote({
   pollId: created.poll.id,
@@ -58,7 +58,7 @@ const vote = runtime.vote({
 assert.equal(vote.allowed, true);
 assert.equal(vote.poll?.votes.VOTER_OPENID?.optionId, "2");
 assert.deepEqual(vote.poll?.votes.VOTER_OPENID?.optionIds, ["2"]);
-assert.deepEqual(summarizePollResults(vote.poll!).map((item) => item.count), [0, 1, 0, 0]);
+assert.deepEqual(summarizePollResults(vote.poll!).map((item) => item.count), [0, 1, 0, 0, 0]);
 
 const changedVote = runtime.vote({
   pollId: created.poll.id,
@@ -67,7 +67,7 @@ const changedVote = runtime.vote({
   now: 5_000,
 });
 assert.equal(changedVote.allowed, true);
-assert.deepEqual(summarizePollResults(changedVote.poll!).map((item) => item.count), [0, 0, 1, 0]);
+assert.deepEqual(summarizePollResults(changedVote.poll!).map((item) => item.count), [0, 0, 1, 0, 0]);
 
 const multiPoll = runtime.createPoll({
   accountId: "default",

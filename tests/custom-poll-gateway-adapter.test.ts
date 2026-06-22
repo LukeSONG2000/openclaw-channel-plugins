@@ -63,6 +63,27 @@ assert.deepEqual(parseCustomPollCommand("/bot-poll 午饭吃什么？选项：�
     durationMs: 1_800_000,
   },
 });
+assert.deepEqual(parseCustomPollCommand("/bot-poll 晚上吃什么，肯德基，麦当劳，德克士，华莱士，塔斯汀，2分钟后收集"), {
+  matched: true,
+  command: {
+    kind: "create",
+    question: "晚上吃什么",
+    options: ["肯德基", "麦当劳", "德克士", "华莱士", "塔斯汀"],
+    durationMs: 120_000,
+  },
+});
+assert.deepEqual(parseCustomPollCommand("创建投票，肯德基，麦当劳，晚上吃什么，2分钟后收集"), {
+  matched: true,
+  command: {
+    kind: "create",
+    question: "晚上吃什么",
+    options: ["肯德基", "麦当劳"],
+    durationMs: 120_000,
+  },
+});
+const missingPollFields = parseCustomPollCommand("创建投票，晚上吃什么");
+assert.equal(missingPollFields.matched, true);
+assert.equal(missingPollFields.error?.includes("至少提供标题和 2 个选项"), true);
 assert.deepEqual(
   parseCustomPollCommandDirect("/bot-poll create Pick one | A | B"),
   parseCustomPollCommand("/bot-poll create Pick one | A | B"),

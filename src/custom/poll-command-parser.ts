@@ -20,7 +20,14 @@ export type CustomPollButtonPayload =
 
 export function parseCustomPollCommand(rawContent: string): CustomPollCommandParseResult {
   const content = rawContent.trim();
-  if (!content.startsWith("/")) return { matched: false };
+  if (!content.startsWith("/")) {
+    const plain = stripPlainPollTrigger(content);
+    if (plain === null) return { matched: false };
+    const command = parseCreateCommand(plain);
+    return command
+      ? { matched: true, command }
+      : { matched: true, error: formatMissingCreateFields() };
+  }
   const [rawName = "", ...tokens] = content.slice(1).split(/\s+/).filter(Boolean);
   if (rawName.toLowerCase() !== "bot-poll") return { matched: false };
   const action = (tokens.shift() ?? "help").toLowerCase();
@@ -41,15 +48,15 @@ export function parseCustomPollCommand(rawContent: string): CustomPollCommandPar
     const command = parseCreateCommand(rest);
     return command
       ? { matched: true, command }
-      : { matched: true, error: `格式：${slashCommandInput("/bot-poll create 今天午饭吃什么？选项：米饭、面条，多选，10分钟")}` };
+      : { matched: true, error: formatMissingCreateFields() };
   }
   const command = parseCreateCommand([action, ...tokens].join(" "));
   if (command) return { matched: true, command };
-  return { matched: true, error: `未知子命令：${action}` };
+  return { matched: true, error: formatMissingCreateFields() };
 }
 
 export function parseCustomPollButtonData(buttonData: string): CustomPollButtonPayload | null {
-  const vote = buttonData.match(/^custom-poll:([^:]+):vote:([1-4])$/i);
+  const vote = buttonData.match(/^custom-poll:([^:]+):vote:(\d+)$/i);
   if (vote) return { kind: "vote", pollId: vote[1]!, optionId: vote[2]! };
   const list = buttonData.match(/^custom-poll:list:(\d+)$/i);
   if (list) return { kind: "list", page: parsePage(list[1]) };
@@ -77,7 +84,7 @@ function parseCreateCommand(input: string): Extract<CustomPollCommand, { kind: "
     return compactCreateCommand({ question: question!, options, multiple, anonymous, durationMs });
   }
 
-  const optionBlock = extractOptionBlock(text);
+  const optionBlock = extractOptionBlock(text) ?? inferOptionBlockFromSegments(text);
   if (!optionBlock) return null;
   const options = splitOptions(optionBlock.optionsText);
   const question = summarizeQuestion(optionBlock.questionText, options);
@@ -112,12 +119,26 @@ function extractOptionBlock(text: string): { questionText: string; optionsText: 
   return null;
 }
 
+function inferOptionBlockFromSegments(text: string): { questionText: string; optionsText: string } | null {
+  const segments = splitLooseSegments(text)
+    .map(stripSegmentNoise)
+    .filter(Boolean);
+  if (segments.length < 3) return null;
+
+  const questionIndex = segments.findIndex(isQuestionLikeSegment);
+  const titleIndex = questionIndex >= 0 ? questionIndex : 0;
+  const questionText = segments[titleIndex]!;
+  const options = segments.filter((_, index) => index !== titleIndex);
+  if (options.length < 2) return null;
+  return { questionText, optionsText: options.join("、") };
+}
+
 function splitOptions(text: string): string[] {
   return text
-    .split(/\s*(?:[、,，;；/]|或|还是)\s*/)
+    .split(/\s*(?:[、,，;；/]|或|还是|\n)\s*/)
     .map((part) => part.replace(/^[A-Da-d][.、:：\s-]+/, "").trim())
     .filter(Boolean)
-    .slice(0, 4);
+    .slice(0, 10);
 }
 
 function summarizeQuestion(questionText: string, options: string[]): string {
@@ -127,9 +148,9 @@ function summarizeQuestion(questionText: string, options: string[]): string {
 }
 
 function parseDurationMs(text: string): number | undefined {
-  const m = text.match(/(\d+(?:\.\d+)?)\s*(分钟|分|min|m|小时|时|h|天|日|d)/i);
+  const m = text.match(/([0-9]+(?:\.[0-9]+)?|一|二|两|三|四|五|六|七|八|九|十|半)\s*(分钟|分|min|m|小时|时|h|天|日|d)/i);
   if (!m) return undefined;
-  const value = Number.parseFloat(m[1]!);
+  const value = parseDurationNumber(m[1]!);
   const unit = m[2]!.toLowerCase();
   if (!Number.isFinite(value) || value <= 0) return undefined;
   if (unit === "小时" || unit === "时" || unit === "h") return Math.round(value * 60 * 60 * 1000);
@@ -138,7 +159,56 @@ function parseDurationMs(text: string): number | undefined {
 }
 
 function stripDuration(text: string): string {
-  return text.replace(/(?:持续|时长|限时)?\s*\d+(?:\.\d+)?\s*(?:分钟|分|min|m|小时|时|h|天|日|d)/gi, " ").trim();
+  return text
+    .replace(/(?:持续|时长|限时|截止|收集|投票|统计|结束)?\s*(?:[0-9]+(?:\.[0-9]+)?|一|二|两|三|四|五|六|七|八|九|十|半)\s*(?:分钟|分|min|m|小时|时|h|天|日|d)(?:后)?(?:收集|统计|结束|截止)?/gi, " ")
+    .replace(/(?:后)?(?:收集|统计|结束|截止)$/g, " ")
+    .trim();
+}
+
+function stripPlainPollTrigger(content: string): string | null {
+  const text = content.trim();
+  const m = text.match(/^(?:请|帮我|麻烦)?\s*(?:创建|发起|新建|开|弄|搞)?\s*(?:一个|个)?\s*(?:投票|投票收集)(?:一下)?[，,：:\s]*(.*)$/);
+  if (!m) return null;
+  return m[1]!.trim();
+}
+
+function splitLooseSegments(text: string): string[] {
+  return text.split(/\s*(?:[、,，;；|\n])\s*/).filter(Boolean);
+}
+
+function stripSegmentNoise(segment: string): string {
+  return segment
+    .replace(/^(?:请|帮我|麻烦)?\s*(?:创建|发起|新建)?\s*(?:一个|个)?\s*投票(?:一下)?\s*/g, "")
+    .replace(/(?:选项|候选|可选)[:：\s]*/g, "")
+    .replace(/[?？:：\s]+$/g, "")
+    .trim();
+}
+
+function isQuestionLikeSegment(segment: string): boolean {
+  return /[?？]|什么|哪[个些种]?|是否|要不要|能不能|可不可以|谁|几|多少|吗|嘛/.test(segment);
+}
+
+function parseDurationNumber(value: string): number {
+  if (/^[0-9]/.test(value)) return Number.parseFloat(value);
+  if (value === "半") return 0.5;
+  const map: Record<string, number> = {
+    一: 1,
+    二: 2,
+    两: 2,
+    三: 3,
+    四: 4,
+    五: 5,
+    六: 6,
+    七: 7,
+    八: 8,
+    九: 9,
+    十: 10,
+  };
+  return map[value] ?? Number.NaN;
+}
+
+function formatMissingCreateFields(): string {
+  return `我还没识别到完整投票信息：请至少提供标题和 2 个选项。\n\n例如：${slashCommandInput("/bot-poll 晚上吃什么，肯德基，麦当劳，德克士，2分钟后收集")}`;
 }
 
 function parsePage(value: string | undefined): number {

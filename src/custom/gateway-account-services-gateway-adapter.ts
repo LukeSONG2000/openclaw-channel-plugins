@@ -1,5 +1,6 @@
 import {
   getAccessToken as defaultGetAccessToken,
+  sendC2CMessage as defaultSendC2CMessage,
   sendGroupMessage as defaultSendGroupMessage,
   sendGroupMessageWithInlineKeyboard as defaultSendGroupMessageWithInlineKeyboard,
 } from "../api.js";
@@ -68,6 +69,7 @@ export interface CreateCustomGatewayAccountServicesParams {
   log?: CustomGatewayAccountServicesLogger;
   getAccessToken?: typeof defaultGetAccessToken;
   sendGroupMessage?: typeof defaultSendGroupMessage;
+  sendC2CMessage?: typeof defaultSendC2CMessage;
   sendGroupMessageWithInlineKeyboard?: typeof defaultSendGroupMessageWithInlineKeyboard;
   createMessageQueue?: typeof defaultCreateMessageQueue;
   createStateController?: typeof defaultCreateCustomMessageFlowStateController;
@@ -120,6 +122,7 @@ export function createCustomGatewayAccountServices(
 
   const getAccessToken = params.getAccessToken ?? defaultGetAccessToken;
   const sendGroupMessage = params.sendGroupMessage ?? defaultSendGroupMessage;
+  const sendC2CMessage = params.sendC2CMessage ?? defaultSendC2CMessage;
   const sendGroupMessageWithInlineKeyboard = params.sendGroupMessageWithInlineKeyboard ?? defaultSendGroupMessageWithInlineKeyboard;
   const adminGroupNotifications = (params.createAdminGroupNotificationService ?? defaultCreateCustomAdminGroupNotificationServiceGateway)({
     accountId: account.accountId,
@@ -129,6 +132,10 @@ export function createCustomGatewayAccountServices(
     sendText: async (groupOpenid, text) => {
       const token = await getAccessToken(account.appId, account.clientSecret);
       await sendGroupMessage(token, groupOpenid, text);
+    },
+    sendDirectText: async (userOpenid, text) => {
+      const token = await getAccessToken(account.appId, account.clientSecret);
+      await sendC2CMessage(token, userOpenid, text);
     },
     sendKeyboard: async (groupOpenid, text, keyboard: InlineKeyboard) => {
       const token = await getAccessToken(account.appId, account.clientSecret);

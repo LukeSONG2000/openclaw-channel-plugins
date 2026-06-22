@@ -11,9 +11,9 @@ import { formatCustomActorIdentity } from "./identity-presentation.js";
 export const CUSTOM_POLL_LIST_PAGE_SIZE = 10;
 
 export function buildCustomPollKeyboard(poll: CustomPoll): InlineKeyboard {
-  const rows = poll.options.map((option) => ({
-    buttons: [makePollButton(poll, option.id, option.label)],
-  }));
+  const buttons = poll.options.map((option) => makePollButton(poll, option.id, option.label));
+  const chunkSize = buttons.length > 5 ? 2 : 1;
+  const rows = chunkButtons(buttons, chunkSize).map((rowButtons) => ({ buttons: rowButtons }));
   return { content: { rows } };
 }
 
@@ -139,7 +139,7 @@ export function formatPollFinalResult(poll: CustomPoll): string {
 
 export function formatPollDecision(reason: string): string {
   if (reason === "invalid_question") return "⚠️ 投票问题不能为空。";
-  if (reason === "invalid_options") return "⚠️ 投票需要 2 到 4 个不同选项。";
+  if (reason === "invalid_options") return "⚠️ 投票需要 2 到 10 个不同选项。";
   if (reason === "closed") return "⚠️ 投票已关闭。";
   if (reason === "not_found") return "⚠️ 投票不存在。";
   return `⚠️ 操作失败：${reason}`;
@@ -214,6 +214,14 @@ function makePollActionButton(id: string, label: string, data: string, style: 0 
       click_limit: 0,
     },
   };
+}
+
+function chunkButtons(buttons: KeyboardButton[], size: number): KeyboardButton[][] {
+  const rows: KeyboardButton[][] = [];
+  for (let index = 0; index < buttons.length; index += size) {
+    rows.push(buttons.slice(index, index + size));
+  }
+  return rows;
 }
 
 function formatPollResultLines(poll: CustomPoll): string[] {
