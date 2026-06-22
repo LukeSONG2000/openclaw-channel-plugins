@@ -6,6 +6,14 @@ import {
   parseCustomGameButtonData,
   parseCustomGameCommand,
 } from "../src/custom/game-gateway-adapter.js";
+import {
+  parseCustomGameButtonData as parseCustomGameButtonDataDirect,
+  parseCustomGameCommand as parseCustomGameCommandDirect,
+} from "../src/custom/game-command-parser.js";
+import {
+  buildCustomGuessGameKeyboard as buildCustomGuessGameKeyboardDirect,
+  formatGuessGameStatus as formatGuessGameStatusDirect,
+} from "../src/custom/game-presentation.js";
 import { CustomGameRuntime } from "../src/custom/game.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -44,6 +52,10 @@ assert.deepEqual(parseCustomGameCommand("/bot-game guess"), {
   matched: true,
   command: { kind: "guess" },
 });
+assert.deepEqual(
+  parseCustomGameCommandDirect("/bot-game guess"),
+  parseCustomGameCommand("/bot-game guess"),
+);
 assert.deepEqual(parseCustomGameCommand("/bot-game status guess-1"), {
   matched: true,
   command: { kind: "status", gameId: "guess-1" },
@@ -56,6 +68,10 @@ assert.deepEqual(parseCustomGameButtonData("custom-game:guess-default-group-GROU
   gameId: "guess-default-group-GROUP_OPENID-1000-1",
   value: 4,
 });
+assert.deepEqual(
+  parseCustomGameButtonDataDirect("custom-game:guess-default-group-GROUP_OPENID-1000-1:guess:4"),
+  parseCustomGameButtonData("custom-game:guess-default-group-GROUP_OPENID-1000-1:guess:4"),
+);
 assert.equal(parseCustomGameButtonData("custom-poll:poll-1:vote:1"), null);
 
 const disabled = handleCustomGameCommand({
@@ -88,6 +104,7 @@ assert.equal(gameId, "guess-default-group-GROUP_OPENID-1000-1");
 const game = games.getGuessGame(gameId)!;
 const keyboard = buildCustomGuessGameKeyboard(game);
 assert.equal(keyboard.content?.rows[2]?.buttons[0]?.action?.data, `custom-game:${gameId}:guess:3`);
+assert.deepEqual(buildCustomGuessGameKeyboardDirect(game), keyboard);
 
 const wrongValue = game.secret === 1 ? 2 : 1;
 const wrong = handleCustomGameInteraction({
@@ -142,6 +159,7 @@ const status = handleCustomGameCommand({
 assert.equal(status.handled, true);
 assert.equal(status.reply?.includes("猜数字状态"), true);
 assert.equal(status.reply?.includes(`答案：${game.secret}`), true);
+assert.equal(formatGuessGameStatusDirect(games.getGuessGame(gameId)!).includes(`答案：${game.secret}`), true);
 
 const noMatch = handleCustomGameCommand({
   cfg,

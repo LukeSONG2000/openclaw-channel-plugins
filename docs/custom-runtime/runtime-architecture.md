@@ -1871,13 +1871,15 @@ Current implementation status:
 - Game ids use `guess-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
 - Exports/imports `CustomGameRuntimeState` so the gateway can restore game metadata after restart.
 - Persists state under `~/.openclaw/qqbot/data/custom-games/games-<accountId>.json`.
-- `src/custom/game-gateway-adapter.ts` handles `/bot-game` before the normal AI queue:
+- `src/custom/game-command-parser.ts` parses `/bot-game` text commands and `custom-game:<gameId>:guess:<1-4>` button payloads without depending on runtime state:
   - `/bot-game guess`
   - `/bot-game list`
   - `/bot-game status <gameId>`
   - `/bot-game close <gameId>`
+- `src/custom/game-presentation.ts` formats game help/list/status/closed/guess acknowledgement text and builds the guess-number inline keyboard.
+- `src/custom/game-gateway-adapter.ts` handles `/bot-game` before the normal AI queue by binding parsed commands to the current account/peer/actor and mutating the per-account game runtime.
 - For C2C/group messages, game creation replies with an inline keyboard when available; channel/DM paths fall back to text.
-- Button callbacks use `custom-game:<gameId>:guess:<1-4>`.
+- Button callbacks use `custom-game:<gameId>:guess:<1-4>` and are parsed by the same parser module before the gateway adapter applies visibility checks.
 - `gateway.ts` acknowledges interactions first, maps the callback source into a custom peer, then routes `custom-game:` callbacks to the per-account game runtime.
 - `/bot-game status <gameId>` and `/bot-game close <gameId>` only reveal or mutate games in the original account/peer, or games created by the current actor.
 - Button guesses apply the same account/peer visibility check before state mutation. Ordinary users cannot guess from another group/DM by replaying a callback payload; the game creator can still interact with their own game across peers.

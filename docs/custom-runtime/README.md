@@ -169,7 +169,9 @@ Out of scope for the first custom runtime:
 - `src/custom/poll-gateway-adapter.ts`: `/bot-poll` command and `custom-poll:` button callback adapter focused on runtime mutation and account/peer visibility checks.
 - `src/custom/game.ts`: pure lightweight game runtime for interactive cards.
 - `src/custom/game-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-games`.
-- `src/custom/game-gateway-adapter.ts`: `/bot-game` command and `custom-game:` button callback adapter.
+- `src/custom/game-command-parser.ts`: pure `/bot-game` command parser and `custom-game:*` guess-button payload parser.
+- `src/custom/game-presentation.ts`: pure guess-game help/list/status/result text and guess-button keyboard helpers.
+- `src/custom/game-gateway-adapter.ts`: `/bot-game` command and `custom-game:` button callback adapter focused on runtime mutation and account/peer visibility checks.
 - `src/custom/task-access.ts`: pure long-task account/peer/owner access policy shared by status views and mutation authorization.
 - `src/custom/task-cleanup.ts`: pure read-only cleanup plan builder for completed/failed/cancelled long-task workspaces.
 - `src/custom/task-command-parser.ts`: pure `/bot-task` command parser, including cleanup-plan option parsing.

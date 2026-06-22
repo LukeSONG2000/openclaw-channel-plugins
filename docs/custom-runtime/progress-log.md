@@ -1377,3 +1377,10 @@ Added configured scene binding inspection:
 - Added `src/custom/poll-presentation.ts` for poll help/list/status/closed/vote-ack text and inline vote keyboard builders, keeping card/text tuning independent of poll runtime mutation.
 - `src/custom/poll-gateway-adapter.ts` now focuses on runtime enablement, current account/peer/actor binding, poll visibility checks, and state mutation, while re-exporting parser/presentation helpers for compatibility.
 - `tests/custom-poll-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside compatibility exports.
+
+拆出 game 命令解析与呈现层：
+
+- Added `src/custom/game-command-parser.ts` for pure `/bot-game` command parsing and `custom-game:*` guess-button payload parsing.
+- Added `src/custom/game-presentation.ts` for guess-game help/list/status/closed/guess-ack text and inline guess keyboard builders, keeping card/text tuning independent of game runtime mutation.
+- `src/custom/game-gateway-adapter.ts` now focuses on runtime enablement, current account/peer/actor binding, game visibility checks, and state mutation, while re-exporting parser/presentation helpers for compatibility.
+- `tests/custom-game-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside compatibility exports.

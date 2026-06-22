@@ -34,6 +34,7 @@ const cfg = {
 } as any;
 
 assert.deepEqual(getDefaultCustomSlashRoutes().map((route) => route.name), [
+  "init-bind",
   "scene",
   "fallback",
   "queue",
