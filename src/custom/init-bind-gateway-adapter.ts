@@ -29,18 +29,22 @@ export function handleCustomInitBindCommand(params: {
   rawContent: string;
   now?: number;
 }): CustomInitBindCommandResult {
-  const parsed = parseCustomInitBindCommand(params.rawContent);
-  if (!parsed.matched) return { handled: false };
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const challenge = runtime.initBind;
+  let parsed = parseCustomInitBindCommand(params.rawContent);
+  if (!parsed.matched) {
+    const bareCode = normalizeBareInitBindCode(params.rawContent);
+    if (!challenge?.code || !bareCode || bareCode !== challenge.code) return { handled: false };
+    parsed = { matched: true, code: bareCode };
+  }
   if (!parsed.code) {
     return {
       handled: true,
       changed: false,
-      reply: "用法：/bot-init-bind <一次性绑定码>。请在控制台生成绑定码后，在目标管理群或管理员私聊发送。",
+      reply: "用法：/bot-init-bind <一次性绑定码>，或直接发送一次性绑定码。请在控制台生成绑定码后，在目标管理群中发送。",
     };
   }
 
-  const runtime = resolveCustomRuntimeConfig(params.cfg);
-  const challenge = runtime.initBind;
   if (!challenge?.code) {
     return {
       handled: true,
@@ -138,4 +142,11 @@ export function parseCustomInitBindCommand(rawContent: string): { matched: boole
   const command = parts[0]?.toLowerCase();
   if (command !== "/bot-init-bind") return { matched: false };
   return { matched: true, code: parts[1] };
+}
+
+function normalizeBareInitBindCode(rawContent: string): string | undefined {
+  const text = rawContent.trim();
+  if (!text || text.startsWith("/")) return undefined;
+  if (/\s/.test(text)) return undefined;
+  return text;
 }

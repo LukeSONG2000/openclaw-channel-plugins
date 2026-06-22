@@ -84,7 +84,35 @@ export async function handleCustomSlashPrequeueGateway(
     message: params.message,
     stripMentionText: params.stripMentionText,
   });
+  const receivedAt = params.now?.() ?? Date.now();
+  const peerId = params.queue.getMessagePeerId(params.message);
+
   if (!content.startsWith("/")) {
+    const customPlainTextCommand = (params.handleCustomSlashCommand ?? handleCustomSlashGatewayCommand)({
+      cfg: params.cfg,
+      accountId: params.account.accountId,
+      runtime: params.runtime,
+      message: params.message,
+      rawContent: content,
+      now: receivedAt,
+      queueStatus: {
+        peerId,
+        snapshot: params.queue.getSnapshot(peerId),
+      },
+      taskExecutor: params.taskExecutor,
+    });
+    if (customPlainTextCommand.handled) {
+      await applyCustomSlashGatewayEffects({
+        accountId: params.account.accountId,
+        cfg: params.cfg,
+        result: customPlainTextCommand,
+        ...params.effects,
+        sendText: async (text) => { await sendSlashTextReply(params, text); },
+        sendKeyboard: (text, keyboard) => sendSlashKeyboardReply(params, text, keyboard),
+        log: params.log,
+      });
+      return { kind: "custom-slash", content, result: customPlainTextCommand };
+    }
     params.queue.enqueue(params.message);
     return { kind: "not-slash-enqueued", content };
   }
@@ -106,8 +134,6 @@ export async function handleCustomSlashPrequeueGateway(
     };
   }
 
-  const receivedAt = params.now?.() ?? Date.now();
-  const peerId = params.queue.getMessagePeerId(params.message);
   const commandContext = buildSlashCommandContext({
     account: params.account,
     message: params.message,
@@ -124,6 +150,7 @@ export async function handleCustomSlashPrequeueGateway(
       runtime: params.runtime,
       message: params.message,
       rawContent: content,
+      now: receivedAt,
       queueStatus: {
         peerId,
         snapshot: commandContext.queueSnapshot,

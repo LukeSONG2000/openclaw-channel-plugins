@@ -1,5 +1,5 @@
 import assert from "node:assert";
-import { runCustomMessageContextGateway, resolveCommandAuthorized } from "../src/custom/message-context-gateway-adapter.js";
+import { runCustomMessageContextGateway, resolveCommandAuthorized, resolveCustomCommandAuthorized } from "../src/custom/message-context-gateway-adapter.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
 const emptyProcessed = {
@@ -148,5 +148,11 @@ assert.equal(resolveCommandAuthorized(undefined, "USER"), true);
 assert.equal(resolveCommandAuthorized(["*"], "USER"), true);
 assert.equal(resolveCommandAuthorized(["user"], "USER"), true);
 assert.equal(resolveCommandAuthorized(["OTHER"], "USER"), false);
+assert.equal(resolveCustomCommandAuthorized({
+  channels: { qqbot: { customRuntime: { enabled: true, admins: ["USER"] } } },
+} as any, ["OTHER"], { ...c2cMessage, senderId: "USER" }), true);
+assert.equal(resolveCustomCommandAuthorized({
+  channels: { qqbot: { customRuntime: { enabled: true, admins: ["OTHER"] } } },
+} as any, ["OTHER"], { ...c2cMessage, senderId: "USER" }), false);
 
 console.log("custom message context gateway adapter tests passed");

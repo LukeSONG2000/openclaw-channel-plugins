@@ -12,6 +12,9 @@ import {
 } from "./group-message-gate-context.js";
 import { resolveCustomGroupActivation } from "./group-activation.js";
 import { buildCustomGroupPromptContext } from "./group-prompt-context.js";
+import { isCustomRuntimeAdmin, resolveCustomAdminGroupKey } from "./auth-admin.js";
+import { resolveCustomRuntimeConfig } from "./config.js";
+import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
 import {
   applyCustomGroupMentionIngress,
   applyCustomGroupSkippedMessageIngress,
@@ -115,7 +118,11 @@ export function applyCustomGroupDispatchGateway<TConfig extends OpenClawConfig =
     sessionKey: params.route.sessionKey,
     configRequireMention,
   });
-  const implicitMention = resolveCustomGroupImplicitMention({
+  const adminGroupBypass = shouldBypassMentionForCustomAdminGroup({
+    cfg: params.cfg,
+    event: params.event,
+  });
+  const implicitMention = adminGroupBypass || resolveCustomGroupImplicitMention({
     refMsgIdx: params.event.refMsgIdx,
     getRefEntry: params.getRefEntry,
   });
@@ -237,4 +244,16 @@ function baseResult(customUnreadCfgForEvent: ResolvedCustomUnreadConfig | null):
     customUnreadCfgForEvent,
     shouldCatchUpUnreadAfterReply: false,
   };
+}
+
+function shouldBypassMentionForCustomAdminGroup<TConfig extends OpenClawConfig>(params: {
+  cfg: TConfig;
+  event: QueuedMessage;
+}): boolean {
+  if (params.event.type !== "group" || !params.event.groupOpenid) return false;
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  if (runtime.enabled !== true) return false;
+  const adminGroupKey = resolveCustomAdminGroupKey(runtime.adminGroup);
+  if (adminGroupKey !== `qqbot:group:${params.event.groupOpenid}`) return false;
+  return isCustomRuntimeAdmin(runtime, toCustomActorFromQueuedMessage(params.event));
 }

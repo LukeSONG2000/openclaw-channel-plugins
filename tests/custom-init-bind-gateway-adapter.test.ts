@@ -4,6 +4,7 @@ import {
   parseCustomInitBindCommand,
 } from "../src/custom/init-bind-gateway-adapter.js";
 import type { QueuedMessage } from "../src/message-queue.js";
+import { handleCustomSlashPrequeueGateway } from "../src/custom/slash-prequeue-gateway-adapter.js";
 
 const groupMessage: QueuedMessage = {
   type: "group",
@@ -112,6 +113,71 @@ assert.deepEqual(groupSuccess.persist, {
 });
 assert.equal(groupSuccess.reply.includes("member_openid"), true);
 assert.equal(groupSuccess.reply.includes("group_openid"), true);
+
+
+const bareGroupSuccess = handleCustomInitBindCommand({
+  cfg: cfg({
+    admins: ["OLD_ADMIN"],
+    initBind: { code: "BIND123", expiresAt: 2_000, enableRuntimeOnComplete: true },
+  }),
+  message: groupMessage,
+  rawContent: "BIND123",
+  now: 1_000,
+});
+assert.equal(bareGroupSuccess.handled, true);
+assert.equal(bareGroupSuccess.changed, true);
+assert.deepEqual(bareGroupSuccess.persist, {
+  admins: ["OLD_ADMIN", "MEMBER_OPENID"],
+  adminGroup: "qqbot:group:GROUP_OPENID",
+  clearInitBind: true,
+  enableRuntime: true,
+});
+
+const bareWrongCode = handleCustomInitBindCommand({
+  cfg: cfg({
+    initBind: { code: "BIND123", expiresAt: 2_000 },
+  }),
+  message: groupMessage,
+  rawContent: "WRONG",
+  now: 1_000,
+});
+assert.deepEqual(bareWrongCode, { handled: false });
+
+
+const prequeueCfg = cfg({
+  initBind: { code: "BIND123", expiresAt: 2_000, enableRuntimeOnComplete: true },
+});
+let prequeuePersisted: any = null;
+const prequeueReplies: string[] = [];
+let prequeueEnqueued = 0;
+const prequeueResult = await handleCustomSlashPrequeueGateway({
+  cfg: prequeueCfg,
+  account: { accountId: "default", appId: "APP", accountConfig: {} as any },
+  runtime: { auth: {}, tasks: {}, polls: {}, games: {}, deployConfirmations: {} } as any,
+  message: { ...groupMessage, content: "BIND123" },
+  queue: {
+    enqueue: () => { prequeueEnqueued += 1; },
+    getSnapshot: () => ({ totalPending: 0, activeUsers: 0, maxConcurrency: 1, byPeer: [] }) as any,
+    getMessagePeerId: () => "group:GROUP_OPENID",
+    stopPeer: () => ({ dropped: [] }) as any,
+  },
+  effects: {
+    getConfigApi: () => ({
+      loadConfig: () => prequeueCfg,
+      writeConfigFile: async (next) => { prequeuePersisted = next; },
+    }),
+  },
+  sendText: async (_target, text) => { prequeueReplies.push(text); },
+  sendKeyboard: async () => {},
+  sendFile: async () => {},
+  now: () => 1_000,
+});
+assert.equal(prequeueResult.kind, "custom-slash");
+assert.equal(prequeueEnqueued, 0);
+assert.equal(prequeueReplies.some((text) => text.includes("初始化绑定完成")), true);
+assert.deepEqual(prequeuePersisted.channels.qqbot.customRuntime.admins, ["MEMBER_OPENID"]);
+assert.equal(prequeuePersisted.channels.qqbot.customRuntime.adminGroup, "qqbot:group:GROUP_OPENID");
+assert.equal(prequeuePersisted.channels.qqbot.customRuntime.initBind, undefined);
 
 const c2cPartial = handleCustomInitBindCommand({
   cfg: cfg({

@@ -1488,3 +1488,14 @@ Added configured scene binding inspection:
 
 - `npx tsc --noEmit`
 - `for f in tests/*.test.ts; do npx tsx "$f"; done` 与 `for f in tests/*.test.mjs; do node "$f"; done` 全量通过。
+
+## 2026-06-22
+
+Refined initialization binding and admin-group routing after live QQ validation:
+
+- One-time init binding can now be completed by sending the exact code directly in the target management group, in addition to `/bot-init-bind <code>`.
+- Plain-code init binding is intercepted before the normal message queue, persists `customRuntime.admins` and `customRuntime.adminGroup`, clears the challenge, and replies in the bound group.
+- Admins bound in `customRuntime.admins` now count as command-authorized even if they are not listed in legacy `allowFrom`.
+- Messages from a bound admin inside the bound management group bypass mention gating, so the admin can talk to the bot without `@` in that group.
+- Non-admins do not receive this management-group mention bypass.
+- Added tests for plain-code binding, prequeue interception, admin-group no-mention bypass, and custom admin command authorization.

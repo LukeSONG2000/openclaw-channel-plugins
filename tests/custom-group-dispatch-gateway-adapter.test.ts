@@ -163,4 +163,54 @@ function baseParams(overrides: Record<string, unknown> = {}) {
   assert.equal(setup.logs.some((line) => line.includes("mention with 1 custom unread message(s)")), true);
 }
 
+
+{
+  const adminGroupCfg = {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          admins: ["MEMBER_OPENID"],
+          adminGroup: "qqbot:group:GROUP_OPENID",
+          unread: { enabled: true },
+        },
+      },
+    },
+  } as any;
+  const setup = baseParams({
+    cfg: adminGroupCfg,
+    resolveActivation: () => "mention",
+    resolveRequireMention: () => true,
+    detectWasMentioned: () => false,
+  });
+  const result = applyCustomGroupDispatchGateway(setup.params as any);
+  assert.equal(result.action, "continue");
+  assert.equal(result.reason, undefined);
+  assert.equal(result.wasMentioned, true);
+}
+
+{
+  const adminGroupCfg = {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          admins: ["OTHER_OPENID"],
+          adminGroup: "qqbot:group:GROUP_OPENID",
+          unread: { enabled: true },
+        },
+      },
+    },
+  } as any;
+  const setup = baseParams({
+    cfg: adminGroupCfg,
+    resolveActivation: () => "mention",
+    resolveRequireMention: () => true,
+    detectWasMentioned: () => false,
+  });
+  const result = applyCustomGroupDispatchGateway(setup.params as any);
+  assert.equal(result.action, "stop");
+  assert.equal(result.reason, "skip_no_mention");
+}
+
 console.log("custom group dispatch gateway adapter tests passed");

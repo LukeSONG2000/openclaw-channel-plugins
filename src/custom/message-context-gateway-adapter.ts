@@ -14,6 +14,9 @@ import type { CustomC2CInputNotifyKeepAliveSession } from "./typing-keepalive-ga
 import type { ResolvedCustomUnreadConfig } from "./runtime.js";
 import type { CustomUnreadHistoryEnvelopeEntry } from "./unread-context.js";
 import type { CustomUnreadRuntime } from "./unread-runtime.js";
+import { isCustomRuntimeAdmin } from "./auth-admin.js";
+import { resolveCustomRuntimeConfig } from "./config.js";
+import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
 
 export interface CustomMessageContextGatewayLogger {
   info?: (msg: string) => void;
@@ -125,7 +128,7 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     systemPrompts.unshift("语音合成已启用");
   }
 
-  const commandAuthorized = resolveCommandAuthorized(account.config?.allowFrom, event.senderId);
+  const commandAuthorized = resolveCustomCommandAuthorized(params.cfg, account.config?.allowFrom, event);
   const groupDispatch = applyCustomGroupDispatchGateway({
     cfg: params.cfg,
     accountId: account.accountId,
@@ -212,4 +215,14 @@ export function resolveCommandAuthorized(allowFrom: string[] | undefined, sender
   const allowFromList = allowFrom ?? [];
   const allowAll = allowFromList.length === 0 || allowFromList.some((entry) => entry === "*");
   return allowAll || allowFromList.some((entry) => entry.toUpperCase() === senderId.toUpperCase());
+}
+
+export function resolveCustomCommandAuthorized(
+  cfg: OpenClawConfig,
+  allowFrom: string[] | undefined,
+  event: QueuedMessage,
+): boolean {
+  if (resolveCommandAuthorized(allowFrom, event.senderId)) return true;
+  const runtime = resolveCustomRuntimeConfig(cfg);
+  return runtime.enabled === true && isCustomRuntimeAdmin(runtime, toCustomActorFromQueuedMessage(event));
 }
