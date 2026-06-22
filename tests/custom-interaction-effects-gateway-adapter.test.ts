@@ -41,6 +41,7 @@ const allEffects = await applyCustomInteractionGatewayEffects({
 
 assert.deepEqual(persistCounts, { auth: 1, polls: 1, games: 1, deploy: 1 });
 assert.equal(allEffects.authPersisted, true);
+assert.equal(allEffects.configPersisted, false);
 assert.equal(allEffects.pollsPersisted, true);
 assert.equal(allEffects.gamesPersisted, true);
 assert.equal(allEffects.deployConfirmationsPersisted, true);
@@ -51,6 +52,47 @@ assert.deepEqual(sentReplies[0], { target: { kind: "group", groupOpenid: "GROUP_
 assert.equal(infoLogs.some((line) => line.includes("custom info")), true);
 assert.equal(errorLogs.some((line) => line.includes("custom error")), true);
 
+let writtenCfg: any = null;
+const configEffects = await applyCustomInteractionGatewayEffects({
+  accountId: "default",
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          admins: ["ADMIN_OPENID"],
+          scenes: {},
+        },
+      },
+    },
+  } as any,
+  result: {
+    handled: true,
+    persist: {
+      config: {
+        sceneKey: "qqbot:group:GROUP_OPENID",
+        sceneConfig: { scene: "dev-lab" },
+      },
+    },
+  },
+  getConfigApi: () => ({
+    loadConfig: () => ({
+      channels: {
+        qqbot: {
+          customRuntime: {
+            enabled: true,
+            admins: ["ADMIN_OPENID"],
+            scenes: {},
+          },
+        },
+      },
+    }),
+    writeConfigFile: async (cfg) => { writtenCfg = cfg; },
+  }),
+});
+assert.equal(configEffects.configPersisted, true);
+assert.equal(writtenCfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
+
 const c2cReply = await applyCustomInteractionGatewayEffects({
   accountId: "default",
   result: { handled: true, reply: "c2c done" },
@@ -58,6 +100,7 @@ const c2cReply = await applyCustomInteractionGatewayEffects({
   sendReply: async (target, text) => { sentReplies.push({ target, text }); },
 });
 assert.equal(c2cReply.replyDelivered, true);
+assert.equal(c2cReply.configPersisted, false);
 assert.deepEqual(sentReplies.at(-1), { target: { kind: "c2c", userOpenid: "USER_OPENID" }, text: "c2c done" });
 
 const channelReply = await applyCustomInteractionGatewayEffects({

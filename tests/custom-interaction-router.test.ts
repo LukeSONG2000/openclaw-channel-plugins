@@ -18,7 +18,7 @@ const cfg = {
   },
 } as any;
 
-assert.deepEqual(getDefaultCustomInteractionRoutes().map((route) => route.name), ["auth", "poll", "game", "deploy"]);
+assert.deepEqual(getDefaultCustomInteractionRoutes().map((route) => route.name), ["auth", "scene", "poll", "game", "deploy"]);
 
 const unknown = routeCustomInteractionButton({
   cfg,
@@ -48,6 +48,31 @@ const deploy = routeCustomInteractionButton({
 assert.equal(deploy.handled, true);
 assert.equal(deploy.handled && deploy.persist?.deployConfirmations, true);
 assert.equal(deploy.handled && deploy.reply?.includes("已确认部署操作"), true);
+
+const scene = routeCustomInteractionButton({
+  cfg,
+  accountId: "default",
+  runtime,
+  buttonData: "custom-scene:set:dev-lab",
+  actor: { id: "ADMIN_OPENID", label: "Admin" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+});
+assert.equal(scene.handled, true);
+assert.equal(scene.handled && scene.persist?.config?.sceneKey, "qqbot:group:GROUP_OPENID");
+assert.equal(scene.handled && scene.persist?.config?.sceneConfig.scene, "dev-lab");
+assert.equal(scene.handled && scene.reply?.includes("场景：开发实验室（dev-lab）"), true);
+
+const sceneDenied = routeCustomInteractionButton({
+  cfg,
+  accountId: "default",
+  runtime,
+  buttonData: "custom-scene:set:chat",
+  actor: { id: "USER_OPENID", label: "Member" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+});
+assert.equal(sceneDenied.handled, true);
+assert.equal(sceneDenied.handled && sceneDenied.persist, undefined);
+assert.equal(sceneDenied.handled && sceneDenied.reply?.includes("只有 customRuntime.admins 中的管理员"), true);
 
 const customRoute: CustomInteractionRoute = {
   name: "custom-confirm",

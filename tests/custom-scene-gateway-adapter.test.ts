@@ -1,7 +1,9 @@
 import assert from "node:assert";
 import {
   buildCustomSceneSwitchKeyboard,
+  handleCustomSceneInteraction,
   handleCustomSceneCommand,
+  parseCustomSceneButtonData,
   parseCustomSceneCommand,
 } from "../src/custom/scene-gateway-adapter.js";
 import { parseCustomSceneCommand as parseCustomSceneCommandDirect } from "../src/custom/scene-command-parser.js";
@@ -92,9 +94,9 @@ assert.equal(status.reply?.includes("场景：日常聊天（chat）"), true);
 assert.equal(status.reply?.includes("目标：qqbot:group:GROUP_OPENID"), true);
 assert.equal(status.reply?.includes("智能体：默认路由"), true);
 assert.equal(status.keyboard?.content?.rows.length, 5);
-assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.type, 2);
-assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "/bot-scene set codex-only");
-assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.enter, true);
+assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.type, 1);
+assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "custom-scene:set:codex-only");
+assert.equal(status.keyboard?.content?.rows[0]?.buttons[0]?.action?.click_limit, 1);
 
 const list = handleCustomSceneCommand({
   cfg,
@@ -103,7 +105,7 @@ const list = handleCustomSceneCommand({
 });
 assert.equal(list.handled, true);
 assert.equal(list.reply?.includes("dev-lab"), true);
-assert.equal(list.keyboard?.content?.rows[3]?.buttons[0]?.action?.data, "/bot-scene set dev-lab");
+assert.equal(list.keyboard?.content?.rows[3]?.buttons[0]?.action?.data, "custom-scene:set:dev-lab");
 
 const bindings = handleCustomSceneCommand({
   cfg,
@@ -165,6 +167,43 @@ assert.equal(clearAgent.handled, true);
 assert.equal(clearAgent.changed, true);
 assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].agentId, undefined);
 assert.equal(clearAgent.reply?.includes("智能体：默认路由"), true);
+
+assert.deepEqual(parseCustomSceneButtonData("custom-scene:set:dev-lab"), { scene: "dev-lab" });
+assert.equal(parseCustomSceneButtonData("custom-scene:set:missing"), null);
+
+const buttonCfg = {
+  channels: {
+    qqbot: {
+      customRuntime: {
+        enabled: true,
+        admins: ["ADMIN_OPENID"],
+        scenes: {},
+      },
+    },
+  },
+} as any;
+const sceneInteraction = handleCustomSceneInteraction({
+  cfg: buttonCfg,
+  buttonData: "custom-scene:set:dev-lab",
+  actor: { id: "ADMIN_OPENID", label: "Admin" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+});
+assert.equal(sceneInteraction.handled, true);
+assert.equal(sceneInteraction.changed, true);
+assert.equal(sceneInteraction.sceneKey, "qqbot:group:GROUP_OPENID");
+assert.equal(sceneInteraction.sceneConfig?.scene, "dev-lab");
+assert.equal(buttonCfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
+assert.equal(sceneInteraction.reply?.includes("场景：开发实验室（dev-lab）"), true);
+
+const deniedSceneInteraction = handleCustomSceneInteraction({
+  cfg: buttonCfg,
+  buttonData: "custom-scene:set:chat",
+  actor: { id: "USER_OPENID", label: "Member" },
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+});
+assert.equal(deniedSceneInteraction.handled, true);
+assert.equal(deniedSceneInteraction.changed, undefined);
+assert.equal(deniedSceneInteraction.reply?.includes("只有 customRuntime.admins 中的管理员"), true);
 
 const emptyBindings = handleCustomSceneCommand({
   cfg: {

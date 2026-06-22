@@ -6,8 +6,9 @@ import {
 import { handleCustomGameInteraction } from "./game-gateway-adapter.js";
 import { handleCustomPollInteraction } from "./poll-gateway-adapter.js";
 import { handleCustomDeployInteraction } from "./deploy-confirmation-gateway-adapter.js";
+import { handleCustomSceneInteraction } from "./scene-gateway-adapter.js";
 import type { CustomMessageFlowRuntime } from "./runtime.js";
-import type { CustomPeer } from "./types.js";
+import type { CustomPeer, CustomSceneConfig } from "./types.js";
 
 export interface CustomInteractionActor {
   id: string;
@@ -19,6 +20,7 @@ export interface CustomInteractionGatewayPersist {
   polls?: boolean;
   games?: boolean;
   deployConfirmations?: boolean;
+  config?: { sceneKey: string; sceneConfig: CustomSceneConfig };
 }
 
 export interface CustomInteractionGatewayLog {
@@ -52,6 +54,7 @@ export interface CustomInteractionRoute {
 
 const DEFAULT_CUSTOM_INTERACTION_ROUTES: readonly CustomInteractionRoute[] = [
   { name: "auth", handle: routeCustomAuthInteraction },
+  { name: "scene", handle: routeCustomSceneInteraction },
   { name: "poll", handle: routeCustomPollInteraction },
   { name: "game", handle: routeCustomGameInteraction },
   { name: "deploy", handle: routeCustomDeployInteraction },
@@ -95,6 +98,26 @@ function routeCustomAuthInteraction(ctx: CustomInteractionRouterContext): Custom
     reply: authResult.reply,
     persist,
     logs,
+  });
+}
+
+
+function routeCustomSceneInteraction(ctx: CustomInteractionRouterContext): CustomInteractionGatewayResult {
+  const sceneResult = handleCustomSceneInteraction({
+    cfg: ctx.cfg,
+    buttonData: ctx.buttonData,
+    actor: ctx.actor,
+    sourcePeer: ctx.sourcePeer,
+  });
+  if (!sceneResult.handled) return { handled: false };
+  return handled({
+    reply: sceneResult.reply,
+    persist: sceneResult.changed && sceneResult.sceneKey && sceneResult.sceneConfig
+      ? { config: { sceneKey: sceneResult.sceneKey, sceneConfig: sceneResult.sceneConfig } }
+      : undefined,
+    logs: sceneResult.changed && sceneResult.sceneKey
+      ? [{ level: "info", message: `custom scene interaction persisted: key=${sceneResult.sceneKey} scene=${sceneResult.sceneConfig?.scene}` }]
+      : undefined,
   });
 }
 
@@ -163,5 +186,5 @@ function handled(params: {
 }
 
 function hasPersist(persist?: CustomInteractionGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.polls || persist?.games || persist?.deployConfirmations);
+  return Boolean(persist?.auth || persist?.config || persist?.polls || persist?.games || persist?.deployConfirmations);
 }

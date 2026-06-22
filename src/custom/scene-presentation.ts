@@ -126,11 +126,10 @@ function makeSceneSwitchButton(scene: CustomSceneKind, current: boolean): Keyboa
       style: current ? 4 : 1,
     },
     action: {
-      type: 2,
-      data: `/bot-scene set ${scene}`,
-      enter: true,
+      type: 1,
+      data: `custom-scene:set:${scene}`,
       permission: { type: 2 },
-      click_limit: 0,
+      click_limit: 1,
     },
     group_id: "custom-scene",
   };

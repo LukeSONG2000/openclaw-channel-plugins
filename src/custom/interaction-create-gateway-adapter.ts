@@ -126,6 +126,8 @@ export async function handleCustomInteractionCreateGateway(
     const effects = await applyEffects({
       accountId: params.accountId,
       result: customInteraction,
+      cfg: params.cfg as any,
+      getConfigApi: params.getConfigApi,
       replyTarget: interaction.replyTarget,
       persistAuthState: params.persistAuthState,
       persistPollState: params.persistPollState,

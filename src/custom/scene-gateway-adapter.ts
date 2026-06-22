@@ -2,6 +2,7 @@ import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { QueuedMessage } from "../message-queue.js";
 import type { InlineKeyboard } from "../types.js";
 import { toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
+import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { formatCustomPeerKey } from "./scenes.js";
 import { parseCustomSceneCommand, type CustomSceneCommand } from "./scene-command-parser.js";
@@ -13,7 +14,7 @@ import {
   formatCustomSceneList,
   formatCustomSceneStatus,
 } from "./scene-presentation.js";
-import type { CustomRuntimeConfig, CustomSceneConfig } from "./types.js";
+import type { CustomActor, CustomPeer, CustomRuntimeConfig, CustomSceneConfig, CustomSceneKind } from "./types.js";
 
 export {
   CUSTOM_SCENE_KINDS,
@@ -35,6 +36,14 @@ export interface CustomSceneCommandResult {
   handled: boolean;
   reply?: string;
   keyboard?: InlineKeyboard;
+  changed?: boolean;
+  sceneKey?: string;
+  sceneConfig?: CustomSceneConfig;
+}
+
+export interface CustomSceneInteractionResult {
+  handled: boolean;
+  reply?: string;
   changed?: boolean;
   sceneKey?: string;
   sceneConfig?: CustomSceneConfig;
@@ -85,6 +94,61 @@ export function handleCustomSceneCommand(params: {
       agentId: sceneConfig.agentId,
     }),
   };
+}
+
+
+export function handleCustomSceneInteraction(params: {
+  cfg: OpenClawConfig;
+  buttonData: string;
+  actor: CustomActor;
+  sourcePeer?: CustomPeer;
+}): CustomSceneInteractionResult {
+  const payload = parseCustomSceneButtonData(params.buttonData);
+  if (!payload) return { handled: false };
+
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  if (runtime.enabled !== true) {
+    return { handled: true, reply: "ℹ️ customRuntime 未启用，无法通过按钮切换场景。" };
+  }
+  if (!isCustomRuntimeAdmin(runtime, params.actor)) {
+    return {
+      handled: true,
+      reply: [
+        "⛔ 只有 customRuntime.admins 中的管理员可以通过按钮切换场景。",
+        "",
+        `当前用户：${params.actor.label || params.actor.id}`,
+      ].join("\n"),
+    };
+  }
+  if (!params.sourcePeer) {
+    return { handled: true, reply: "⚠️ 无法识别按钮来源会话，不能切换场景。" };
+  }
+
+  const key = formatCustomPeerKey(params.sourcePeer);
+  const sceneConfig: CustomSceneConfig = {
+    ...runtime.scenes?.[key],
+    scene: payload.scene,
+  };
+  upsertCustomSceneConfig(params.cfg, key, sceneConfig, runtime);
+  return {
+    handled: true,
+    changed: true,
+    sceneKey: key,
+    sceneConfig,
+    reply: formatCustomSceneBoundReply({
+      key,
+      scene: payload.scene,
+      agentId: sceneConfig.agentId,
+    }),
+  };
+}
+
+export function parseCustomSceneButtonData(buttonData: string): { scene: CustomSceneKind } | null {
+  const m = buttonData.match(/^custom-scene:set:([a-z0-9-]+)$/i);
+  if (!m) return null;
+  const parsed = parseCustomSceneCommand(`/bot-scene set ${m[1]}`);
+  if (!parsed.matched || parsed.error || parsed.command?.kind !== "set") return null;
+  return { scene: parsed.command.scene };
 }
 
 export function upsertCustomSceneConfig(

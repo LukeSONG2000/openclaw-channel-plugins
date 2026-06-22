@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { handleCustomInteractionCreateGateway } from "../src/custom/interaction-create-gateway-adapter.js";
+import { createCustomMessageFlowRuntime } from "../src/custom/runtime.js";
 import type { InteractionEvent } from "../src/types.js";
 
 function groupInteraction(buttonData: string, type = 1): InteractionEvent {
@@ -112,6 +113,53 @@ function groupInteraction(buttonData: string, type = 1): InteractionEvent {
     text: "已记录投票：B",
   });
   assert.equal(result.kind === "custom-button" && result.effects.replyDelivered, true);
+}
+
+{
+  const ackCalls: Array<{ code?: 0 }> = [];
+  let writtenCfg: any = null;
+  let sentReply: unknown = null;
+  const cfg = {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          admins: ["MEMBER_OPENID"],
+          scenes: {},
+        },
+      },
+    },
+  } as any;
+  const result = await handleCustomInteractionCreateGateway({
+    accountId: "default",
+    event: groupInteraction("custom-scene:set:dev-lab"),
+    cfg,
+    runtime: createCustomMessageFlowRuntime(),
+    getConfigApi: () => ({
+      loadConfig: () => cfg,
+      writeConfigFile: async (nextCfg) => {
+        writtenCfg = nextCfg;
+      },
+    }),
+    acknowledge: async (code) => {
+      ackCalls.push({ code });
+    },
+    pluginVersion: "1.2.3",
+    frameworkVersion: "2026.6.22",
+    sendReply: async (target, text) => {
+      sentReply = { target, text };
+    },
+  });
+
+  assert.equal(result.kind, "custom-button");
+  assert.equal(ackCalls.length, 1);
+  assert.equal(ackCalls[0]?.code, undefined);
+  assert.equal(result.kind === "custom-button" && result.effects.configPersisted, true);
+  assert.equal(writtenCfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
+  assert.deepEqual(sentReply, {
+    target: { kind: "group", groupOpenid: "GROUP_OPENID" },
+    text: result.kind === "custom-button" ? result.customInteraction.reply : undefined,
+  });
 }
 
 {

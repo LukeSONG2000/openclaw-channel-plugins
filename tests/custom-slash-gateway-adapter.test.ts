@@ -315,7 +315,8 @@ assert.equal(sceneStatus.handled, true);
 assert.equal(sceneStatus.persist, undefined);
 assert.equal(sceneStatus.reply?.kind, "keyboard");
 assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.text.includes("场景：日常聊天（chat）"), true);
-assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.data, "/bot-scene set codex-only");
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.type, 1);
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-scene:set:codex-only");
 
 const sceneSet = handleCustomSlashGatewayCommand({
   cfg,
