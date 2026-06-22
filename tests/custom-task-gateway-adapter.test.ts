@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { buildCustomTaskKeyboard, handleCustomTaskCommand, parseCustomTaskCommand } from "../src/custom/task-gateway-adapter.js";
+import { parseCustomTaskCommand as parseCustomTaskCommandDirect } from "../src/custom/task-command-parser.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -18,6 +19,10 @@ assert.deepEqual(parseCustomTaskCommand("/bot-task create Build custom sandbox")
   matched: true,
   command: { kind: "create", prompt: "Build custom sandbox" },
 });
+assert.deepEqual(
+  parseCustomTaskCommand("/bot-task create Build custom sandbox"),
+  parseCustomTaskCommandDirect("/bot-task create Build custom sandbox"),
+);
 assert.deepEqual(parseCustomTaskCommand("/bot-task add task-1 add docs"), {
   matched: true,
   command: { kind: "add", taskId: "task-1", content: "add docs" },

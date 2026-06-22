@@ -1341,3 +1341,8 @@ Added configured scene binding inspection:
 - Added `src/custom/unread-config.ts` for runtime/scene unread config merging and default timing constants, so follow-up/sleep-digest state transitions no longer own config-shape parsing.
 - Added `src/custom/unread-inspection.ts` for `/bot-unread` safe summaries and `src/custom/unread-catchup-prompt.ts` for the default autonomous catch-up prompt, isolating status formatting and prompt tuning from the unread state machine.
 - `src/custom/unread-runtime.ts` now focuses on pure history/window/snapshot transitions while re-exporting the moved helpers for existing callers; `tests/unread-runtime.test.ts` covers both compatibility exports and direct module imports.
+
+拆出长任务命令解析层：
+
+- Added `src/custom/task-command-parser.ts` to own pure `/bot-task` command parsing and cleanup-plan option parsing, keeping `task-gateway-adapter.ts` focused on sandbox runtime mutation, access checks, replies, and keyboards.
+- `src/custom/task-gateway-adapter.ts` re-exports the parser for compatibility, while `tests/custom-task-gateway-adapter.test.ts` verifies both the compatibility export and direct parser import.
