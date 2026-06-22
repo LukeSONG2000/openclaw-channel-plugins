@@ -1450,7 +1450,7 @@ Added configured scene binding inspection:
 - 通过源码包部署 `@lukesong/openclaw-qqbot@1.7.2-luke.1` 到 `~/.openclaw/extensions/openclaw-qqbot`，保留 OpenClaw plugin id `openclaw-qqbot` 和 channel id `qqbot`。
 - 生产配置已锁定更新策略：`upgradePkg=lukesong/openclaw-qqbot`、`upgradeMode=doc`、`allowUpgradePkgOverride=false`、`customUpdateCheck.enabled=true`、`intervalMs=21600000`。
 - 首次初始化采用对话式绑定：已写入 24 小时有效的一次性 `/bot-init-bind` challenge，绑定完成后自动启用 `customRuntime.enabled`；未把一次性 code 写入仓库文档。
-- 为避免误加载官方包，已把 `~/.openclaw/extensions/node_modules/@tencent-connect/openclaw-qqbot` 移到备份目录 `disabled-active-official-node-modules/` 下。
+- 为避免误加载官方/旧包，已把 `~/.openclaw/extensions/node_modules/@tencent-connect/openclaw-qqbot` 移到备份目录 `disabled-active-official-node-modules/` 下，并把旧的 `~/.openclaw/extensions/openclaw-qqbot.backup.20260617-212751` 移到 `disabled-active-top-level-backups/` 下。
 - 重启后 `openclaw-gateway.service` 为 `active`，日志显示 QQBot WebSocket connected、Session resumed、Gateway ready。
 
 当前待验证项：
