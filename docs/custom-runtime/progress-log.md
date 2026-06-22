@@ -1346,3 +1346,8 @@ Added configured scene binding inspection:
 
 - Added `src/custom/task-command-parser.ts` to own pure `/bot-task` command parsing and cleanup-plan option parsing, keeping `task-gateway-adapter.ts` focused on sandbox runtime mutation, access checks, replies, and keyboards.
 - `src/custom/task-gateway-adapter.ts` re-exports the parser for compatibility, while `tests/custom-task-gateway-adapter.test.ts` verifies both the compatibility export and direct parser import.
+
+拆出长任务呈现层：
+
+- Added `src/custom/task-presentation.ts` to own long-task reply text, QQ command-input shortcuts, and inline keyboard builders, keeping `task-gateway-adapter.ts` focused on command dispatch, sandbox runtime mutation, and access checks.
+- `tests/custom-task-gateway-adapter.test.ts` now verifies both the compatibility keyboard export and direct presentation import, so future card/text tuning can happen without coupling to task state mutation.

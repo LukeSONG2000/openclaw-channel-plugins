@@ -164,6 +164,7 @@ Out of scope for the first custom runtime:
 - `src/custom/task-access.ts`: pure long-task account/peer/owner access policy shared by status views and mutation authorization.
 - `src/custom/task-cleanup.ts`: pure read-only cleanup plan builder for completed/failed/cancelled long-task workspaces.
 - `src/custom/task-command-parser.ts`: pure `/bot-task` command parser, including cleanup-plan option parsing.
+- `src/custom/task-presentation.ts`: pure long-task reply text, QQ command-input shortcuts, and inline-keyboard builders.
 - `src/custom/task-command-executor.ts`: optional command-backed long-task executor, disabled by default; supports stdin requirement forwarding and stdout progress events for future runner integration.
 - `src/custom/task-sandbox.ts`: pure long-task state runtime with global/scene-level sandbox config resolution, workspace root, active-task limits, and progress metadata.
 - `src/custom/runtime.ts`: composition helpers and exported custom runtime modules.

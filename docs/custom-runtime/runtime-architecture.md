@@ -1740,6 +1740,7 @@ Current implementation status:
   - `/bot-task cancel <taskId>`
   - `/bot-task cleanup [--older-than 7d] [--limit 10]`
 - `src/custom/task-command-parser.ts` owns the pure `/bot-task` parser and cleanup-plan option parsing, so the gateway adapter can focus on runtime mutation, access checks, replies, and keyboards.
+- `src/custom/task-presentation.ts` owns long-task reply text, QQ command-input shortcuts, and inline-keyboard builders, so UI wording/card tuning is isolated from sandbox state mutation.
 - `/bot-task status <taskId>` only reveals task details to the task's original account/peer or to the task owner. A task id from another group/DM is treated as not found for ordinary readers.
 - `/bot-task add` and `/bot-task cancel` now use the same account/peer boundary before task-scoped auth; a cross-peer ordinary member cannot trigger an approval request for a task they should not know about.
 - Task create/status/add/cancel replies include QQ command-input shortcuts and C2C/group inline command keyboards for status, append, cancel, and new-task actions where applicable. Status/cancel buttons send the slash command directly; append/new-task buttons only prefill the command so the user can edit the requirement text before sending.

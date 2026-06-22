@@ -1,6 +1,7 @@
 import assert from "node:assert";
 import { buildCustomTaskKeyboard, handleCustomTaskCommand, parseCustomTaskCommand } from "../src/custom/task-gateway-adapter.js";
 import { parseCustomTaskCommand as parseCustomTaskCommandDirect } from "../src/custom/task-command-parser.js";
+import { buildCustomTaskKeyboard as buildCustomTaskKeyboardDirect, formatTaskDecision } from "../src/custom/task-presentation.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -67,6 +68,8 @@ assert.equal(create.intents?.[0]?.kind, "start-requested");
 
 const taskId = Object.keys(tasks.getState().tasks)[0]!;
 assert.equal(taskId, "qqbot-default-group-GROUP_OPENID-1000-1");
+assert.deepEqual(buildCustomTaskKeyboard(tasks.getTask(taskId)!), buildCustomTaskKeyboardDirect(tasks.getTask(taskId)!));
+assert.equal(formatTaskDecision("too_many_active_tasks").includes("活跃长任务过多"), true);
 
 const list = handleCustomTaskCommand({
   accountId: "default",
