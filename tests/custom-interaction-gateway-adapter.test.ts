@@ -151,7 +151,8 @@ const vote = handleCustomInteractionGatewayButton({
 });
 assert.equal(vote.handled, true);
 assert.equal(vote.persist?.polls, true);
-assert.equal(vote.reply?.includes("已记录投票：B"), true);
+assert.equal(vote.reply?.includes("Voter 已投票"), true);
+assert.equal(vote.reply?.includes("B"), false);
 
 const crossPeerVote = handleCustomInteractionGatewayButton({
   cfg,

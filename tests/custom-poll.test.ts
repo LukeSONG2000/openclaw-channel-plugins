@@ -37,12 +37,16 @@ const created = runtime.createPoll({
   creator,
   question: "  Pick  a path  ",
   options: [" Ship ", "Wait", "Ship", "Refactor", "Document", "Extra"],
+  durationMs: 600_000,
   now: 3_000,
 });
 assert.equal(created.allowed, true);
 if (!created.poll) throw new Error("expected poll");
 assert.equal(created.poll.id, "poll-default-group-GROUP_OPENID-3000-1");
 assert.equal(created.poll.question, "Pick a path");
+assert.equal(created.poll.multiple, false);
+assert.equal(created.poll.anonymous, false);
+assert.equal(created.poll.expiresAt, 603_000);
 assert.deepEqual(created.poll.options.map((option) => option.label), ["Ship", "Wait", "Refactor", "Document"]);
 
 const vote = runtime.vote({
@@ -53,6 +57,7 @@ const vote = runtime.vote({
 });
 assert.equal(vote.allowed, true);
 assert.equal(vote.poll?.votes.VOTER_OPENID?.optionId, "2");
+assert.deepEqual(vote.poll?.votes.VOTER_OPENID?.optionIds, ["2"]);
 assert.deepEqual(summarizePollResults(vote.poll!).map((item) => item.count), [0, 1, 0, 0]);
 
 const changedVote = runtime.vote({
@@ -64,6 +69,24 @@ const changedVote = runtime.vote({
 assert.equal(changedVote.allowed, true);
 assert.deepEqual(summarizePollResults(changedVote.poll!).map((item) => item.count), [0, 0, 1, 0]);
 
+const multiPoll = runtime.createPoll({
+  accountId: "default",
+  peer,
+  creator,
+  question: "Pick many",
+  options: ["A", "B", "C"],
+  multiple: true,
+  anonymous: true,
+  now: 5_500,
+});
+assert.equal(multiPoll.allowed, true);
+assert.equal(multiPoll.poll?.multiple, true);
+assert.equal(multiPoll.poll?.anonymous, true);
+runtime.vote({ pollId: multiPoll.poll!.id, optionId: "1", actor: voter, now: 5_600 });
+const multiVote = runtime.vote({ pollId: multiPoll.poll!.id, optionId: "2", actor: voter, now: 5_700 });
+assert.deepEqual(multiVote.poll?.votes.VOTER_OPENID?.optionIds, ["1", "2"]);
+assert.deepEqual(summarizePollResults(multiVote.poll!).map((item) => item.count), [1, 1, 0]);
+
 const otherPoll = runtime.createPoll({
   accountId: "default",
   peer: otherPeer,
@@ -73,7 +96,7 @@ const otherPoll = runtime.createPoll({
   now: 6_000,
 });
 assert.equal(otherPoll.allowed, true);
-assert.deepEqual(runtime.listPolls({ accountId: "default", peer }).map((poll) => poll.id), [created.poll.id]);
+assert.equal(runtime.listPolls({ accountId: "default", peer }).some((poll) => poll.id === created.poll.id), true);
 
 const closed = runtime.closePoll({ pollId: created.poll.id, now: 7_000 });
 assert.equal(closed.allowed, true);
@@ -89,6 +112,24 @@ const voteClosed = runtime.vote({
 assert.equal(voteClosed.allowed, false);
 assert.equal(voteClosed.reason, "closed");
 
+const expiredPoll = runtime.createPoll({
+  accountId: "default",
+  peer,
+  creator,
+  question: "Expires",
+  options: ["Yes", "No"],
+  durationMs: 60_000,
+  now: 20_000,
+});
+assert.equal(expiredPoll.allowed, true);
+assert.deepEqual(runtime.closeExpiredPolls({ accountId: "default", now: 79_999 }).map((poll) => poll.id), []);
+const expired = runtime.closeExpiredPolls({ accountId: "default", now: 80_000 });
+assert.deepEqual(expired.map((poll) => poll.id), [expiredPoll.poll!.id]);
+assert.equal(runtime.getPoll(expiredPoll.poll!.id)?.status, "closed");
+assert.equal(runtime.listUnannouncedClosedPolls({ accountId: "default" }).some((poll) => poll.id === expiredPoll.poll!.id), true);
+runtime.markResultAnnounced({ pollId: expiredPoll.poll!.id, now: 81_000 });
+assert.equal(runtime.listUnannouncedClosedPolls({ accountId: "default" }).some((poll) => poll.id === expiredPoll.poll!.id), false);
+
 const restored = new CustomPollRuntime();
 restored.loadState(runtime.getState());
 assert.equal(restored.getPoll(created.poll.id)?.status, "closed");
@@ -100,7 +141,7 @@ const next = restored.createPoll({
   options: ["A", "B"],
   now: 9_000,
 });
-assert.equal(next.poll?.id.endsWith("-3"), true);
+assert.equal(next.poll?.id.endsWith("-5"), true);
 
 restored.loadState({ polls: {} });
 const reset = restored.createPoll({

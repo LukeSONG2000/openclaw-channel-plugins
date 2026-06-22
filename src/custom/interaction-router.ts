@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { InlineKeyboard } from "../types.js";
 import {
   describeCustomAuthorizationIntents,
   handleCustomAuthInteraction,
@@ -33,6 +34,7 @@ export type CustomInteractionGatewayResult =
   | {
       handled: true;
       reply?: string;
+      keyboard?: InlineKeyboard;
       persist?: CustomInteractionGatewayPersist;
       logs?: CustomInteractionGatewayLog[];
     };
@@ -135,6 +137,7 @@ function routeCustomPollInteraction(ctx: CustomInteractionRouterContext): Custom
   if (!pollResult.handled) return { handled: false };
   return handled({
     reply: pollResult.reply,
+    keyboard: pollResult.keyboard,
     persist: pollResult.changed ? { polls: true } : undefined,
   });
 }
@@ -176,12 +179,14 @@ function routeCustomDeployInteraction(ctx: CustomInteractionRouterContext): Cust
 
 function handled(params: {
   reply?: string;
+  keyboard?: InlineKeyboard;
   persist?: CustomInteractionGatewayPersist;
   logs?: CustomInteractionGatewayLog[];
 }): CustomInteractionGatewayResult {
   return {
     handled: true,
     ...(params.reply ? { reply: params.reply } : {}),
+    ...(params.keyboard ? { keyboard: params.keyboard } : {}),
     ...(hasPersist(params.persist) ? { persist: params.persist } : {}),
     ...(params.logs?.length ? { logs: params.logs } : {}),
   };

@@ -157,6 +157,7 @@ export async function startGateway(ctx: GatewayContext): Promise<void> {
       getPreviousTaskExecutor: runtimeServiceHandles.getTaskExecutor,
       setTaskExecutor: runtimeServiceHandles.setTaskExecutor,
       setUnreadScheduler: runtimeServiceHandles.setUnreadScheduler,
+      setPollExpirationScheduler: runtimeServiceHandles.setPollExpirationScheduler,
       enqueueMessage: trySlashCommandOrEnqueue,
       getQueueSnapshot: (peerId) => msgQueue.getSnapshot(peerId),
       persistAuthState: persistCustomAuthState,

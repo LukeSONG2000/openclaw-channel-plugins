@@ -14,30 +14,35 @@ function disposable(id: string, events: string[], fail = false) {
 {
   const events: string[] = [];
   const handles = createQQBotGatewayRuntimeServiceHandles();
-  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: false, hasUnreadScheduler: false });
+  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: false, hasUnreadScheduler: false, hasPollExpirationScheduler: false });
   assert.equal(handles.getTaskExecutor(), null);
   assert.equal(handles.getTaskExecutorOrUndefined(), undefined);
   assert.equal(handles.getUnreadScheduler(), null);
+  assert.equal(handles.getPollExpirationScheduler(), null);
 
   const task = disposable("task", events);
   const unread = disposable("unread", events);
+  const poll = disposable("poll", events);
   handles.setTaskExecutor(task);
   handles.setUnreadScheduler(unread);
+  handles.setPollExpirationScheduler(poll);
 
   assert.equal(handles.getTaskExecutor(), task);
   assert.equal(handles.getTaskExecutorOrUndefined(), task);
   assert.equal(handles.getUnreadScheduler(), unread);
-  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: true, hasUnreadScheduler: true });
+  assert.equal(handles.getPollExpirationScheduler(), poll);
+  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: true, hasUnreadScheduler: true, hasPollExpirationScheduler: true });
 
   handles.dispose();
-  assert.deepEqual(events, ["dispose:unread", "dispose:task"]);
-  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: false, hasUnreadScheduler: false });
+  assert.deepEqual(events, ["dispose:poll", "dispose:unread", "dispose:task"]);
+  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: false, hasUnreadScheduler: false, hasPollExpirationScheduler: false });
   assert.equal(handles.getTaskExecutor(), null);
   assert.equal(handles.getTaskExecutorOrUndefined(), undefined);
   assert.equal(handles.getUnreadScheduler(), null);
+  assert.equal(handles.getPollExpirationScheduler(), null);
 
   handles.dispose();
-  assert.deepEqual(events, ["dispose:unread", "dispose:task"]);
+  assert.deepEqual(events, ["dispose:poll", "dispose:unread", "dispose:task"]);
 }
 
 {
@@ -45,10 +50,11 @@ function disposable(id: string, events: string[], fail = false) {
   const handles = createQQBotGatewayRuntimeServiceHandles();
   handles.setUnreadScheduler(disposable("unread", events, true));
   handles.setTaskExecutor(disposable("task", events, true));
+  handles.setPollExpirationScheduler(disposable("poll", events, true));
 
-  assert.throws(() => handles.dispose(), /failed:unread/);
-  assert.deepEqual(events, ["dispose:unread", "dispose:task"]);
-  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: false, hasUnreadScheduler: false });
+  assert.throws(() => handles.dispose(), /failed:poll/);
+  assert.deepEqual(events, ["dispose:poll", "dispose:unread", "dispose:task"]);
+  assert.deepEqual(handles.snapshot(), { hasTaskExecutor: false, hasUnreadScheduler: false, hasPollExpirationScheduler: false });
 }
 
 console.log("custom gateway runtime service handles gateway adapter tests passed");

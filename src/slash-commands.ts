@@ -555,12 +555,13 @@ registerCommand({
   access: "查看 system.status；创建/关闭 game.interact",
   capability: (request) => slashPollCapability(request.args),
   usage: [
+    `/bot-poll 今天午饭吃什么？选项：米饭、面条、沙拉，10分钟`,
     `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`,
     `/bot-poll list`,
     `/bot-poll status <pollId>`,
     `/bot-poll close <pollId>`,
     ``,
-    `创建、查询、关闭二开运行时维护的轻量互动投票卡片。`,
+    `创建、查询、提前结束二开运行时维护的轻量互动投票卡片。默认单选、不匿名、持续 10 分钟。`,
   ].join("\n"),
   handler: () => null,
 });

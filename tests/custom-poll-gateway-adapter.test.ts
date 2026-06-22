@@ -52,6 +52,17 @@ assert.deepEqual(parseCustomPollCommand("/bot-poll create Pick one | A | B"), {
   matched: true,
   command: { kind: "create", question: "Pick one", options: ["A", "B"] },
 });
+assert.deepEqual(parseCustomPollCommand("/bot-poll 午饭吃什么？选项：米饭、面条，多选，匿名，30分钟"), {
+  matched: true,
+  command: {
+    kind: "create",
+    question: "午饭吃什么",
+    options: ["米饭", "面条"],
+    multiple: true,
+    anonymous: true,
+    durationMs: 1_800_000,
+  },
+});
 assert.deepEqual(
   parseCustomPollCommandDirect("/bot-poll create Pick one | A | B"),
   parseCustomPollCommand("/bot-poll create Pick one | A | B"),
@@ -65,9 +76,11 @@ assert.deepEqual(parseCustomPollCommand("/bot-poll close"), {
   error: "缺少 pollId",
 });
 assert.deepEqual(parseCustomPollButtonData("custom-poll:poll-default-group-GROUP_OPENID-1000-1:vote:2"), {
+  kind: "vote",
   pollId: "poll-default-group-GROUP_OPENID-1000-1",
   optionId: "2",
 });
+assert.deepEqual(parseCustomPollButtonData("custom-poll:list:1"), { kind: "list", page: 1 });
 assert.deepEqual(
   parseCustomPollButtonDataDirect("custom-poll:poll-default-group-GROUP_OPENID-1000-1:vote:2"),
   parseCustomPollButtonData("custom-poll:poll-default-group-GROUP_OPENID-1000-1:vote:2"),
@@ -117,7 +130,8 @@ const vote = handleCustomPollInteraction({
 });
 assert.equal(vote.handled, true);
 assert.equal(vote.changed, true);
-assert.equal(vote.reply?.includes("已记录投票：B"), true);
+assert.equal(vote.reply?.includes("Voter 已投票"), true);
+assert.equal(vote.reply?.includes("B"), false);
 assert.equal(polls.getPoll(pollId)?.votes.VOTER_OPENID?.optionId, "2");
 
 const crossPeerVote = handleCustomPollInteraction({
@@ -159,7 +173,8 @@ const creatorCrossPeerVote = handleCustomPollInteraction({
 });
 assert.equal(creatorCrossPeerVote.handled, true);
 assert.equal(creatorCrossPeerVote.changed, true);
-assert.equal(creatorCrossPeerVote.reply?.includes("已记录投票：C"), true);
+assert.equal(creatorCrossPeerVote.reply?.includes("Member 已投票"), true);
+assert.equal(creatorCrossPeerVote.reply?.includes("C"), false);
 assert.equal(polls.getPoll(pollId)?.votes.MEMBER_OPENID?.optionId, "3");
 
 const list = handleCustomPollCommand({
@@ -172,6 +187,34 @@ const list = handleCustomPollCommand({
 });
 assert.equal(list.handled, true);
 assert.equal(list.reply?.includes(pollId), true);
+assert.equal(Boolean(list.keyboard?.content?.rows.length), true);
+
+const detail = handleCustomPollInteraction({
+  accountId: "default",
+  polls,
+  buttonData: `custom-poll:${pollId}:detail:0`,
+  actorId: "MEMBER_OPENID",
+  actorLabel: "Member",
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  now: 3_100,
+});
+assert.equal(detail.handled, true);
+assert.equal(detail.reply?.includes("已投票人数：2"), true);
+assert.equal(detail.reply?.includes("属于你：是"), true);
+assert.equal(detail.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, `custom-poll:${pollId}:close-request:0`);
+
+const closeRequest = handleCustomPollInteraction({
+  accountId: "default",
+  polls,
+  buttonData: `custom-poll:${pollId}:close-request:0`,
+  actorId: "MEMBER_OPENID",
+  actorLabel: "Member",
+  sourcePeer: { kind: "group", id: "GROUP_OPENID" },
+  now: 3_200,
+});
+assert.equal(closeRequest.handled, true);
+assert.equal(closeRequest.reply?.includes("确认提前结束"), true);
+assert.equal(closeRequest.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, `custom-poll:${pollId}:close-confirm:0`);
 
 const statusBySuffix = handleCustomPollCommand({
   cfg,
@@ -182,8 +225,8 @@ const statusBySuffix = handleCustomPollCommand({
   now: 4_000,
 });
 assert.equal(statusBySuffix.handled, true);
-assert.equal(statusBySuffix.reply?.includes("B：1"), true);
-assert.equal(formatPollStatusDirect(polls.getPoll(pollId)!).includes("B：1"), true);
+assert.equal(statusBySuffix.reply?.includes("已投票人数：2"), true);
+assert.equal(formatPollStatusDirect(polls.getPoll(pollId)!).includes("进行中投票暂不展示结果"), true);
 
 const otherGroupStatus = handleCustomPollCommand({
   cfg,
@@ -219,7 +262,7 @@ const creatorDmStatus = handleCustomPollCommand({
   now: 4_300,
 });
 assert.equal(creatorDmStatus.handled, true);
-assert.equal(creatorDmStatus.reply?.includes("投票状态"), true);
+assert.equal(creatorDmStatus.reply?.includes("投票详情"), true);
 assert.equal(creatorDmStatus.reply?.includes("Pick one"), true);
 
 const close = handleCustomPollCommand({
@@ -233,6 +276,7 @@ const close = handleCustomPollCommand({
 assert.equal(close.handled, true);
 assert.equal(close.changed, true);
 assert.equal(close.reply?.includes("投票已关闭"), true);
+assert.equal(close.reply?.includes("B：1"), true);
 
 const voteClosed = handleCustomPollInteraction({
   accountId: "default",

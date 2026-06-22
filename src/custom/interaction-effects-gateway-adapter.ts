@@ -1,4 +1,5 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import type { InlineKeyboard } from "../types.js";
 import type { CustomInteractionGatewayResult } from "./interaction-gateway-adapter.js";
 import type { CustomInteractionReplyTarget } from "./interaction-event-normalizer.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
@@ -31,6 +32,7 @@ export interface ApplyCustomInteractionGatewayEffectsParams {
   persistGameState?: () => void;
   persistDeployConfirmationState?: () => void;
   sendReply?: (target: CustomInteractionReplyTarget, text: string) => Promise<void> | void;
+  sendKeyboardReply?: (target: CustomInteractionReplyTarget, text: string, keyboard: InlineKeyboard) => Promise<void> | void;
   log?: CustomInteractionGatewayEffectsLogger;
 }
 
@@ -84,12 +86,17 @@ export async function applyCustomInteractionGatewayEffects(
   }
 
   if (params.result.reply) {
-    if (!params.replyTarget || !params.sendReply) {
+    if (!params.replyTarget || (!params.sendReply && !(params.result.keyboard && params.sendKeyboardReply))) {
       result.replySkipped = true;
       return result;
     }
     try {
-      await params.sendReply(params.replyTarget, formatCustomInteractionFeedbackReply(params));
+      const reply = formatCustomInteractionFeedbackReply(params);
+      if (params.result.keyboard && params.sendKeyboardReply) {
+        await params.sendKeyboardReply(params.replyTarget, reply, params.result.keyboard);
+      } else {
+        await params.sendReply!(params.replyTarget, reply);
+      }
       result.replyDelivered = true;
     } catch (sendErr) {
       result.replyFailed = true;

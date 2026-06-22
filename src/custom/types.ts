@@ -271,7 +271,9 @@ export interface CustomPollOption {
 
 export interface CustomPollVote {
   actor: CustomActor;
+  /** Legacy single-choice field kept for old persisted state compatibility. */
   optionId: string;
+  optionIds?: string[];
   votedAt: number;
 }
 
@@ -284,9 +286,14 @@ export interface CustomPoll {
   options: CustomPollOption[];
   votes: Record<string, CustomPollVote>;
   status: "open" | "closed";
+  multiple?: boolean;
+  anonymous?: boolean;
   createdAt: number;
   updatedAt: number;
+  expiresAt?: number;
   closedAt?: number;
+  closeReason?: "manual" | "expired";
+  resultAnnouncedAt?: number;
 }
 
 export interface CustomPollRuntimeState {

@@ -1,4 +1,5 @@
 import type { InteractionEvent } from "../types.js";
+import type { InlineKeyboard } from "../types.js";
 import { getKnownUser as defaultGetKnownUser } from "../known-users.js";
 import type { CustomConfigInteractionConfigApi, CustomConfigInteractionRoutingApi } from "./config-interaction-gateway-adapter.js";
 import {
@@ -52,6 +53,7 @@ export interface HandleCustomInteractionCreateGatewayParams {
   pluginVersion: string;
   frameworkVersion: string;
   sendReply: (target: CustomInteractionReplyTarget, text: string) => Promise<void> | void;
+  sendKeyboardReply?: (target: CustomInteractionReplyTarget, text: string, keyboard: InlineKeyboard) => Promise<void> | void;
   getLegacyApprovalHandler?: (accountId: string) => CustomLegacyApprovalInteractionHandler | undefined;
   now?: number;
   log?: CustomInteractionCreateGatewayLogger;
@@ -149,6 +151,7 @@ export async function handleCustomInteractionCreateGateway(
       persistGameState: params.persistGameState,
       persistDeployConfirmationState: params.persistDeployConfirmationState,
       sendReply: params.sendReply,
+      sendKeyboardReply: params.sendKeyboardReply,
       log: params.log,
     });
     return {

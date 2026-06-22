@@ -94,8 +94,10 @@ export function createCustomConnectionHandlersGateway(
     previousTaskExecutor: params.previousTaskExecutor,
     enqueueMessage: params.enqueueMessage,
     persistTaskState: params.persistTaskState,
+    persistPollState: params.persistPollState,
     persistUnreadState: params.persistUnreadState,
     sendTaskStatusText: params.sendTaskStatusText,
+    sendPollResultText: params.sendTaskStatusText as any,
     log: params.log,
   }) as CustomRuntimeServicesGatewayResult;
 

@@ -3,8 +3,10 @@ import {
   getAccessToken as defaultGetAccessToken,
   getApiPluginVersion as defaultGetApiPluginVersion,
   sendC2CMessage as defaultSendC2CMessage,
+  sendC2CMessageWithInlineKeyboard as defaultSendC2CMessageWithInlineKeyboard,
   sendChannelMessage as defaultSendChannelMessage,
   sendGroupMessage as defaultSendGroupMessage,
+  sendGroupMessageWithInlineKeyboard as defaultSendGroupMessageWithInlineKeyboard,
 } from "../api.js";
 import { getFrameworkVersion as defaultGetFrameworkVersion } from "../slash-commands.js";
 import type { InteractionEvent, ResolvedQQBotAccount } from "../types.js";
@@ -37,7 +39,9 @@ export interface CustomInteractionCreateHandlerGatewayParams {
   getAccessToken?: typeof defaultGetAccessToken;
   acknowledgeInteraction?: typeof defaultAcknowledgeInteraction;
   sendGroupMessage?: typeof defaultSendGroupMessage;
+  sendGroupMessageWithInlineKeyboard?: typeof defaultSendGroupMessageWithInlineKeyboard;
   sendC2CMessage?: typeof defaultSendC2CMessage;
+  sendC2CMessageWithInlineKeyboard?: typeof defaultSendC2CMessageWithInlineKeyboard;
   sendChannelMessage?: typeof defaultSendChannelMessage;
   getApiPluginVersion?: typeof defaultGetApiPluginVersion;
   getFrameworkVersion?: typeof defaultGetFrameworkVersion;
@@ -86,6 +90,16 @@ export function createCustomInteractionCreateHandlerGateway(
           await (params.sendGroupMessage ?? defaultSendGroupMessage)(token, target.groupOpenid, text);
         } else if (target.kind === "c2c") {
           await (params.sendC2CMessage ?? defaultSendC2CMessage)(token, target.userOpenid, text);
+        } else {
+          await (params.sendChannelMessage ?? defaultSendChannelMessage)(token, target.channelId, text);
+        }
+      },
+      sendKeyboardReply: async (target, text, keyboard) => {
+        const token = await getInteractionToken();
+        if (target.kind === "group") {
+          await (params.sendGroupMessageWithInlineKeyboard ?? defaultSendGroupMessageWithInlineKeyboard)(token, target.groupOpenid, text, keyboard);
+        } else if (target.kind === "c2c") {
+          await (params.sendC2CMessageWithInlineKeyboard ?? defaultSendC2CMessageWithInlineKeyboard)(token, target.userOpenid, text, keyboard);
         } else {
           await (params.sendChannelMessage ?? defaultSendChannelMessage)(token, target.channelId, text);
         }

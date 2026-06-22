@@ -26,6 +26,11 @@ import {
   CustomUnreadScheduler,
   type CustomUnreadSchedulerOptions,
 } from "./unread-scheduler.js";
+import {
+  CustomPollExpirationScheduler,
+  type CustomPollExpirationSchedulerOptions,
+  type CustomPollResultSendText,
+} from "./poll-expiration-scheduler.js";
 import type { CustomTaskCommandExecutorConfig } from "./types.js";
 
 export interface CustomRuntimeServicesGatewayLogger {
@@ -45,6 +50,11 @@ export interface CustomRuntimeServicesUnreadScheduler {
   dispose?: () => void;
 }
 
+export interface CustomRuntimeServicesPollExpirationScheduler {
+  tick: CustomPollExpirationScheduler["tick"];
+  dispose?: () => void;
+}
+
 export interface CustomRuntimeServicesTaskExecutorFactoryParams {
   config?: CustomTaskCommandExecutorConfig;
   callbacks: CustomTaskCommandExecutorCallbacks;
@@ -54,6 +64,7 @@ export interface CustomRuntimeServicesTaskExecutorFactoryParams {
 export interface CreateCustomRuntimeServicesGatewayParams<
   TTaskExecutor extends CustomRuntimeServicesTaskExecutor = CustomTaskCommandExecutor,
   TUnreadScheduler extends CustomRuntimeServicesUnreadScheduler = CustomUnreadScheduler,
+  TPollExpirationScheduler extends CustomRuntimeServicesPollExpirationScheduler = CustomPollExpirationScheduler,
 > {
   cfg: OpenClawConfig;
   accountId: string;
@@ -61,20 +72,25 @@ export interface CreateCustomRuntimeServicesGatewayParams<
   previousTaskExecutor?: CustomRuntimeServicesTaskExecutor | null;
   enqueueMessage: (message: QueuedMessage) => void | Promise<void>;
   persistTaskState: () => void;
+  persistPollState: () => void;
   persistUnreadState: () => void;
   sendTaskStatusText: CustomTaskNotificationSendText;
+  sendPollResultText?: CustomPollResultSendText;
   log?: CustomRuntimeServicesGatewayLogger;
   taskExecutorFactory?: (params: CustomRuntimeServicesTaskExecutorFactoryParams) => TTaskExecutor;
   unreadSchedulerFactory?: (options: CustomUnreadSchedulerOptions) => TUnreadScheduler;
+  pollExpirationSchedulerFactory?: (options: CustomPollExpirationSchedulerOptions) => TPollExpirationScheduler;
   applyAsyncTaskStatus?: typeof applyCustomTaskAsyncStatusGateway;
 }
 
 export interface CustomRuntimeServicesGatewayResult<
   TTaskExecutor extends CustomRuntimeServicesTaskExecutor = CustomTaskCommandExecutor,
   TUnreadScheduler extends CustomRuntimeServicesUnreadScheduler = CustomUnreadScheduler,
+  TPollExpirationScheduler extends CustomRuntimeServicesPollExpirationScheduler = CustomPollExpirationScheduler,
 > {
   taskExecutor: TTaskExecutor;
   unreadScheduler: TUnreadScheduler;
+  pollExpirationScheduler?: TPollExpirationScheduler;
   resolveUnreadForEvent: (event: QueuedMessage) => ResolvedCustomUnreadConfig | null;
   resolveUnreadForPeer: (peerId: string) => ResolvedCustomUnreadConfig | null;
 }
@@ -82,9 +98,10 @@ export interface CustomRuntimeServicesGatewayResult<
 export function createCustomRuntimeServicesGateway<
   TTaskExecutor extends CustomRuntimeServicesTaskExecutor = CustomTaskCommandExecutor,
   TUnreadScheduler extends CustomRuntimeServicesUnreadScheduler = CustomUnreadScheduler,
+  TPollExpirationScheduler extends CustomRuntimeServicesPollExpirationScheduler = CustomPollExpirationScheduler,
 >(
-  params: CreateCustomRuntimeServicesGatewayParams<TTaskExecutor, TUnreadScheduler>,
-): CustomRuntimeServicesGatewayResult<TTaskExecutor, TUnreadScheduler> {
+  params: CreateCustomRuntimeServicesGatewayParams<TTaskExecutor, TUnreadScheduler, TPollExpirationScheduler>,
+): CustomRuntimeServicesGatewayResult<TTaskExecutor, TUnreadScheduler, TPollExpirationScheduler> {
   params.previousTaskExecutor?.dispose?.();
 
   const applyAsyncTaskStatus = async (effects: CustomTaskExecutionEffect[]): Promise<void> => {
@@ -194,9 +211,26 @@ export function createCustomRuntimeServicesGateway<
   });
   unreadScheduler.restore(params.runtime.unread.getState());
 
+  const pollExpirationSchedulerFactory = params.pollExpirationSchedulerFactory
+    ?? ((options: CustomPollExpirationSchedulerOptions) => new CustomPollExpirationScheduler(options) as unknown as TPollExpirationScheduler);
+  const pollExpirationScheduler = params.sendPollResultText
+    ? pollExpirationSchedulerFactory({
+        accountId: params.accountId,
+        polls: params.runtime.polls,
+        sendText: params.sendPollResultText,
+        persist: params.persistPollState,
+        log: {
+          info: (msg) => params.log?.info?.(`[qqbot:${params.accountId}] ${msg}`),
+          debug: (msg) => params.log?.debug?.(`[qqbot:${params.accountId}] ${msg}`),
+          error: (msg) => params.log?.error?.(`[qqbot:${params.accountId}] ${msg}`),
+        },
+      })
+    : undefined;
+
   return {
     taskExecutor,
     unreadScheduler,
+    pollExpirationScheduler,
     resolveUnreadForEvent,
     resolveUnreadForPeer,
   };

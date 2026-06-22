@@ -7,11 +7,17 @@ import { CustomPollRuntime } from "./poll.js";
 import { slashCommandInput } from "./command-link.js";
 import { parseCustomPollButtonData, parseCustomPollCommand } from "./poll-command-parser.js";
 import {
+  buildCustomPollCloseConfirmKeyboard,
+  buildCustomPollDetailKeyboard,
   buildCustomPollKeyboard,
+  buildCustomPollListKeyboard,
+  CUSTOM_POLL_LIST_PAGE_SIZE,
   formatCustomPollHelp,
   formatPollClosed,
   formatPollCreated,
   formatPollDecision,
+  formatPollDetail,
+  formatPollCloseConfirm,
   formatPollList,
   formatPollStatus,
   formatPollVoteAck,
@@ -27,11 +33,16 @@ export {
 } from "./poll-command-parser.js";
 
 export {
+  buildCustomPollCloseConfirmKeyboard,
+  buildCustomPollDetailKeyboard,
   buildCustomPollKeyboard,
+  buildCustomPollListKeyboard,
+  formatPollCloseConfirm,
   formatCustomPollHelp,
   formatPollClosed,
   formatPollCreated,
   formatPollDecision,
+  formatPollDetail,
   formatPollList,
   formatPollStatus,
   formatPollVoteAck,
@@ -47,6 +58,7 @@ export interface CustomPollCommandResult {
 export interface CustomPollInteractionResult {
   handled: boolean;
   reply?: string;
+  keyboard?: InlineKeyboard;
   changed?: boolean;
 }
 
@@ -69,21 +81,31 @@ export function handleCustomPollCommand(params: {
 
   if (command.kind === "help") return { handled: true, reply: formatCustomPollHelp() };
   if (command.kind === "list") {
-    return { handled: true, reply: formatPollList(params.polls.listPolls({ accountId: params.accountId, peer, limit: 8 })) };
+    const page = command.page ?? 0;
+    const pageData = listPollPage(params.polls, { accountId: params.accountId, peer, page });
+    return {
+      handled: true,
+      reply: formatPollList(pageData.polls, { page, actorId: actor.id, hasPrev: pageData.hasPrev, hasNext: pageData.hasNext }),
+      keyboard: buildCustomPollListKeyboard(pageData),
+    };
   }
   if (command.kind === "status") {
     const poll = resolvePoll(params.polls, command.pollId);
     if (!poll || !canReadPoll(poll, params.accountId, peer, actor)) {
       return { handled: true, reply: `⚠️ 未找到投票，或该投票不属于当前会话：${command.pollId}` };
     }
-    return { handled: true, reply: formatPollStatus(poll) };
+    return { handled: true, reply: formatPollDetail(poll, { actorId: actor.id }), keyboard: buildCustomPollDetailKeyboard(poll, { actorId: actor.id }) };
   }
   if (command.kind === "close") {
     const poll = resolvePoll(params.polls, command.pollId);
     if (!poll || !canReadPoll(poll, params.accountId, peer, actor)) {
       return { handled: true, reply: `⚠️ 未找到投票，或该投票不属于当前会话：${command.pollId}` };
     }
+    if (!canManagePoll(poll, actor)) {
+      return { handled: true, reply: `⚠️ 只有投票创建者可以提前结束该投票。` };
+    }
     const result = params.polls.closePoll({ pollId: poll.id, now: params.now });
+    if (result.allowed && result.poll) params.polls.markResultAnnounced({ pollId: result.poll.id, now: params.now });
     return {
       handled: true,
       changed: result.allowed,
@@ -97,6 +119,9 @@ export function handleCustomPollCommand(params: {
       creator: actor,
       question: command.question,
       options: command.options,
+      multiple: command.multiple,
+      anonymous: command.anonymous,
+      durationMs: command.durationMs,
       now: params.now,
     });
     if (!result.allowed || !result.poll) return { handled: true, reply: formatPollDecision(result.reason) };
@@ -122,7 +147,59 @@ export function handleCustomPollInteraction(params: {
   const payload = parseCustomPollButtonData(params.buttonData);
   if (!payload) return { handled: false };
   const actor: CustomActor = { id: params.actorId, label: params.actorLabel };
+  if (payload.kind === "list") {
+    const pageData = listPollPage(params.polls, {
+      accountId: params.accountId,
+      peer: params.sourcePeer,
+      page: payload.page,
+    });
+    return {
+      handled: true,
+      reply: formatPollList(pageData.polls, {
+        page: payload.page,
+        actorId: actor.id,
+        hasPrev: pageData.hasPrev,
+        hasNext: pageData.hasNext,
+      }),
+      keyboard: buildCustomPollListKeyboard(pageData),
+    };
+  }
   const poll = params.polls.getPoll(payload.pollId);
+  if (payload.kind === "detail") {
+    if (!canReadPollFromInteraction({ poll, accountId: params.accountId, sourcePeer: params.sourcePeer, actor })) {
+      return { handled: true, changed: false, reply: `⚠️ 投票不存在，或该投票不属于当前会话。` };
+    }
+    return {
+      handled: true,
+      reply: formatPollDetail(poll!, { actorId: actor.id }),
+      keyboard: buildCustomPollDetailKeyboard(poll!, { actorId: actor.id, page: payload.page }),
+    };
+  }
+  if (payload.kind === "close-request") {
+    if (!canReadPollFromInteraction({ poll, accountId: params.accountId, sourcePeer: params.sourcePeer, actor })) {
+      return { handled: true, changed: false, reply: `⚠️ 投票不存在，或该投票不属于当前会话。` };
+    }
+    if (!canManagePoll(poll!, actor)) return { handled: true, changed: false, reply: `⚠️ 只有投票创建者可以提前结束该投票。` };
+    return {
+      handled: true,
+      reply: formatPollCloseConfirm(poll!),
+      keyboard: buildCustomPollCloseConfirmKeyboard(poll!, payload.page),
+    };
+  }
+  if (payload.kind === "close-confirm") {
+    if (!canReadPollFromInteraction({ poll, accountId: params.accountId, sourcePeer: params.sourcePeer, actor })) {
+      return { handled: true, changed: false, reply: `⚠️ 投票不存在，或该投票不属于当前会话。` };
+    }
+    if (!canManagePoll(poll!, actor)) return { handled: true, changed: false, reply: `⚠️ 只有投票创建者可以提前结束该投票。` };
+    const result = params.polls.closePoll({ pollId: poll!.id, now: params.now });
+    if (result.allowed && result.poll) params.polls.markResultAnnounced({ pollId: result.poll.id, now: params.now });
+    return {
+      handled: true,
+      changed: result.allowed,
+      reply: result.allowed && result.poll ? formatPollClosed(result.poll) : formatPollDecision(result.reason),
+      keyboard: result.allowed && result.poll ? buildCustomPollDetailKeyboard(result.poll, { actorId: actor.id, page: payload.page }) : undefined,
+    };
+  }
   if (!canVoteFromInteraction({
     poll,
     accountId: params.accountId,
@@ -144,7 +221,27 @@ export function handleCustomPollInteraction(params: {
   return {
     handled: true,
     changed: result.allowed,
-    reply: result.allowed && result.poll ? formatPollVoteAck(result.poll, actor.id) : formatPollDecision(result.reason),
+    reply: result.allowed && result.poll ? formatPollVoteAck(result.poll, actor) : formatPollDecision(result.reason),
+  };
+}
+
+function listPollPage(
+  polls: CustomPollRuntime,
+  params: { accountId?: string; peer?: CustomPeer; page?: number },
+): { polls: CustomPoll[]; page: number; hasPrev: boolean; hasNext: boolean } {
+  const page = Math.max(0, params.page ?? 0);
+  const items = polls.listPolls({
+    accountId: params.accountId,
+    peer: params.peer,
+    limit: CUSTOM_POLL_LIST_PAGE_SIZE + 1,
+    offset: page * CUSTOM_POLL_LIST_PAGE_SIZE,
+    sort: "created_desc",
+  });
+  return {
+    polls: items.slice(0, CUSTOM_POLL_LIST_PAGE_SIZE).reverse(),
+    page,
+    hasPrev: page > 0,
+    hasNext: items.length > CUSTOM_POLL_LIST_PAGE_SIZE,
   };
 }
 
@@ -165,6 +262,24 @@ function canReadPoll(
   if (poll.accountId !== accountId) return false;
   if (poll.creator.id.toUpperCase() === actor.id.toUpperCase()) return true;
   return poll.peer.kind === peer.kind && poll.peer.id === peer.id;
+}
+
+function canManagePoll(poll: CustomPoll, actor: CustomActor): boolean {
+  return poll.creator.id.toUpperCase() === actor.id.toUpperCase();
+}
+
+function canReadPollFromInteraction(params: {
+  poll: CustomPoll | null;
+  accountId?: string;
+  sourcePeer?: CustomPeer;
+  actor: CustomActor;
+}): boolean {
+  const { poll } = params;
+  if (!poll) return false;
+  if (params.accountId && poll.accountId !== params.accountId) return false;
+  if (canManagePoll(poll, params.actor)) return true;
+  if (!params.sourcePeer) return true;
+  return poll.peer.kind === params.sourcePeer.kind && poll.peer.id === params.sourcePeer.id;
 }
 
 function canVoteFromInteraction(params: {
