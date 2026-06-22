@@ -7,7 +7,7 @@ export const CUSTOM_TOOL_FALLBACK_MEDIA_TIMEOUT_MS = 45_000;
 
 export const CUSTOM_RESPONSE_TIMEOUT_NOTICE = "这轮处理超时了，我先不挡队列，后面的消息会继续处理。";
 export const CUSTOM_TOOL_NO_OUTPUT_NOTICE = "工具这轮没产出能发的内容，我先不挡队列，后面的消息会继续处理。";
-export const CUSTOM_CONTEXT_TOO_LONG_NOTICE = "这轮上下文太长了，模型没法继续接收。我先释放队列；请先发送 /compact 压缩上下文，必要时发送 /new 开新会话后再重试。";
+export const CUSTOM_CONTEXT_TOO_LONG_NOTICE = "这轮上下文太长了，模型没法继续接收。我先释放队列；请使用下方恢复命令压缩上下文，必要时开新会话后再重试。";
 
 export type CustomDispatchFailureKind = "response-timeout" | "context-too-long" | "other";
 

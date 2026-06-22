@@ -1,3 +1,5 @@
+import { slashCommandInput } from "./command-link.js";
+
 export type CustomPollCommand =
   | { kind: "help" }
   | { kind: "create"; question: string; options: string[] }
@@ -35,7 +37,7 @@ export function parseCustomPollCommand(rawContent: string): CustomPollCommandPar
   if (action === "create" || action === "new") {
     const rest = tokens.join(" ");
     const parts = rest.split("|").map((part) => part.trim()).filter(Boolean);
-    if (parts.length < 3) return { matched: true, error: "格式：/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]" };
+    if (parts.length < 3) return { matched: true, error: `格式：${slashCommandInput("/bot-poll create 问题 | 选项A | 选项B | 选项C", "/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]")}` };
     const [question, ...options] = parts;
     return { matched: true, command: { kind: "create", question: question!, options } };
   }

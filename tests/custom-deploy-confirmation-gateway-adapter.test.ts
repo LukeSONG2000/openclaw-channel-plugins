@@ -74,11 +74,11 @@ assert.deepEqual(parseCustomDeployCommand("/bot-deploy preflight"), {
 });
 assert.deepEqual(parseCustomDeployCommand("/bot-deploy confirm /bot-upgrade"), {
   matched: true,
-  error: "当前只支持确认 /bot-upgrade 的带参数命令",
+  error: `当前只支持确认 <qqbot-cmd-input text="/bot-upgrade --latest" show="/bot-upgrade"/> 的带参数命令`,
 });
 assert.deepEqual(parseCustomDeployCommand("/bot-deploy confirm /bot-upgradefoo --latest"), {
   matched: true,
-  error: "当前只支持确认 /bot-upgrade 的带参数命令",
+  error: `当前只支持确认 <qqbot-cmd-input text="/bot-upgrade --latest" show="/bot-upgrade"/> 的带参数命令`,
 });
 assert.deepEqual(parseCustomDeployButtonData("custom-deploy:deploy-default-group-GROUP_OPENID-1000-1:confirm"), {
   confirmationId: "deploy-default-group-GROUP_OPENID-1000-1",

@@ -106,7 +106,7 @@ assert.equal(denied.allowed, false);
 assert.equal(denied.capability, "config.write");
 assert.equal(denied.result?.decision.requestId, "authreq-2000-1");
 assert.equal(denied.result?.intents[0]?.kind === "request-approval" && denied.result.intents[0].request.adminGroup, "qqbot:group:GROUP_OPENID");
-assert.equal(formatCustomAuthorizationDeniedMessage(denied).includes("需要能力：config.write"), true);
+assert.equal(formatCustomAuthorizationDeniedMessage(denied).includes("权限：写入配置/规则（config.write）"), true);
 assert.deepEqual(parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 3"), {
   matched: true,
   command: {
@@ -195,7 +195,7 @@ assert.equal(status.reply?.includes("管理员：ADMIN_OPENID"), true);
 assert.equal(status.reply?.includes("管理群：群聊（group_openid：GROUP_OPENID）"), true);
 assert.equal(status.reply?.includes("跨群抄送：开启"), true);
 assert.equal(status.reply?.includes("初始化：完整"), true);
-assert.equal(status.reply?.includes("查看详情：/bot-auth requests 或 /bot-auth grants"), true);
+assert.equal(status.reply?.includes(`查看详情：<qqbot-cmd-input text="/bot-auth requests" show="/bot-auth requests"/> 或 <qqbot-cmd-input text="/bot-auth grants" show="/bot-auth grants"/>`), true);
 
 const pendingRequests = handleCustomAuthCommand({
   cfg: authCfg,
@@ -207,9 +207,9 @@ const pendingRequests = handleCustomAuthCommand({
 assert.equal(pendingRequests.handled, true);
 assert.equal(pendingRequests.reply?.includes("待审批授权申请"), true);
 assert.equal(pendingRequests.reply?.includes("authreq-2000-1"), true);
-assert.equal(pendingRequests.reply?.includes("能力：config.write"), true);
+assert.equal(pendingRequests.reply?.includes("权限：写入配置/规则（config.write）"), true);
 assert.equal(pendingRequests.reply?.includes("用户：Member（member_openid：MEMBER_OPENID）"), true);
-assert.equal(pendingRequests.reply?.includes("会话：群聊（group_openid：GROUP_OPENID）"), true);
+assert.equal(pendingRequests.reply?.includes("位置：群聊（group_openid：GROUP_OPENID）"), true);
 assert.equal(pendingRequests.reply?.includes("/bot-auth approve authreq-2000-1 once"), true);
 assert.equal(pendingRequests.reply?.includes(memberGroupMessage.content), false);
 
@@ -267,7 +267,7 @@ assert.equal(activeGrants.reply?.includes("临时授权列表"), true);
 assert.equal(activeGrants.reply?.includes("grant-3000-1"), true);
 assert.equal(activeGrants.reply?.includes("用户：openid：MEMBER_OPENID"), true);
 assert.equal(activeGrants.reply?.includes("会话：GROUP_OPENID"), true);
-assert.equal(activeGrants.reply?.includes("能力：config.write"), true);
+assert.equal(activeGrants.reply?.includes("权限：写入配置/规则（config.write）"), true);
 assert.equal(activeGrants.reply?.includes("剩余：1 次"), true);
 
 const allowedByGrant = checkCustomSlashAuthorization({
@@ -322,7 +322,7 @@ assert.equal(dispatchDenied.enabled, true);
 assert.equal(dispatchDenied.allowed, false);
 assert.equal(dispatchDenied.capability, "codex.run");
 assert.equal(dispatchDenied.result?.decision.requestId, "authreq-5500-1");
-assert.equal(formatCustomDispatchAuthorizationDeniedMessage(dispatchDenied).includes("需要能力：codex.run"), true);
+assert.equal(formatCustomDispatchAuthorizationDeniedMessage(dispatchDenied).includes("权限：执行 Codex 任务（codex.run）"), true);
 
 const dispatchRequest = firstCustomAuthApprovalRequest(dispatchDenied.result?.intents ?? []);
 if (!dispatchRequest) throw new Error("expected dispatch auth request");
@@ -421,8 +421,8 @@ const cardRequest = firstCustomAuthApprovalRequest(cardDenied.result?.intents ??
 assert.equal(cardRequest?.id, "authreq-10000-1");
 if (!cardRequest) throw new Error("expected custom auth request");
 assert.equal(firstCustomAuthApprovalRequestDirect(cardDenied.result?.intents ?? []), cardRequest);
-assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
-assert.equal((buildCustomAuthApprovalText(cardRequest).match(/能力：/g) ?? []).length, 1);
+assert.equal(buildCustomAuthApprovalText(cardRequest).includes("需要授权"), true);
+assert.equal((buildCustomAuthApprovalText(cardRequest).match(/权限：/g) ?? []).length, 1);
 assert.equal(buildCustomAuthApprovalText(cardRequest).startsWith("<@ADMIN_OPENID>\n"), true);
 assert.equal(buildCustomAuthApprovalText(cardRequest).includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
 {

@@ -1,4 +1,5 @@
 import type { QueueSnapshot } from "../slash-commands.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatDurationZh } from "./presentation-labels.js";
 
 export type CustomQueueStatusCommand =
@@ -56,8 +57,8 @@ function formatQueueStatusHelp(error?: string): string {
   lines.push(
     `📊 自定义队列状态命令`,
     ``,
-    `/bot-queue`,
-    `/bot-queue status`,
+    slashCommandInput(`/bot-queue`),
+    slashCommandInput(`/bot-queue status`),
     ``,
     `查看当前会话待处理数量、全局活跃用户数和活跃处理时长。`,
   );

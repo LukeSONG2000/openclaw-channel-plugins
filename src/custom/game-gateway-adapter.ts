@@ -4,6 +4,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomGameRuntime } from "./game.js";
+import { slashCommandInput } from "./command-link.js";
 import { parseCustomGameButtonData, parseCustomGameCommand } from "./game-command-parser.js";
 import {
   buildCustomGuessGameKeyboard,
@@ -60,7 +61,7 @@ export function handleCustomGameCommand(params: {
   const parsed = parseCustomGameCommand(params.rawContent);
   if (!parsed.matched) return { handled: false };
   const runtime = resolveCustomRuntimeConfig(params.cfg);
-  if (!runtime.enabled) return { handled: true, reply: "ℹ️ customRuntime 未启用，无法使用 /bot-game。" };
+  if (!runtime.enabled) return { handled: true, reply: `ℹ️ customRuntime 未启用，无法使用 ${slashCommandInput("/bot-game")}。` };
   if (parsed.error) return { handled: true, reply: formatCustomGameHelp(parsed.error) };
   const command = parsed.command ?? { kind: "help" as const };
   const peer = toCustomPeerFromQueuedMessage(params.message);

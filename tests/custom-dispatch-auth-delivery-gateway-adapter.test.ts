@@ -64,7 +64,7 @@ assert.equal(cardResult.requestId, "authreq-1");
 assert.deepEqual(cards[0]?.target, { kind: "group", groupOpenid: "GROUP_OPENID", messageId: "MSG_GROUP" });
 assert.equal(cards[0]?.text.startsWith("<@ADMIN_OPENID>\n"), true);
 assert.equal(cards[0]?.text.includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
-assert.equal(cards[0]?.text.includes("自定义权限申请"), true);
+assert.equal(cards[0]?.text.includes("需要授权"), true);
 assert.equal(texts.length, 0);
 assert.equal(cardResult.adminGroupNotification?.groupOpenid, "ADMIN_GROUP");
 assert.equal(cardResult.adminGroupNotification?.text.startsWith("<@ADMIN_OPENID>\n"), true);
@@ -84,7 +84,7 @@ assert.equal(fallbackResult.handled, true);
 assert.equal(fallbackResult.delivery, "text");
 assert.equal(fallbackResult.adminGroupNotification?.requestId, "authreq-1");
 assert.equal(fallbackResult.adminGroupNotification?.text.startsWith("<@ADMIN_OPENID>\n"), true);
-assert.equal(fallbackTexts[0]?.includes("需要能力：config.write"), true);
+assert.equal(fallbackTexts[0]?.includes("权限：写入配置/规则（config.write）"), true);
 assert.equal(fallbackTexts[0]?.startsWith("<@MEMBER_OPENID>\n"), true);
 assert.equal(errors[0]?.includes("falling back to text"), true);
 
@@ -124,7 +124,7 @@ const noRequest = await applyCustomDispatchAuthDenialDelivery({
 assert.equal(noRequest.handled, true);
 assert.equal(noRequest.delivery, "text");
 assert.equal(noRequest.adminGroupNotification, null);
-assert.equal(noRequestTexts[0]?.includes("需要能力：chat.send"), true);
+assert.equal(noRequestTexts[0]?.includes("权限：发送聊天消息（chat.send）"), true);
 
 assert.deepEqual(await applyCustomDispatchAuthDenialDelivery({
   decision: { enabled: false, allowed: true, reason: "runtime_disabled" },

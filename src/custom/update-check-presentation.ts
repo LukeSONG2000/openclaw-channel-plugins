@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { resolveCustomAdminGroupKey } from "./auth.js";
+import { slashCommandInput } from "./command-link.js";
 import type { CustomUpdateCheckResult } from "./update-check.js";
 import type { CustomRuntimeConfig } from "./types.js";
 
@@ -33,9 +34,9 @@ export function buildCustomUpdateAvailableNotification(params: {
     `检查时间：${new Date(checkedAt).toISOString()}`,
     ``,
     `不会自动安装。请先查看更新内容并确认服务器已备份。`,
-    `建议先运行聊天内预检：/bot-deploy preflight`,
-    `如需继续，可由管理员在管理群创建确认卡：/bot-deploy confirm /bot-upgrade --latest`,
-    `确认后仍需管理员在私聊中手动发送 /bot-upgrade --latest。`,
+    `建议先运行聊天内预检：${slashCommandInput("/bot-deploy preflight")}`,
+    `如需继续，可由管理员在管理群创建确认卡：${slashCommandInput("/bot-deploy confirm /bot-upgrade --latest")}`,
+    `确认后仍需管理员在私聊中手动发送 ${slashCommandInput("/bot-upgrade --latest")}。`,
   ].join("\n");
   return {
     groupOpenid,

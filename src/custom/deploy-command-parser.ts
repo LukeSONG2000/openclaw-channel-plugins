@@ -1,4 +1,5 @@
 import { normalizeDeployCommand } from "./deploy-confirmation.js";
+import { slashCommandInput } from "./command-link.js";
 
 export type CustomDeployCommand =
   | { kind: "help" }
@@ -34,8 +35,8 @@ export function parseCustomDeployCommand(rawContent: string): CustomDeployComman
   }
   if (action === "confirm" || action === "plan") {
     const command = tokens.join(" ").trim();
-    if (!command) return { matched: true, error: "缺少需要确认的升级命令，例如 /bot-deploy confirm /bot-upgrade --latest" };
-    if (!normalizeDeployCommand(command)) return { matched: true, error: "当前只支持确认 /bot-upgrade 的带参数命令" };
+    if (!command) return { matched: true, error: `缺少需要确认的升级命令，例如 ${slashCommandInput("/bot-deploy confirm /bot-upgrade --latest")}` };
+    if (!normalizeDeployCommand(command)) return { matched: true, error: `当前只支持确认 ${slashCommandInput("/bot-upgrade --latest", "/bot-upgrade")} 的带参数命令` };
     return { matched: true, command: { kind: "confirm", command } };
   }
   return { matched: true, error: `未知子命令：${action}` };

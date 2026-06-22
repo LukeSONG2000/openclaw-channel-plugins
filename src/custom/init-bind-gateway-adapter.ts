@@ -9,6 +9,7 @@ import {
   formatCustomActorIdentity,
   formatCustomPeerIdentity,
 } from "./identity-presentation.js";
+import { slashCommandInput } from "./command-link.js";
 
 export interface CustomInitBindConfigPersist {
   admins: string[];
@@ -45,7 +46,7 @@ export function handleCustomInitBindCommand(params: {
     return {
       handled: true,
       changed: false,
-      reply: "用法：/bot-init-bind <一次性绑定码>，或直接发送一次性绑定码。请在控制台生成绑定码后，在目标管理群中发送。",
+      reply: `用法：${slashCommandInput("/bot-init-bind <一次性绑定码>")}，或直接发送一次性绑定码。请在控制台生成绑定码后，在目标管理群中发送。`,
     };
   }
 
@@ -148,7 +149,7 @@ export function handleCustomInitBindCommand(params: {
       `管理员：${formatCustomActorIdentity({ id: params.message.senderId, label: params.message.senderName }, { idLabel: "user_openid" })}`,
       complete
         ? `管理群已存在：${formatCustomPeerIdentity({ kind: "group", id: currentAdminGroup!.slice("qqbot:group:".length) }, params.cfg)}。初始化绑定已完成。`
-        : "还需要在目标管理群发送同一个 /bot-init-bind 命令，以绑定 group_openid。",
+        : `还需要在目标管理群发送同一个 ${slashCommandInput("/bot-init-bind <一次性绑定码>")} 命令，以绑定 group_openid。`,
     ].join("\n"),
     log: `custom init bind admin captured via c2c admin=${params.message.senderId} complete=${complete}`,
   };

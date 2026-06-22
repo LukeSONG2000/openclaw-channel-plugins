@@ -4,6 +4,7 @@ import {
   formatCustomTaskCleanupDuration,
   type CustomTaskCleanupPlan,
 } from "./task-cleanup.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatTaskStatusForDisplay } from "./presentation-labels.js";
 
 export function buildCustomTaskKeyboard(task: CustomSandboxTask): InlineKeyboard {
@@ -82,12 +83,12 @@ export function formatCustomTaskHelp(error?: string): string {
   lines.push(
     `🧪 自定义长任务命令`,
     ``,
-    `/bot-task create <任务描述>`,
-    `/bot-task list`,
-    `/bot-task status <taskId>`,
-    `/bot-task add <taskId> <追加需求>`,
-    `/bot-task cancel <taskId>`,
-    `/bot-task cleanup [--older-than 7d] [--limit 10]`,
+    slashCommandInput(`/bot-task create <任务描述>`),
+    slashCommandInput(`/bot-task list`),
+    slashCommandInput(`/bot-task status <taskId>`),
+    slashCommandInput(`/bot-task add <taskId> <追加需求>`),
+    slashCommandInput(`/bot-task cancel <taskId>`),
+    slashCommandInput(`/bot-task cleanup --older-than 7d --limit 10`, `/bot-task cleanup [--older-than 7d] [--limit 10]`),
   );
   return lines.join("\n");
 }
@@ -221,13 +222,5 @@ function formatTaskCommandHints(task: CustomSandboxTask, options: { includeCreat
 }
 
 function cmdInput(text: string, show: string): string {
-  return `<qqbot-cmd-input text="${escapeCmdAttr(text)}" show="${escapeCmdAttr(show)}"/>`;
-}
-
-function escapeCmdAttr(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/"/g, "&quot;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
+  return slashCommandInput(text, show);
 }

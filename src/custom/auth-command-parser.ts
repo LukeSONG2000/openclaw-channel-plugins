@@ -1,4 +1,5 @@
 import type { CustomGrantUse } from "./types.js";
+import { slashCommandInput } from "./command-link.js";
 
 export type CustomAuthCommand =
   | { kind: "help" }
@@ -103,7 +104,7 @@ export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandPar
       const countRaw = tokens.shift();
       const count = countRaw ? Number.parseInt(countRaw, 10) : NaN;
       if (!Number.isFinite(count) || count < 1) {
-        return { matched: true, error: "allow-count 需要次数，例如 /bot-auth allow-count <requestId> 3" };
+        return { matched: true, error: `allow-count 需要次数，例如 ${slashCommandInput("/bot-auth allow-count <requestId> 3")}` };
       }
       grantCount = count;
     }
@@ -111,7 +112,7 @@ export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandPar
       const durationRaw = tokens.shift();
       const ttlMs = durationRaw ? parseDurationMs(durationRaw) : null;
       if (!ttlMs) {
-        return { matched: true, error: "allow-timed 需要时长，例如 /bot-auth allow-timed <requestId> 10m" };
+        return { matched: true, error: `allow-timed 需要时长，例如 ${slashCommandInput("/bot-auth allow-timed <requestId> 10m")}` };
       }
       grantTtlMs = ttlMs;
     }

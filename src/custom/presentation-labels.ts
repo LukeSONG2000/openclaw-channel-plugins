@@ -18,18 +18,18 @@ export const CUSTOM_SCENE_LABELS: Record<CustomSceneKind, string> = {
 };
 
 const CAPABILITY_LABELS: Record<ConcreteCapability, string> = {
-  "chat.send": "聊天发送",
-  "codex.run": "Codex 执行",
-  "codex.longTask": "Codex 长任务",
-  "system.status": "系统状态",
-  "system.restart": "系统重启",
+  "chat.send": "发送聊天消息",
+  "codex.run": "执行 Codex 任务",
+  "codex.longTask": "创建或修改长任务",
+  "system.status": "查看状态",
+  "system.restart": "重启服务",
   "config.read": "读取配置",
-  "config.write": "写入配置",
-  "auth.grant": "授权管理",
-  "deploy.check": "部署预检",
-  "deploy.apply": "执行部署",
-  "proactive.send": "主动发送",
-  "game.interact": "互动游戏",
+  "config.write": "写入配置/规则",
+  "auth.grant": "处理授权",
+  "deploy.check": "检查部署/版本",
+  "deploy.apply": "执行部署/升级",
+  "proactive.send": "主动发消息",
+  "game.interact": "创建或管理互动",
 };
 
 const TASK_STATUS_LABELS: Record<CustomTaskStatus, string> = {
@@ -91,6 +91,12 @@ export function formatCapabilityForDisplay(capability: CustomCapability): string
   if (capability === "*") return "全部能力（*）";
   const label = CAPABILITY_LABELS[capability];
   return label ? `${capability}（${label}）` : capability;
+}
+
+export function formatCapabilityForUser(capability: CustomCapability): string {
+  if (capability === "*") return "全部能力（*）";
+  const label = CAPABILITY_LABELS[capability];
+  return label ? `${label}（${capability}）` : capability;
 }
 
 export function formatCapabilitiesForDisplay(capabilities: readonly CustomCapability[] | undefined): string {

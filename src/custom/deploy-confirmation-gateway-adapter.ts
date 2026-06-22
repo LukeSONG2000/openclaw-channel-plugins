@@ -4,6 +4,7 @@ import type { InlineKeyboard } from "../types.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
+import { slashCommandInput } from "./command-link.js";
 import {
   buildCustomDeployPreflightKeyboard,
   buildCustomDeployPreflightSummary,
@@ -64,7 +65,7 @@ export function handleCustomDeployCommand(params: {
   const parsed = parseCustomDeployCommand(params.rawContent);
   if (!parsed.matched) return { handled: false };
   const runtime = resolveCustomRuntimeConfig(params.cfg);
-  if (!runtime.enabled) return { handled: true, reply: "ℹ️ customRuntime 未启用，无法使用 /bot-deploy。" };
+  if (!runtime.enabled) return { handled: true, reply: `ℹ️ customRuntime 未启用，无法使用 ${slashCommandInput("/bot-deploy")}。` };
   if (parsed.error) return { handled: true, reply: formatCustomDeployHelp(parsed.error) };
   const command = parsed.command ?? { kind: "help" as const };
   const peer = toCustomPeerFromQueuedMessage(params.message);

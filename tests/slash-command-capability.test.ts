@@ -137,7 +137,7 @@ for (const name of [
 ]) {
   assert.match(help as string, new RegExp(`/${name}\\b`));
 }
-assert.match(help as string, /\/bot-upgrade.*（仅私聊；\/bot-deploy 可在群里创建确认卡｜需要权限 查看 deploy\.check；执行升级 deploy\.apply）/);
+assert.match(help as string, /<qqbot-cmd-input text="\/bot-upgrade" show="\/bot-upgrade"\/>.*仅私聊；<qqbot-cmd-input text="\/bot-deploy" show="\/bot-deploy"\/> 可在群里创建确认卡｜需要权限 检查部署\/版本（deploy\.check）；执行部署\/升级（deploy\.apply）/);
 assert.doesNotMatch(help as string, /\/help.*（/);
 assert.doesNotMatch(help as string, /范围：/);
 assert.doesNotMatch(help as string, /权限：/);

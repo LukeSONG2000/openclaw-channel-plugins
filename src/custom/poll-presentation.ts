@@ -1,6 +1,7 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import { summarizePollResults } from "./poll.js";
 import type { CustomPoll } from "./types.js";
+import { slashCommandInput } from "./command-link.js";
 import {
   formatPollStatusForDisplay,
   formatUnknown,
@@ -19,10 +20,10 @@ export function formatCustomPollHelp(error?: string): string {
   lines.push(
     `🗳 自定义投票命令`,
     ``,
-    `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`,
-    `/bot-poll list`,
-    `/bot-poll status <pollId>`,
-    `/bot-poll close <pollId>`,
+    slashCommandInput(`/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`),
+    slashCommandInput(`/bot-poll list`),
+    slashCommandInput(`/bot-poll status <pollId>`),
+    slashCommandInput(`/bot-poll close <pollId>`),
   );
   return lines.join("\n");
 }

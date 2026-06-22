@@ -10,6 +10,7 @@ import {
   type CustomAuthorizationRuntime,
 } from "./auth.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
+import { slashCommandInput } from "./command-link.js";
 import {
   formatApprovalResolution,
   formatCustomAuthGrants,
@@ -74,7 +75,7 @@ export function handleCustomAuthCommand(params: {
       reply: [
         `ℹ️ customRuntime 未启用`,
         ``,
-        `请先开启 channels.qqbot.customRuntime.enabled 后再使用 /bot-auth。`,
+        `请先开启 channels.qqbot.customRuntime.enabled 后再使用 ${slashCommandInput("/bot-auth")}。`,
       ].join("\n"),
     };
   }
@@ -115,7 +116,7 @@ export function handleCustomAuthCommand(params: {
           `当前：${current ? "开启" : "关闭"}`,
           `说明：开启时，其他群/私聊产生的授权卡片会额外抄送管理群；关闭时只在申请人所在会话发卡。`,
           ``,
-          `切换：/bot-auth admin-copy on 或 /bot-auth admin-copy off`,
+          `切换：${slashCommandInput("/bot-auth admin-copy on")} 或 ${slashCommandInput("/bot-auth admin-copy off")}`,
         ].join("\n"),
       };
     }

@@ -189,7 +189,7 @@ const urgentList = handleCustomFallbackCommand({
 assert.equal(urgentList.handled, true);
 assert.equal(urgentList.reply?.includes("urgent-queue-bypass"), true);
 assert.equal(urgentList.reply?.includes("队列：待处理=8, 活跃=2/3, 当前会话待处理=2, 活跃时长=2分钟/3分钟"), true);
-assert.equal(urgentList.reply?.includes("紧急绕行：命令=/compact, 丢弃排队=2, 队列会话=group:GROUP_OPENID, 绕行后待处理=6, 绕行后当前会话待处理=0, 绕行后活跃=2分钟1秒"), true);
+assert.equal(urgentList.reply?.includes(`紧急绕行：命令=<qqbot-cmd-input text="/compact" show="/compact"/>, 丢弃排队=2, 队列会话=group:GROUP_OPENID, 绕行后待处理=6, 绕行后当前会话待处理=0, 绕行后活跃=2分钟1秒`), true);
 
 let summaryLimit = 0;
 const summary = handleCustomFallbackCommand({

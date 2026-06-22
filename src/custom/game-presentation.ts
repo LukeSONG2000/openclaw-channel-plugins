@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomGuessGame } from "./types.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatGameStatusForDisplay } from "./presentation-labels.js";
 
 export function buildCustomGuessGameKeyboard(game: CustomGuessGame): InlineKeyboard {
@@ -18,10 +19,10 @@ export function formatCustomGameHelp(error?: string): string {
   lines.push(
     `🎮 自定义小游戏命令`,
     ``,
-    `/bot-game guess`,
-    `/bot-game list`,
-    `/bot-game status <gameId>`,
-    `/bot-game close <gameId>`,
+    slashCommandInput(`/bot-game guess`),
+    slashCommandInput(`/bot-game list`),
+    slashCommandInput(`/bot-game status <gameId>`),
+    slashCommandInput(`/bot-game close <gameId>`),
     ``,
     `当前内置小游戏：猜数字 1-4。`,
   );

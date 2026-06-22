@@ -1,5 +1,6 @@
 import type { CustomUnreadRuntime } from "./unread-runtime.js";
 import { inspectCustomUnreadRuntimeState } from "./unread-runtime.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatBooleanYesNo } from "./presentation-labels.js";
 
 const DEFAULT_PEER_LIMIT = 5;
@@ -65,9 +66,9 @@ function formatCustomUnreadStatusHelp(error?: string): string {
   lines.push(
     `👀 自定义未读状态命令`,
     ``,
-    `/bot-unread`,
-    `/bot-unread status [数量]`,
-    `/bot-unread summary [数量]`,
+    slashCommandInput(`/bot-unread`),
+    slashCommandInput(`/bot-unread status`, `/bot-unread status [数量]`),
+    slashCommandInput(`/bot-unread summary`, `/bot-unread summary [数量]`),
     ``,
     `查看未读追读、后续跟进和睡眠摘要的只读状态；不会展示缓存消息正文。数量范围：1-${MAX_PEER_LIMIT}。`,
   );

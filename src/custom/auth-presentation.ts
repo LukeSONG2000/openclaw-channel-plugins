@@ -10,10 +10,10 @@ import {
   formatCustomGroupMention,
   formatCustomPeerIdentity,
 } from "./identity-presentation.js";
+import { slashCommandInput } from "./command-link.js";
 import {
-  formatCapabilityForDisplay,
+  formatCapabilityForUser,
   formatDurationZh,
-  formatSceneKind,
 } from "./presentation-labels.js";
 import type {
   CustomAuthorizationApprovalRequest,
@@ -32,24 +32,17 @@ export interface CustomAuthAdminGroupNotification {
 }
 
 export function buildCustomAuthApprovalText(request: CustomAuthorizationApprovalRequest, cfg?: OpenClawConfig): string {
-  const expiresInSec = Math.max(0, Math.round((request.expiresAt - Date.now()) / 1000));
   const adminMentions = formatCustomAuthAdminMentions(request);
+  const approveCommand = request.taskId
+    ? `/bot-auth approve ${request.id} task`
+    : `/bot-auth approve ${request.id} once`;
   const lines = [
     ...(adminMentions ? [adminMentions] : []),
-    `🔐 自定义权限申请`,
-    ``,
+    `🔐 需要授权`,
+    `位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `用户：${formatCustomAuthApplicantIdentity(request)}`,
-    `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
-    `能力：${formatCapabilityForDisplay(request.capability)}`,
-    `场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
-    ...(request.taskId ? [`任务：${request.taskId}`] : []),
-    `申请：${request.id}`,
-    ...(request.adminGroup ? [`管理群：${formatCustomAdminGroupIdentity(request.adminGroup, cfg)}`] : []),
-    ``,
-    `超时：${expiresInSec} 秒`,
-    request.taskId
-      ? `也可回复 /bot-auth approve ${request.id}`
-      : `也可回复 /bot-auth approve ${request.id} once`,
+    `权限：${formatCapabilityForUser(request.capability)}`,
+    `操作：${slashCommandInput(approveCommand, request.taskId ? "允许此任务" : "允许一次")} ${slashCommandInput(`/bot-auth deny ${request.id}`, "拒绝")}`,
   ];
   return lines.join("\n");
 }
@@ -186,16 +179,16 @@ export function formatCustomAuthHelp(error?: string): string {
   lines.push(
     `🔐 自定义授权命令`,
     ``,
-    `/bot-auth status`,
-    `/bot-auth requests [数量]`,
-    `/bot-auth grants [数量]`,
-    `/bot-auth admin-copy status`,
-    `/bot-auth admin-copy on|off`,
-    `/bot-auth approve <requestId> once`,
-    `/bot-auth approve <requestId> task`,
-    `/bot-auth approve <requestId> count 3`,
-    `/bot-auth approve <requestId> timed 10m`,
-    `/bot-auth deny <requestId>`,
+    slashCommandInput(`/bot-auth status`),
+    slashCommandInput(`/bot-auth requests`, `/bot-auth requests [数量]`),
+    slashCommandInput(`/bot-auth grants`, `/bot-auth grants [数量]`),
+    slashCommandInput(`/bot-auth admin-copy status`),
+    `${slashCommandInput(`/bot-auth admin-copy on`)} / ${slashCommandInput(`/bot-auth admin-copy off`)}`,
+    slashCommandInput(`/bot-auth approve <requestId> once`),
+    slashCommandInput(`/bot-auth approve <requestId> task`),
+    slashCommandInput(`/bot-auth approve <requestId> count 3`),
+    slashCommandInput(`/bot-auth approve <requestId> timed 10m`),
+    slashCommandInput(`/bot-auth deny <requestId>`),
   );
   return lines.join("\n");
 }
@@ -223,16 +216,16 @@ export function formatCustomAuthStatus(
     `待审批：${requests.length}`,
     `临时授权：${grants.length}`,
     ``,
-    `查看详情：/bot-auth requests 或 /bot-auth grants`,
+    `查看详情：${slashCommandInput(`/bot-auth requests`)} 或 ${slashCommandInput(`/bot-auth grants`)}`,
   ];
 
   for (const request of requests.slice(0, 5)) {
     lines.push(
       ``,
-      `- ${request.id}`,
+      `- 待审批`,
+      `  位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
       `  用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
-      `  能力：${formatCapabilityForDisplay(request.capability)}`,
-      `  会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
+      `  权限：${formatCapabilityForUser(request.capability)}`,
     );
   }
   if (requests.length > 5) {
@@ -262,14 +255,11 @@ export function formatCustomAuthRequests(auth: CustomAuthorizationRuntime, limit
   for (const request of requests) {
     lines.push(
       ``,
-      `- ${request.id}`,
+      `- 待审批`,
+      `  位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
       `  用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
-      `  会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
-      `  能力：${formatCapabilityForDisplay(request.capability)}`,
-      `  场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
-      ...(request.taskId ? [`  任务：${request.taskId}`] : []),
-      `  过期：${formatCustomAuthTime(request.expiresAt)}（剩余 ${formatRemainingMs(request.expiresAt - now)}）`,
-      `  操作：/bot-auth approve ${request.id} once 或 /bot-auth deny ${request.id}`,
+      `  权限：${formatCapabilityForUser(request.capability)}`,
+      `  操作：${slashCommandInput(request.taskId ? `/bot-auth approve ${request.id} task` : `/bot-auth approve ${request.id} once`, request.taskId ? "允许此任务" : "允许一次")} 或 ${slashCommandInput(`/bot-auth deny ${request.id}`, "拒绝")}`,
     );
   }
 
@@ -301,7 +291,7 @@ export function formatCustomAuthGrants(auth: CustomAuthorizationRuntime, limit: 
       `- ${grant.id}`,
       `  用户：${formatCustomActorIdentity({ id: grant.actorId }, { idLabel: "openid" })}`,
       `  会话：${formatCustomStoredPeerId(grant.peerId, cfg)}`,
-      `  能力：${formatCapabilityForDisplay(grant.capability)}`,
+      `  权限：${formatCapabilityForUser(grant.capability)}`,
       `  授权人：${grant.grantedBy}`,
       ...(grant.taskId ? [`  任务：${grant.taskId}`] : []),
       `  剩余：${grant.remainingUses === undefined ? "不限次数" : `${grant.remainingUses} 次`}`,
@@ -321,10 +311,9 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
     return [
       `✅ 已拒绝授权申请`,
       ``,
-      `申请：${request.id}`,
+      `位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
       `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
-      `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
-      `能力：${formatCapabilityForDisplay(request.capability)}`,
+      `权限：${formatCapabilityForUser(request.capability)}`,
     ].join("\n");
   }
 
@@ -339,10 +328,9 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
   return [
     `✅ 已批准临时授权`,
     ``,
-    `申请：${request.id}`,
+    `位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
-    `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
-    `能力：${formatCapabilityForDisplay(request.capability)}`,
+    `权限：${formatCapabilityForUser(request.capability)}`,
     grantDesc,
   ].join("\n");
 }

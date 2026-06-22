@@ -7,7 +7,7 @@ import {
 import type { CustomDispatchFallbackRecorder } from "./fallback-record-gateway-adapter.js";
 import type { CustomToolFallbackLogger } from "./tool-fallback-gateway-adapter.js";
 
-const FRAMEWORK_RUNTIME_MODULE_NOTICE = "⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n斜杠命令（如 /bot-ping）不受影响。";
+const FRAMEWORK_RUNTIME_MODULE_NOTICE = "⚠️ AI 服务暂时不可用：openclaw 框架运行时模块加载失败。\n\n请管理员执行：\nnpm install -g openclaw@latest\nopenclaw gateway restart\n\n插件级斜杠命令不受影响。";
 
 export interface CustomDispatchFailureState {
   readonly hasResponse: boolean;

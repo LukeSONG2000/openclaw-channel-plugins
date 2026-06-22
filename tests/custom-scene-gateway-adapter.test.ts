@@ -121,7 +121,7 @@ assert.equal(bindings.reply?.includes("名称：Admin group"), true);
 assert.equal(bindings.reply?.includes("智能体：admin-agent"), true);
 assert.equal(bindings.reply?.includes("- qqbot:c2c:USER_OPENID"), true);
 assert.equal(bindings.reply?.includes("场景：私聊默认（default-dm）；启用：否"), true);
-assert.equal(bindings.reply?.includes("能力：system.status（系统状态）"), true);
+assert.equal(bindings.reply?.includes("能力：system.status（查看状态）"), true);
 assert.equal(formatCustomSceneBindingsDirect(cfg.channels.qqbot.customRuntime).includes("智能体：admin-agent"), true);
 
 const set = handleCustomSceneCommand({

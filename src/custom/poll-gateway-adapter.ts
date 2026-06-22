@@ -4,6 +4,7 @@ import type { QueuedMessage } from "../message-queue.js";
 import { toCustomActorFromQueuedMessage, toCustomPeerFromQueuedMessage } from "./queued-message-context.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { CustomPollRuntime } from "./poll.js";
+import { slashCommandInput } from "./command-link.js";
 import { parseCustomPollButtonData, parseCustomPollCommand } from "./poll-command-parser.js";
 import {
   buildCustomPollKeyboard,
@@ -60,7 +61,7 @@ export function handleCustomPollCommand(params: {
   const parsed = parseCustomPollCommand(params.rawContent);
   if (!parsed.matched) return { handled: false };
   const runtime = resolveCustomRuntimeConfig(params.cfg);
-  if (!runtime.enabled) return { handled: true, reply: "ℹ️ customRuntime 未启用，无法使用 /bot-poll。" };
+  if (!runtime.enabled) return { handled: true, reply: `ℹ️ customRuntime 未启用，无法使用 ${slashCommandInput("/bot-poll")}。` };
   if (parsed.error) return { handled: true, reply: formatCustomPollHelp(parsed.error) };
   const command = parsed.command ?? { kind: "help" as const };
   const peer = toCustomPeerFromQueuedMessage(params.message);

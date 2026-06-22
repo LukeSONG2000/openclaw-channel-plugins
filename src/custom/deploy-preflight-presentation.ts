@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomDeployPreflightFinding, CustomDeployPreflightSummary } from "./deploy-preflight.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatBooleanYesNo } from "./presentation-labels.js";
 
 export function formatCustomDeployPreflightSummary(summary: CustomDeployPreflightSummary): string {
@@ -18,7 +19,7 @@ export function formatCustomDeployPreflightSummary(summary: CustomDeployPrefligh
   appendFindings(lines, "提示", summary.findings.filter((finding) => finding.severity === "info"));
   lines.push(
     "建议：",
-    "- 阻断项清零后再创建 /bot-deploy confirm 确认卡。",
+    `- 阻断项清零后再创建 ${slashCommandInput("/bot-deploy confirm /bot-upgrade --latest", "/bot-deploy confirm")} 确认卡。`,
     "- 真正部署前仍需在服务器运行脚本版 preflight，并完成备份。",
   );
   return lines.join("\n");

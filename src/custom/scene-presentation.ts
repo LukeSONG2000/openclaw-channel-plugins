@@ -6,6 +6,7 @@ import {
   formatCustomPeerKey,
   getCustomSceneProfile,
 } from "./scenes.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatCustomPeerIdentity } from "./identity-presentation.js";
 import {
   formatBooleanYesNo,
@@ -31,11 +32,11 @@ export function formatCustomSceneHelp(error?: string): string {
   lines.push(
     `🧭 自定义场景命令`,
     ``,
-    `/bot-scene status`,
-    `/bot-scene list`,
-    `/bot-scene bindings`,
-    `/bot-scene set <scene> [--agent <agentId>]`,
-    `/bot-scene set <scene> --clear-agent`,
+    slashCommandInput(`/bot-scene status`),
+    slashCommandInput(`/bot-scene list`),
+    slashCommandInput(`/bot-scene bindings`),
+    slashCommandInput(`/bot-scene set <scene> --agent <agentId>`),
+    slashCommandInput(`/bot-scene set <scene> --clear-agent`),
     ``,
     `可选场景：${CUSTOM_SCENE_KINDS.map(formatSceneKind).join(", ")}`,
   );

@@ -14,7 +14,8 @@ import {
   formatCustomActorIdentity,
   formatCustomPeerIdentity,
 } from "./identity-presentation.js";
-import { formatCapabilityForDisplay } from "./presentation-labels.js";
+import { slashCommandInput } from "./command-link.js";
+import { formatCapabilityForUser } from "./presentation-labels.js";
 import type {
   CustomActor,
   CustomCapability,
@@ -179,50 +180,49 @@ export function checkCustomSlashAuthorization(params: {
 }
 
 export function formatCustomDispatchAuthorizationDeniedMessage(decision: CustomDispatchAuthorizationDecision): string {
-  const capability = decision.capability ? formatCapabilityForDisplay(decision.capability) : "未知";
-  const actor = decision.actor
-    ? formatCustomActorIdentity(decision.actor, { idLabel: decision.peer?.kind === "group" ? "member_openid" : "user_openid" })
-    : "当前用户";
-  const peer = decision.peer ? formatCustomPeerIdentity(decision.peer, decision.cfg) : "当前会话";
-  const requestId = decision.result?.decision.requestId;
-  const lines = [
-    `⛔ 当前场景不允许这类对话或任务`,
-    ``,
-    `用户：${actor}`,
-    `会话：${peer}`,
-    `需要能力：${capability}`,
-  ];
-
-  if (requestId) {
-    lines.push(``, `已创建授权申请：${requestId}`);
-    lines.push(`管理员可回复：/bot-auth approve ${requestId} once`);
-  } else {
-    lines.push(``, `请联系管理员调整 customRuntime 场景能力，或为当前请求授予临时权限。`);
-  }
-
-  return lines.join("\n");
+  return formatCustomAuthorizationDeniedCore({
+    title: "⛔ 需要授权",
+    capability: decision.capability,
+    actor: decision.actor,
+    peer: decision.peer,
+    cfg: decision.cfg,
+    requestId: decision.result?.decision.requestId,
+  });
 }
 
 export function formatCustomAuthorizationDeniedMessage(decision: CustomSlashAuthorizationDecision): string {
-  const capability = decision.capability ? formatCapabilityForDisplay(decision.capability) : "未知";
-  const actor = decision.actor
-    ? formatCustomActorIdentity(decision.actor, { idLabel: decision.peer?.kind === "group" ? "member_openid" : "user_openid" })
+  return formatCustomAuthorizationDeniedCore({
+    title: "⛔ 需要授权",
+    capability: decision.capability,
+    actor: decision.actor,
+    peer: decision.peer,
+    cfg: decision.cfg,
+    requestId: decision.result?.decision.requestId,
+  });
+}
+
+function formatCustomAuthorizationDeniedCore(params: {
+  title: string;
+  capability?: Exclude<CustomCapability, "*">;
+  actor?: CustomActor;
+  peer?: CustomPeer;
+  cfg?: OpenClawConfig;
+  requestId?: string;
+}): string {
+  const capability = params.capability ? formatCapabilityForUser(params.capability) : "未知";
+  const actor = params.actor
+    ? formatCustomActorIdentity(params.actor, { idLabel: params.peer?.kind === "group" ? "member_openid" : "user_openid" })
     : "当前用户";
-  const peer = decision.peer ? formatCustomPeerIdentity(decision.peer, decision.cfg) : "当前会话";
-  const requestId = decision.result?.decision.requestId;
+  const peer = params.peer ? formatCustomPeerIdentity(params.peer, params.cfg) : "当前会话";
   const lines = [
-    `⛔ 当前没有执行该插件命令的权限`,
-    ``,
+    params.title,
+    `位置：${peer}`,
     `用户：${actor}`,
-    `会话：${peer}`,
-    `需要能力：${capability}`,
+    `权限：${capability}`,
   ];
 
-  if (requestId) {
-    lines.push(``, `已创建授权申请：${requestId}`);
-    lines.push(`管理员可回复：/bot-auth approve ${requestId} once`);
-  } else {
-    lines.push(``, `请联系管理员把你加入 customRuntime.admins，或为当前场景授予该能力。`);
+  if (params.requestId) {
+    lines.push(`操作：${slashCommandInput(`/bot-auth approve ${params.requestId} once`, "允许一次")} ${slashCommandInput(`/bot-auth deny ${params.requestId}`, "拒绝")}`);
   }
 
   return lines.join("\n");

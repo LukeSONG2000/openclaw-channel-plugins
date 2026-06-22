@@ -118,7 +118,7 @@ const fallback = await applyCustomDispatchAuthorizationGateway({
 });
 assert.equal(fallback.shouldStop, true);
 assert.equal(fallback.denialDelivery?.delivery, "text");
-assert.equal(fallbackTexts[0]?.includes("需要能力：codex.run"), true);
+assert.equal(fallbackTexts[0]?.includes("权限：执行 Codex 任务（codex.run）"), true);
 assert.equal(fallbackErrors[0]?.includes("[qqbot:default] Failed to send dispatch auth approval card"), true);
 
 let disabledPersisted = false;

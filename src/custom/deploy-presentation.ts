@@ -1,5 +1,6 @@
 import type { InlineKeyboard, KeyboardButton } from "../types.js";
 import type { CustomDeployConfirmation } from "./types.js";
+import { slashCommandInput } from "./command-link.js";
 import { formatDeployStatusForDisplay } from "./presentation-labels.js";
 
 export function buildCustomDeployConfirmationKeyboard(confirmation: CustomDeployConfirmation): InlineKeyboard {
@@ -35,11 +36,11 @@ export function formatCustomDeployHelp(error?: string): string {
   lines.push(
     `🚀 自定义部署确认命令`,
     ``,
-    `/bot-deploy confirm /bot-upgrade --latest`,
-    `/bot-deploy confirm /bot-upgrade --version <version>`,
-    `/bot-deploy list`,
-    `/bot-deploy status <confirmationId>`,
-    `/bot-deploy preflight`,
+    slashCommandInput(`/bot-deploy confirm /bot-upgrade --latest`),
+    slashCommandInput(`/bot-deploy confirm /bot-upgrade --version <version>`),
+    slashCommandInput(`/bot-deploy list`),
+    slashCommandInput(`/bot-deploy status <confirmationId>`),
+    slashCommandInput(`/bot-deploy preflight`),
     ``,
     `当前只创建确认卡，不自动执行升级。确认后仍需管理员手动发送确认中的升级命令。`,
   );
@@ -51,12 +52,12 @@ export function formatDeployConfirmationCreated(confirmation: CustomDeployConfir
     `🚀 部署确认已创建`,
     ``,
     `确认：${confirmation.id}`,
-    `命令：${confirmation.command}`,
+    `命令：${slashCommandInput(confirmation.command)}`,
     `发起人：${confirmation.creator.label || confirmation.creator.id}`,
     `过期：${formatExpiresIn(confirmation.expiresAt)}`,
     ``,
     `点击确认只会记录确认状态，不会自动执行热更新。`,
-    `确认后请在管理员私聊中手动发送：${confirmation.command}`,
+    `确认后请在管理员私聊中手动发送：${slashCommandInput(confirmation.command)}`,
   ].join("\n");
 }
 
@@ -64,7 +65,7 @@ export function formatDeployConfirmationList(confirmations: CustomDeployConfirma
   if (confirmations.length === 0) return "🚀 当前会话暂无部署确认。";
   const lines = ["🚀 当前会话部署确认", ""];
   for (const confirmation of confirmations) {
-    lines.push(`- ${confirmation.id} [${formatDeployStatusForDisplay(confirmation.status)}] ${confirmation.command}`);
+    lines.push(`- ${confirmation.id} [${formatDeployStatusForDisplay(confirmation.status)}] ${slashCommandInput(confirmation.command)}`);
   }
   return lines.join("\n");
 }
@@ -75,7 +76,7 @@ export function formatDeployConfirmationStatus(confirmation: CustomDeployConfirm
     ``,
     `确认：${confirmation.id}`,
     `状态：${formatDeployStatusForDisplay(confirmation.status)}`,
-    `命令：${confirmation.command}`,
+    `命令：${slashCommandInput(confirmation.command)}`,
     `发起人：${confirmation.creator.label || confirmation.creator.id}`,
     `过期：${formatExpiresIn(confirmation.expiresAt, now)}`,
     ...(confirmation.resolvedBy ? [`处理人：${confirmation.resolvedBy.label || confirmation.resolvedBy.id}`] : []),
@@ -88,7 +89,7 @@ export function formatDeployConfirmationResolved(confirmation: CustomDeployConfi
       `⚠️ 部署确认已过期`,
       ``,
       `确认：${confirmation.id}`,
-      `命令：${confirmation.command}`,
+      `命令：${slashCommandInput(confirmation.command)}`,
     ].join("\n");
   }
   if (reason === "not_pending") {
@@ -97,7 +98,7 @@ export function formatDeployConfirmationResolved(confirmation: CustomDeployConfi
       ``,
       `确认：${confirmation.id}`,
       `状态：${formatDeployStatusForDisplay(confirmation.status)}`,
-      `命令：${confirmation.command}`,
+      `命令：${slashCommandInput(confirmation.command)}`,
     ].join("\n");
   }
   if (confirmation.status === "confirmed") {
@@ -105,7 +106,7 @@ export function formatDeployConfirmationResolved(confirmation: CustomDeployConfi
       `✅ 已确认部署操作`,
       ``,
       `确认：${confirmation.id}`,
-      `命令：${confirmation.command}`,
+      `命令：${slashCommandInput(confirmation.command)}`,
       ``,
       `安全起见，本卡片不会自动执行热更新。`,
       `请管理员在私聊中手动发送该命令，并确保已完成服务器备份。`,
@@ -116,14 +117,14 @@ export function formatDeployConfirmationResolved(confirmation: CustomDeployConfi
       `✅ 已取消部署操作`,
       ``,
       `确认：${confirmation.id}`,
-      `命令：${confirmation.command}`,
+      `命令：${slashCommandInput(confirmation.command)}`,
     ].join("\n");
   }
   return formatDeployDecision(reason);
 }
 
 export function formatDeployDecision(reason: string): string {
-  if (reason === "invalid_command") return "⚠️ 当前只支持确认 /bot-upgrade 的带参数命令。";
+  if (reason === "invalid_command") return `⚠️ 当前只支持确认 ${slashCommandInput("/bot-upgrade --latest", "/bot-upgrade")} 的带参数命令。`;
   if (reason === "not_found") return "⚠️ 部署确认不存在。";
   if (reason === "not_pending") return "⚠️ 部署确认已处理。";
   if (reason === "expired") return "⚠️ 部署确认已过期。";

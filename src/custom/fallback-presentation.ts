@@ -3,6 +3,7 @@ import {
   CUSTOM_FALLBACK_MAX_LIST_LIMIT,
   CUSTOM_FALLBACK_MAX_SUMMARY_LIMIT,
 } from "./fallback-command-parser.js";
+import { slashCommandInput } from "./command-link.js";
 import {
   formatBooleanYesNoUnknown,
   formatDurationZh,
@@ -15,11 +16,11 @@ export function formatCustomFallbackHelp(error?: string): string {
   lines.push(
     `🧯 自定义兜底事件命令`,
     ``,
-    `/bot-fallback`,
-    `/bot-fallback list [数量]`,
-    `/bot-fallback status [数量]`,
-    `/bot-fallback summary [数量]`,
-    `/bot-fallback clear --force`,
+    slashCommandInput(`/bot-fallback`),
+    slashCommandInput(`/bot-fallback list`, `/bot-fallback list [数量]`),
+    slashCommandInput(`/bot-fallback status`, `/bot-fallback status [数量]`),
+    slashCommandInput(`/bot-fallback summary`, `/bot-fallback summary [数量]`),
+    slashCommandInput(`/bot-fallback clear --force`),
     ``,
     `查看、统计或清理最近的超时、上下文过长、工具无输出等兜底事件。列表数量范围：1-${CUSTOM_FALLBACK_MAX_LIST_LIMIT}；统计范围：1-${CUSTOM_FALLBACK_MAX_SUMMARY_LIMIT}。`,
   );
@@ -30,9 +31,9 @@ export function formatCustomFallbackClearHelp(): string {
   return [
     `⚠️ 清空兜底事件需要确认`,
     ``,
-    `请使用：/bot-fallback clear --force`,
+    `请使用：${slashCommandInput("/bot-fallback clear --force")}`,
     ``,
-    `清空后将无法通过 /bot-fallback 查看之前的兜底记录。`,
+    `清空后将无法通过 ${slashCommandInput("/bot-fallback")} 查看之前的兜底记录。`,
   ].join("\n");
 }
 
@@ -172,7 +173,8 @@ function formatUrgentDetails(event: CustomFallbackEvent): string[] {
   const afterSender = numberDetail(event, "queueAfterSenderPending");
   const afterSenderActiveMs = numberDetail(event, "queueAfterSenderActiveMs");
   const afterActive = afterSenderActiveMs !== null ? `, 绕行后活跃=${formatDurationZh(afterSenderActiveMs)}` : "";
-  return [`  紧急绕行：命令=${command}, 丢弃排队=${dropped ?? "?"}, 队列会话=${queuePeerId}, 绕行后待处理=${afterTotal ?? "?"}, 绕行后当前会话待处理=${afterSender ?? "?"}${afterActive}`];
+  const commandText = command.startsWith("/") ? commandInput(command, command) : command;
+  return [`  紧急绕行：命令=${commandText}, 丢弃排队=${dropped ?? "?"}, 队列会话=${queuePeerId}, 绕行后待处理=${afterTotal ?? "?"}, 绕行后当前会话待处理=${afterSender ?? "?"}${afterActive}`];
 }
 
 function maxNumber(events: CustomFallbackEvent[], key: string): number | null {

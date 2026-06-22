@@ -24,6 +24,7 @@ import { getPackageVersion } from "./utils/pkg-version.js";
 import { getQQBotRuntime } from "./runtime.js";
 import { isApprovalFeatureAvailable } from "./approval-handler.js";
 import type { CustomCapability } from "./custom/types.js";
+import { formatCapabilityForUser } from "./custom/presentation-labels.js";
 const require = createRequire(import.meta.url);
 
 let PLUGIN_VERSION = getPackageVersion(import.meta.url);
@@ -290,11 +291,42 @@ const HELP_CATEGORY_ORDER: SlashCommand["category"][] = [
   "存储",
 ];
 
+function slashCommandInput(command: string, show: string = command): string {
+  return `<qqbot-cmd-input text="${escapeSlashCommandAttr(command.trim())}" show="${escapeSlashCommandAttr(show.trim() || command.trim())}"/>`;
+}
+
+function slashCommandEnter(command: string, show: string = command): string {
+  return `<qqbot-cmd-enter text="${escapeSlashCommandAttr(command.trim())}" show="${escapeSlashCommandAttr(show.trim() || command.trim())}"/>`;
+}
+
+function escapeSlashCommandAttr(value: string): string {
+  return value
+    .replace(/&/g, "&amp;")
+    .replace(/"/g, "&quot;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;");
+}
+
+function linkSlashUsageCommands(usage: string): string {
+  return usage.split("\n").map((line) => {
+    const match = line.match(/^(\s*)(\/[-\w]+(?:\s+.*?)*?)(\s{2,}.+)?$/);
+    if (!match) return line;
+    const prefix = match[1] ?? "";
+    const command = (match[2] ?? "").trimEnd();
+    const desc = match[3] ?? "";
+    return `${prefix}${slashCommandInput(command)}${desc}`;
+  }).join("\n");
+}
+
+function linkSlashCommandsInline(text: string): string {
+  return text.replace(/\/[-\w]+(?:\s+[-\w]+)*/g, (command) => slashCommandInput(command));
+}
+
 function formatSlashCommandHelp(): string {
   const lines = [
     `### QQBot 指令总览`,
     ``,
-    `用法：发送 /<指令> ? 查看单条指令详情。`,
+    `用法：发送 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 查看单条指令详情。`,
   ];
 
   for (const category of HELP_CATEGORY_ORDER) {
@@ -303,7 +335,7 @@ function formatSlashCommandHelp(): string {
     lines.push(``, `#### ${category}`);
     for (const cmd of items) {
       const suffix = formatSlashCommandHelpRestriction(cmd);
-      lines.push(`<qqbot-cmd-input text="/${cmd.name}" show="/${cmd.name}"/> — ${cmd.description}${suffix}`);
+      lines.push(`${slashCommandInput(`/${cmd.name}`)} — ${cmd.description}${suffix}`);
     }
   }
 
@@ -313,9 +345,28 @@ function formatSlashCommandHelp(): string {
 
 function formatSlashCommandHelpRestriction(cmd: SlashCommand): string {
   const restrictions = [];
-  if (cmd.scope && cmd.scope !== "全部会话") restrictions.push(cmd.scope);
-  if (cmd.access && cmd.access !== "无") restrictions.push(`需要权限 ${cmd.access}`);
+  if (cmd.scope && cmd.scope !== "全部会话") restrictions.push(linkSlashCommandsInline(cmd.scope));
+  if (cmd.access && cmd.access !== "无") restrictions.push(`需要权限 ${formatSlashAccessForHelp(cmd.access)}`);
   return restrictions.length ? `（${restrictions.join("｜")}）` : "";
+}
+
+function formatSlashAccessForHelp(access: string): string {
+  return access.replace(/\b(chat\.send|codex\.run|codex\.longTask|system\.status|system\.restart|config\.read|config\.write|auth\.grant|deploy\.check|deploy\.apply|proactive\.send|game\.interact|\*)\b/g, (capability) =>
+    formatCapabilityForUser(capability as CustomCapability)
+  )
+    .replace(/查看 查看状态/g, "查看状态")
+    .replace(/查看 读取配置/g, "读取配置")
+    .replace(/查看 检查部署\/版本/g, "检查部署/版本")
+    .replace(/创建\/追加\/取消 创建或修改长任务/g, "创建或修改长任务")
+    .replace(/创建\/关闭 创建或管理互动/g, "创建或管理互动")
+    .replace(/创建确认 执行部署\/升级/g, "执行部署/升级")
+    .replace(/执行升级 执行部署\/升级/g, "执行部署/升级")
+    .replace(/绑定 写入配置\/规则/g, "写入配置/规则")
+    .replace(/清理 写入配置\/规则/g, "写入配置/规则")
+    .replace(/开关 写入配置\/规则/g, "写入配置/规则")
+    .replace(/确认删除 写入配置\/规则/g, "写入配置/规则")
+    .replace(/修改 处理授权/g, "处理授权")
+    .replace(/审批\/抄送开关 处理授权/g, "处理授权");
 }
 
 // ============ 内置指令 ============
@@ -385,7 +436,7 @@ registerCommand({
     } else if (info.error) {
       lines.push(`⚠️ 版本检查失败`);
     } else if (info.hasUpdate && info.latest) {
-      lines.push(`🆕二开包可用版本：v${info.latest}，点击 <qqbot-cmd-input text="/bot-upgrade" show="/bot-upgrade"/> 查看升级指引`);
+      lines.push(`🆕二开包可用版本：v${info.latest}，点击 ${slashCommandInput("/bot-upgrade")} 查看升级指引`);
     } 
     lines.push(`🌟上游官方仓库：[点击前往](https://github.com/tencent-connect/openclaw-qqbot/)`);
     return lines.join("\n");
@@ -405,7 +456,7 @@ registerCommand({
     `/bot-help`,
     ``,
     `列出所有可用的 QQBot 插件内置指令及其简要说明。`,
-    `使用 /指令名 ? 可查看某条指令的详细用法。`,
+    `使用 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 可查看某条指令的详细用法。`,
   ].join("\n"),
   handler: () => formatSlashCommandHelp(),
 });
@@ -420,7 +471,7 @@ registerCommand({
     `/help`,
     ``,
     `按分类列出全部 QQBot 插件指令、使用范围和权限范围。`,
-    `使用 /指令名 ? 可查看某条指令的详细用法。`,
+    `使用 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 可查看某条指令的详细用法。`,
   ].join("\n"),
   handler: () => formatSlashCommandHelp(),
 });
@@ -456,9 +507,9 @@ registerCommand({
     `🔐 自定义授权命令`,
     ``,
     `该命令由 customRuntime 在入队前处理。常用操作：`,
-    `<qqbot-cmd-input text="/bot-auth status" show="/bot-auth status"/> 查看授权状态`,
-    `<qqbot-cmd-input text="/bot-auth requests" show="/bot-auth requests"/> 查看待审批申请`,
-    `<qqbot-cmd-input text="/bot-auth admin-copy status" show="/bot-auth admin-copy status"/> 查看跨群抄送开关`,
+    `${slashCommandInput("/bot-auth status")} 查看授权状态`,
+    `${slashCommandInput("/bot-auth requests")} 查看待审批申请`,
+    `${slashCommandInput("/bot-auth admin-copy status")} 查看跨群抄送开关`,
   ].join("\n"),
 });
 
@@ -1528,7 +1579,7 @@ registerCommand({
       if (t === "--pkg") {
         const next = tokens[i + 1];
         if (!next || next.startsWith("--")) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
         }
         requestedPkg = next;
         i += 1;
@@ -1537,7 +1588,7 @@ registerCommand({
       if (t.startsWith("--pkg=")) {
         const v = t.slice("--pkg=".length).trim();
         if (!v) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
         }
         requestedPkg = v;
         continue;
@@ -1626,7 +1677,7 @@ registerCommand({
       if (t === "--pkg") {
         const next = tokens[i + 1];
         if (!next || next.startsWith("--")) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
         }
         pkgArg = next;
         i += 1;
@@ -1635,7 +1686,7 @@ registerCommand({
       if (t.startsWith("--pkg=")) {
         const v = t.slice("--pkg=".length).trim();
         if (!v) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：/bot-upgrade --pkg lukesong/openclaw-qqbot`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
         }
         pkgArg = v;
         continue;
@@ -1643,7 +1694,7 @@ registerCommand({
       if (t === "--version") {
         const next = tokens[i + 1];
         if (!next || next.startsWith("--")) {
-          return `❌ 参数错误：--version 需要版本号\n\n示例：/bot-upgrade --version 1.6.5`;
+          return `❌ 参数错误：--version 需要版本号\n\n示例：${slashCommandInput("/bot-upgrade --version 1.6.5")}`;
         }
         versionArg = next.replace(/^v/, "");
         i += 1;
@@ -1652,7 +1703,7 @@ registerCommand({
       if (t.startsWith("--version=")) {
         const v = t.slice("--version=".length).trim();
         if (!v) {
-          return `❌ 参数错误：--version 需要版本号\n\n示例：/bot-upgrade --version 1.6.5`;
+          return `❌ 参数错误：--version 需要版本号\n\n示例：${slashCommandInput("/bot-upgrade --version 1.6.5")}`;
         }
         versionArg = v.replace(/^v/, "");
         continue;
@@ -1697,7 +1748,7 @@ registerCommand({
         `升级将重启 Gateway 服务，期间短暂不可用。`,
         `请确认主机网络可正常访问 npm 仓库。`,
         ``,
-        `**点击确认升级** <qqbot-cmd-enter text="/bot-upgrade --latest" />`,
+        `确认升级：${slashCommandInput("/bot-upgrade --latest")}`,
         ``,
         `手动升级指引：[点击查看](${url})`,
         `🌟上游官方仓库：[点击前往](${GITHUB_URL})`,
@@ -2201,7 +2252,7 @@ registerCommand({
         ``,
         `确认清理后，上述保存在 OpenClaw 运行主机磁盘上的文件将永久删除，后续对话过程中AI无法再找回相关文件。`,
         `‼️ 点击指令确认删除`,
-        `<qqbot-cmd-enter text="/bot-clear-storage --force" />`,
+        slashCommandInput("/bot-clear-storage --force"),
       );
 
       return lines.join("\n");
@@ -2302,7 +2353,7 @@ registerCommand({
   handler: async (ctx) => {
     // 流式消息仅支持 C2C（私聊），群/频道场景直接提示
     if (ctx.type !== "c2c") {
-      return `❌ 流式消息仅支持私聊场景，请在私聊中使用 /bot-streaming 指令`;
+      return `❌ 流式消息仅支持私聊场景，请在私聊中使用 ${slashCommandInput("/bot-streaming")} 指令`;
     }
 
     const arg = ctx.args.trim().toLowerCase();
@@ -2315,13 +2366,13 @@ registerCommand({
       return [
         `📡 流式消息状态：${currentStreaming ? "✅ 已开启" : "❌ 已关闭"}`,
         ``,
-        `使用 <qqbot-cmd-input text="/bot-streaming on" show="/bot-streaming on"/> 开启`,
-        `使用 <qqbot-cmd-input text="/bot-streaming off" show="/bot-streaming off"/> 关闭`,
+        `使用 ${slashCommandInput("/bot-streaming on")} 开启`,
+        `使用 ${slashCommandInput("/bot-streaming off")} 关闭`,
       ].join("\n");
     }
 
     if (arg !== "on" && arg !== "off") {
-      return `❌ 参数错误，请使用 on 或 off\n\n示例：/bot-streaming on`;
+      return `❌ 参数错误，请使用 on 或 off\n\n示例：${slashCommandInput("/bot-streaming on")}`;
     }
 
     const newStreaming = arg === "on";
@@ -2480,11 +2531,11 @@ registerCommand({
       return [
         `🔐 命令执行审批配置`,
         ``,
-        `<qqbot-cmd-input text="/bot-approve on" show="/bot-approve on"/> 开启审批（白名单模式）`,
-        `<qqbot-cmd-input text="/bot-approve off" show="/bot-approve off"/> 关闭审批`,
-        `<qqbot-cmd-input text="/bot-approve always" show="/bot-approve always"/> 严格模式`,
-        `<qqbot-cmd-input text="/bot-approve reset" show="/bot-approve reset"/> 恢复默认`,
-        `<qqbot-cmd-input text="/bot-approve status" show="/bot-approve status"/> 查看当前配置`,
+        `${slashCommandInput("/bot-approve on")} 开启审批（白名单模式）`,
+        `${slashCommandInput("/bot-approve off")} 关闭审批`,
+        `${slashCommandInput("/bot-approve always")} 严格模式`,
+        `${slashCommandInput("/bot-approve reset")} 恢复默认`,
+        `${slashCommandInput("/bot-approve status")} 查看当前配置`,
       ].join("\n");
     }
     const configApi = runtime.config as {
@@ -2535,11 +2586,11 @@ registerCommand({
       return [
         `🔐 命令执行审批配置`,
         ``,
-        `<qqbot-cmd-input text="/bot-approve on" show="/bot-approve on"/> 开启审批（白名单模式）`,
-        `<qqbot-cmd-input text="/bot-approve off" show="/bot-approve off"/> 关闭审批`,
-        `<qqbot-cmd-input text="/bot-approve always" show="/bot-approve always"/> 严格模式`,
-        `<qqbot-cmd-input text="/bot-approve reset" show="/bot-approve reset"/> 恢复默认`,
-        `<qqbot-cmd-input text="/bot-approve status" show="/bot-approve status"/> 查看当前配置`,
+        `${slashCommandInput("/bot-approve on")} 开启审批（白名单模式）`,
+        `${slashCommandInput("/bot-approve off")} 关闭审批`,
+        `${slashCommandInput("/bot-approve always")} 严格模式`,
+        `${slashCommandInput("/bot-approve reset")} 恢复默认`,
+        `${slashCommandInput("/bot-approve status")} 查看当前配置`,
       ].join("\n");
     }
 
@@ -2549,10 +2600,10 @@ registerCommand({
       return [
         formatStatus(security, ask),
         ``,
-        `<qqbot-cmd-input text="/bot-approve on" show="/bot-approve on"/> 开启审批`,
-        `<qqbot-cmd-input text="/bot-approve off" show="/bot-approve off"/> 关闭审批`,
-        `<qqbot-cmd-input text="/bot-approve always" show="/bot-approve always"/> 严格模式`,
-        `<qqbot-cmd-input text="/bot-approve reset" show="/bot-approve reset"/> 恢复默认`,
+        `${slashCommandInput("/bot-approve on")} 开启审批`,
+        `${slashCommandInput("/bot-approve off")} 关闭审批`,
+        `${slashCommandInput("/bot-approve always")} 严格模式`,
+        `${slashCommandInput("/bot-approve reset")} 恢复默认`,
       ].join("\n");
     }
 
@@ -2632,7 +2683,7 @@ registerCommand({
           `已移除 tools.exec.security 和 tools.exec.ask`,
           `框架将使用默认值（security=deny, ask=on-miss）`,
           ``,
-          `如需开启命令执行，请使用 /bot-approve on`,
+          `如需开启命令执行，请使用 ${slashCommandInput("/bot-approve on")}`,
         ].join("\n");
       } catch (err) {
         return `❌ 配置更新失败: ${err}`;
@@ -2643,7 +2694,7 @@ registerCommand({
       `❌ 未知参数: ${arg}`,
       ``,
       `可用选项: on | off | always | reset`,
-      `输入 /bot-approve ? 查看详细用法`,
+      `输入 ${slashCommandInput("/bot-approve ?")} 查看详细用法`,
     ].join("\n");
   },
 });
@@ -2691,13 +2742,13 @@ registerCommand({
     if (!arg) {
       return [
         `🤖 群自主发言状态：${currentRequireMention ? "❌ 仅被 @ 时回复" : "✅ 自主判断何时发言"}`,
-        `使用 <qqbot-cmd-input text="/bot-group-allways on" show="/bot-group-allways on"/> 设为自主发言`,
-        `使用 <qqbot-cmd-input text="/bot-group-allways off" show="/bot-group-allways off"/> 设为仅被 @ 时回复`,
+        `使用 ${slashCommandInput("/bot-group-allways on")} 设为自主发言`,
+        `使用 ${slashCommandInput("/bot-group-allways off")} 设为仅被 @ 时回复`,
       ].join("\n");
     }
 
     if (arg !== "on" && arg !== "off") {
-      return `❌ 参数错误，请使用 on 或 off\n\n示例：/bot-group-allways on`;
+      return `❌ 参数错误，请使用 on 或 off\n\n示例：${slashCommandInput("/bot-group-allways on")}`;
     }
 
     const newRequireMention = arg === "off"; // on=自主发言(requireMention=false), off=仅被@时回复(requireMention=true)
@@ -2812,9 +2863,9 @@ export async function matchSlashCommand(ctx: SlashCommandContext): Promise<Slash
   // /指令 ? — 返回用法说明
   if (request.args === "?") {
     if (cmd.usage) {
-      return `📖 /${cmd.name} 用法：\n\n${cmd.usage}`;
+      return `📖 ${slashCommandInput(`/${cmd.name}`)} 用法：\n\n${linkSlashUsageCommands(cmd.usage)}`;
     }
-    return `/${cmd.name} — ${cmd.description}`;
+    return `${slashCommandInput(`/${cmd.name}`)} — ${cmd.description}`;
   }
 
   ctx.args = request.args;
