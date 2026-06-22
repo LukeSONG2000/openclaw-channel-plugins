@@ -184,6 +184,7 @@ Out of scope for the first custom runtime:
 - `src/custom/task-command-parser.ts`: pure `/bot-task` command parser, including cleanup-plan option parsing.
 - `src/custom/task-presentation.ts`: pure long-task reply text, QQ command-input shortcuts, and inline-keyboard builders.
 - `src/custom/task-command-executor.ts`: optional command-backed long-task executor, disabled by default; supports stdin requirement forwarding and stdout progress events for future runner integration.
+- `src/custom/task-command-output.ts`: pure command-executor stdout/stderr truncation, progress-line parsing, requirement-stdin JSON formatting, and final result formatting helpers.
 - `src/custom/task-sandbox.ts`: pure long-task state runtime with global/scene-level sandbox config resolution, workspace root, active-task limits, and progress metadata.
 - `src/custom/runtime.ts`: composition helpers and exported custom runtime modules.
 - `src/custom/unread-context.ts`: gateway-side adapter for selecting custom/legacy history, applying it to the initial agent body, legacy history record/clear, and attachment tag formatting.

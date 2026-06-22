@@ -1728,9 +1728,15 @@ Current implementation status:
   - disabled by default
   - starts a configured local command in the task workspace without blocking the main QQ message queue
   - passes task metadata through `QQBOT_CUSTOM_TASK_*` environment variables
-  - captures stdout/stderr, applies timeout and output truncation, then calls the same complete/fail helpers used by future executors
+  - delegates stdout/stderr truncation, progress-line parsing, requirement JSON formatting, and final result formatting to `task-command-output.ts`
+  - applies timeout and process lifecycle handling, then calls the same complete/fail helpers used by future executors
   - can optionally keep stdin open with `forwardRequirementsToStdin=true`; appended requirements are sent as JSON lines while still being persisted
   - can emit progress by writing either `QQBOT_TASK_PROGRESS {"phase":"...","message":"...","percent":50}` or a JSON line with `type:"qqbot.task.progress"` to stdout
+- `src/custom/task-command-output.ts` is pure command-executor output policy:
+  - keeps only the newest `maxOutputChars` characters for stdout/stderr buffers
+  - parses complete stdout lines into bounded progress payloads and carries partial-line buffers across chunks
+  - formats appended requirements as JSON-line stdin payloads
+  - formats final command success/failure/timeout output without knowing process handles, workspaces, or task runtime state
 - `src/custom/task-notification-adapter.ts` formats task completion/failure/cancellation notification effects:
   - peer notification for the originating group/DM
   - owner notification for future direct follow-up

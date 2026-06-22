@@ -1410,3 +1410,9 @@ Added configured scene binding inspection:
 - Added `src/custom/deploy-preflight-presentation.ts` for `/bot-deploy preflight` summary text and QQ command-keyboard construction.
 - `src/custom/deploy-preflight.ts` now focuses on live config inspection, package/plugin classification, and structured safety findings, while re-exporting presentation helpers for compatibility.
 - `tests/custom-deploy-preflight.test.ts` now verifies direct presentation imports alongside the existing compatibility exports.
+
+拆出长任务命令执行输出策略：
+
+- Added `src/custom/task-command-output.ts` for command-executor stdout/stderr truncation, stdout progress-line parsing, requirement stdin JSON formatting, and final command result formatting.
+- `src/custom/task-command-executor.ts` now focuses on process lifecycle, workspace/cwd/env setup, timeout/cancel/dispose handling, and executor callbacks while re-exporting output helpers for compatibility.
+- `tests/custom-task-command-executor.test.ts` now verifies direct output-helper imports alongside the real child-process executor path.

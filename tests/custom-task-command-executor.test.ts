@@ -3,6 +3,13 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { CustomTaskCommandExecutor, resolveCustomTaskCommandExecutorConfig } from "../src/custom/task-command-executor.js";
+import {
+  appendCustomTaskCommandOutput,
+  formatCustomTaskCommandOutput,
+  formatCustomTaskRequirementInput,
+  parseCustomTaskCommandProgressLine,
+  processCustomTaskCommandStdoutChunk,
+} from "../src/custom/task-command-output.js";
 import { applyCustomTaskExecutionIntents, completeCustomTaskExecution, failCustomTaskExecution, progressCustomTaskExecution } from "../src/custom/task-executor-adapter.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 
@@ -37,6 +44,43 @@ assert.deepEqual(resolveCustomTaskCommandExecutorConfig({
   maxOutputChars: 20,
   notifyAudiences: ["owner", "peer"],
 });
+
+assert.deepEqual(parseCustomTaskCommandProgressLine("QQBOT_TASK_PROGRESS {\"phase\":\"setup\",\"message\":\"ready\",\"percent\":33.4}"), {
+  phase: "setup",
+  message: "ready",
+  percent: 33,
+});
+const stdoutState = { stdout: [] as string[], stdoutLineBuffer: "" };
+const directProgress: string[] = [];
+processCustomTaskCommandStdoutChunk({
+  state: stdoutState,
+  chunk: "{\"type\":\"progress\",\"phase\":\"run\",\"progress\":101}\npartial",
+  maxOutputChars: 20,
+  onProgress: (progress) => directProgress.push(`${progress.phase}:${progress.percent}`),
+});
+assert.deepEqual(directProgress, ["run:100"]);
+assert.equal(stdoutState.stdoutLineBuffer, "partial");
+appendCustomTaskCommandOutput(stdoutState.stdout, " more output", 12);
+assert.equal(stdoutState.stdout.join(""), " more output");
+assert.deepEqual(formatCustomTaskRequirementInput({
+  id: "req-1",
+  actor: { id: "MEMBER_OPENID", label: "Member" },
+  content: "追加需求",
+  createdAt: 123,
+}), {
+  type: "requirement",
+  id: "req-1",
+  actor: { id: "MEMBER_OPENID", label: "Member" },
+  content: "追加需求",
+  createdAt: 123,
+});
+assert.match(formatCustomTaskCommandOutput({
+  code: 7,
+  signal: null,
+  stdout: "ok",
+  stderr: "boom",
+  maxOutputChars: 1000,
+}), /Exit code: 7/);
 
 const disabled = new CustomTaskCommandExecutor({
   config: { enabled: false, command: process.execPath },

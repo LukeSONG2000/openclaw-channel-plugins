@@ -3,7 +3,24 @@ import path from "node:path";
 import type { CustomTaskExecutor, CustomTaskExecutorAck, CustomTaskExecutorStartResult } from "./task-executor-adapter.js";
 import type { CustomSandboxTask, CustomTaskCommandExecutorConfig, CustomTaskRequirement } from "./types.js";
 import type { CustomTaskNotificationAudience } from "./task-notification-adapter.js";
+import {
+  appendCustomTaskCommandOutput,
+  formatCustomTaskCommandOutput,
+  formatCustomTaskRequirementInput,
+  parseCustomTaskCommandProgressLine,
+  processCustomTaskCommandStdoutChunk,
+} from "./task-command-output.js";
 import { resolveWorkspacePath } from "./task-workspace.js";
+
+export {
+  appendCustomTaskCommandOutput,
+  formatCustomTaskCommandOutput,
+  formatCustomTaskRequirementInput,
+  parseCustomTaskCommandProgressLine,
+  processCustomTaskCommandStdoutChunk,
+  type CustomTaskCommandProgressPayload,
+  type CustomTaskCommandStdoutState,
+} from "./task-command-output.js";
 
 export interface CustomTaskCommandExecutorLogger {
   info?: (msg: string) => void;
@@ -135,8 +152,8 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
     this.log?.info?.(`[custom-task-command-executor] started task=${params.task.id} pid=${child.pid ?? "unknown"} cwd=${cwd}`);
 
     child.stdout.on("data", (chunk) => {
-      processStdoutChunk({
-        running,
+      processCustomTaskCommandStdoutChunk({
+        state: running,
         chunk,
         maxOutputChars: this.config.maxOutputChars,
         onProgress: (progress) => this.callbacks.progress?.({
@@ -147,7 +164,7 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
       this.callbacks.heartbeat?.({ taskId: params.task.id });
     });
     child.stderr.on("data", (chunk) => {
-      appendOutput(running.stderr, chunk, this.config.maxOutputChars);
+      appendCustomTaskCommandOutput(running.stderr, chunk, this.config.maxOutputChars);
       this.callbacks.heartbeat?.({ taskId: params.task.id });
     });
     child.on("error", (err) => {
@@ -157,14 +174,14 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
       if (!this.running.has(params.task.id)) return;
       if (running.timeout) clearTimeout(running.timeout);
       this.running.delete(params.task.id);
-      const finalProgress = parseTaskProgressLine(running.stdoutLineBuffer);
+      const finalProgress = parseCustomTaskCommandProgressLine(running.stdoutLineBuffer);
       if (finalProgress) {
         this.callbacks.progress?.({
           taskId: params.task.id,
           ...finalProgress,
         });
       }
-      const output = formatTaskCommandOutput({
+      const output = formatCustomTaskCommandOutput({
         code,
         signal,
         stdout: running.stdout.join(""),
@@ -195,14 +212,14 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
   appendRequirement(params: { task: CustomSandboxTask; requirement: CustomTaskRequirement }): CustomTaskExecutorAck {
     const running = this.running.get(params.task.id);
     if (!running) return { accepted: false, message: "task command process is not running" };
-    appendOutput(running.stdout, `\n[requirement] ${params.requirement.actor.label || params.requirement.actor.id}: ${params.requirement.content}\n`, this.config.maxOutputChars);
+    appendCustomTaskCommandOutput(running.stdout, `\n[requirement] ${params.requirement.actor.label || params.requirement.actor.id}: ${params.requirement.content}\n`, this.config.maxOutputChars);
     if (!this.config.forwardRequirementsToStdin) {
       return { accepted: true, message: "requirement recorded in task state; command process stdin forwarding is disabled" };
     }
     if (running.process.stdin.destroyed || running.process.stdin.writableEnded) {
       return { accepted: false, message: "task command process stdin is closed" };
     }
-    const forwardedWithoutBackpressure = running.process.stdin.write(`${JSON.stringify(formatRequirementInput(params.requirement))}\n`);
+    const forwardedWithoutBackpressure = running.process.stdin.write(`${JSON.stringify(formatCustomTaskRequirementInput(params.requirement))}\n`);
     return {
       accepted: true,
       message: forwardedWithoutBackpressure
@@ -250,101 +267,6 @@ function normalizeNotifyAudiences(value: unknown): CustomTaskNotificationAudienc
     result.push(item);
   }
   return result.length ? result : DEFAULT_NOTIFY_AUDIENCES.slice();
-}
-
-function appendOutput(target: string[], chunk: unknown, maxChars: number): void {
-  target.push(Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk));
-  let joined = target.join("");
-  if (joined.length > maxChars) joined = joined.slice(joined.length - maxChars);
-  target.length = 0;
-  target.push(joined);
-}
-
-function processStdoutChunk(params: {
-  running: RunningTask;
-  chunk: unknown;
-  maxOutputChars: number;
-  onProgress?: (progress: { phase?: string; message?: string; percent?: number }) => void;
-}): void {
-  const text = Buffer.isBuffer(params.chunk) ? params.chunk.toString("utf8") : String(params.chunk);
-  appendOutput(params.running.stdout, text, params.maxOutputChars);
-  if (!params.onProgress) return;
-  params.running.stdoutLineBuffer += text;
-  const lines = params.running.stdoutLineBuffer.split(/\r?\n/);
-  params.running.stdoutLineBuffer = lines.pop() ?? "";
-  for (const line of lines) {
-    const progress = parseTaskProgressLine(line);
-    if (progress) params.onProgress(progress);
-  }
-}
-
-function parseTaskProgressLine(line: string): { phase?: string; message?: string; percent?: number } | null {
-  const trimmed = line.trim();
-  if (!trimmed) return null;
-  let payload: unknown;
-  if (trimmed.startsWith("QQBOT_TASK_PROGRESS ")) {
-    payload = safeJsonParse(trimmed.slice("QQBOT_TASK_PROGRESS ".length));
-  } else {
-    const parsed = safeJsonParse(trimmed);
-    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return null;
-    const type = String((parsed as Record<string, unknown>).type ?? "");
-    if (type !== "qqbot.task.progress" && type !== "task-progress" && type !== "progress") return null;
-    payload = parsed;
-  }
-  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return null;
-  const record = payload as Record<string, unknown>;
-  const phase = typeof record.phase === "string" ? record.phase.trim().slice(0, 120) : undefined;
-  const message = typeof record.message === "string" ? record.message.trim().slice(0, 400) : undefined;
-  const percent = normalizeProgressPercent(record.percent ?? record.progress);
-  if (!phase && !message && percent === undefined) return null;
-  return {
-    ...(phase ? { phase } : {}),
-    ...(message ? { message } : {}),
-    ...(percent !== undefined ? { percent } : {}),
-  };
-}
-
-function safeJsonParse(value: string): unknown {
-  try {
-    return JSON.parse(value);
-  } catch {
-    return null;
-  }
-}
-
-function normalizeProgressPercent(value: unknown): number | undefined {
-  if (value === null || value === undefined || value === "") return undefined;
-  const n = Number(value);
-  if (!Number.isFinite(n)) return undefined;
-  return Math.max(0, Math.min(100, Math.round(n)));
-}
-
-function formatRequirementInput(requirement: CustomTaskRequirement): Record<string, unknown> {
-  return {
-    type: "requirement",
-    id: requirement.id,
-    actor: requirement.actor,
-    content: requirement.content,
-    createdAt: requirement.createdAt,
-  };
-}
-
-function formatTaskCommandOutput(params: {
-  code: number | null;
-  signal: NodeJS.Signals | null;
-  stdout: string;
-  stderr: string;
-  killedByTimeout?: boolean;
-  maxOutputChars: number;
-}): string {
-  const lines: string[] = [];
-  if (params.killedByTimeout) lines.push("Timed out and terminated.");
-  lines.push(`Exit code: ${params.code ?? "null"}${params.signal ? ` signal=${params.signal}` : ""}`);
-  if (params.stdout.trim()) lines.push("", "STDOUT:", params.stdout.trim());
-  if (params.stderr.trim()) lines.push("", "STDERR:", params.stderr.trim());
-  const text = lines.join("\n").trim() || "Command completed without output.";
-  if (text.length <= params.maxOutputChars) return text;
-  return `${text.slice(text.length - params.maxOutputChars)}\n...(output truncated)`;
 }
 
 function formatError(err: unknown): string {
