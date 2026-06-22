@@ -1499,3 +1499,9 @@ Refined initialization binding and admin-group routing after live QQ validation:
 - Messages from a bound admin inside the bound management group bypass mention gating, so the admin can talk to the bot without `@` in that group.
 - Non-admins do not receive this management-group mention bypass.
 - Added tests for plain-code binding, prequeue interception, admin-group no-mention bypass, and custom admin command authorization.
+
+Added management-group switch guard:
+
+- If `customRuntime.adminGroup` is already bound, a one-time init-bind code sent from a different group is refused instead of switching the management group implicitly.
+- Re-sending the code in the same management group is still allowed to add the sender as an admin.
+- This keeps the deployment from losing or accidentally moving the only management group; deliberate migration must be done explicitly on the server with backup.

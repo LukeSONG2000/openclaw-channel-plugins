@@ -94,8 +94,21 @@ export function handleCustomInitBindCommand(params: {
         reply: "当前群消息缺少 group_openid，无法绑定管理群。请确认 QQBot 事件字段完整。",
       };
     }
-    const admins = normalizeCustomRuntimeAdminList([...currentAdmins, params.message.senderId]);
     const adminGroup = normalizeCustomRuntimeAdminGroup(params.message.groupOpenid);
+    if (currentAdminGroup && currentAdminGroup !== adminGroup) {
+      return {
+        handled: true,
+        changed: false,
+        reply: [
+          "⚠️ 已绑定管理群，不能通过一次性码直接切换到其他群。",
+          `当前管理群：${currentAdminGroup}`,
+          `本次发送群：${adminGroup}`,
+          "如需迁移管理群，请先在服务器配置中显式迁移并备份，避免出现没有管理群的状态。",
+        ].join("\n"),
+        log: `custom init bind refused admin group switch current=${currentAdminGroup} requested=${adminGroup}`,
+      };
+    }
+    const admins = normalizeCustomRuntimeAdminList([...currentAdmins, params.message.senderId]);
     return {
       handled: true,
       changed: true,

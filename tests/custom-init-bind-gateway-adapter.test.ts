@@ -115,6 +115,41 @@ assert.equal(groupSuccess.reply.includes("member_openid"), true);
 assert.equal(groupSuccess.reply.includes("group_openid"), true);
 
 
+
+const sameGroupRebindAddsAdmin = handleCustomInitBindCommand({
+  cfg: cfg({
+    admins: ["OLD_ADMIN"],
+    adminGroup: "GROUP_OPENID",
+    initBind: { code: "BIND123", expiresAt: 2_000, enableRuntimeOnComplete: true },
+  }),
+  message: groupMessage,
+  rawContent: "BIND123",
+  now: 1_000,
+});
+assert.equal(sameGroupRebindAddsAdmin.handled, true);
+assert.equal(sameGroupRebindAddsAdmin.changed, true);
+assert.deepEqual(sameGroupRebindAddsAdmin.persist, {
+  admins: ["OLD_ADMIN", "MEMBER_OPENID"],
+  adminGroup: "qqbot:group:GROUP_OPENID",
+  clearInitBind: true,
+  enableRuntime: true,
+});
+
+const differentGroupSwitchBlocked = handleCustomInitBindCommand({
+  cfg: cfg({
+    admins: ["OLD_ADMIN"],
+    adminGroup: "OTHER_GROUP",
+    initBind: { code: "BIND123", expiresAt: 2_000, enableRuntimeOnComplete: true },
+  }),
+  message: groupMessage,
+  rawContent: "BIND123",
+  now: 1_000,
+});
+assert.equal(differentGroupSwitchBlocked.handled, true);
+assert.equal(differentGroupSwitchBlocked.changed, false);
+assert.equal(differentGroupSwitchBlocked.persist, undefined);
+assert.equal(differentGroupSwitchBlocked.reply.includes("不能通过一次性码直接切换"), true);
+
 const bareGroupSuccess = handleCustomInitBindCommand({
   cfg: cfg({
     admins: ["OLD_ADMIN"],
