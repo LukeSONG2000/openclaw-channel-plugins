@@ -4,6 +4,11 @@ import {
   handleCustomSceneCommand,
   parseCustomSceneCommand,
 } from "../src/custom/scene-gateway-adapter.js";
+import { parseCustomSceneCommand as parseCustomSceneCommandDirect } from "../src/custom/scene-command-parser.js";
+import {
+  buildCustomSceneSwitchKeyboard as buildCustomSceneSwitchKeyboardDirect,
+  formatCustomSceneBindings as formatCustomSceneBindingsDirect,
+} from "../src/custom/scene-presentation.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
 const message: QueuedMessage = {
@@ -25,6 +30,10 @@ assert.deepEqual(parseCustomSceneCommand("/bot-scene set dev-lab"), {
   matched: true,
   command: { kind: "set", scene: "dev-lab", agentId: undefined },
 });
+assert.deepEqual(
+  parseCustomSceneCommandDirect("/bot-scene set dev-lab"),
+  parseCustomSceneCommand("/bot-scene set dev-lab"),
+);
 assert.deepEqual(parseCustomSceneCommand("/bot-scene set dev-lab --agent Dev-Agent"), {
   matched: true,
   command: { kind: "set", scene: "dev-lab", agentId: "Dev-Agent" },
@@ -111,6 +120,7 @@ assert.equal(bindings.reply?.includes("agent=admin-agent"), true);
 assert.equal(bindings.reply?.includes("- qqbot:c2c:USER_OPENID"), true);
 assert.equal(bindings.reply?.includes("scene=default-dm, enabled=no"), true);
 assert.equal(bindings.reply?.includes("capabilities=system.status"), true);
+assert.equal(formatCustomSceneBindingsDirect(cfg.channels.qqbot.customRuntime).includes("agent=admin-agent"), true);
 
 const set = handleCustomSceneCommand({
   cfg,
@@ -125,6 +135,7 @@ assert.equal(set.reply?.includes("场景：dev-lab"), true);
 assert.equal(set.reply?.includes("Agent：默认路由"), true);
 assert.equal(set.keyboard?.content?.rows[3]?.buttons[0]?.render_data?.label, "当前：dev-lab");
 assert.equal(buildCustomSceneSwitchKeyboard("chat").content?.rows[1]?.buttons[0]?.render_data?.style, 4);
+assert.deepEqual(buildCustomSceneSwitchKeyboardDirect("chat"), buildCustomSceneSwitchKeyboard("chat"));
 
 const setAgent = handleCustomSceneCommand({
   cfg,

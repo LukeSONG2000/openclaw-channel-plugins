@@ -210,7 +210,7 @@ Built-in default capabilities:
 
 High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `deploy.apply`, and `proactive.send` are intentionally not granted by default scene profiles. They require admin status, an explicit scene capability, or a temporary grant.
 
-`src/custom/scene-gateway-adapter.ts` handles peer-level scene binding commands before normal slash handling:
+`src/custom/scene-command-parser.ts` parses peer-level scene binding commands before normal slash handling:
 
 - `/bot-scene status`
 - `/bot-scene list`
@@ -219,7 +219,9 @@ High-risk capabilities such as `config.write`, `system.restart`, `auth.grant`, `
 - `/bot-scene set <scene> --clear-agent`
 - `/bot-scene <scene>` shorthand
 
-`/bot-scene status`, `list`, and `bindings` require `system.status`; scene binding and agent override changes require `config.write`. `list` shows built-in scene profiles, while `bindings` shows explicit configured peer/wildcard bindings with scene, enabled state, label, agent override, and capability summary. `status`, `list`, and successful `set` replies include C2C/group inline command keyboards for switching scenes; each button sends `/bot-scene set <scene>`, so the existing `config.write` authorization still gates the mutation. The adapter updates the live config object only for bind/set commands and returns a precise config persistence intent. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
+`src/custom/scene-presentation.ts` renders `/bot-scene` help/status/list/bindings/bound replies and the C2C/group inline command keyboard for switching scenes. `list` shows built-in scene profiles, while `bindings` shows explicit configured peer/wildcard bindings with scene, enabled state, label, agent override, and capability summary. `status`, `list`, and successful `set` replies include scene switch buttons; each button sends `/bot-scene set <scene>`, so the existing `config.write` authorization still gates the mutation.
+
+`src/custom/scene-gateway-adapter.ts` now binds the parsed command to the current peer, reads runtime config, mutates the live config object only for bind/set commands, and returns a precise config persistence intent. `/bot-scene status`, `list`, and `bindings` require `system.status`; scene binding and agent override changes require `config.write`. `gateway.ts` reloads the latest framework config, merges the scene binding under `channels.qqbot.customRuntime.scenes`, and writes it through `runtime.config.writeConfigFile()`.
 
 Scene `agentId` overrides OpenClaw route selection after the base route resolves; the custom layer rebuilds `sessionKey` with the framework routing helper so agent binding and session storage stay aligned. `/bot-scene status` and `/bot-scene bindings` expose the current override so group/DM routing can be audited without opening `openclaw.json`.
 
