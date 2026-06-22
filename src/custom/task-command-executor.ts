@@ -4,6 +4,10 @@ import type { CustomTaskExecutor, CustomTaskExecutorAck, CustomTaskExecutorStart
 import type { CustomSandboxTask, CustomTaskCommandExecutorConfig, CustomTaskRequirement } from "./types.js";
 import type { CustomTaskNotificationAudience } from "./task-notification-adapter.js";
 import {
+  resolveCustomTaskCommandExecutorConfig,
+  type CustomTaskCommandExecutorResolvedConfig,
+} from "./task-command-config.js";
+import {
   appendCustomTaskCommandOutput,
   formatCustomTaskCommandOutput,
   formatCustomTaskRequirementInput,
@@ -11,6 +15,14 @@ import {
   processCustomTaskCommandStdoutChunk,
 } from "./task-command-output.js";
 import { resolveWorkspacePath } from "./task-workspace.js";
+
+export {
+  CUSTOM_TASK_COMMAND_DEFAULT_MAX_OUTPUT_CHARS,
+  CUSTOM_TASK_COMMAND_DEFAULT_NOTIFY_AUDIENCES,
+  CUSTOM_TASK_COMMAND_DEFAULT_TIMEOUT_MS,
+  resolveCustomTaskCommandExecutorConfig,
+  type CustomTaskCommandExecutorResolvedConfig,
+} from "./task-command-config.js";
 
 export {
   appendCustomTaskCommandOutput,
@@ -34,17 +46,6 @@ export interface CustomTaskCommandExecutorCallbacks {
   progress?: (params: { taskId: string; phase?: string; message?: string; percent?: number; now?: number }) => void;
 }
 
-export interface CustomTaskCommandExecutorResolvedConfig {
-  enabled: boolean;
-  command?: string;
-  args: string[];
-  cwd?: string;
-  forwardRequirementsToStdin: boolean;
-  timeoutMs: number;
-  maxOutputChars: number;
-  notifyAudiences: CustomTaskNotificationAudience[];
-}
-
 interface RunningTask {
   taskId: string;
   process: ChildProcessWithoutNullStreams;
@@ -53,27 +54,6 @@ interface RunningTask {
   stderr: string[];
   stdoutLineBuffer: string;
   killedByTimeout?: boolean;
-}
-
-const DEFAULT_TIMEOUT_MS = 30 * 60 * 1000;
-const DEFAULT_MAX_OUTPUT_CHARS = 6000;
-const DEFAULT_NOTIFY_AUDIENCES: CustomTaskNotificationAudience[] = ["peer"];
-
-export function resolveCustomTaskCommandExecutorConfig(
-  config?: CustomTaskCommandExecutorConfig,
-): CustomTaskCommandExecutorResolvedConfig {
-  const timeoutMs = positiveInt(config?.timeoutMs, DEFAULT_TIMEOUT_MS);
-  const maxOutputChars = positiveInt(config?.maxOutputChars, DEFAULT_MAX_OUTPUT_CHARS);
-  return {
-    enabled: config?.enabled === true,
-    command: typeof config?.command === "string" && config.command.trim() ? config.command.trim() : undefined,
-    args: Array.isArray(config?.args) ? config.args.map(String) : [],
-    cwd: typeof config?.cwd === "string" && config.cwd.trim() ? config.cwd.trim() : undefined,
-    forwardRequirementsToStdin: config?.forwardRequirementsToStdin === true,
-    timeoutMs,
-    maxOutputChars,
-    notifyAudiences: normalizeNotifyAudiences(config?.notifyAudiences),
-  };
 }
 
 export class CustomTaskCommandExecutor implements CustomTaskExecutor {
@@ -249,24 +229,6 @@ export class CustomTaskCommandExecutor implements CustomTaskExecutor {
     this.running.delete(taskId);
     this.callbacks.fail({ taskId, error });
   }
-}
-
-function positiveInt(value: unknown, fallback: number): number {
-  const n = Number(value);
-  return Number.isFinite(n) && n > 0 ? Math.floor(n) : fallback;
-}
-
-function normalizeNotifyAudiences(value: unknown): CustomTaskNotificationAudience[] {
-  if (!Array.isArray(value) || value.length === 0) return DEFAULT_NOTIFY_AUDIENCES.slice();
-  const seen = new Set<CustomTaskNotificationAudience>();
-  const result: CustomTaskNotificationAudience[] = [];
-  for (const item of value) {
-    if (item !== "peer" && item !== "owner") continue;
-    if (seen.has(item)) continue;
-    seen.add(item);
-    result.push(item);
-  }
-  return result.length ? result : DEFAULT_NOTIFY_AUDIENCES.slice();
 }
 
 function formatError(err: unknown): string {

@@ -4,6 +4,11 @@ import os from "node:os";
 import path from "node:path";
 import { CustomTaskCommandExecutor, resolveCustomTaskCommandExecutorConfig } from "../src/custom/task-command-executor.js";
 import {
+  CUSTOM_TASK_COMMAND_DEFAULT_MAX_OUTPUT_CHARS,
+  CUSTOM_TASK_COMMAND_DEFAULT_TIMEOUT_MS,
+  resolveCustomTaskCommandExecutorConfig as resolveCustomTaskCommandExecutorConfigDirect,
+} from "../src/custom/task-command-config.js";
+import {
   appendCustomTaskCommandOutput,
   formatCustomTaskCommandOutput,
   formatCustomTaskRequirementInput,
@@ -16,6 +21,8 @@ import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "qqbot-task-command-executor-"));
 const runtime = new CustomTaskSandboxRuntime({ workspaceRoot: tmpDir });
 
+assert.equal(CUSTOM_TASK_COMMAND_DEFAULT_TIMEOUT_MS, 1_800_000);
+assert.equal(CUSTOM_TASK_COMMAND_DEFAULT_MAX_OUTPUT_CHARS, 6_000);
 assert.deepEqual(resolveCustomTaskCommandExecutorConfig(undefined), {
   enabled: false,
   command: undefined,
@@ -26,6 +33,16 @@ assert.deepEqual(resolveCustomTaskCommandExecutorConfig(undefined), {
   maxOutputChars: 6_000,
   notifyAudiences: ["peer"],
 });
+assert.deepEqual(resolveCustomTaskCommandExecutorConfig(undefined), resolveCustomTaskCommandExecutorConfigDirect(undefined));
+const directConfig = resolveCustomTaskCommandExecutorConfigDirect({
+  enabled: true,
+  command: "node",
+  args: ["--version"],
+  timeoutMs: 10,
+  maxOutputChars: 20,
+  forwardRequirementsToStdin: true,
+  notifyAudiences: ["owner", "peer", "peer"],
+});
 assert.deepEqual(resolveCustomTaskCommandExecutorConfig({
   enabled: true,
   command: "node",
@@ -34,7 +51,8 @@ assert.deepEqual(resolveCustomTaskCommandExecutorConfig({
   maxOutputChars: 20,
   forwardRequirementsToStdin: true,
   notifyAudiences: ["owner", "peer", "peer"],
-}), {
+}), directConfig);
+assert.deepEqual(directConfig, {
   enabled: true,
   command: "node",
   args: ["--version"],

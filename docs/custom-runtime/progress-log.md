@@ -1416,3 +1416,9 @@ Added configured scene binding inspection:
 - Added `src/custom/task-command-output.ts` for command-executor stdout/stderr truncation, stdout progress-line parsing, requirement stdin JSON formatting, and final command result formatting.
 - `src/custom/task-command-executor.ts` now focuses on process lifecycle, workspace/cwd/env setup, timeout/cancel/dispose handling, and executor callbacks while re-exporting output helpers for compatibility.
 - `tests/custom-task-command-executor.test.ts` now verifies direct output-helper imports alongside the real child-process executor path.
+
+拆出长任务命令执行器配置解析：
+
+- Added `src/custom/task-command-config.ts` for command-executor defaults and config normalization, including command/cwd, timeout, output limits, stdin forwarding, and notification audiences.
+- `src/custom/task-command-executor.ts` now delegates config policy to the new pure module and stays focused on process lifecycle, workspace/env setup, timeout/cancel/dispose, and executor callbacks.
+- `tests/custom-task-command-executor.test.ts` now verifies direct config imports alongside compatibility exports from the executor module.

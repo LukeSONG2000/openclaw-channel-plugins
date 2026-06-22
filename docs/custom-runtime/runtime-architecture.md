@@ -1723,9 +1723,14 @@ Current implementation status:
   - start tasks when an executor accepts them, recording executor id, run id, agent id, and start time
   - forward appended requirements and cancellation requests to the executor when available
   - expose heartbeat, progress, complete, and fail helpers that update runtime state and `status.json`
+- `src/custom/task-command-config.ts` is pure command-executor config policy:
+  - normalizes `channels.qqbot.customRuntime.tasks.commandExecutor` into enabled state, command, args, cwd, stdin forwarding, timeout, output limit, and notification audiences
+  - keeps default timeout/output/audience constants outside the process lifecycle implementation
+  - dedupes notification audiences and falls back to peer-only notifications when config is missing or invalid
 - `src/custom/task-command-executor.ts` provides a conservative optional command executor:
   - configured under `channels.qqbot.customRuntime.tasks.commandExecutor`
   - disabled by default
+  - delegates config normalization to `task-command-config.ts`
   - starts a configured local command in the task workspace without blocking the main QQ message queue
   - passes task metadata through `QQBOT_CUSTOM_TASK_*` environment variables
   - delegates stdout/stderr truncation, progress-line parsing, requirement JSON formatting, and final result formatting to `task-command-output.ts`
