@@ -1398,3 +1398,9 @@ Added configured scene binding inspection:
 - Added `src/custom/fallback-presentation.ts` for fallback help/list/summary/clear-confirmation text, queue/urgent diagnostics formatting, and recovery command-input shortcuts.
 - `src/custom/fallback-gateway-adapter.ts` now focuses on event-store load/clear orchestration and re-exports parser/presentation helpers for compatibility.
 - `tests/custom-fallback-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside the gateway compatibility path.
+
+拆出自定义更新通知呈现层：
+
+- Added `src/custom/update-check-presentation.ts` for custom update management-group notification text, admin-group openid validation, and `/bot-version` / `/bot-deploy preflight` / `/bot-deploy confirm` command-button keyboards.
+- `src/custom/update-check.ts` now focuses on update-source config, check execution, background loop scheduling, log dedupe, and per-version notification triggering, while re-exporting presentation helpers for compatibility.
+- `tests/custom-update-check.test.ts` now verifies direct presentation imports alongside the existing `update-check.ts` compatibility export path.

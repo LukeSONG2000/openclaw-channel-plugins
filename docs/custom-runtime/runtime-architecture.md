@@ -2138,6 +2138,16 @@ Implemented behavior:
 - Does not read server extension directories, run shell commands, install packages, restart the gateway, delete files, or mutate config.
 - Complements but does not replace `scripts/preflight-custom-runtime-deploy.mjs --require-ready`, which should still run on the server before real deploy/update.
 
+### `src/custom/update-check-presentation.ts`
+
+Pure renderer for custom update management-group notifications.
+
+Responsibilities:
+
+- Converts `update-available` results into management-group text only when `customRuntime.enabled=true` and `customRuntime.adminGroup` resolves to a QQBot group openid.
+- Builds command-button keyboards for `/bot-version`, `/bot-deploy preflight`, and `/bot-deploy confirm /bot-upgrade --latest`.
+- Keeps notification wording/card tuning independent from background timers, update-source resolution, and per-version dedupe.
+
 ### `src/custom/update-check.ts`
 
 Checks the custom fork/release, not the official plugin, for deployable updates.
@@ -2148,7 +2158,7 @@ Implemented behavior:
 - Runs a gateway background loop with `customUpdateCheck.enabled !== false`.
 - Defaults to a 6 hour interval and clamps overly small intervals to 5 minutes.
 - Logs available personal-package updates once per version.
-- Builds a management-group notification when a new personal-package version is detected and `customRuntime.adminGroup` is bound.
+- Delegates management-group notification text and keyboard construction to `update-check-presentation.ts` when a new personal-package version is detected and `customRuntime.adminGroup` is bound.
 - The notification includes command buttons for `/bot-version`, `/bot-deploy preflight`, and `/bot-deploy confirm /bot-upgrade --latest`; it is sent through the same proactive budget/acceptance guard as other management-group pushes.
 - Never installs packages; `/bot-deploy` and `/bot-upgrade` remain explicit admin-controlled paths.
 

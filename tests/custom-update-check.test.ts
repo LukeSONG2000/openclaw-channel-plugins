@@ -7,6 +7,10 @@ import {
   runCustomUpdateCheck,
   startCustomUpdateCheckLoop,
 } from "../src/custom/update-check.js";
+import {
+  buildCustomUpdateAvailableKeyboard,
+  buildCustomUpdateAvailableNotification as buildCustomUpdateAvailableNotificationDirect,
+} from "../src/custom/update-check-presentation.js";
 import type { UpdateInfo } from "../src/update-checker.js";
 
 const updateInfo: UpdateInfo = {
@@ -68,12 +72,24 @@ const notification = buildCustomUpdateAvailableNotification({
   result,
   now: 11_000,
 });
+const directNotification = buildCustomUpdateAvailableNotificationDirect({
+  accountId: "default",
+  runtime: {
+    enabled: true,
+    admins: ["ADMIN_OPENID"],
+    adminGroup: "GROUP_OPENID",
+  },
+  result,
+  now: 11_000,
+});
+assert.deepEqual(notification, directNotification);
 assert.equal(notification?.groupOpenid, "GROUP_OPENID");
 assert.equal(notification?.text.includes("不会自动安装"), true);
 assert.equal(notification?.text.includes("/bot-deploy preflight"), true);
 assert.equal(notification?.text.includes("/bot-deploy confirm /bot-upgrade --latest"), true);
 assert.equal(notification?.keyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-deploy preflight");
 assert.equal(notification?.keyboard.content?.rows[2]?.buttons[0]?.action?.data, "/bot-deploy confirm /bot-upgrade --latest");
+assert.equal(buildCustomUpdateAvailableKeyboard().content?.rows[0]?.buttons[0]?.action?.data, "/bot-version");
 
 assert.equal(buildCustomUpdateAvailableNotification({
   accountId: "default",

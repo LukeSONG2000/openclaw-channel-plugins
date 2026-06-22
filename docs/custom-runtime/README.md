@@ -164,6 +164,8 @@ Out of scope for the first custom runtime:
 - `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
 - `src/custom/deploy-command-parser.ts`: pure `/bot-deploy` command parser and `custom-deploy:*` confirmation-button payload parser.
 - `src/custom/deploy-presentation.ts`: pure deploy confirmation help/list/status/result text and confirmation-card keyboard helpers.
+- `src/custom/update-check.ts`: custom fork update source resolution, manual-install update check loop, and per-version notification dedupe.
+- `src/custom/update-check-presentation.ts`: pure custom update management-group notification text and command-button keyboard helpers.
 - `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter focused on runtime mutation and account/peer visibility checks.
 - `src/custom/task-execution-effects-gateway-adapter.ts`: gateway-side long-task execution effect applier for executor logs, async persistence, and guarded task notification delivery.
 - `src/custom/poll.ts`: pure lightweight poll runtime for interactive cards.
