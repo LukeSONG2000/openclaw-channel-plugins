@@ -1428,3 +1428,9 @@ Added configured scene binding inspection:
 - Added `src/custom/auth-admin.ts` for pure custom runtime admin matching, admin list normalization, management-group key normalization, and initialization readiness inspection.
 - `src/custom/auth.ts` now focuses on scene/capability decisions, temporary grants, approval requests, state import/export, and runtime intents while re-exporting admin helpers for compatibility.
 - `tests/custom-auth-runtime.test.ts` now verifies direct admin-helper imports alongside the existing `auth.ts` compatibility exports.
+
+拆出鉴权授权状态生命周期辅助模块：
+
+- Added `src/custom/auth-state.ts` for default approval TTL, grant expiry/use-count derivation, wildcard id matching, grant expiry checks, defensive grant/request cloning, and restored-state sequence parsing.
+- `src/custom/auth.ts` now delegates grant/request lifecycle helpers to the pure module and stays focused on authorization decisions, temporary grant mutation, approval request dedupe, and typed intents.
+- `tests/custom-auth-runtime.test.ts` now verifies direct auth-state imports alongside the existing `auth.ts` compatibility exports.

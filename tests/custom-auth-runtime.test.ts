@@ -12,6 +12,15 @@ import {
   isCustomRuntimeAdmin as isCustomRuntimeAdminDirect,
   resolveCustomAdminGroupKey as resolveCustomAdminGroupKeyDirect,
 } from "../src/custom/auth-admin.js";
+import {
+  DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
+  cloneCustomAuthorizationRequest,
+  expiresAtForCustomGrantUse,
+  isCustomAuthorizationGrantExpired,
+  matchesCustomAuthId,
+  parseCustomAuthTrailingSeq,
+  remainingUsesForCustomGrantUse,
+} from "../src/custom/auth-state.js";
 import type { CustomActor, CustomPeer, CustomRuntimeConfig, CustomSceneConfig } from "../src/custom/types.js";
 
 const peer: CustomPeer = { kind: "group", id: "GROUP_OPENID", label: "Master Luke" };
@@ -45,6 +54,21 @@ assert.deepEqual(inspectCustomAdminBindings(runtimeCfg), inspectCustomAdminBindi
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, admin), true);
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, admin), isCustomRuntimeAdminDirect(runtimeCfg, admin));
 assert.equal(isCustomRuntimeAdmin(runtimeCfg, member), false);
+assert.equal(DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS, 600_000);
+assert.equal(expiresAtForCustomGrantUse("timed", 1_000), 601_000);
+assert.equal(expiresAtForCustomGrantUse("once", 1_000), undefined);
+assert.equal(remainingUsesForCustomGrantUse("count", 2.8), 2);
+assert.equal(matchesCustomAuthId("admin_openid", "ADMIN_OPENID"), true);
+assert.equal(parseCustomAuthTrailingSeq("grant-1000-42"), 42);
+assert.equal(isCustomAuthorizationGrantExpired({
+  id: "grant-expired",
+  peerId: peer.id,
+  actorId: member.id,
+  capability: "chat.send",
+  grantedBy: admin.id,
+  createdAt: 1,
+  remainingUses: 0,
+}, 2), true);
 
 const sceneAllowed = evaluateCustomAuthorization({
   runtime: runtimeCfg,
@@ -95,6 +119,11 @@ const requestId = denied.intents[0].request.id;
 assert.equal(denied.decision.requestId, requestId);
 assert.deepEqual(denied.intents[0].request.admins, ["ADMIN_OPENID"]);
 assert.equal(denied.intents[0].request.adminGroup, "qqbot:group:ADMIN_GROUP_OPENID");
+const clonedRequest = cloneCustomAuthorizationRequest(denied.intents[0].request);
+clonedRequest.peer.id = "CHANGED";
+clonedRequest.admins.push("OTHER_ADMIN");
+assert.equal(denied.intents[0].request.peer.id, peer.id);
+assert.deepEqual(denied.intents[0].request.admins, ["ADMIN_OPENID"]);
 
 const duplicate = authRuntime.check({
   runtime: runtimeCfg,

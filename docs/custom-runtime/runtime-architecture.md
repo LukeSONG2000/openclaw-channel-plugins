@@ -446,6 +446,7 @@ Current implementation status:
 - Deduplicates pending approval requests by peer, actor, capability, and task id.
 - Can import/export `CustomAuthorizationRuntimeState` so the gateway can persist temporary grants and approval requests.
 - `src/custom/auth-admin.ts` owns pure admin helpers: admin list normalization, wildcard admin matching, `customRuntime.adminGroup` normalization into `qqbot:group:<openid>`, and initialization readiness inspection for missing `admins` / `adminGroup`.
+- `src/custom/auth-state.ts` owns pure grant/request lifecycle helpers: default approval TTL, grant expiry/use-count derivation, wildcard id matching, expiry checks, defensive cloning, and id sequence parsing for restored state.
 - `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks, while re-exporting auth command helpers for compatibility.
 - `src/custom/auth-command-parser.ts` owns pure `/bot-auth` text-command parsing and `custom-auth:*` approval-button payload parsing; `src/custom/auth-presentation.ts` owns status/request/grant rendering, approval-card construction, management-group notification payloads, and intent summaries; `src/custom/auth-command-gateway-adapter.ts` owns admin checks, approval handling, and grant command conversion.
 - `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.

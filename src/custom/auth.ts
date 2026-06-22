@@ -17,6 +17,16 @@ import {
   resolveCustomAdminGroupKey,
 } from "./auth-admin.js";
 import {
+  DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
+  cloneCustomAuthorizationGrant,
+  cloneCustomAuthorizationRequest,
+  expiresAtForCustomGrantUse,
+  isCustomAuthorizationGrantExpired,
+  matchesCustomAuthId,
+  parseCustomAuthTrailingSeq,
+  remainingUsesForCustomGrantUse,
+} from "./auth-state.js";
+import {
   applySceneDefaults,
   defaultSceneCapabilities,
 } from "./scenes.js";
@@ -30,7 +40,16 @@ export {
   type CustomAdminBindingStatus,
 } from "./auth-admin.js";
 
-const DEFAULT_APPROVAL_TTL_MS = 10 * 60_000;
+export {
+  DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
+  cloneCustomAuthorizationGrant,
+  cloneCustomAuthorizationRequest,
+  expiresAtForCustomGrantUse,
+  isCustomAuthorizationGrantExpired,
+  matchesCustomAuthId,
+  parseCustomAuthTrailingSeq,
+  remainingUsesForCustomGrantUse,
+} from "./auth-state.js";
 
 const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
   "chat.send",
@@ -152,11 +171,11 @@ export class CustomAuthorizationRuntime {
         admins: boundCustomRuntimeAdmins(params.runtime),
         adminGroup: resolveCustomAdminGroupKey(params.runtime.adminGroup),
         now,
-        ttlMs: params.approvalTtlMs ?? DEFAULT_APPROVAL_TTL_MS,
+        ttlMs: params.approvalTtlMs ?? DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
         taskId: params.taskId,
       });
       if (request) {
-        intents.push({ kind: "request-approval", request: cloneRequest(request.request), deduped: request.deduped });
+        intents.push({ kind: "request-approval", request: cloneCustomAuthorizationRequest(request.request), deduped: request.deduped });
         return { decision: { ...base, requestId: request.request.id }, intents };
       }
     }
@@ -189,13 +208,13 @@ export class CustomAuthorizationRuntime {
       capability: params.capability,
       grantedBy: params.grantedBy,
       createdAt: now,
-      expiresAt: params.expiresAt ?? expiresAtForUse(params.use, now, params.ttlMs),
-      remainingUses: remainingUsesForUse(params.use, params.count),
+      expiresAt: params.expiresAt ?? expiresAtForCustomGrantUse(params.use, now, params.ttlMs),
+      remainingUses: remainingUsesForCustomGrantUse(params.use, params.count),
       taskId: params.taskId,
       note: params.note,
     };
     this.grants.set(grant.id, grant);
-    return cloneGrant(grant);
+    return cloneCustomAuthorizationGrant(grant);
   }
 
   resolveApproval(params: {
@@ -234,7 +253,7 @@ export class CustomAuthorizationRuntime {
 
     return {
       kind: "approval-resolved",
-      request: cloneRequest(request),
+      request: cloneCustomAuthorizationRequest(request),
       approved: params.approved,
       grant,
     };
@@ -242,20 +261,20 @@ export class CustomAuthorizationRuntime {
 
   getState(): CustomAuthorizationRuntimeState {
     const grants: CustomAuthorizationRuntimeState["grants"] = {};
-    for (const [id, grant] of this.grants) grants[id] = cloneGrant(grant);
+    for (const [id, grant] of this.grants) grants[id] = cloneCustomAuthorizationGrant(grant);
     const requests: CustomAuthorizationRuntimeState["requests"] = {};
-    for (const [id, request] of this.requests) requests[id] = cloneRequest(request);
+    for (const [id, request] of this.requests) requests[id] = cloneCustomAuthorizationRequest(request);
     return { grants, requests };
   }
 
   loadState(state: CustomAuthorizationRuntimeState, options?: { now?: number; pruneExpired?: boolean }): CustomAuthorizationIntent[] {
     this.clear();
     for (const [id, grant] of Object.entries(state.grants ?? {})) {
-      this.grants.set(id, cloneGrant(grant));
+      this.grants.set(id, cloneCustomAuthorizationGrant(grant));
       this.bumpGrantSeq(id);
     }
     for (const [id, request] of Object.entries(state.requests ?? {})) {
-      this.requests.set(id, cloneRequest(request));
+      this.requests.set(id, cloneCustomAuthorizationRequest(request));
       this.bumpRequestSeq(id);
     }
     if (options?.pruneExpired === false) return [];
@@ -275,9 +294,9 @@ export class CustomAuthorizationRuntime {
     now: number;
   }): CustomAuthorizationGrant | null {
     for (const grant of this.grants.values()) {
-      if (isGrantExpired(grant, params.now)) continue;
-      if (!matchesId(grant.actorId, params.actorId)) continue;
-      if (!matchesId(grant.peerId, params.peerId)) continue;
+      if (isCustomAuthorizationGrantExpired(grant, params.now)) continue;
+      if (!matchesCustomAuthId(grant.actorId, params.actorId)) continue;
+      if (!matchesCustomAuthId(grant.peerId, params.peerId)) continue;
       if (grant.capability !== "*" && grant.capability !== params.capability) continue;
       if (grant.taskId && grant.taskId !== params.taskId) continue;
       return grant;
@@ -297,7 +316,7 @@ export class CustomAuthorizationRuntime {
   private pruneExpired(now: number): CustomAuthorizationIntent[] {
     const intents: CustomAuthorizationIntent[] = [];
     for (const [id, grant] of this.grants) {
-      if (isGrantExpired(grant, now)) {
+      if (isCustomAuthorizationGrantExpired(grant, now)) {
         this.grants.delete(id);
         intents.push({ kind: "grant-expired", grantId: id });
       }
@@ -333,7 +352,7 @@ export class CustomAuthorizationRuntime {
         && request.capability === params.capability
         && request.taskId === params.taskId
       ) {
-        return { request, deduped: true };
+        return { request: cloneCustomAuthorizationRequest(request), deduped: true };
       }
     }
 
@@ -353,57 +372,16 @@ export class CustomAuthorizationRuntime {
       status: "pending",
     };
     this.requests.set(request.id, request);
-    return { request, deduped: false };
+    return { request: cloneCustomAuthorizationRequest(request), deduped: false };
   }
 
   private bumpGrantSeq(id: string): void {
-    const seq = parseTrailingSeq(id);
+    const seq = parseCustomAuthTrailingSeq(id);
     if (seq > this.grantSeq) this.grantSeq = seq;
   }
 
   private bumpRequestSeq(id: string): void {
-    const seq = parseTrailingSeq(id);
+    const seq = parseCustomAuthTrailingSeq(id);
     if (seq > this.requestSeq) this.requestSeq = seq;
   }
-}
-
-function expiresAtForUse(use: CustomGrantUse, now: number, ttlMs?: number): number | undefined {
-  if (ttlMs !== undefined) return now + Math.max(1, ttlMs);
-  if (use === "timed" || use === "task") return now + DEFAULT_APPROVAL_TTL_MS;
-  return undefined;
-}
-
-function remainingUsesForUse(use: CustomGrantUse, count?: number): number | undefined {
-  if (use === "once") return 1;
-  if (use === "count") return Math.max(1, Math.floor(count ?? 1));
-  return undefined;
-}
-
-function matchesId(pattern: string, actual: string): boolean {
-  return pattern === "*" || pattern.toUpperCase() === actual.toUpperCase();
-}
-
-function isGrantExpired(grant: CustomAuthorizationGrant, now: number): boolean {
-  return (grant.expiresAt !== undefined && grant.expiresAt <= now)
-    || (grant.remainingUses !== undefined && grant.remainingUses <= 0);
-}
-
-function cloneGrant(grant: CustomAuthorizationGrant): CustomAuthorizationGrant {
-  return { ...grant };
-}
-
-function cloneRequest(request: CustomAuthorizationApprovalRequest): CustomAuthorizationApprovalRequest {
-  return {
-    ...request,
-    peer: { ...request.peer },
-    actor: { ...request.actor },
-    admins: request.admins.slice(),
-  };
-}
-
-function parseTrailingSeq(id: string): number {
-  const m = id.match(/-(\d+)$/);
-  if (!m) return 0;
-  const n = Number.parseInt(m[1]!, 10);
-  return Number.isFinite(n) ? n : 0;
 }
