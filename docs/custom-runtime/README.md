@@ -162,6 +162,11 @@ Out of scope for the first custom runtime:
 - `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
 - `src/custom/deploy-confirmation-gateway-adapter.ts`: `/bot-deploy` command and `custom-deploy:` button callback adapter for deployment confirmation cards.
 - `src/custom/task-execution-effects-gateway-adapter.ts`: gateway-side long-task execution effect applier for executor logs, async persistence, and guarded task notification delivery.
+- `src/custom/poll.ts`: pure lightweight poll runtime for interactive cards.
+- `src/custom/poll-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-polls`.
+- `src/custom/poll-command-parser.ts`: pure `/bot-poll` command parser and `custom-poll:*` button payload parser.
+- `src/custom/poll-presentation.ts`: pure poll help/list/status/result text and poll vote keyboard helpers.
+- `src/custom/poll-gateway-adapter.ts`: `/bot-poll` command and `custom-poll:` button callback adapter focused on runtime mutation and account/peer visibility checks.
 - `src/custom/game.ts`: pure lightweight game runtime for interactive cards.
 - `src/custom/game-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-games`.
 - `src/custom/game-gateway-adapter.ts`: `/bot-game` command and `custom-game:` button callback adapter.

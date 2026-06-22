@@ -1370,3 +1370,10 @@ Added configured scene binding inspection:
 - Added `src/custom/scene-presentation.ts` to own scene help/status/list/bindings/bound-reply text and QQ scene switch keyboards, keeping scene text/card tuning out of config mutation logic.
 - `src/custom/scene-gateway-adapter.ts` now focuses on current-peer resolution, runtime config lookup, live scene config mutation, and returning persistence intents; compatibility exports remain for existing callers.
 - `tests/custom-scene-gateway-adapter.test.ts` now verifies direct parser/presentation imports alongside compatibility exports.
+
+拆出 poll 命令解析与呈现层：
+
+- Added `src/custom/poll-command-parser.ts` for pure `/bot-poll` command parsing and `custom-poll:*` vote-button payload parsing.
+- Added `src/custom/poll-presentation.ts` for poll help/list/status/closed/vote-ack text and inline vote keyboard builders, keeping card/text tuning independent of poll runtime mutation.
+- `src/custom/poll-gateway-adapter.ts` now focuses on runtime enablement, current account/peer/actor binding, poll visibility checks, and state mutation, while re-exporting parser/presentation helpers for compatibility.
+- `tests/custom-poll-gateway-adapter.test.ts` now covers direct parser/presentation imports alongside compatibility exports.

@@ -1837,13 +1837,15 @@ Current implementation status:
 - Poll ids use `poll-{accountId}-{peerKind}-{peerIdPrefix}-{timestamp}-{seq}`.
 - Exports/imports `CustomPollRuntimeState` so the gateway can restore poll metadata after restart.
 - Persists state under `~/.openclaw/qqbot/data/custom-polls/polls-<accountId>.json`.
-- `src/custom/poll-gateway-adapter.ts` handles `/bot-poll` before the normal AI queue:
+- `src/custom/poll-command-parser.ts` parses `/bot-poll` text commands and `custom-poll:<pollId>:vote:<optionId>` button payloads without depending on runtime state:
   - `/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`
   - `/bot-poll list`
   - `/bot-poll status <pollId>`
   - `/bot-poll close <pollId>`
+- `src/custom/poll-presentation.ts` formats poll help/list/status/closed/vote acknowledgement text and builds the vote inline keyboard.
+- `src/custom/poll-gateway-adapter.ts` handles `/bot-poll` before the normal AI queue by binding parsed commands to the current account/peer/actor and mutating the per-account poll runtime.
 - For C2C/group messages, poll creation replies with an inline keyboard when available; channel/DM paths fall back to text.
-- Button callbacks use `custom-poll:<pollId>:vote:<optionId>`.
+- Button callbacks use `custom-poll:<pollId>:vote:<optionId>` and are parsed by the same parser module before the gateway adapter applies visibility checks.
 - `gateway.ts` acknowledges interactions first, maps the callback source into a custom peer, then routes `custom-poll:` callbacks to the per-account poll runtime.
 - `/bot-poll status <pollId>` and `/bot-poll close <pollId>` only reveal or mutate polls in the original account/peer, or polls created by the current actor. A poll id from another group/DM is treated as not found for ordinary readers.
 - Button votes apply the same account/peer visibility check before state mutation. Ordinary users cannot vote from another group/DM by replaying a poll callback payload; the poll creator can still interact with their own poll across peers.

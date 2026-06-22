@@ -6,6 +6,14 @@ import {
   parseCustomPollButtonData,
   parseCustomPollCommand,
 } from "../src/custom/poll-gateway-adapter.js";
+import {
+  parseCustomPollButtonData as parseCustomPollButtonDataDirect,
+  parseCustomPollCommand as parseCustomPollCommandDirect,
+} from "../src/custom/poll-command-parser.js";
+import {
+  buildCustomPollKeyboard as buildCustomPollKeyboardDirect,
+  formatPollStatus as formatPollStatusDirect,
+} from "../src/custom/poll-presentation.js";
 import { CustomPollRuntime } from "../src/custom/poll.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -44,6 +52,10 @@ assert.deepEqual(parseCustomPollCommand("/bot-poll create Pick one | A | B"), {
   matched: true,
   command: { kind: "create", question: "Pick one", options: ["A", "B"] },
 });
+assert.deepEqual(
+  parseCustomPollCommandDirect("/bot-poll create Pick one | A | B"),
+  parseCustomPollCommand("/bot-poll create Pick one | A | B"),
+);
 assert.deepEqual(parseCustomPollCommand("/bot-poll status poll-1"), {
   matched: true,
   command: { kind: "status", pollId: "poll-1" },
@@ -56,6 +68,10 @@ assert.deepEqual(parseCustomPollButtonData("custom-poll:poll-default-group-GROUP
   pollId: "poll-default-group-GROUP_OPENID-1000-1",
   optionId: "2",
 });
+assert.deepEqual(
+  parseCustomPollButtonDataDirect("custom-poll:poll-default-group-GROUP_OPENID-1000-1:vote:2"),
+  parseCustomPollButtonData("custom-poll:poll-default-group-GROUP_OPENID-1000-1:vote:2"),
+);
 assert.equal(parseCustomPollButtonData("custom-auth:req:allow-once"), null);
 
 const disabledRuntime = new CustomPollRuntime();
@@ -88,6 +104,7 @@ const pollId = Object.keys(polls.getState().polls)[0]!;
 assert.equal(pollId, "poll-default-group-GROUP_OPENID-1000-1");
 const keyboard = buildCustomPollKeyboard(polls.getPoll(pollId)!);
 assert.equal(keyboard.content?.rows[1]?.buttons[0]?.action?.data, `custom-poll:${pollId}:vote:2`);
+assert.deepEqual(buildCustomPollKeyboardDirect(polls.getPoll(pollId)!), keyboard);
 
 const vote = handleCustomPollInteraction({
   accountId: "default",
@@ -166,6 +183,7 @@ const statusBySuffix = handleCustomPollCommand({
 });
 assert.equal(statusBySuffix.handled, true);
 assert.equal(statusBySuffix.reply?.includes("B：1"), true);
+assert.equal(formatPollStatusDirect(polls.getPoll(pollId)!).includes("B：1"), true);
 
 const otherGroupStatus = handleCustomPollCommand({
   cfg,
