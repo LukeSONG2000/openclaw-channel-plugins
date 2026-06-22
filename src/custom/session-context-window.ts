@@ -28,7 +28,9 @@ export function applyCustomSessionContextWindow(params: {
 }): ApplyCustomSessionContextWindowResult {
   const maxTurns = resolveMaxSessionTurns(params.runtime);
   const key = `${params.route.agentId}:${params.peerId}`;
-  const state = peerWindows.get(key) ?? { generation: 0, turns: 0 };
+  // Start from a suffixed generation so a plugin restart can escape an already-bloated
+  // legacy OpenClaw session instead of reusing the old base session key.
+  const state = peerWindows.get(key) ?? { generation: 1, turns: 0 };
   const command = firstSlashCommandToken(params.content);
   let rotated = false;
   let reason: ApplyCustomSessionContextWindowResult["reason"];
@@ -63,7 +65,6 @@ export function resetCustomSessionContextWindowForTests(): void {
 }
 
 function withSessionGeneration(route: CustomAgentRoute, generation: number): CustomAgentRoute {
-  if (generation <= 0) return route;
   const suffix = `:qqctx:${generation}`;
   return {
     ...route,
