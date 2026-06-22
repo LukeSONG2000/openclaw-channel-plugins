@@ -4,6 +4,10 @@ import {
   buildCustomDeployPreflightSummary,
   formatCustomDeployPreflightSummary,
 } from "../src/custom/deploy-preflight.js";
+import {
+  buildCustomDeployPreflightKeyboard as buildCustomDeployPreflightKeyboardDirect,
+  formatCustomDeployPreflightSummary as formatCustomDeployPreflightSummaryDirect,
+} from "../src/custom/deploy-preflight-presentation.js";
 
 const ready = buildCustomDeployPreflightSummary({
   channels: {
@@ -36,7 +40,9 @@ assert.equal(ready.adminGroup, "qqbot:group:GROUP_OPENID");
 assert.equal(ready.upgradePkg, "@lukesong/openclaw-qqbot");
 assert.equal(ready.findings.some((finding) => finding.code === "preflight_read_only"), true);
 assert.equal(formatCustomDeployPreflightSummary(ready).includes("QQBot 二开部署预检（只读）"), true);
+assert.equal(formatCustomDeployPreflightSummaryDirect(ready), formatCustomDeployPreflightSummary(ready));
 const readyKeyboard = buildCustomDeployPreflightKeyboard(ready);
+assert.deepEqual(buildCustomDeployPreflightKeyboardDirect(ready), readyKeyboard);
 assert.equal(readyKeyboard.content?.rows[0]?.buttons[0]?.action?.data, "/bot-deploy preflight");
 assert.equal(readyKeyboard.content?.rows[0]?.buttons[1]?.action?.data, "/bot-version");
 assert.equal(readyKeyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-deploy confirm /bot-upgrade --latest");

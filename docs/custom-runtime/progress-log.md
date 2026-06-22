@@ -1404,3 +1404,9 @@ Added configured scene binding inspection:
 - Added `src/custom/update-check-presentation.ts` for custom update management-group notification text, admin-group openid validation, and `/bot-version` / `/bot-deploy preflight` / `/bot-deploy confirm` command-button keyboards.
 - `src/custom/update-check.ts` now focuses on update-source config, check execution, background loop scheduling, log dedupe, and per-version notification triggering, while re-exporting presentation helpers for compatibility.
 - `tests/custom-update-check.test.ts` now verifies direct presentation imports alongside the existing `update-check.ts` compatibility export path.
+
+拆出部署预检呈现层：
+
+- Added `src/custom/deploy-preflight-presentation.ts` for `/bot-deploy preflight` summary text and QQ command-keyboard construction.
+- `src/custom/deploy-preflight.ts` now focuses on live config inspection, package/plugin classification, and structured safety findings, while re-exporting presentation helpers for compatibility.
+- `tests/custom-deploy-preflight.test.ts` now verifies direct presentation imports alongside the existing compatibility exports.

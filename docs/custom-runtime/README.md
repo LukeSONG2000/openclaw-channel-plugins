@@ -160,7 +160,8 @@ Out of scope for the first custom runtime:
 - `src/custom/interaction-effects-gateway-adapter.ts`: gateway-side custom callback-card effect applier for logs, state persistence, and reply delivery.
 - `src/custom/interaction-router.ts`: pluggable custom callback-card router for auth, poll, game, and deploy-confirmation cards.
 - `src/custom/deploy-confirmation.ts`: pure safety confirmation runtime for guarded deployment/update decisions; it records confirm/cancel state but never executes upgrades.
-- `src/custom/deploy-preflight.ts`: pure in-runtime deploy preflight summary for `/bot-deploy preflight`; it inspects the live config object but never runs shell commands or touches server files.
+- `src/custom/deploy-preflight.ts`: pure in-runtime deploy preflight inspection for `/bot-deploy preflight`; it inspects the live config object but never runs shell commands or touches server files.
+- `src/custom/deploy-preflight-presentation.ts`: pure deploy preflight summary text and command-keyboard helpers.
 - `src/custom/deploy-confirmation-store.ts`: atomic JSON persistence under `~/.openclaw/qqbot/data/custom-deploy-confirmations`.
 - `src/custom/deploy-command-parser.ts`: pure `/bot-deploy` command parser and `custom-deploy:*` confirmation-button payload parser.
 - `src/custom/deploy-presentation.ts`: pure deploy confirmation help/list/status/result text and confirmation-card keyboard helpers.

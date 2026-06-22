@@ -2127,16 +2127,25 @@ Current implementation status:
 
 ### `src/custom/deploy-preflight.ts`
 
-Read-only deploy safety summary for chat.
+Read-only deploy safety inspection for chat.
 
 Implemented behavior:
 
-- `/bot-deploy preflight` inspects the live config object and formats a management-friendly summary.
+- `/bot-deploy preflight` inspects the live config object and returns a structured safety summary.
 - Checks admin anchors, management group anchor, `customRuntime.enabled`, management-group scene binding, update package source, upgrade mode, package override setting, custom update check setting, and duplicate/legacy QQBot plugin config entries.
 - Uses `deploy.check` capability through slash-command metadata.
-- Returns a QQ command keyboard: refresh/version are always available, `confirm /bot-upgrade --latest` appears only when no blockers exist, and blocker states expose only read-only diagnostics such as `/bot-auth status` and `/bot-scene bindings`.
 - Does not read server extension directories, run shell commands, install packages, restart the gateway, delete files, or mutate config.
 - Complements but does not replace `scripts/preflight-custom-runtime-deploy.mjs --require-ready`, which should still run on the server before real deploy/update.
+
+### `src/custom/deploy-preflight-presentation.ts`
+
+Pure renderer for chat-side deploy preflight output.
+
+Implemented behavior:
+
+- Formats the structured preflight summary into the management-friendly `/bot-deploy preflight` reply.
+- Returns a QQ command keyboard: refresh/version are always available, `confirm /bot-upgrade --latest` appears only when no blockers exist, and blocker states expose only read-only diagnostics such as `/bot-auth status` and `/bot-scene bindings`.
+- Keeps deploy-safety wording and button tuning independent from config inspection and package/plugin classification.
 
 ### `src/custom/update-check-presentation.ts`
 
