@@ -4,6 +4,11 @@ import {
   parseCustomAuthButtonData as parseCustomAuthButtonDataDirect,
   parseCustomAuthCommand as parseCustomAuthCommandDirect,
 } from "../src/custom/auth-command-parser.js";
+import {
+  buildCustomAuthApprovalKeyboard as buildCustomAuthApprovalKeyboardDirect,
+  buildCustomAuthApprovalText as buildCustomAuthApprovalTextDirect,
+  firstCustomAuthApprovalRequest as firstCustomAuthApprovalRequestDirect,
+} from "../src/custom/auth-presentation.js";
 import { checkCustomTaskCommandAuthorization } from "../src/custom/task-auth-gateway-adapter.js";
 import { CustomTaskSandboxRuntime } from "../src/custom/task-sandbox.js";
 import {
@@ -380,9 +385,20 @@ const cardDenied = checkCustomSlashAuthorization({
 const cardRequest = firstCustomAuthApprovalRequest(cardDenied.result?.intents ?? []);
 assert.equal(cardRequest?.id, "authreq-10000-1");
 if (!cardRequest) throw new Error("expected custom auth request");
+assert.equal(firstCustomAuthApprovalRequestDirect(cardDenied.result?.intents ?? []), cardRequest);
 assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
 assert.equal((buildCustomAuthApprovalText(cardRequest).match(/能力：/g) ?? []).length, 1);
+{
+  const originalDateNow = Date.now;
+  Date.now = () => 10_500;
+  try {
+    assert.equal(buildCustomAuthApprovalTextDirect(cardRequest), buildCustomAuthApprovalText(cardRequest));
+  } finally {
+    Date.now = originalDateNow;
+  }
+}
 const keyboard = buildCustomAuthApprovalKeyboard(cardRequest.id);
+assert.deepEqual(buildCustomAuthApprovalKeyboardDirect(cardRequest.id), keyboard);
 assert.equal(keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:allow-once");
 assert.equal(keyboard.content?.rows[0]?.buttons[2]?.action?.data, "custom-auth:authreq-10000-1:allow-timed");
 assert.equal(keyboard.content?.rows[1]?.buttons[0]?.action?.data, "custom-auth:authreq-10000-1:deny");

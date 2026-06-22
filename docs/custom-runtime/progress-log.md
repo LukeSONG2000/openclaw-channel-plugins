@@ -1357,3 +1357,9 @@ Added configured scene binding inspection:
 - Added `src/custom/auth-command-parser.ts` to own pure `/bot-auth` command parsing and `custom-auth:*` approval-button payload parsing, so parser behavior can evolve without pulling in gateway/runtime dependencies.
 - `src/custom/auth-command-gateway-adapter.ts` now delegates parsing to the new parser and keeps compatibility re-exports through both auth adapters, while focusing on admin checks, status/list rendering, approval resolution, cards, and management-group notification intents.
 - Fixed duplicated capability text in auth approval cards and added direct parser import assertions in `tests/custom-auth-gateway-adapter.test.ts`.
+
+拆出 auth 呈现与通知层：
+
+- Added `src/custom/auth-presentation.ts` for `/bot-auth` help/status/request/grant text, approval resolution replies, approval-card text/keyboards, management-group notification payloads, first-request selection, and auth intent summary logs.
+- `src/custom/auth-command-gateway-adapter.ts` now focuses on admin validation, parser dispatch, approval-button decisions, and approval resolution against the live auth runtime, while re-exporting parser/presentation helpers for existing gateway callers.
+- Added direct presentation-helper assertions to `tests/custom-auth-gateway-adapter.test.ts`, keeping the compatibility export surface covered while reducing future card/text tuning risk.

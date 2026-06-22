@@ -444,7 +444,7 @@ Current implementation status:
 - Deduplicates pending approval requests by peer, actor, capability, and task id.
 - Can import/export `CustomAuthorizationRuntimeState` so the gateway can persist temporary grants and approval requests.
 - `src/custom/auth-gateway-adapter.ts` translates gateway queued messages and plugin slash commands into auth checks, while re-exporting auth command helpers for compatibility.
-- `src/custom/auth-command-parser.ts` owns pure `/bot-auth` text-command parsing and `custom-auth:*` approval-button payload parsing, while `src/custom/auth-command-gateway-adapter.ts` owns admin-only status/request/grant rendering, approval handling, grant command conversion, and management-group notification payload construction.
+- `src/custom/auth-command-parser.ts` owns pure `/bot-auth` text-command parsing and `custom-auth:*` approval-button payload parsing; `src/custom/auth-presentation.ts` owns status/request/grant rendering, approval-card construction, management-group notification payloads, and intent summaries; `src/custom/auth-command-gateway-adapter.ts` owns admin checks, approval handling, and grant command conversion.
 - `gateway.ts` blocks plugin-level slash commands before their handlers can mutate config or run deploy actions when `channels.qqbot.customRuntime.enabled` is true.
 - `gateway.ts` also checks ordinary messages before OpenClaw/model dispatch. Normal chat requests require `chat.send`; slash-like framework commands that are not plugin commands require `codex.run`; codex-only scenes route ordinary dispatch checks to `codex.run`.
 - Unauthorized slash commands receive a visible denial message and create an in-memory approval request intent when bound admins exist.
@@ -1278,6 +1278,17 @@ Current implementation status:
 - Parses `custom-auth:<requestId>:allow-once|allow-count|allow-timed|allow-task|deny` button payloads into typed decisions for the gateway adapter.
 - Stays re-exported by `auth-command-gateway-adapter.ts` and `auth-gateway-adapter.ts` so existing callers keep the same import surface while tests can cover the parser directly.
 
+### `src/custom/auth-presentation.ts`
+
+Pure presentation and notification helpers for custom authorization.
+
+Current implementation status:
+
+- Formats `/bot-auth` help, status, pending-request list, active-grant list, and approval resolution replies without depending on gateway messages or transport state.
+- Builds approval-card text/keyboards and management-group notification payloads from typed auth requests; delivery stays in slash/dispatch/admin-group adapters.
+- Provides intent summary logging and first-approval-request selection so gateway orchestration can log/pick requests without owning text/card construction.
+- Stays re-exported by `auth-command-gateway-adapter.ts` and `auth-gateway-adapter.ts` for compatibility while direct tests can cover presentation helpers.
+
 ### `src/custom/auth-command-gateway-adapter.ts`
 
 Gateway-adjacent command and interaction layer for custom authorization.
@@ -1285,6 +1296,7 @@ Gateway-adjacent command and interaction layer for custom authorization.
 Current implementation status:
 
 - Delegates raw `/bot-auth` text parsing and approval-button payload parsing to `auth-command-parser.ts`.
+- Delegates auth text/card/notification rendering and intent summaries to `auth-presentation.ts`.
 - Handles `/bot-auth` as a gateway-level admin command so admins can approve or deny custom auth requests against the live per-account runtime.
 - Provides admin-only read views for pending approval requests and active temporary grants through `/bot-auth requests [数量]` and `/bot-auth grants [数量]`; these views show ids, actor/peer ids, capabilities, expiry, and command hints, but not raw message bodies.
 - Builds QQ inline keyboard approval cards for new unauthorized C2C/group slash-command requests.
