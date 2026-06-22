@@ -10,6 +10,7 @@ import {
   type CustomAuthAdminGroupNotification,
   type CustomDispatchAuthorizationDecision,
 } from "./auth-gateway-adapter.js";
+import { prefixCustomUserFeedbackMention } from "./identity-presentation.js";
 
 export type CustomDispatchAuthApprovalCardTarget =
   | { kind: "c2c"; userOpenid: string; messageId: string }
@@ -41,8 +42,10 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
   const request = params.decision.result?.intents
     ? firstCustomAuthApprovalRequest(params.decision.result.intents)
     : null;
-  const denialText = formatCustomDispatchAuthorizationDeniedMessage(params.decision);
-  const approvalText = request ? buildCustomAuthApprovalText(request, params.cfg ?? params.decision.cfg) : undefined;
+  const baseDenialText = formatCustomDispatchAuthorizationDeniedMessage(params.decision);
+  const baseApprovalText = request ? buildCustomAuthApprovalText(request, params.cfg ?? params.decision.cfg) : undefined;
+  const denialText = prefixDispatchAuthFeedback(baseDenialText, params.decision);
+  const approvalText = baseApprovalText ? prefixDispatchAuthFeedback(baseApprovalText, params.decision) : undefined;
   const approvalKeyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
 
   const cardTarget = resolveDispatchAuthApprovalCardTarget(params.message);
@@ -56,7 +59,7 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
         adminGroupNotification: buildCustomAuthAdminGroupNotification({
           request,
           sourcePeer: params.decision.peer,
-          text: approvalText,
+          text: baseApprovalText!,
           keyboard: approvalKeyboard,
         }),
       };
@@ -74,11 +77,18 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
       ? buildCustomAuthAdminGroupNotification({
           request,
           sourcePeer: params.decision.peer,
-          text: approvalText,
+          text: baseApprovalText!,
           keyboard: approvalKeyboard,
         })
       : null,
   };
+}
+
+function prefixDispatchAuthFeedback(text: string, decision: CustomDispatchAuthorizationDecision): string {
+  return prefixCustomUserFeedbackMention(text, {
+    peer: decision.peer,
+    actor: decision.actor,
+  });
 }
 
 function resolveDispatchAuthApprovalCardTarget(message: QueuedMessage): CustomDispatchAuthApprovalCardTarget | null {

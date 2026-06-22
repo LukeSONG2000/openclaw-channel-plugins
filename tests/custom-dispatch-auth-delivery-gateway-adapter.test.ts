@@ -62,6 +62,7 @@ assert.equal(cardResult.handled, true);
 assert.equal(cardResult.delivery, "approval-card");
 assert.equal(cardResult.requestId, "authreq-1");
 assert.deepEqual(cards[0]?.target, { kind: "group", groupOpenid: "GROUP_OPENID", messageId: "MSG_GROUP" });
+assert.equal(cards[0]?.text.startsWith("<@MEMBER_OPENID>\n"), true);
 assert.equal(cards[0]?.text.includes("自定义权限申请"), true);
 assert.equal(texts.length, 0);
 assert.equal(cardResult.adminGroupNotification?.groupOpenid, "ADMIN_GROUP");
@@ -80,6 +81,7 @@ assert.equal(fallbackResult.handled, true);
 assert.equal(fallbackResult.delivery, "text");
 assert.equal(fallbackResult.adminGroupNotification?.requestId, "authreq-1");
 assert.equal(fallbackTexts[0]?.includes("需要能力：config.write"), true);
+assert.equal(fallbackTexts[0]?.startsWith("<@MEMBER_OPENID>\n"), true);
 assert.equal(errors[0]?.includes("falling back to text"), true);
 
 const noRequestTexts: string[] = [];

@@ -56,6 +56,8 @@ export function resolveCustomDispatchCapability(params: {
   const content = params.rawContent.trim();
   if (content.startsWith("/")) return "codex.run";
 
+  if (detectCustomRuleWriteIntent(content)) return "config.write";
+
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   const peer = toCustomPeerFromQueuedMessage(params.message);
   const scene = resolveCustomSceneConfig(params.cfg, peer);
@@ -70,6 +72,24 @@ export function resolveCustomDispatchCapability(params: {
     return "codex.run";
   }
   return "chat.send";
+}
+
+export function detectCustomRuleWriteIntent(content: string): boolean {
+  const text = content.replace(/<@[^>]+>/g, " ").trim();
+  if (!text) return false;
+  const lower = text.toLowerCase();
+
+  if (/(agents?\.md|memory\.md|soul\.md|tools\.md|heartbeat\.md|bootstrap\.md)/i.test(text)) {
+    return /(写入|写进|写到|保存|追加|新增|添加|修改|改成|删除|移除|更新|规则|记忆|指令)/.test(text);
+  }
+
+  if (/(保存到记忆|存到记忆|写入记忆|写进记忆|保存进记忆|记到记忆|记下来|记住)/.test(text)) return true;
+  if (/(新增|添加|修改|改成|删除|移除|更新).{0,12}(规则|指令|提示词|prompt)/i.test(text)) return true;
+  if (/(规则|指令|提示词|prompt).{0,12}(新增|添加|修改|改成|删除|移除|更新|写入|保存)/i.test(text)) return true;
+  if (/以后.{0,24}(有人|群里|大家|谁|用户).{0,24}(说|发|问|询问|提到|触发).{0,32}(回复|回答|回|说|输出)/.test(text)) return true;
+  if (/以后.{0,24}(回复|回答|回|说|输出).{0,32}(规则|记忆)/.test(text)) return true;
+
+  return lower.includes("agent.md") && /(写|改|删|规则|记忆)/.test(text);
 }
 
 export function checkCustomDispatchAuthorization(params: {
