@@ -83,6 +83,8 @@ assert.equal(denied.persist?.auth, true);
 assert.equal(denied.reply?.kind, "auth-approval");
 if (denied.reply?.kind !== "auth-approval") throw new Error("expected auth approval reply");
 assert.equal(denied.reply.denialText.includes("需要能力：config.write"), true);
+assert.equal(denied.reply.approvalText?.startsWith("<@ADMIN_OPENID>\n"), true);
+assert.equal(denied.reply.approvalText?.includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
 assert.equal(denied.reply.approvalText?.includes("管理群：群聊（group_openid：GROUP_OPENID）"), true);
 assert.equal(denied.reply.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-2000-1:allow-once");
 assert.equal(denied.reply.adminGroupNotification, null);
@@ -108,6 +110,47 @@ assert.equal(dmDenied.reply?.kind, "auth-approval");
 if (dmDenied.reply?.kind !== "auth-approval") throw new Error("expected dm auth approval reply");
 assert.equal(dmDenied.reply.adminGroupNotification?.groupOpenid, "GROUP_OPENID");
 assert.equal(dmDenied.reply.adminGroupNotification?.requestId, "authreq-2500-1");
+
+const noCopyDenied = handleCustomSlashGatewayCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          ...deniedCfg.channels.qqbot.customRuntime,
+          auth: { copyRequestsToAdminGroup: false },
+        },
+      },
+    },
+  } as any,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: {
+    ...baseMessage,
+    type: "c2c",
+    groupOpenid: undefined,
+    content: "/bot-streaming on",
+  },
+  rawContent: "/bot-streaming on",
+  now: 2_550,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(noCopyDenied.handled, true);
+assert.equal(noCopyDenied.reply?.kind, "auth-approval");
+if (noCopyDenied.reply?.kind !== "auth-approval") throw new Error("expected no-copy auth approval reply");
+assert.equal(noCopyDenied.reply.adminGroupNotification, null);
+
+const adminCopyOff = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-auth admin-copy off" },
+  rawContent: "/bot-auth admin-copy off",
+  now: 2_575,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(adminCopyOff.handled, true);
+assert.deepEqual(adminCopyOff.persist?.authConfig, { copyRequestsToAdminGroup: false });
+assert.equal(adminCopyOff.reply?.kind === "text" && adminCopyOff.reply.text.includes("授权抄送已关闭"), true);
 
 const initBind = handleCustomSlashGatewayCommand({
   cfg: {

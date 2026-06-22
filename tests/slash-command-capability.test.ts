@@ -22,6 +22,10 @@ assert.equal(getSlashCommandCapability("/bot-streaming"), "config.read");
 assert.equal(getSlashCommandCapability("/bot-streaming on"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-approve status"), "config.read");
 assert.equal(getSlashCommandCapability("/bot-approve on"), "auth.grant");
+assert.equal(getSlashCommandCapability("/bot-auth status"), "config.read");
+assert.equal(getSlashCommandCapability("/bot-auth admin-copy status"), "config.read");
+assert.equal(getSlashCommandCapability("/bot-auth admin-copy off"), "auth.grant");
+assert.equal(getSlashCommandCapability("/bot-auth approve authreq-1 once"), "auth.grant");
 assert.equal(getSlashCommandCapability("/bot-group-allways off"), "config.write");
 assert.equal(getSlashCommandCapability("/bot-task"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-task list"), "system.status");
@@ -128,11 +132,14 @@ for (const name of [
   "bot-clear-storage",
   "bot-streaming",
   "bot-approve",
+  "bot-auth",
   "bot-group-allways",
 ]) {
   assert.match(help as string, new RegExp(`/${name}\\b`));
 }
-assert.match(help as string, /权限：查看 deploy\.check；执行升级 deploy\.apply/);
-assert.match(help as string, /范围：仅私聊/);
+assert.match(help as string, /\/bot-upgrade.*（仅私聊；\/bot-deploy 可在群里创建确认卡｜需要权限 查看 deploy\.check；执行升级 deploy\.apply）/);
+assert.doesNotMatch(help as string, /\/help.*（/);
+assert.doesNotMatch(help as string, /范围：/);
+assert.doesNotMatch(help as string, /权限：/);
 
 console.log("slash command capability tests passed");

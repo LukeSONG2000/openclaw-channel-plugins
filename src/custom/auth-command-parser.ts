@@ -3,6 +3,7 @@ import type { CustomGrantUse } from "./types.js";
 export type CustomAuthCommand =
   | { kind: "help" }
   | { kind: "status" }
+  | { kind: "admin-copy"; enabled?: boolean }
   | { kind: "requests"; limit: number }
   | { kind: "grants"; limit: number }
   | {
@@ -39,6 +40,13 @@ export function parseCustomAuthCommand(rawContent: string): CustomAuthCommandPar
   const action = (tokens.shift() ?? "help").toLowerCase();
   if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
   if (action === "status") return { matched: true, command: { kind: "status" } };
+  if (action === "admin-copy" || action === "copy" || action === "admin-cc") {
+    const mode = tokens.shift()?.toLowerCase() ?? "status";
+    if (mode === "status") return { matched: true, command: { kind: "admin-copy" } };
+    if (mode === "on" || mode === "enable" || mode === "enabled" || mode === "true") return { matched: true, command: { kind: "admin-copy", enabled: true } };
+    if (mode === "off" || mode === "disable" || mode === "disabled" || mode === "false") return { matched: true, command: { kind: "admin-copy", enabled: false } };
+    return { matched: true, error: "admin-copy 只支持 on/off/status" };
+  }
   if (action === "requests" || action === "request" || action === "pending" || action === "list") {
     const limit = parseListLimit(tokens[0]);
     if (limit === null) return { matched: true, error: `数量需要是 1 到 ${MAX_AUTH_LIST_LIMIT} 的整数` };

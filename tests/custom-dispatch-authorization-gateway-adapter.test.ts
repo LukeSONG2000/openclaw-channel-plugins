@@ -82,7 +82,8 @@ const ruleWriteDenied = await applyCustomDispatchAuthorizationGateway({
 });
 assert.equal(ruleWriteDenied.shouldStop, true);
 assert.equal(ruleWriteDenied.decision.capability, "config.write");
-assert.equal(cards.at(-1)?.text.startsWith("<@MEMBER_OPENID>\n"), true);
+assert.equal(cards.at(-1)?.text.startsWith("<@ADMIN_OPENID>\n"), true);
+assert.equal(cards.at(-1)?.text.includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
 
 const conditionalRuleWriteDenied = await applyCustomDispatchAuthorizationGateway({
   cfg: authCfg,
@@ -97,7 +98,7 @@ const conditionalRuleWriteDenied = await applyCustomDispatchAuthorizationGateway
 });
 assert.equal(conditionalRuleWriteDenied.shouldStop, true);
 assert.equal(conditionalRuleWriteDenied.decision.capability, "config.write");
-assert.equal(cards.at(-1)?.text.startsWith("<@MEMBER_OPENID>\n"), true);
+assert.equal(cards.at(-1)?.text.startsWith("<@ADMIN_OPENID>\n"), true);
 
 const fallbackTexts: string[] = [];
 const fallbackErrors: string[] = [];

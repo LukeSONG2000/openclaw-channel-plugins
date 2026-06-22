@@ -158,6 +158,29 @@ assert.equal(initBindWrittenConfig.channels.qqbot.customRuntime.initBind, undefi
 assert.equal(initBindWrittenConfig.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "system-admin");
 assert.equal(initBindLogs.some((line) => line.includes("custom runtime init binding persisted")), true);
 
+let authConfigWritten: any = null;
+const authConfigLogs: string[] = [];
+const authConfigEffect = await applyCustomSlashGatewayEffects({
+  accountId: "default",
+  cfg: sourceCfg,
+  result: {
+    handled: true,
+    persist: {
+      authConfig: { copyRequestsToAdminGroup: false },
+    },
+  },
+  getConfigApi: () => ({
+    loadConfig: () => ({ channels: { qqbot: { customRuntime: { enabled: true } } } }),
+    writeConfigFile: async (cfg) => { authConfigWritten = cfg; },
+  }),
+  sendText: async () => {},
+  sendKeyboard: async () => { throw new Error("unexpected keyboard"); },
+  log: { info: (message) => authConfigLogs.push(message), error: () => {} },
+});
+assert.equal(authConfigEffect.configPersisted, true);
+assert.equal(authConfigWritten.channels.qqbot.customRuntime.auth.copyRequestsToAdminGroup, false);
+assert.equal(authConfigLogs.some((line) => line.includes("custom auth config persisted")), true);
+
 const failedReplyTaskTexts: string[] = [];
 const failedReplyErrors: string[] = [];
 const failedReply = await applyCustomSlashGatewayEffects({

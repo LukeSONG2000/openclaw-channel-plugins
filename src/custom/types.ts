@@ -73,6 +73,7 @@ export interface CustomRuntimeConfig {
   enabled?: boolean;
   scenes?: Record<string, CustomSceneConfig>;
   admins?: string[];
+  auth?: CustomRuntimeAuthConfig;
   /**
    * Management group bound during custom runtime initialization.
    *
@@ -86,6 +87,11 @@ export interface CustomRuntimeConfig {
   tasks?: CustomTaskRuntimeConfig;
   fallbackAlerts?: CustomFallbackAlertConfig;
   initBind?: CustomRuntimeInitBindConfig;
+}
+
+export interface CustomRuntimeAuthConfig {
+  /** Whether auth requests from non-admin-group peers are also copied to the admin group. Defaults to true. */
+  copyRequestsToAdminGroup?: boolean;
 }
 
 export interface CustomRuntimeInitBindConfig {

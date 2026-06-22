@@ -156,6 +156,14 @@ assert.deepEqual(parseCustomAuthCommand("/bot-auth grants"), {
   matched: true,
   command: { kind: "grants", limit: 10 },
 });
+assert.deepEqual(parseCustomAuthCommand("/bot-auth admin-copy status"), {
+  matched: true,
+  command: { kind: "admin-copy" },
+});
+assert.deepEqual(parseCustomAuthCommand("/bot-auth admin-copy off"), {
+  matched: true,
+  command: { kind: "admin-copy", enabled: false },
+});
 const invalidRequestLimit = parseCustomAuthCommand("/bot-auth requests 0");
 assert.equal(invalidRequestLimit.matched, true);
 assert.equal("error" in invalidRequestLimit && invalidRequestLimit.error?.includes("数量需要是 1 到 20"), true);
@@ -185,6 +193,7 @@ const status = handleCustomAuthCommand({
 assert.equal(status.handled, true);
 assert.equal(status.reply?.includes("管理员：ADMIN_OPENID"), true);
 assert.equal(status.reply?.includes("管理群：群聊（group_openid：GROUP_OPENID）"), true);
+assert.equal(status.reply?.includes("跨群抄送：开启"), true);
 assert.equal(status.reply?.includes("初始化：完整"), true);
 assert.equal(status.reply?.includes("查看详情：/bot-auth requests 或 /bot-auth grants"), true);
 
@@ -223,6 +232,17 @@ const missingInitStatus = handleCustomAuthCommand({
 assert.equal(missingInitStatus.handled, true);
 assert.equal(missingInitStatus.reply?.includes("管理群：未绑定"), true);
 assert.equal(missingInitStatus.reply?.includes("初始化：缺少 管理群"), true);
+
+const copyOff = handleCustomAuthCommand({
+  cfg: authCfg,
+  auth,
+  message: adminMessage,
+  rawContent: "/bot-auth admin-copy off",
+  now: 2_950,
+});
+assert.equal(copyOff.handled, true);
+assert.deepEqual(copyOff.config, { authCopyRequestsToAdminGroup: false });
+assert.equal(copyOff.reply?.includes("授权抄送已关闭"), true);
 
 const approved = handleCustomAuthCommand({
   cfg: authCfg,
@@ -403,6 +423,8 @@ if (!cardRequest) throw new Error("expected custom auth request");
 assert.equal(firstCustomAuthApprovalRequestDirect(cardDenied.result?.intents ?? []), cardRequest);
 assert.equal(buildCustomAuthApprovalText(cardRequest).includes("自定义权限申请"), true);
 assert.equal((buildCustomAuthApprovalText(cardRequest).match(/能力：/g) ?? []).length, 1);
+assert.equal(buildCustomAuthApprovalText(cardRequest).startsWith("<@ADMIN_OPENID>\n"), true);
+assert.equal(buildCustomAuthApprovalText(cardRequest).includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
 {
   const originalDateNow = Date.now;
   Date.now = () => 10_500;
@@ -426,6 +448,8 @@ const adminGroupNotification = buildCustomAuthAdminGroupNotification({
 assert.equal(adminGroupNotification?.groupOpenid, "GROUP_OPENID");
 assert.equal(adminGroupNotification?.requestId, "authreq-10000-1");
 assert.equal(adminGroupNotification?.keyboard, keyboard);
+assert.equal(adminGroupNotification?.text.startsWith("<@ADMIN_OPENID>\n"), true);
+assert.equal(adminGroupNotification?.text.includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
 assert.equal(buildCustomAuthAdminGroupNotification({
   request: cardRequest,
   sourcePeer: { kind: "group", id: "GROUP_OPENID" },

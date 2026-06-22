@@ -39,6 +39,7 @@ export type CustomSlashGatewayReply =
 
 export interface CustomSlashGatewayPersist {
   auth?: boolean;
+  authConfig?: { copyRequestsToAdminGroup: boolean };
   config?: { sceneKey: string; sceneConfig: CustomSceneConfig };
   initBind?: CustomInitBindConfigPersist;
   tasks?: boolean;
@@ -318,5 +319,5 @@ export function hasCustomSlashPersist(persist?: CustomSlashGatewayPersist): bool
 }
 
 function hasPersist(persist?: CustomSlashGatewayPersist): boolean {
-  return Boolean(persist?.auth || persist?.config || persist?.initBind || persist?.tasks || persist?.polls || persist?.games || persist?.deployConfirmations);
+  return Boolean(persist?.auth || persist?.authConfig || persist?.config || persist?.initBind || persist?.tasks || persist?.polls || persist?.games || persist?.deployConfirmations);
 }

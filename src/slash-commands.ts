@@ -294,7 +294,6 @@ function formatSlashCommandHelp(): string {
   const lines = [
     `### QQBot 指令总览`,
     ``,
-    `权限说明：无=不走 customRuntime 鉴权；其余为所需 capability，非管理员缺少能力时会创建授权申请。`,
     `用法：发送 /<指令> ? 查看单条指令详情。`,
   ];
 
@@ -303,13 +302,20 @@ function formatSlashCommandHelp(): string {
     if (!items.length) continue;
     lines.push(``, `#### ${category}`);
     for (const cmd of items) {
-      lines.push(`<qqbot-cmd-input text="/${cmd.name}" show="/${cmd.name}"/> — ${cmd.description}`);
-      lines.push(`范围：${cmd.scope}；权限：${cmd.access}`);
+      const suffix = formatSlashCommandHelpRestriction(cmd);
+      lines.push(`<qqbot-cmd-input text="/${cmd.name}" show="/${cmd.name}"/> — ${cmd.description}${suffix}`);
     }
   }
 
   lines.push(``, `> 插件版本 v${PLUGIN_VERSION}`);
   return lines.join("\n");
+}
+
+function formatSlashCommandHelpRestriction(cmd: SlashCommand): string {
+  const restrictions = [];
+  if (cmd.scope && cmd.scope !== "全部会话") restrictions.push(cmd.scope);
+  if (cmd.access && cmd.access !== "无") restrictions.push(`需要权限 ${cmd.access}`);
+  return restrictions.length ? `（${restrictions.join("｜")}）` : "";
 }
 
 // ============ 内置指令 ============
@@ -417,6 +423,43 @@ registerCommand({
     `使用 /指令名 ? 可查看某条指令的详细用法。`,
   ].join("\n"),
   handler: () => formatSlashCommandHelp(),
+});
+
+registerCommand({
+  name: "bot-auth",
+  category: "管理",
+  description: "查看和处理自定义权限申请",
+  scope: "全部会话；管理员使用",
+  access: "查看 config.read；审批/抄送开关 auth.grant",
+  capability: (request) => {
+    const arg = request.args.trim().toLowerCase();
+    if (!arg || arg === "help" || arg === "?" || arg === "status" || arg.startsWith("requests") || arg.startsWith("request") || arg.startsWith("pending") || arg.startsWith("list") || arg.startsWith("grants") || arg.startsWith("grant")) {
+      return "config.read";
+    }
+    if (/^(admin-copy|copy|admin-cc)(\s+status)?$/.test(arg)) return "config.read";
+    return "auth.grant";
+  },
+  usage: [
+    `/bot-auth status                     查看授权状态`,
+    `/bot-auth requests [数量]             查看待审批申请`,
+    `/bot-auth grants [数量]               查看临时授权`,
+    `/bot-auth admin-copy status          查看跨群抄送开关`,
+    `/bot-auth admin-copy on|off          开关其他会话授权卡片抄送管理群`,
+    `/bot-auth approve <requestId> once   批准一次`,
+    `/bot-auth approve <requestId> count 3`,
+    `/bot-auth approve <requestId> timed 10m`,
+    `/bot-auth deny <requestId>           拒绝申请`,
+    ``,
+    `授权卡片会优先发送在申请人所在会话；admin-copy 仅控制是否额外抄送管理群。`,
+  ].join("\n"),
+  handler: () => [
+    `🔐 自定义授权命令`,
+    ``,
+    `该命令由 customRuntime 在入队前处理。常用操作：`,
+    `<qqbot-cmd-input text="/bot-auth status" show="/bot-auth status"/> 查看授权状态`,
+    `<qqbot-cmd-input text="/bot-auth requests" show="/bot-auth requests"/> 查看待审批申请`,
+    `<qqbot-cmd-input text="/bot-auth admin-copy status" show="/bot-auth admin-copy status"/> 查看跨群抄送开关`,
+  ].join("\n"),
 });
 
 /**

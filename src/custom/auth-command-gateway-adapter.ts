@@ -46,6 +46,9 @@ export interface CustomAuthCommandResult {
   handled: boolean;
   reply?: string;
   intent?: CustomAuthorizationIntent;
+  config?: {
+    authCopyRequestsToAdminGroup: boolean;
+  };
 }
 
 export interface CustomAuthInteractionResult {
@@ -99,6 +102,34 @@ export function handleCustomAuthCommand(params: {
 
   if (command.kind === "status") {
     return { handled: true, reply: formatCustomAuthStatus(params.auth, runtime, params.now, params.cfg) };
+  }
+
+  if (command.kind === "admin-copy") {
+    const current = runtime.auth?.copyRequestsToAdminGroup !== false;
+    if (typeof command.enabled !== "boolean") {
+      return {
+        handled: true,
+        reply: [
+          `🔐 授权抄送设置`,
+          ``,
+          `当前：${current ? "开启" : "关闭"}`,
+          `说明：开启时，其他群/私聊产生的授权卡片会额外抄送管理群；关闭时只在申请人所在会话发卡。`,
+          ``,
+          `切换：/bot-auth admin-copy on 或 /bot-auth admin-copy off`,
+        ].join("\n"),
+      };
+    }
+    return {
+      handled: true,
+      config: { authCopyRequestsToAdminGroup: command.enabled },
+      reply: [
+        `✅ 授权抄送已${command.enabled ? "开启" : "关闭"}`,
+        ``,
+        command.enabled
+          ? `其他群/私聊产生的授权卡片会额外抄送到管理群。`
+          : `授权卡片只会发送在申请人所在会话，不再抄送管理群。`,
+      ].join("\n"),
+    };
   }
 
   if (command.kind === "requests") {

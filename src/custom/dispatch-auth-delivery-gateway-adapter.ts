@@ -45,7 +45,7 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
   const baseDenialText = formatCustomDispatchAuthorizationDeniedMessage(params.decision);
   const baseApprovalText = request ? buildCustomAuthApprovalText(request, params.cfg ?? params.decision.cfg) : undefined;
   const denialText = prefixDispatchAuthFeedback(baseDenialText, params.decision);
-  const approvalText = baseApprovalText ? prefixDispatchAuthFeedback(baseApprovalText, params.decision) : undefined;
+  const approvalText = baseApprovalText;
   const approvalKeyboard = request ? buildCustomAuthApprovalKeyboard(request) : undefined;
 
   const cardTarget = resolveDispatchAuthApprovalCardTarget(params.message);
@@ -61,6 +61,7 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
           sourcePeer: params.decision.peer,
           text: baseApprovalText!,
           keyboard: approvalKeyboard,
+          copyToAdminGroup: resolveCopyRequestsToAdminGroup(params.cfg ?? params.decision.cfg),
         }),
       };
     } catch (sendErr) {
@@ -79,9 +80,14 @@ export async function applyCustomDispatchAuthDenialDelivery(params: {
           sourcePeer: params.decision.peer,
           text: baseApprovalText!,
           keyboard: approvalKeyboard,
+          copyToAdminGroup: resolveCopyRequestsToAdminGroup(params.cfg ?? params.decision.cfg),
         })
       : null,
   };
+}
+
+function resolveCopyRequestsToAdminGroup(cfg: unknown): boolean {
+  return (cfg as any)?.channels?.qqbot?.customRuntime?.auth?.copyRequestsToAdminGroup !== false;
 }
 
 function prefixDispatchAuthFeedback(text: string, decision: CustomDispatchAuthorizationDecision): string {

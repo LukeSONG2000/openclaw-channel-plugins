@@ -7,6 +7,7 @@ import {
 import {
   formatCustomActorIdentity,
   formatCustomAdminGroupIdentity,
+  formatCustomGroupMention,
   formatCustomPeerIdentity,
 } from "./identity-presentation.js";
 import {
@@ -32,10 +33,12 @@ export interface CustomAuthAdminGroupNotification {
 
 export function buildCustomAuthApprovalText(request: CustomAuthorizationApprovalRequest, cfg?: OpenClawConfig): string {
   const expiresInSec = Math.max(0, Math.round((request.expiresAt - Date.now()) / 1000));
+  const adminMentions = formatCustomAuthAdminMentions(request);
   const lines = [
+    ...(adminMentions ? [adminMentions] : []),
     `🔐 自定义权限申请`,
     ``,
-    `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
+    `用户：${formatCustomAuthApplicantIdentity(request)}`,
     `会话：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `能力：${formatCapabilityForDisplay(request.capability)}`,
     `场景：${request.sceneLabel || formatSceneKind(request.scene)}`,
@@ -102,16 +105,57 @@ export function buildCustomAuthAdminGroupNotification(params: {
   sourcePeer?: CustomPeer;
   text: string;
   keyboard?: InlineKeyboard;
+  copyToAdminGroup?: boolean;
 }): CustomAuthAdminGroupNotification | null {
+  if (params.copyToAdminGroup === false) return null;
   const groupOpenid = parseAdminGroupOpenid(params.request.adminGroup);
   if (!groupOpenid) return null;
   if (params.sourcePeer?.kind === "group" && params.sourcePeer.id === groupOpenid) return null;
   return {
     groupOpenid,
-    text: params.text,
+    text: formatCustomAuthAdminGroupNotificationText(params.request, params.text),
     keyboard: params.keyboard,
     requestId: params.request.id,
   };
+}
+
+function formatCustomAuthAdminGroupNotificationText(
+  request: CustomAuthorizationApprovalRequest,
+  text: string,
+): string {
+  const withActorMention = insertCustomAuthApplicantMention(request, text);
+  const adminMentions = formatCustomAuthAdminMentions(request);
+  if (!adminMentions) return withActorMention;
+  if (withActorMention.trimStart().startsWith(adminMentions)) return withActorMention;
+  return `${adminMentions}\n${withActorMention}`;
+}
+
+function formatCustomAuthAdminMentions(request: CustomAuthorizationApprovalRequest): string {
+  return [...new Set(request.admins)]
+    .map((id) => formatCustomGroupMention({ id }))
+    .filter((mention): mention is string => Boolean(mention))
+    .join(" ");
+}
+
+function formatCustomAuthApplicantIdentity(request: CustomAuthorizationApprovalRequest): string {
+  const mention = formatCustomGroupMention(request.actor);
+  const idLabel = request.peer.kind === "group" ? "member_openid" : "user_openid";
+  const actorText = formatCustomActorIdentity(request.actor, { idLabel });
+  return mention ? `${mention} ${actorText}` : actorText;
+}
+
+function insertCustomAuthApplicantMention(
+  request: CustomAuthorizationApprovalRequest,
+  text: string,
+): string {
+  const mention = formatCustomGroupMention(request.actor);
+  if (!mention) return text;
+  const actorText = formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" });
+  const plainLine = `用户：${actorText}`;
+  const mentionedLine = `用户：${mention} ${actorText}`;
+  if (text.includes(mentionedLine)) return text;
+  if (text.includes(plainLine)) return text.replace(plainLine, mentionedLine);
+  return text;
 }
 
 export function describeCustomAuthorizationIntents(intents: CustomAuthorizationIntent[]): string[] {
@@ -145,6 +189,8 @@ export function formatCustomAuthHelp(error?: string): string {
     `/bot-auth status`,
     `/bot-auth requests [数量]`,
     `/bot-auth grants [数量]`,
+    `/bot-auth admin-copy status`,
+    `/bot-auth admin-copy on|off`,
     `/bot-auth approve <requestId> once`,
     `/bot-auth approve <requestId> task`,
     `/bot-auth approve <requestId> count 3`,
@@ -170,6 +216,7 @@ export function formatCustomAuthStatus(
     ...(adminBindings ? [
       `管理员：${adminBindings.admins.length ? adminBindings.admins.join(", ") : "未绑定"}`,
       `管理群：${formatCustomAdminGroupIdentity(adminBindings.adminGroup, cfg) ?? "未绑定"}`,
+      `跨群抄送：${runtime?.auth?.copyRequestsToAdminGroup === false ? "关闭" : "开启"}`,
       `初始化：${adminBindings.ready ? "完整" : `缺少 ${formatAdminBindingMissing(adminBindings.missing).join(", ")}`}`,
       ``,
     ] : []),

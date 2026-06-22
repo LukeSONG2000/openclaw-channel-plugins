@@ -59,6 +59,11 @@ export function handleCustomSlashGatewayCommand(params: {
       logs.push(...logAuthIntents([customAuthCommand.intent]));
       persist.auth = true;
     }
+    if (customAuthCommand.config) {
+      persist.authConfig = {
+        copyRequestsToAdminGroup: customAuthCommand.config.authCopyRequestsToAdminGroup,
+      };
+    }
     return handled({
       reply: customAuthCommand.reply ? { kind: "text", text: customAuthCommand.reply } : undefined,
       persist,
@@ -127,6 +132,7 @@ export function handleCustomSlashGatewayCommand(params: {
                   sourcePeer: taskAuthorization.peer,
                   text: approvalText,
                   keyboard,
+                  copyToAdminGroup: resolveCopyRequestsToAdminGroup(params.cfg),
                 }),
               }
             : {}),
@@ -176,6 +182,7 @@ export function handleCustomSlashGatewayCommand(params: {
                   sourcePeer: authDecision.peer,
                   text: approvalText,
                   keyboard,
+                  copyToAdminGroup: resolveCopyRequestsToAdminGroup(params.cfg),
                 }),
               }
             : {}),
@@ -202,6 +209,10 @@ export function handleCustomSlashGatewayCommand(params: {
   }
 
   return { handled: false };
+}
+
+function resolveCopyRequestsToAdminGroup(cfg: unknown): boolean {
+  return (cfg as any)?.channels?.qqbot?.customRuntime?.auth?.copyRequestsToAdminGroup !== false;
 }
 
 function logAuthIntents(intents: Parameters<typeof describeCustomAuthorizationIntents>[0]): CustomSlashGatewayLog[] {

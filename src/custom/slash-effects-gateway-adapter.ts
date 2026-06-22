@@ -85,6 +85,10 @@ export async function applyCustomSlashGatewayEffects(
     requireCallback(params.persistAuthState, "persistAuthState")();
     result.authPersisted = true;
   }
+  if (persist?.authConfig) {
+    await persistCustomAuthConfig(params);
+    result.configPersisted = true;
+  }
   if (persist?.config) {
     await persistCustomSlashConfig(params);
     result.configPersisted = true;
@@ -148,7 +152,7 @@ function formatCustomSlashFeedbackReply(
   return {
     ...reply,
     denialText: prefix(reply.denialText),
-    approvalText: reply.approvalText ? prefix(reply.approvalText) : undefined,
+    approvalText: reply.approvalText,
   };
 }
 
@@ -200,6 +204,34 @@ async function persistCustomSlashConfig(params: ApplyCustomSlashGatewayEffectsPa
   );
   await configApi.writeConfigFile(currentCfg);
   params.log?.info?.(`[qqbot:${params.accountId}] custom runtime config persisted: key=${configPersist.sceneKey} scene=${configPersist.sceneConfig.scene}`);
+}
+
+async function persistCustomAuthConfig(params: ApplyCustomSlashGatewayEffectsParams): Promise<void> {
+  const authPersist = params.result.persist?.authConfig;
+  if (!authPersist) return;
+  const configApi = params.getConfigApi?.();
+  if (!configApi) throw new Error("getConfigApi is required to persist custom auth config changes");
+
+  const currentCfg = typeof configApi.loadConfig === "function"
+    ? structuredClone(configApi.loadConfig()) as any
+    : structuredClone(params.cfg) as any;
+  const channels = ensureRecord(currentCfg, "channels");
+  const qqbot = ensureRecord(channels, "qqbot");
+  const runtime = ensureRecord(qqbot, "customRuntime");
+  const auth = ensureRecord(runtime, "auth");
+  auth.copyRequestsToAdminGroup = authPersist.copyRequestsToAdminGroup;
+  await configApi.writeConfigFile(currentCfg);
+  params.log?.info?.(`[qqbot:${params.accountId}] custom auth config persisted: copyRequestsToAdminGroup=${authPersist.copyRequestsToAdminGroup}`);
+}
+
+function ensureRecord(parent: Record<string, unknown>, key: string): Record<string, unknown> {
+  const current = parent[key];
+  if (current && typeof current === "object" && !Array.isArray(current)) {
+    return current as Record<string, unknown>;
+  }
+  const next: Record<string, unknown> = {};
+  parent[key] = next;
+  return next;
 }
 
 async function deliverCustomSlashTaskNotifications(
