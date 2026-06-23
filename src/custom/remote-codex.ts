@@ -32,12 +32,11 @@ export function resolveRemoteCodexBinding(params: {
 }): RemoteCodexSettings | null {
   if (params.message.type !== "group" || !params.message.groupOpenid) return null;
   const account = resolveQQBotConfigForAccount(params.cfg, params.accountId);
-  const groups = objectRecord(account?.groups) ?? {};
-  const groupCfg = objectRecord(groups[params.message.groupOpenid]);
-  const binding = objectRecord(groupCfg?.remoteCodex) as RemoteCodexBinding | undefined;
+  const root = resolveRemoteCodexRoot(params.cfg, account);
+  const binding = resolveRemoteCodexGroupBinding(root, account, params.message.groupOpenid);
   if (!binding?.enabled) return null;
 
-  const base = objectRecord(account?.remoteCodex) ?? objectRecord((params.cfg as any)?.channels?.qqbot?.remoteCodex) ?? {};
+  const base = root ?? {};
   const relayUrl = stringValue(base.relayUrl) || stringValue(process.env.CODEX_RELAY_URL) || DEFAULT_RELAY_URL;
   const token = stringValue(base.token)
     || stringValue(process.env.CODEX_RELAY_TOKEN)
@@ -97,16 +96,37 @@ export function formatRemoteCodexStatus(params: {
 }): string {
   if (!params.groupOpenid) return "💡 请在 QQ 群里查看 remote Codex 绑定状态。";
   const account = resolveQQBotConfigForAccount(params.cfg, params.accountId);
-  const groups = objectRecord(account?.groups) ?? {};
-  const groupCfg = objectRecord(groups[params.groupOpenid]);
-  const binding = objectRecord(groupCfg?.remoteCodex) as RemoteCodexBinding | undefined;
-  const base = objectRecord(account?.remoteCodex) ?? objectRecord((params.cfg as any)?.channels?.qqbot?.remoteCodex) ?? {};
+  const root = resolveRemoteCodexRoot(params.cfg, account);
+  const binding = resolveRemoteCodexGroupBinding(root, account, params.groupOpenid);
+  const base = root ?? {};
   if (!binding?.enabled) return "Remote Codex：未绑定";
   return [
     "Remote Codex：已绑定",
     `sessionId：${stringValue(binding.sessionId) || stringValue(base.sessionId) || "current-host"}`,
     `relay：${stringValue(base.relayUrl) || DEFAULT_RELAY_URL}`,
   ].join("\n");
+}
+
+function resolveRemoteCodexRoot(cfg: OpenClawConfig, account?: Record<string, any>): Record<string, any> | undefined {
+  return objectRecord(account?.customRuntime?.remoteCodex)
+    ?? objectRecord((cfg as any)?.channels?.qqbot?.customRuntime?.remoteCodex)
+    // Legacy read-only fallback for configs written before validation was tightened.
+    ?? objectRecord(account?.remoteCodex)
+    ?? objectRecord((cfg as any)?.channels?.qqbot?.remoteCodex);
+}
+
+function resolveRemoteCodexGroupBinding(
+  root: Record<string, any> | undefined,
+  account: Record<string, any> | undefined,
+  groupOpenid: string,
+): RemoteCodexBinding | undefined {
+  const bindings = objectRecord(root?.groups) ?? {};
+  const binding = objectRecord(bindings[groupOpenid]) as RemoteCodexBinding | undefined;
+  if (binding) return binding;
+
+  const groups = objectRecord(account?.groups) ?? {};
+  const groupCfg = objectRecord(groups[groupOpenid]);
+  return objectRecord(groupCfg?.remoteCodex) as RemoteCodexBinding | undefined;
 }
 
 async function postRelayMessage(settings: RemoteCodexSettings, message: QueuedMessage, content: string): Promise<any> {

@@ -2711,6 +2711,24 @@ registerCommand({
  *
  * on = AI 自主判断何时发言（无需 @），off = 仅被 @ 时回复
  */
+
+function ensureRecordValue(parent: Record<string, unknown>, key: string): Record<string, unknown> {
+  const existing = parent[key];
+  if (existing && typeof existing === "object" && !Array.isArray(existing)) {
+    return existing as Record<string, unknown>;
+  }
+  const next: Record<string, unknown> = {};
+  parent[key] = next;
+  return next;
+}
+
+function applyDefaultRemoteCodexSettings(remoteCodex: Record<string, unknown>): void {
+  remoteCodex.relayUrl ||= "http://121.40.171.92:8889";
+  remoteCodex.sessionId ||= "current-host";
+  remoteCodex.tokenFile ||= "/opt/codex-relay/.env.openclaw-relay";
+  remoteCodex.waitMs ||= 55000;
+}
+
 async function writeRemoteCodexGroupBinding(groupOpenid: string, sessionId: string): Promise<void> {
   const runtime = getQQBotRuntime();
   const configApi = runtime.config as {
@@ -2722,20 +2740,12 @@ async function writeRemoteCodexGroupBinding(groupOpenid: string, sessionId: stri
   const qqbot = channels.qqbot as Record<string, unknown> | undefined;
   if (!qqbot) throw new Error("配置文件中未找到 qqbot 通道配置");
 
-  if (!qqbot.remoteCodex || typeof qqbot.remoteCodex !== "object" || Array.isArray(qqbot.remoteCodex)) {
-    qqbot.remoteCodex = {
-      relayUrl: "http://121.40.171.92:8889",
-      sessionId: "current-host",
-      tokenFile: "/opt/codex-relay/.env.openclaw-relay",
-      waitMs: 55000,
-    };
-  }
+  const customRuntime = ensureRecordValue(qqbot, "customRuntime");
+  const remoteCodex = ensureRecordValue(customRuntime, "remoteCodex");
+  applyDefaultRemoteCodexSettings(remoteCodex);
+  const bindings = ensureRecordValue(remoteCodex, "groups");
+  bindings[groupOpenid] = { enabled: true, sessionId: sessionId || "current-host" };
 
-  const groups = ((qqbot.groups ?? {}) as Record<string, Record<string, unknown>>);
-  const groupCfg = groups[groupOpenid] ?? {};
-  groupCfg.remoteCodex = { enabled: true, sessionId: sessionId || "current-host" };
-  groups[groupOpenid] = groupCfg;
-  qqbot.groups = groups;
   channels.qqbot = qqbot;
   currentCfg.channels = channels;
   await configApi.writeConfigFile(currentCfg);
@@ -2862,24 +2872,15 @@ registerCommand({
       const qqbot = channels.qqbot as Record<string, unknown> | undefined;
       if (!qqbot) return `❌ 配置文件中未找到 qqbot 通道配置`;
 
-      if (!qqbot.remoteCodex || typeof qqbot.remoteCodex !== "object" || Array.isArray(qqbot.remoteCodex)) {
-        qqbot.remoteCodex = {
-          relayUrl: "http://121.40.171.92:8889",
-          sessionId: "current-host",
-          tokenFile: "/opt/codex-relay/.env.openclaw-relay",
-          waitMs: 55000,
-        };
-      }
-
-      const groups = ((qqbot.groups ?? {}) as Record<string, Record<string, unknown>>);
-      const groupCfg = groups[ctx.groupOpenid] ?? {};
+      const customRuntime = ensureRecordValue(qqbot, "customRuntime");
+      const remoteCodex = ensureRecordValue(customRuntime, "remoteCodex");
+      applyDefaultRemoteCodexSettings(remoteCodex);
+      const bindings = ensureRecordValue(remoteCodex, "groups");
       if (action === "unbind") {
-        delete groupCfg.remoteCodex;
+        delete bindings[ctx.groupOpenid];
       } else {
-        groupCfg.remoteCodex = { enabled: true, sessionId: rawSessionId || "current-host" };
+        bindings[ctx.groupOpenid] = { enabled: true, sessionId: rawSessionId || "current-host" };
       }
-      groups[ctx.groupOpenid] = groupCfg;
-      qqbot.groups = groups;
       channels.qqbot = qqbot;
       currentCfg.channels = channels;
       await configApi.writeConfigFile(currentCfg);
