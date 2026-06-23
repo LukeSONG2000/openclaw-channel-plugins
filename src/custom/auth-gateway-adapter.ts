@@ -55,12 +55,13 @@ export function resolveCustomDispatchCapability(params: {
   rawContent: string;
 }): Exclude<CustomCapability, "*"> {
   const content = params.rawContent.trim();
-  if (content.startsWith("/")) return "codex.run";
 
   if (detectCustomRuleWriteIntent(content)) return "config.write";
   if (detectCustomDeployApplyIntent(content)) return "deploy.apply";
   if (detectCustomConfigReadIntent(content)) return "config.read";
   if (detectCustomCodexRunIntent(content)) return "codex.run";
+  if (detectCustomWebSearchIntent(content)) return "web.search";
+  if (content.startsWith("/")) return "codex.run";
 
   const runtime = resolveCustomRuntimeConfig(params.cfg);
   const peer = toCustomPeerFromQueuedMessage(params.message);
@@ -120,6 +121,16 @@ export function detectCustomConfigReadIntent(content: string): boolean {
     /(环境|配置|变量|密钥|秘钥|token|secret|ssh|key|文件|目录|workspace|日志|log|仓库|repo|git|github|GitHub).{0,32}(查看|看一下|查一下|检查|读取|读一下|列出|有没有|是什么|在哪)/i,
     /(查看|看一下|查一下|读取|读一下|列出|有哪些|什么).{0,20}(记忆|memory|Memory|MEMORY).{0,20}(文件|信息|内容)?/i,
     /(记忆|memory|Memory|MEMORY).{0,12}(文件|内容|信息).{0,20}(查看|看一下|查一下|读取|有哪些|是什么)?/i,
+  ].some((pattern) => pattern.test(text));
+}
+
+export function detectCustomWebSearchIntent(content: string): boolean {
+  const text = content.replace(/<@[^>]+>/g, " ").trim();
+  if (!text) return false;
+  return [
+    /^\/(?:search|web-search|web_search|web|tavily)(?:\s|$)/i,
+    /(联网|上网|网页|网上|网络|互联网|web|google|Google|百度|必应|bing|Bing|新闻|最新|今天|今日).{0,24}(搜索|搜一下|查一下|查询|检索|找一下)/i,
+    /(搜索|搜一下|查一下|查询|检索|找一下).{0,24}(联网|上网|网页|网上|网络|互联网|web|google|Google|百度|必应|bing|Bing|新闻|最新|今天|今日)/i,
   ].some((pattern) => pattern.test(text));
 }
 

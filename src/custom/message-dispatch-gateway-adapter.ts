@@ -211,6 +211,13 @@ function buildCustomAuthorizationContextPrompt(
 ): string {
   const capability = decision.capability ?? "chat.send";
   const source = decision.result?.decision.source ?? "unknown";
+  if (capability === "web.search") {
+    return [
+      "QQBot 自定义权限状态：当前消息按低风险联网搜索放行。",
+      `本次授权能力：${capability}；来源：${source}。`,
+      "可以使用联网搜索/网页提取类工具回答当前问题，但不要运行命令、读写文件、读取配置/日志/环境/密钥、改配置、部署/升级/重启或写入记忆/规则。",
+    ].join("\n");
+  }
   if (privileged) {
     return [
       "QQBot 自定义权限状态：当前消息已通过管理员身份或一次性临时授权。",

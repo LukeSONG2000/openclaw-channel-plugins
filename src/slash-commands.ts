@@ -351,7 +351,7 @@ function formatSlashCommandHelpRestriction(cmd: SlashCommand): string {
 }
 
 function formatSlashAccessForHelp(access: string): string {
-  return access.replace(/\b(chat\.send|codex\.run|codex\.longTask|system\.status|system\.restart|config\.read|config\.write|auth\.grant|deploy\.check|deploy\.apply|proactive\.send|game\.interact|\*)\b/g, (capability) =>
+  return access.replace(/\b(chat\.send|codex\.run|codex\.longTask|system\.status|system\.restart|config\.read|config\.write|web\.search|auth\.grant|deploy\.check|deploy\.apply|proactive\.send|game\.interact|\*)\b/g, (capability) =>
     formatCapabilityForUser(capability as CustomCapability)
   )
     .replace(/查看 查看状态/g, "查看状态")

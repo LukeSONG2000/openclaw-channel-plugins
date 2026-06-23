@@ -71,6 +71,7 @@ const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
   "system.restart",
   "config.read",
   "config.write",
+  "web.search",
   "auth.grant",
   "deploy.check",
   "deploy.apply",

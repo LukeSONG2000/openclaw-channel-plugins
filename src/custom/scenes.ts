@@ -37,7 +37,7 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
     scene: "codex-only",
     label: CUSTOM_SCENE_LABELS["codex-only"],
     description: "仅处理明确的 Codex CLI 或开发任务；闲聊和系统变更保持受控。",
-    capabilities: ["codex.run", "codex.longTask"],
+    capabilities: ["web.search", "codex.run", "codex.longTask"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
     prompt: [
@@ -50,7 +50,7 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
     scene: "chat",
     label: CUSTOM_SCENE_LABELS.chat,
     description: "日常群聊场景，可以进行安全的自然对话。",
-    capabilities: ["chat.send"],
+    capabilities: ["chat.send", "web.search"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
     prompt: [
@@ -62,7 +62,7 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
     scene: "system-admin",
     label: CUSTOM_SCENE_LABELS["system-admin"],
     description: "用于系统状态查询、授权审批和受控管理操作。",
-    capabilities: ["system.status", "deploy.check", "config.read"],
+    capabilities: ["system.status", "deploy.check", "config.read", "web.search"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
     prompt: [
@@ -75,7 +75,7 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
     scene: "dev-lab",
     label: CUSTOM_SCENE_LABELS["dev-lab"],
     description: "用于二次开发协作、Codex 任务和受控运维操作。",
-    capabilities: ["chat.send", "codex.run", "codex.longTask", "system.status", "deploy.check", "config.read"],
+    capabilities: ["chat.send", "web.search", "codex.run", "codex.longTask", "system.status", "deploy.check", "config.read"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
     prompt: [
@@ -89,7 +89,7 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
     scene: "default-dm",
     label: CUSTOM_SCENE_LABELS["default-dm"],
     description: "默认私聊场景，支持轻量问答、Codex 协助和状态查询。",
-    capabilities: ["chat.send", "codex.run", "system.status", "deploy.check", "config.read"],
+    capabilities: ["chat.send", "web.search", "codex.run", "system.status", "deploy.check", "config.read"],
     allowAutonomousReply: false,
     allowProactiveSend: false,
     prompt: [

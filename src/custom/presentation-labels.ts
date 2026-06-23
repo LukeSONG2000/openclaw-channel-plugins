@@ -25,6 +25,7 @@ const CAPABILITY_LABELS: Record<ConcreteCapability, string> = {
   "system.restart": "重启服务",
   "config.read": "读取配置",
   "config.write": "写入配置/规则",
+  "web.search": "联网搜索",
   "auth.grant": "处理授权",
   "deploy.check": "检查部署/版本",
   "deploy.apply": "执行部署/升级",
