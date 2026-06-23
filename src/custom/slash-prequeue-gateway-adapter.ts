@@ -199,7 +199,7 @@ export async function handleCustomSlashPrequeueGateway(
     return { kind: "not-slash-enqueued", content };
   }
 
-  if (/^\/codex(?:\s|$)/i.test(content)) {
+  if (/^\/codex(?:\s|$)/i.test(content) && !/^\/codex\s+init(?:\s|$)/i.test(content)) {
     const remoteCodex = await dispatchRemoteCodexMessage({
       cfg: params.cfg,
       accountId: params.account.accountId,

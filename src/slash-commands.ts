@@ -2711,6 +2711,99 @@ registerCommand({
  *
  * on = AI 自主判断何时发言（无需 @），off = 仅被 @ 时回复
  */
+async function writeRemoteCodexGroupBinding(groupOpenid: string, sessionId: string): Promise<void> {
+  const runtime = getQQBotRuntime();
+  const configApi = runtime.config as {
+    loadConfig: () => Record<string, unknown>;
+    writeConfigFile: (cfg: unknown) => Promise<void>;
+  };
+  const currentCfg = structuredClone(configApi.loadConfig()) as Record<string, unknown>;
+  const channels = ((currentCfg.channels ?? {}) as Record<string, unknown>);
+  const qqbot = channels.qqbot as Record<string, unknown> | undefined;
+  if (!qqbot) throw new Error("配置文件中未找到 qqbot 通道配置");
+
+  if (!qqbot.remoteCodex || typeof qqbot.remoteCodex !== "object" || Array.isArray(qqbot.remoteCodex)) {
+    qqbot.remoteCodex = {
+      relayUrl: "http://121.40.171.92:8889",
+      sessionId: "current-host",
+      tokenFile: "/opt/codex-relay/.env.openclaw-relay",
+      waitMs: 55000,
+    };
+  }
+
+  const groups = ((qqbot.groups ?? {}) as Record<string, Record<string, unknown>>);
+  const groupCfg = groups[groupOpenid] ?? {};
+  groupCfg.remoteCodex = { enabled: true, sessionId: sessionId || "current-host" };
+  groups[groupOpenid] = groupCfg;
+  qqbot.groups = groups;
+  channels.qqbot = qqbot;
+  currentCfg.channels = channels;
+  await configApi.writeConfigFile(currentCfg);
+}
+
+registerCommand({
+  name: "codex",
+  category: "二开运行时",
+  description: "初始化或切换 remote Codex thread",
+  scope: "仅群聊",
+  access: "初始化 config.write；使用无权限限制",
+  capability: (request) => {
+    const action = request.args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+    return action === "init" ? "config.write" : null;
+  },
+  usage: [
+    `/codex init [alias]`,
+    `/codex new [alias]`,
+    `/codex use <threadId|alias>`,
+    `/codex current`,
+    `/codex list`,
+    `/codex alias <alias> [threadId]`,
+    `/codex help`,
+    ``,
+    `首次在 QQ 群里使用 ${slashCommandInput("/codex init")} 绑定 remote Codex。`,
+    `绑定后普通 ${slashCommandInput("/codex new fix-login")} 会创建远端 Codex thread，并自动设为当前群的 active thread。`,
+  ].join("\n"),
+  handler: async (ctx) => {
+    if (ctx.type !== "group" || !ctx.groupOpenid) {
+      return `💡 请在要绑定 remote Codex 的 QQ 群里使用 ${slashCommandInput("/codex init")}`;
+    }
+
+    const [rawAction = "help", rawAlias = ""] = ctx.args.trim().split(/\s+/).filter(Boolean);
+    const action = rawAction.toLowerCase();
+    if (action === "help" || action === "?") {
+      return [
+        `🧩 Remote Codex`,
+        ``,
+        `${slashCommandInput("/codex init")} 初始化并绑定当前 QQ 群`,
+        `${slashCommandInput("/codex new fix-login")} 创建并切换到新的远端 Codex thread`,
+        `${slashCommandInput("/codex use fix-login")} 切换当前群使用的远端 Codex thread`,
+        `${slashCommandInput("/codex current")} 查看当前 thread`,
+        `${slashCommandInput("/codex list")} 查看可用 thread`,
+      ].join("\n");
+    }
+
+    if (action === "init") {
+      try {
+        await writeRemoteCodexGroupBinding(ctx.groupOpenid, "current-host");
+        const newCommand = rawAlias ? `/codex new ${rawAlias}` : "/codex new";
+        return [
+          `✅ 当前群已初始化 remote Codex`,
+          `sessionId：current-host`,
+          ``,
+          `下一步：发送 ${slashCommandInput(newCommand)} 创建远端 Codex thread。`,
+        ].join("\n");
+      } catch (err) {
+        return `❌ Remote Codex 初始化失败: ${err}`;
+      }
+    }
+
+    return [
+      `💡 当前群还没有完成 remote Codex 初始化，或 relay 暂不可用。`,
+      `请先发送 ${slashCommandInput("/codex init")} 绑定当前群，再发送 ${slashCommandInput("/codex new fix-login")}。`,
+    ].join("\n");
+  },
+});
+
 registerCommand({
   name: "bot-remote-codex",
   category: "管理",
