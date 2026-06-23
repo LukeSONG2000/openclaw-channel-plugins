@@ -2711,6 +2711,78 @@ registerCommand({
  * on = AI 自主判断何时发言（无需 @），off = 仅被 @ 时回复
  */
 registerCommand({
+  name: "bot-group",
+  category: "管理",
+  description: "设置当前群的显示名称",
+  scope: "仅群聊",
+  access: "改名 config.write",
+  capability: (request) => {
+    const action = request.args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+    return action === "rename" || action === "name" || action === "set-name" ? "config.write" : null;
+  },
+  usage: [
+    `/bot-group rename <群名称>`,
+    `/bot-group name <群名称>`,
+    ``,
+    `在当前 QQ 群绑定易读名称，后续授权、状态、日志展示会优先显示该名称。`,
+    `只有管理员或获得 config.write 授权的用户可以改名。`,
+  ].join("\n"),
+  handler: async (ctx) => {
+    if (ctx.type !== "group" || !ctx.groupOpenid) {
+      return `💡 请在要改名的 QQ 群里使用 ${slashCommandInput("/bot-group rename <群名称>")}`;
+    }
+
+    const [rawAction = "", ...nameParts] = ctx.args.trim().split(/\s+/).filter(Boolean);
+    const action = rawAction.toLowerCase();
+    if (!action || action === "help") {
+      return [
+        `👥 QQ 群管理命令`,
+        ``,
+        `${slashCommandInput("/bot-group rename friends-main")} 重命名当前群`,
+      ].join("\n");
+    }
+    if (action !== "rename" && action !== "name" && action !== "set-name") {
+      return `❌ 未知子命令：${rawAction}\n\n使用 ${slashCommandInput("/bot-group rename <群名称>")}`;
+    }
+
+    const name = nameParts.join(" ").trim();
+    if (!name) return `❌ 缺少群名称\n\n示例：${slashCommandInput("/bot-group rename friends-main")}`;
+    if (name.length > 30) return `❌ 群名称不能超过 30 个字符`;
+
+    try {
+      const runtime = getQQBotRuntime();
+      const configApi = runtime.config as {
+        loadConfig: () => Record<string, unknown>;
+        writeConfigFile: (cfg: unknown) => Promise<void>;
+      };
+      const currentCfg = structuredClone(configApi.loadConfig()) as Record<string, unknown>;
+      const channels = ((currentCfg.channels ?? {}) as Record<string, unknown>);
+      const qqbot = channels.qqbot as Record<string, unknown> | undefined;
+      if (!qqbot) return `❌ 配置文件中未找到 qqbot 通道配置`;
+
+      const groups = ((qqbot.groups ?? {}) as Record<string, Record<string, unknown>>);
+      groups[ctx.groupOpenid] = {
+        ...(groups[ctx.groupOpenid] ?? {}),
+        name,
+      };
+      qqbot.groups = groups;
+      channels.qqbot = qqbot;
+      currentCfg.channels = channels;
+      await configApi.writeConfigFile(currentCfg);
+
+      return [
+        `✅ 群名称已更新`,
+        ``,
+        `当前群：${name}`,
+        `group_openid：${ctx.groupOpenid}`,
+      ].join("\n");
+    } catch (err) {
+      return `❌ 群名称更新失败: ${err}`;
+    }
+  },
+});
+
+registerCommand({
   name: "bot-group-allways",
   category: "管理",
   description: "修改群消息默认响应模式",
