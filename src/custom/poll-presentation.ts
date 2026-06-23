@@ -155,8 +155,22 @@ function makePollButton(poll: CustomPoll, optionId: string, label: string): Keyb
       permission: { type: 2 },
       click_limit: 0,
     },
-    group_id: poll.multiple ? `custom-poll-${poll.id}-${optionId}` : `custom-poll-${poll.id}`,
+    group_id: makePollButtonGroupId(poll, optionId),
   };
+}
+
+function makePollButtonGroupId(poll: CustomPoll, optionId: string): string {
+  const groupKey = poll.multiple ? `${poll.id}:${optionId}` : poll.id;
+  return `poll_${hashPollGroupKey(groupKey)}`;
+}
+
+function hashPollGroupKey(value: string): string {
+  let hash = 2166136261;
+  for (let index = 0; index < value.length; index += 1) {
+    hash ^= value.charCodeAt(index);
+    hash = Math.imul(hash, 16777619);
+  }
+  return (hash >>> 0).toString(36);
 }
 
 export function buildCustomPollListKeyboard(params: {

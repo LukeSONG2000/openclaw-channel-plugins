@@ -113,7 +113,25 @@ const pollId = Object.keys(polls.getState().polls)[0]!;
 assert.equal(pollId, "poll-default-group-GROUP_OPENID-1000-1");
 const keyboard = buildCustomPollKeyboard(polls.getPoll(pollId)!);
 assert.equal(keyboard.content?.rows[1]?.buttons[0]?.action?.data, `custom-poll:${pollId}:vote:2`);
+const singleChoiceGroupIds = keyboard.content?.rows.flatMap((row) => row.buttons.map((button) => button.group_id));
+assert.equal(new Set(singleChoiceGroupIds).size, 1);
+assert.equal(singleChoiceGroupIds?.every((groupId) => typeof groupId === "string" && groupId.length <= 32), true);
 assert.deepEqual(buildCustomPollKeyboardDirect(polls.getPoll(pollId)!), keyboard);
+
+const multiPolls = new CustomPollRuntime();
+handleCustomPollCommand({
+  cfg,
+  accountId: "default",
+  polls: multiPolls,
+  message,
+  rawContent: encodeCustomPollCreateCommand({ kind: "create", question: "Pick many", options: ["A", "B", "C"], multiple: true }),
+  now: 1_100,
+});
+const multiPollId = Object.keys(multiPolls.getState().polls)[0]!;
+const multiKeyboard = buildCustomPollKeyboard(multiPolls.getPoll(multiPollId)!);
+const multiGroupIds = multiKeyboard.content?.rows.flatMap((row) => row.buttons.map((button) => button.group_id));
+assert.equal(new Set(multiGroupIds).size, 3);
+assert.equal(multiGroupIds?.every((groupId) => typeof groupId === "string" && groupId.length <= 32), true);
 
 const vote = handleCustomPollInteraction({
   accountId: "default",
