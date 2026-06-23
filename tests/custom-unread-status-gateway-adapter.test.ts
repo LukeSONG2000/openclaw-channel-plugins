@@ -63,7 +63,7 @@ const status = handleCustomUnreadStatusCommand({
   rawContent: "/bot-unread status 1",
 });
 assert.equal(status.handled, true);
-assert.equal(status.reply?.includes("自定义未读状态"), true);
+assert.equal(status.reply?.includes("自适应未读轮询状态"), true);
 assert.equal(status.reply?.includes("会话数：2"), true);
 assert.equal(status.reply?.includes("待处理消息：2"), true);
 assert.equal(status.reply?.includes("快照：1"), true);

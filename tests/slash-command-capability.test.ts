@@ -66,6 +66,11 @@ assert.equal(getSlashCommandCapability("/bot-queue status"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread status 5"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread summary 5"), "system.status");
+assert.equal(getSlashCommandCapability("/codex init"), "config.write");
+assert.equal(getSlashCommandCapability("/codex new fix-login"), null);
+assert.equal(getSlashCommandCapability("/bot-remote-codex status"), "config.read");
+assert.equal(getSlashCommandCapability("/bot-remote-codex bind current-host"), "config.write");
+assert.equal(getSlashCommandCapability("/bot-group rename friends-main"), "config.write");
 
 const blockedPkgOverride = await matchSlashCommand({
   type: "c2c",
@@ -127,16 +132,20 @@ for (const name of [
   "bot-fallback",
   "bot-queue",
   "bot-unread",
+  "codex",
+  "bot-remote-codex",
   "bot-upgrade",
   "bot-logs",
   "bot-clear-storage",
   "bot-streaming",
   "bot-approve",
   "bot-auth",
+  "bot-group",
   "bot-group-allways",
 ]) {
   assert.match(help as string, new RegExp(`/${name}\\b`));
 }
+assert.match(help as string, /\/bot-unread.*自适应未读轮询/);
 assert.match(help as string, /<qqbot-cmd-input text="\/bot-upgrade" show="\/bot-upgrade"\/>.*仅私聊；<qqbot-cmd-input text="\/bot-deploy" show="\/bot-deploy"\/> 可在群里创建确认卡｜需要权限 检查部署\/版本（deploy\.check）；执行部署\/升级（deploy\.apply）/);
 assert.doesNotMatch(help as string, /\/help.*（/);
 assert.doesNotMatch(help as string, /范围：/);

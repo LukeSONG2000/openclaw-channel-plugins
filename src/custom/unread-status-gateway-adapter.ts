@@ -64,13 +64,14 @@ function formatCustomUnreadStatusHelp(error?: string): string {
   const lines = [];
   if (error) lines.push(`❌ ${error}`, ``);
   lines.push(
-    `👀 自定义未读状态命令`,
+    `👀 自适应未读轮询命令`,
     ``,
     slashCommandInput(`/bot-unread`),
     slashCommandInput(`/bot-unread status`, `/bot-unread status [数量]`),
     slashCommandInput(`/bot-unread summary`, `/bot-unread summary [数量]`),
     ``,
-    `查看未读追读、后续跟进和睡眠摘要的只读状态；不会展示缓存消息正文。数量范围：1-${MAX_PEER_LIMIT}。`,
+    `查看群聊自适应未读轮询、后续跟进和睡眠摘要的只读状态；不会展示缓存消息正文。数量范围：1-${MAX_PEER_LIMIT}。`,
+    `轮询档位：1min -> 2min -> 5min -> 10min -> 30min -> 1h；命中未读会降档更频繁，未命中会升档更不频繁。`,
   );
   return lines.join("\n");
 }
@@ -78,7 +79,7 @@ function formatCustomUnreadStatusHelp(error?: string): string {
 function formatCustomUnreadStatus(unread: CustomUnreadRuntime, limit: number): string {
   const summary = inspectCustomUnreadRuntimeState(unread.getState(), { limit });
   const lines = [
-    `👀 自定义未读状态`,
+    `👀 自适应未读轮询状态`,
     ``,
     `会话数：${summary.peerCount}`,
     `待处理消息：${summary.totalPendingCount}`,

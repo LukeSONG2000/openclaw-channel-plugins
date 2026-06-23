@@ -702,7 +702,7 @@ registerCommand({
 registerCommand({
   name: "bot-unread",
   category: "二开运行时",
-  description: "查看自定义未读追读状态",
+  description: "查看自适应未读轮询和追读状态",
   scope: "全部会话",
   access: "system.status",
   capability: "system.status",
@@ -711,7 +711,8 @@ registerCommand({
     `/bot-unread status [数量]`,
     `/bot-unread summary [数量]`,
     ``,
-    `查看未读追读、后续跟进和睡眠摘要的只读摘要，不展示缓存消息正文。`,
+    `查看群聊自适应未读轮询、后续跟进和睡眠摘要的只读摘要，不展示缓存消息正文。`,
+    `轮询档位：1min -> 2min -> 5min -> 10min -> 30min -> 1h；被 @ 并完成首次回复后重置到最低档。`,
   ].join("\n"),
   handler: () => null,
 });
