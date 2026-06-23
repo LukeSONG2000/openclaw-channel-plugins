@@ -16,7 +16,7 @@ const parsed = await resolveCustomPollCreateWithModel({
   rawContent: "/bot-poll 帮我问一下晚上吃什么，肯德基还是麦当劳，多选，匿名，半小时",
   complete: async (params) => {
     assert.equal(params.purpose, "qqbot.poll.parse");
-    assert.equal(params.agentId, "main");
+    assert.equal(params.agentId, undefined);
     assert.equal(params.messages[1]?.content.includes("晚上吃什么"), true);
     return { text: JSON.stringify({ ok: true, question: "晚上吃什么", options: ["肯德基", "麦当劳"], multiple: true, anonymous: true, durationMs: 1_800_000 }) };
   },

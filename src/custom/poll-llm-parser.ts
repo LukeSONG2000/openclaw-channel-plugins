@@ -64,7 +64,7 @@ export async function resolveCustomPollCreateWithModel(params: {
   try {
     const signal = AbortSignal.timeout(POLL_PARSE_TIMEOUT_MS);
     const completion = await complete({
-      agentId: params.agentId ?? resolveDefaultAgentId(params.cfg),
+      ...(params.agentId ? { agentId: params.agentId } : {}),
       purpose: "qqbot.poll.parse",
       maxTokens: 600,
       temperature: 0,
@@ -168,10 +168,4 @@ function resolveRuntimeComplete(): CustomPollLlmComplete | null {
   } catch {
     return null;
   }
-}
-
-function resolveDefaultAgentId(cfg: OpenClawConfig): string {
-  const agents = (cfg as Record<string, unknown>).agents as { list?: Array<{ id?: unknown }> } | undefined;
-  const id = agents?.list?.find((item) => typeof item.id === "string")?.id;
-  return typeof id === "string" && id.trim() ? id.trim() : "main";
 }
