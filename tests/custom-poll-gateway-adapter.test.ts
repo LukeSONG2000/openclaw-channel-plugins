@@ -7,6 +7,7 @@ import {
   parseCustomPollCommand,
 } from "../src/custom/poll-gateway-adapter.js";
 import {
+  encodeCustomPollCreateCommand,
   parseCustomPollButtonData as parseCustomPollButtonDataDirect,
   parseCustomPollCommand as parseCustomPollCommandDirect,
 } from "../src/custom/poll-command-parser.js";
@@ -48,35 +49,19 @@ const message: QueuedMessage = {
 };
 
 assert.deepEqual(parseCustomPollCommand("hello"), { matched: false });
-assert.deepEqual(parseCustomPollCommand("/bot-poll create Pick one | A | B"), {
+const encodedCreate = encodeCustomPollCreateCommand({ kind: "create", question: "Pick one", options: ["A", "B"] });
+assert.deepEqual(parseCustomPollCommand(encodedCreate), {
   matched: true,
   command: { kind: "create", question: "Pick one", options: ["A", "B"] },
 });
-assert.deepEqual(parseCustomPollCommand("/bot-poll 午饭吃什么？选项：米饭、面条，多选，匿名，30分钟"), {
-  matched: true,
-  command: {
-    kind: "create",
-    question: "午饭吃什么",
-    options: ["米饭", "面条"],
-    multiple: true,
-    anonymous: true,
-    durationMs: 1_800_000,
-  },
-});
-assert.deepEqual(parseCustomPollCommand("/bot-poll 晚上吃什么，肯德基，麦当劳，德克士，华莱士，塔斯汀，2分钟后收集"), {
-  matched: true,
-  command: {
-    kind: "create",
-    question: "晚上吃什么",
-    options: ["肯德基", "麦当劳", "德克士", "华莱士", "塔斯汀"],
-    durationMs: 120_000,
-  },
-});
+const naturalCreate = parseCustomPollCommand("/bot-poll 晚上吃什么，肯德基还是麦当劳");
+assert.equal(naturalCreate.matched, true);
+assert.equal(naturalCreate.matched && naturalCreate.error?.includes("自然语言"), true);
 assert.deepEqual(parseCustomPollCommand("创建投票，肯德基，麦当劳，晚上吃什么，2分钟后收集"), { matched: false });
 assert.deepEqual(parseCustomPollCommand("创建投票，晚上吃什么"), { matched: false });
 assert.deepEqual(
-  parseCustomPollCommandDirect("/bot-poll create Pick one | A | B"),
-  parseCustomPollCommand("/bot-poll create Pick one | A | B"),
+  parseCustomPollCommandDirect(encodedCreate),
+  parseCustomPollCommand(encodedCreate),
 );
 assert.deepEqual(parseCustomPollCommand("/bot-poll status poll-1"), {
   matched: true,
@@ -116,7 +101,7 @@ const create = handleCustomPollCommand({
   accountId: "default",
   polls,
   message,
-  rawContent: "/bot-poll create Pick one | A | B | C",
+  rawContent: encodeCustomPollCreateCommand({ kind: "create", question: "Pick one", options: ["A", "B", "C"] }),
   now: 1_000,
 });
 assert.equal(create.handled, true);

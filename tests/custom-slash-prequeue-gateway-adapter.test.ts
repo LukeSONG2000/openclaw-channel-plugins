@@ -4,6 +4,7 @@ import {
   normalizeCustomSlashPrequeueContent,
   type CustomSlashPrequeueQueue,
 } from "../src/custom/slash-prequeue-gateway-adapter.js";
+import { encodeCustomPollCreateCommand } from "../src/custom/poll-command-parser.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 import type { QueueSnapshot } from "../src/slash-commands.js";
 
@@ -107,11 +108,19 @@ assert.equal(normalizeCustomSlashPrequeueContent({
   const msg = event({ content: "/bot-poll 晚上吃什么，肯德基还是麦当劳" });
   const t = baseParams(msg);
   let routedContent = "";
+  const parsedContent = encodeCustomPollCreateCommand({
+    kind: "create",
+    question: "晚上吃什么",
+    options: ["肯德基", "麦当劳"],
+    multiple: false,
+    anonymous: false,
+    durationMs: 600_000,
+  });
   const result = await handleCustomSlashPrequeueGateway({
     ...t.params,
     resolvePollCreateWithModel: async () => ({
       handled: true,
-      content: "/bot-poll create 单选 不匿名 10分钟 晚上吃什么 | 肯德基 | 麦当劳",
+      content: parsedContent,
     }),
     handleCustomSlashCommand: ({ rawContent }) => {
       routedContent = rawContent;
@@ -119,7 +128,7 @@ assert.equal(normalizeCustomSlashPrequeueContent({
     },
   });
   assert.equal(result.kind, "custom-slash");
-  assert.equal(routedContent, "/bot-poll create 单选 不匿名 10分钟 晚上吃什么 | 肯德基 | 麦当劳");
+  assert.equal(routedContent, parsedContent);
   assert.equal(msg.content, routedContent);
 }
 

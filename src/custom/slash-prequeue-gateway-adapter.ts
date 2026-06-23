@@ -159,8 +159,13 @@ export async function handleCustomSlashPrequeueGateway(
       params.log?.info?.(`[qqbot:${params.account.accountId}] /bot-poll model parsed: ${content.slice(0, 80)} -> ${modelParsed.content.slice(0, 120)}`);
       content = modelParsed.content;
       params.message.content = modelParsed.content;
-    } else if (modelParsed.error) {
-      params.log?.error?.(`[qqbot:${params.account.accountId}] /bot-poll model parse failed, fallback to local parser: ${modelParsed.error}`);
+    } else {
+      const message = "⚠️ 投票自然语言解析暂时不可用，请稍后再试。";
+      if (modelParsed.error) {
+        params.log?.error?.(`[qqbot:${params.account.accountId}] /bot-poll model parse failed: ${modelParsed.error}`);
+      }
+      await sendSlashTextReply(params, message);
+      return { kind: "model-poll-parse-reply", content };
     }
   }
 

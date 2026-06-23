@@ -37,7 +37,7 @@ assert.equal(getSlashCommandCapability("/bot-task cancel qqbot-default-group-GRO
 assert.equal(getSlashCommandCapability("/bot-poll"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-poll list"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-poll status poll-default-group-GROUP_OPENID-1000-1"), "system.status");
-assert.equal(getSlashCommandCapability("/bot-poll create Pick one | A | B"), "game.interact");
+assert.equal(getSlashCommandCapability("/bot-poll 晚上吃什么，肯德基还是麦当劳"), "game.interact");
 assert.equal(getSlashCommandCapability("/bot-poll close poll-default-group-GROUP_OPENID-1000-1"), "game.interact");
 assert.equal(getSlashCommandCapability("/bot-game"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-game list"), "system.status");

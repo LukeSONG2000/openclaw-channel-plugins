@@ -23,13 +23,13 @@ export function formatCustomPollHelp(error?: string): string {
   lines.push(
     `🗳 自定义投票命令`,
     ``,
-    slashCommandInput(`/bot-poll 今天午饭吃什么？选项：米饭、面条、沙拉，10分钟`),
-    slashCommandInput(`/bot-poll create 问题 | 选项A | 选项B [| 选项C | 选项D]`),
+    slashCommandInput(`/bot-poll 今天午饭吃什么？米饭、面条、沙拉，10分钟后结束`),
+    slashCommandInput(`/bot-poll 发起匿名多选：周末去哪玩，露营、爬山、看电影`),
     slashCommandInput(`/bot-poll list`),
     slashCommandInput(`/bot-poll status <pollId>`),
     slashCommandInput(`/bot-poll close <pollId>`),
     ``,
-    `默认：单选、不匿名、持续 10 分钟。可写“多选 / 匿名 / 30分钟”。`,
+    `创建投票只需要自然语言描述。默认：单选、不匿名、持续 10 分钟。可写“多选 / 匿名 / 30分钟”。`,
   );
   return lines.join("\n");
 }

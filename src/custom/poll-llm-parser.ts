@@ -1,7 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import { getQQBotRuntime } from "../runtime.js";
 import {
-  formatCustomPollCreateCommand,
+  encodeCustomPollCreateCommand,
   formatMissingCreateFields,
   normalizeCustomPollCreateCommand,
   type CustomPollCommand,
@@ -44,7 +44,7 @@ export function isCustomPollCreateNeedingModel(rawContent: string): boolean {
   if (!parsed) return false;
   const action = parsed.action;
   if (!action) return false;
-  return !new Set(["help", "?", "list", "ls", "status", "show", "close", "end"]).has(action);
+  return !new Set(["help", "?", "list", "ls", "status", "show", "close", "end", "__create"]).has(action);
 }
 
 export async function resolveCustomPollCreateWithModel(params: {
@@ -55,7 +55,7 @@ export async function resolveCustomPollCreateWithModel(params: {
 }): Promise<CustomPollLlmParseResult> {
   const requestText = extractPollRequestText(params.rawContent);
   if (!requestText) {
-    return { handled: true, content: "/bot-poll create", reply: formatMissingCreateFields() };
+    return { handled: true, reply: formatMissingCreateFields() };
   }
 
   const complete = params.complete ?? resolveRuntimeComplete();
@@ -77,9 +77,9 @@ export async function resolveCustomPollCreateWithModel(params: {
     const parsed = parsePollJson(completion.text);
     const command = pollJsonToCommand(parsed);
     if (!command) {
-      return { handled: true, content: "/bot-poll create", reply: formatMissingCreateFields() };
+      return { handled: true, reply: formatMissingCreateFields() };
     }
-    return { handled: true, content: formatCustomPollCreateCommand(command) };
+    return { handled: true, content: encodeCustomPollCreateCommand(command) };
   } catch (error) {
     return { handled: false, error: String(error) };
   }

@@ -1,5 +1,6 @@
 import assert from "node:assert";
 import { createCustomMessageFlowRuntime } from "../src/custom/runtime.js";
+import { encodeCustomPollCreateCommand } from "../src/custom/poll-command-parser.js";
 import { handleCustomSlashGatewayCommand } from "../src/custom/slash-gateway-adapter.js";
 import type { QueuedMessage } from "../src/message-queue.js";
 
@@ -316,8 +317,8 @@ const poll = handleCustomSlashGatewayCommand({
   cfg,
   accountId: "default",
   runtime: pollRuntime,
-  message: { ...baseMessage, content: "/bot-poll create Pick one | A | B" },
-  rawContent: "/bot-poll create Pick one | A | B",
+  message: { ...baseMessage, content: encodeCustomPollCreateCommand({ kind: "create", question: "Pick one", options: ["A", "B"] }) },
+  rawContent: encodeCustomPollCreateCommand({ kind: "create", question: "Pick one", options: ["A", "B"] }),
   now: 4_000,
   applyTaskWorkspaceEffects: false,
 });

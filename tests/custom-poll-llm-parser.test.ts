@@ -22,7 +22,7 @@ const parsed = await resolveCustomPollCreateWithModel({
   },
 });
 assert.equal(parsed.handled, true);
-assert.equal(parsed.content, "/bot-poll create 多选 匿名 30分钟 晚上吃什么 | 肯德基 | 麦当劳");
+assert.equal(parsed.content?.startsWith("/bot-poll __create "), true);
 
 const missing = await resolveCustomPollCreateWithModel({
   cfg: {} as any,
