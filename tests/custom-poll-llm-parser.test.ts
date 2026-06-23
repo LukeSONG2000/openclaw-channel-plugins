@@ -9,11 +9,13 @@ import {
 assert.equal(isCustomPollCreateNeedingModel("/bot-poll list"), false);
 assert.equal(isCustomPollCreateNeedingModel("/bot-poll status poll-1"), false);
 assert.equal(isCustomPollCreateNeedingModel("/bot-poll 晚上吃什么，肯德基还是麦当劳"), true);
+assert.equal(isCustomPollCreateNeedingModel("/bot-pool 投票评选哪个最唐：A，B，一分钟后收集"), true);
 assert.equal(isCustomPollNaturalLanguageCreate("中午吃什么，麦当劳，华莱士，塔斯汀，单选投票，1分钟后收集结果"), true);
 assert.equal(isCustomPollNaturalLanguageCreate("创建投票：晚上吃什么，肯德基还是麦当劳"), true);
 assert.equal(isCustomPollNaturalLanguageCreate("查看投票结果"), false);
 assert.equal(extractPollRequestText("/bot-poll create 晚上吃什么，肯德基还是麦当劳"), "晚上吃什么，肯德基还是麦当劳");
 assert.equal(extractPollRequestText("/bot-poll 晚上吃什么，肯德基还是麦当劳"), "晚上吃什么，肯德基还是麦当劳");
+assert.equal(extractPollRequestText("/bot-pool 投票评选哪个最唐：A，B，一分钟后收集"), "投票评选哪个最唐：A，B，一分钟后收集");
 
 const parsed = await resolveCustomPollCreateWithModel({
   cfg: { agents: { list: [{ id: "main" }] } } as any,

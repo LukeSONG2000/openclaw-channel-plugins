@@ -13,6 +13,7 @@ import {
 } from "../src/custom/poll-command-parser.js";
 import {
   buildCustomPollKeyboard as buildCustomPollKeyboardDirect,
+  formatPollFinalResult,
   formatPollStatus as formatPollStatusDirect,
 } from "../src/custom/poll-presentation.js";
 import { CustomPollRuntime } from "../src/custom/poll.js";
@@ -67,6 +68,10 @@ assert.deepEqual(parseCustomPollCommand("/bot-poll status poll-1"), {
   matched: true,
   command: { kind: "status", pollId: "poll-1" },
 });
+assert.deepEqual(parseCustomPollCommand("/bot-pool status poll-1"), {
+  matched: true,
+  command: { kind: "status", pollId: "poll-1" },
+});
 assert.deepEqual(parseCustomPollCommand("/bot-poll close"), {
   matched: true,
   error: "缺少 pollId",
@@ -107,6 +112,7 @@ const create = handleCustomPollCommand({
 assert.equal(create.handled, true);
 assert.equal(create.changed, true);
 assert.equal(create.reply?.includes("投票已创建"), true);
+assert.equal(create.reply?.includes("poll-default"), false);
 assert.equal(create.keyboard?.content?.rows.length, 3);
 
 const pollId = Object.keys(polls.getState().polls)[0]!;
@@ -146,6 +152,7 @@ assert.equal(vote.handled, true);
 assert.equal(vote.changed, true);
 assert.equal(vote.reply?.includes("Voter 已投票"), true);
 assert.equal(vote.reply?.includes("B"), false);
+assert.equal(vote.reply?.includes("poll-default"), false);
 assert.equal(polls.getPoll(pollId)?.votes.VOTER_OPENID?.optionId, "2");
 
 const crossPeerVote = handleCustomPollInteraction({
@@ -200,7 +207,8 @@ const list = handleCustomPollCommand({
   now: 3_000,
 });
 assert.equal(list.handled, true);
-assert.equal(list.reply?.includes(pollId), true);
+assert.equal(list.reply?.includes(pollId), false);
+assert.equal(list.reply?.includes("Pick one"), true);
 assert.equal(Boolean(list.keyboard?.content?.rows.length), true);
 
 const detail = handleCustomPollInteraction({
@@ -291,6 +299,11 @@ assert.equal(close.handled, true);
 assert.equal(close.changed, true);
 assert.equal(close.reply?.includes("投票已关闭"), true);
 assert.equal(close.reply?.includes("B：1"), true);
+assert.equal(close.reply?.includes("openid"), false);
+const finalResultText = formatPollFinalResult(polls.getPoll(pollId)!);
+assert.equal(finalResultText.includes("openid"), false);
+assert.equal(finalResultText.includes("VOTER_OPENID"), false);
+assert.equal(finalResultText.includes("Voter"), true);
 
 const voteClosed = handleCustomPollInteraction({
   accountId: "default",

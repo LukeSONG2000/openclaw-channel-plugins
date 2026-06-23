@@ -6,7 +6,6 @@ import {
   formatPollStatusForDisplay,
   formatUnknown,
 } from "./presentation-labels.js";
-import { formatCustomActorIdentity } from "./identity-presentation.js";
 
 export const CUSTOM_POLL_LIST_PAGE_SIZE = 10;
 
@@ -38,7 +37,6 @@ export function formatPollCreated(poll: CustomPoll): string {
   return [
     `🗳 投票已创建`,
     ``,
-    `投票：${poll.id}`,
     `标题：${poll.question}`,
     `类型：${poll.multiple ? "多选" : "单选"}｜${poll.anonymous ? "匿名" : "不匿名"}`,
     `截止：${formatTimestamp(poll.expiresAt)}`,
@@ -61,7 +59,6 @@ export function formatPollList(polls: CustomPoll[], params: {
       ? `｜属于你：${isPollCreator(poll, params.actorId) ? "是" : "否"}`
       : "";
     lines.push(`- ${formatPollStatusForDisplay(poll.status)}｜${poll.question}${ownerHint}`);
-    lines.push(`  ${poll.id}`);
   }
   if (params.hasPrev || params.hasNext) lines.push("", `可用下方按钮翻页或查看详情。`);
   return lines.join("\n");
@@ -72,7 +69,6 @@ export function formatPollStatus(poll: CustomPoll): string {
   const lines = [
     `🗳 投票状态`,
     ``,
-    `投票：${poll.id}`,
     `状态：${formatPollStatusForDisplay(poll.status)}`,
     `标题：${poll.question}`,
     `类型：${poll.multiple ? "多选" : "单选"}｜${poll.anonymous ? "匿名" : "不匿名"}`,
@@ -86,14 +82,13 @@ export function formatPollStatus(poll: CustomPoll): string {
 }
 
 export function formatPollClosed(poll: CustomPoll): string {
-  return [`✅ 投票已关闭：${poll.id}`, ``, formatPollStatus(poll)].join("\n");
+  return [`✅ 投票已关闭`, ``, formatPollStatus(poll)].join("\n");
 }
 
 export function formatPollVoteAck(poll: CustomPoll, actor: Pick<CustomActor, "id" | "label">): string {
   return [
-    `✅ ${formatUnknown(actor.label ?? actor.id)} 已投票`,
+    `✅ ${formatPollActorName(actor)} 已投票`,
     ``,
-    `投票：${poll.id}`,
     `当前已投票人数：${getPollVotedCount(poll)}`,
   ].join("\n");
 }
@@ -104,7 +99,6 @@ export function formatPollDetail(poll: CustomPoll, params: { actorId?: string } 
   return [
     `🗳 投票详情`,
     ``,
-    `投票：${poll.id}`,
     `状态：${formatPollStatusForDisplay(poll.status)}`,
     `标题：${poll.question}`,
     `类型：${poll.multiple ? "多选" : "单选"}｜${poll.anonymous ? "匿名" : "不匿名"}`,
@@ -253,9 +247,13 @@ function formatPollResultLines(poll: CustomPoll): string[] {
     const voters = votersByOption.get(item.optionId) ?? [];
     const voterText = poll.anonymous || voters.length === 0
       ? ""
-      : `｜${voters.map((actor) => formatCustomActorIdentity(actor, { idLabel: "openid" })).join("、")}`;
+      : `｜${voters.map((actor) => formatPollActorName(actor)).join("、")}`;
     return `${item.optionId}. ${item.label}：${item.count}${voterText}`;
   });
+}
+
+function formatPollActorName(actor: Pick<CustomActor, "id" | "label">): string {
+  return formatUnknown(actor.label);
 }
 
 function isPollCreator(poll: CustomPoll, actorId: string): boolean {

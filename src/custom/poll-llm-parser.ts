@@ -51,7 +51,7 @@ export function isCustomPollNaturalLanguageCreate(rawContent: string): boolean {
 export function isCustomPollCreateNeedingModel(rawContent: string): boolean {
   const parsed = splitBotPollCommand(rawContent);
   if (!parsed) return false;
-  const action = parsed.action;
+  const action = parsed.action.toLowerCase();
   if (!action) return false;
   return !new Set(["help", "?", "list", "ls", "status", "show", "close", "end", "__create"]).has(action);
 }
@@ -98,20 +98,21 @@ export function extractPollRequestText(rawContent: string): string {
   const parsed = splitBotPollCommand(rawContent);
   if (!parsed) return "";
   const action = parsed.action;
+  const normalizedAction = action.toLowerCase();
   const rest = parsed.rest.trim();
   if (!action) return "";
-  if (action === "create" || action === "new") return rest;
+  if (normalizedAction === "create" || normalizedAction === "new") return rest;
   return [action, rest].filter(Boolean).join(" ").trim();
 }
 
 function splitBotPollCommand(rawContent: string): { action: string; rest: string } | null {
   const content = rawContent.trim();
   if (!content.startsWith("/")) return null;
-  const match = content.match(/^\/bot-poll(?:\s+([\s\S]*))?$/i);
+  const match = content.match(/^\/bot-po(?:l|o)l(?:\s+([\s\S]*))?$/i);
   if (!match) return null;
   const args = (match[1] ?? "").trim();
   const [action = "", ...rest] = args.split(/\s+/).filter(Boolean);
-  return { action: action.toLowerCase(), rest: rest.join(" ") };
+  return { action, rest: rest.join(" ") };
 }
 
 function buildPollParseSystemPrompt(): string {

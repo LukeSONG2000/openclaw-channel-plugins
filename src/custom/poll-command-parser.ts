@@ -1,6 +1,7 @@
 import { slashCommandInput } from "./command-link.js";
 
 const CUSTOM_POLL_INTERNAL_CREATE_ACTION = "__create";
+const CUSTOM_POLL_COMMAND_NAMES = new Set(["bot-poll", "bot-pool"]);
 
 export type CustomPollCommand =
   | { kind: "help" }
@@ -24,7 +25,7 @@ export function parseCustomPollCommand(rawContent: string): CustomPollCommandPar
   const content = rawContent.trim();
   if (!content.startsWith("/")) return { matched: false };
   const [rawName = "", ...tokens] = content.slice(1).split(/\s+/).filter(Boolean);
-  if (rawName.toLowerCase() !== "bot-poll") return { matched: false };
+  if (!CUSTOM_POLL_COMMAND_NAMES.has(rawName.toLowerCase())) return { matched: false };
   const action = (tokens.shift() ?? "help").toLowerCase();
   if (action === "help" || action === "?") return { matched: true, command: { kind: "help" } };
   if (action === "list" || action === "ls") return { matched: true, command: { kind: "list", page: parsePage(tokens[0]) } };
