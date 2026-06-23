@@ -25,6 +25,7 @@ import { getQQBotRuntime } from "./runtime.js";
 import { isApprovalFeatureAvailable } from "./approval-handler.js";
 import type { CustomCapability } from "./custom/types.js";
 import { formatCapabilityForUser } from "./custom/presentation-labels.js";
+import { formatRemoteCodexStatus } from "./custom/remote-codex.js";
 const require = createRequire(import.meta.url);
 
 let PLUGIN_VERSION = getPackageVersion(import.meta.url);
@@ -2710,6 +2711,100 @@ registerCommand({
  *
  * on = AI 自主判断何时发言（无需 @），off = 仅被 @ 时回复
  */
+registerCommand({
+  name: "bot-remote-codex",
+  category: "管理",
+  description: "绑定当前群到 remote Codex",
+  scope: "仅群聊",
+  access: "查看 config.read；绑定/解绑 config.write",
+  capability: (request) => {
+    const action = request.args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
+    return !action || action === "status" || action === "help" || action === "?" ? "config.read" : "config.write";
+  },
+  usage: [
+    `/bot-remote-codex bind current-host`,
+    `/bot-remote-codex status`,
+    `/bot-remote-codex unbind`,
+    ``,
+    `绑定后，在当前群发送 ${slashCommandInput("/codex new fix-login")} 可创建远端 Codex thread。`,
+    `后续 @机器人 发送普通消息会转发到当前 active Codex thread。`,
+  ].join("\n"),
+  handler: async (ctx) => {
+    if (ctx.type !== "group" || !ctx.groupOpenid) {
+      return `💡 请在要绑定 remote Codex 的 QQ 群里使用 ${slashCommandInput("/bot-remote-codex bind current-host")}`;
+    }
+
+    const [rawAction = "status", rawSessionId = "current-host"] = ctx.args.trim().split(/\s+/).filter(Boolean);
+    const action = rawAction.toLowerCase();
+    if (action === "help" || action === "?") {
+      return [
+        `🧩 Remote Codex 群设置`,
+        ``,
+        `${slashCommandInput("/bot-remote-codex bind current-host")} 绑定当前群`,
+        `${slashCommandInput("/bot-remote-codex status")} 查看绑定`,
+        `${slashCommandInput("/bot-remote-codex unbind")} 解绑当前群`,
+        ``,
+        `绑定后可用：${slashCommandInput("/codex new fix-login")}、${slashCommandInput("/codex use fix-login")}、${slashCommandInput("/codex current")}、${slashCommandInput("/codex list")}`,
+      ].join("\n");
+    }
+
+    if (action === "status") {
+      const runtime = getQQBotRuntime();
+      const configApi = runtime.config as { loadConfig: () => Record<string, unknown> };
+      return formatRemoteCodexStatus({ cfg: configApi.loadConfig() as any, accountId: ctx.accountId, groupOpenid: ctx.groupOpenid });
+    }
+
+    if (action !== "bind" && action !== "unbind") {
+      return `❌ 未知子命令：${rawAction}\n\n使用 ${slashCommandInput("/bot-remote-codex help")}`;
+    }
+
+    try {
+      const runtime = getQQBotRuntime();
+      const configApi = runtime.config as {
+        loadConfig: () => Record<string, unknown>;
+        writeConfigFile: (cfg: unknown) => Promise<void>;
+      };
+      const currentCfg = structuredClone(configApi.loadConfig()) as Record<string, unknown>;
+      const channels = ((currentCfg.channels ?? {}) as Record<string, unknown>);
+      const qqbot = channels.qqbot as Record<string, unknown> | undefined;
+      if (!qqbot) return `❌ 配置文件中未找到 qqbot 通道配置`;
+
+      if (!qqbot.remoteCodex || typeof qqbot.remoteCodex !== "object" || Array.isArray(qqbot.remoteCodex)) {
+        qqbot.remoteCodex = {
+          relayUrl: "http://121.40.171.92:8889",
+          sessionId: "current-host",
+          tokenFile: "/opt/codex-relay/.env.openclaw-relay",
+          waitMs: 55000,
+        };
+      }
+
+      const groups = ((qqbot.groups ?? {}) as Record<string, Record<string, unknown>>);
+      const groupCfg = groups[ctx.groupOpenid] ?? {};
+      if (action === "unbind") {
+        delete groupCfg.remoteCodex;
+      } else {
+        groupCfg.remoteCodex = { enabled: true, sessionId: rawSessionId || "current-host" };
+      }
+      groups[ctx.groupOpenid] = groupCfg;
+      qqbot.groups = groups;
+      channels.qqbot = qqbot;
+      currentCfg.channels = channels;
+      await configApi.writeConfigFile(currentCfg);
+
+      return action === "unbind"
+        ? `✅ 当前群已解绑 remote Codex`
+        : [
+            `✅ 当前群已绑定 remote Codex`,
+            `sessionId：${rawSessionId || "current-host"}`,
+            ``,
+            `现在可以发送 ${slashCommandInput("/codex new fix-login")} 初始化一个远端 Codex thread。`,
+          ].join("\n");
+    } catch (err) {
+      return `❌ Remote Codex 绑定更新失败: ${err}`;
+    }
+  },
+});
+
 registerCommand({
   name: "bot-group",
   category: "管理",

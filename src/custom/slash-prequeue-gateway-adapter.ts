@@ -29,6 +29,7 @@ import {
   isCustomPollNaturalLanguageCreate,
   resolveCustomPollCreateWithModel,
 } from "./poll-llm-parser.js";
+import { dispatchRemoteCodexMessage } from "./remote-codex.js";
 
 export interface CustomSlashPrequeueLogger {
   info?: (msg: string) => void;
@@ -99,6 +100,23 @@ export async function handleCustomSlashPrequeueGateway(
   const peerId = params.queue.getMessagePeerId(params.message);
 
   if (!content.startsWith("/")) {
+    const shouldRouteRemoteCodex = shouldDispatchRemoteCodexPlainText(params.message);
+    if (shouldRouteRemoteCodex) {
+      const remoteCodex = await dispatchRemoteCodexMessage({
+        cfg: params.cfg,
+        accountId: params.account.accountId,
+        message: params.message,
+        content,
+      });
+      if (remoteCodex.handled) {
+        if (remoteCodex.error) {
+          params.log?.error?.(`[qqbot:${params.account.accountId}] remote codex dispatch failed: ${remoteCodex.error}`);
+        }
+        await sendSlashTextReply(params, remoteCodex.reply ?? "✅ Remote Codex 请求已处理。");
+        return { kind: "framework-reply", content, fileSent: false };
+      }
+    }
+
     const customPlainTextCommand = (params.handleCustomSlashCommand ?? handleCustomSlashGatewayCommand)({
       cfg: params.cfg,
       accountId: params.account.accountId,
@@ -179,6 +197,22 @@ export async function handleCustomSlashPrequeueGateway(
 
     params.queue.enqueue(params.message);
     return { kind: "not-slash-enqueued", content };
+  }
+
+  if (/^\/codex(?:\s|$)/i.test(content)) {
+    const remoteCodex = await dispatchRemoteCodexMessage({
+      cfg: params.cfg,
+      accountId: params.account.accountId,
+      message: params.message,
+      content,
+    });
+    if (remoteCodex.handled) {
+      if (remoteCodex.error) {
+        params.log?.error?.(`[qqbot:${params.account.accountId}] remote codex dispatch failed: ${remoteCodex.error}`);
+      }
+      await sendSlashTextReply(params, remoteCodex.reply ?? "✅ Remote Codex 请求已处理。");
+      return { kind: "framework-reply", content, fileSent: false };
+    }
   }
 
   const urgentBypass = applyCustomUrgentQueueBypass({
@@ -301,6 +335,11 @@ export async function handleCustomSlashPrequeueGateway(
     params.queue.enqueue(params.message);
     return { kind: "error-enqueued", content, error: err };
   }
+}
+
+function shouldDispatchRemoteCodexPlainText(message: QueuedMessage): boolean {
+  if (message.type !== "group") return true;
+  return Boolean(message.mentions?.some((mention) => mention.is_you === true));
 }
 
 export function normalizeCustomSlashPrequeueContent(params: {
