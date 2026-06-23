@@ -1,5 +1,5 @@
 {
-  "name": "@lukesong/openclaw-qqbot",
+  "name": "@lukesong/luke-qqbot",
   "version": "1.7.2-luke.1",
   "publishConfig": {
     "access": "public"
@@ -29,7 +29,7 @@
     ],
     "channel": {
       "id": "qqbot",
-      "label": "QQ Bot"
+      "label": "Luke-QQBot"
     }
   },
   "scripts": {
@@ -67,5 +67,6 @@
     "mpg123-decoder",
     "silk-wasm",
     "ws"
-  ]
+  ],
+  "description": "Luke-QQBot custom QQ Bot channel plugin for OpenClaw"
 }

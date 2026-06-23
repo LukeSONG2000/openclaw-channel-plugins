@@ -325,7 +325,7 @@ function linkSlashCommandsInline(text: string): string {
 
 function formatSlashCommandHelp(): string {
   const lines = [
-    `### QQBot 指令总览`,
+    `### Luke-QQBot 指令总览`,
     ``,
     `用法：发送 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 查看单条指令详情。`,
   ];
@@ -340,7 +340,7 @@ function formatSlashCommandHelp(): string {
     }
   }
 
-  lines.push(``, `> 插件版本 v${PLUGIN_VERSION}`);
+  lines.push(``, `> Luke-QQBot 版本 v${PLUGIN_VERSION}`);
   return lines.join("\n");
 }
 
@@ -421,7 +421,7 @@ registerCommand({
   usage: [
     `/bot-version`,
     ``,
-    `查看当前 QQBot 插件版本和 OpenClaw 框架版本。`,
+    `查看当前 Luke-QQBot 版本和 OpenClaw 框架版本。`,
     `同时检查是否有新版本可用。`,
   ].join("\n"),
   handler: async (ctx) => {
@@ -429,7 +429,7 @@ registerCommand({
     const info = await getUpdateInfo(resolveConfiguredUpgradePackage(ctx.accountConfig));
     const lines = [
       `🦞框架版本：${frameworkVersion}`,
-      `🤖QQBot 插件版本：v${PLUGIN_VERSION}`,
+      `🤖Luke-QQBot 版本：v${PLUGIN_VERSION}`,
       `📦更新检查源：${info.packageName}`,
     ];
     if (info.checkedAt === 0) {
@@ -456,7 +456,7 @@ registerCommand({
   usage: [
     `/bot-help`,
     ``,
-    `列出所有可用的 QQBot 插件内置指令及其简要说明。`,
+    `列出所有可用的 Luke-QQBot 内置指令及其简要说明。`,
     `使用 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 可查看某条指令的详细用法。`,
   ].join("\n"),
   handler: () => formatSlashCommandHelp(),
@@ -471,7 +471,7 @@ registerCommand({
   usage: [
     `/help`,
     ``,
-    `按分类列出全部 QQBot 插件指令、使用范围和权限范围。`,
+    `按分类列出全部 Luke-QQBot 指令、使用范围和权限范围。`,
     `使用 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 可查看某条指令的详细用法。`,
   ].join("\n"),
   handler: () => formatSlashCommandHelp(),
@@ -2429,7 +2429,7 @@ registerCommand({
         `❌ 当前版本不支持该指令`,
         ``,
         `🦞框架版本：${fwVer}`,
-        `🤖QQBot 插件版本：v${PLUGIN_VERSION}`,
+        `🤖Luke-QQBot 版本：v${PLUGIN_VERSION}`,
         ``,
         `可通过以下命令手动开启流式消息：`,
         ``,
@@ -3065,7 +3065,7 @@ registerCommand({
         `❌ 当前版本不支持该指令`,
         ``,
         `🦞框架版本：${fwVer}`,
-        `🤖QQBot 插件版本：v${PLUGIN_VERSION}`,
+        `🤖Luke-QQBot 版本：v${PLUGIN_VERSION}`,
         ``,
         `可通过以下命令手动设置：`,
         ``,
