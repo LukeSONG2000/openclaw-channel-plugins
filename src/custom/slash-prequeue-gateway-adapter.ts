@@ -26,6 +26,7 @@ import {
 } from "./queued-message-context.js";
 import {
   isCustomPollCreateNeedingModel,
+  isCustomPollNaturalLanguageCreate,
   resolveCustomPollCreateWithModel,
 } from "./poll-llm-parser.js";
 
@@ -125,6 +126,57 @@ export async function handleCustomSlashPrequeueGateway(
       });
       return { kind: "custom-slash", content, result: customPlainTextCommand };
     }
+
+    if (isCustomPollNaturalLanguageCreate(content)) {
+      const modelParsed = await (params.resolvePollCreateWithModel ?? resolveCustomPollCreateWithModel)({
+        cfg: params.cfg,
+        rawContent: `/bot-poll ${content}`,
+      });
+      if (modelParsed.handled && modelParsed.reply) {
+        await sendSlashTextReply(params, modelParsed.reply);
+        return { kind: "model-poll-parse-reply", content };
+      }
+      if (modelParsed.handled && modelParsed.content) {
+        params.log?.info?.(`[qqbot:${params.account.accountId}] natural poll model parsed: ${content.slice(0, 80)} -> ${modelParsed.content.slice(0, 120)}`);
+        content = modelParsed.content;
+        params.message.content = modelParsed.content;
+        const customPollCommand = (params.handleCustomSlashCommand ?? handleCustomSlashGatewayCommand)({
+          cfg: params.cfg,
+          accountId: params.account.accountId,
+          runtime: params.runtime,
+          message: params.message,
+          rawContent: content,
+          now: receivedAt,
+          queueStatus: {
+            peerId,
+            snapshot: params.queue.getSnapshot(peerId),
+          },
+          taskExecutor: params.taskExecutor,
+        });
+        if (customPollCommand.handled) {
+          await applyCustomSlashGatewayEffects({
+            accountId: params.account.accountId,
+            cfg: params.cfg,
+            result: customPollCommand,
+            ...params.effects,
+            sourcePeer: toCustomPeerFromQueuedMessage(params.message, { queuePeerId: peerId }),
+            feedbackActor: toCustomActorFromQueuedMessage(params.message),
+            sendText: async (text) => { await sendSlashTextReply(params, text); },
+            sendKeyboard: (text, keyboard) => sendSlashKeyboardReply(params, text, keyboard),
+            log: params.log,
+          });
+          return { kind: "custom-slash", content, result: customPollCommand };
+        }
+      } else {
+        const message = "⚠️ 投票自然语言解析暂时不可用，请稍后再试。";
+        if (modelParsed.error) {
+          params.log?.error?.(`[qqbot:${params.account.accountId}] natural poll model parse failed: ${modelParsed.error}`);
+        }
+        await sendSlashTextReply(params, message);
+        return { kind: "model-poll-parse-reply", content };
+      }
+    }
+
     params.queue.enqueue(params.message);
     return { kind: "not-slash-enqueued", content };
   }

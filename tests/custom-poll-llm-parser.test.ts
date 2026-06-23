@@ -2,12 +2,16 @@ import assert from "node:assert/strict";
 import {
   extractPollRequestText,
   isCustomPollCreateNeedingModel,
+  isCustomPollNaturalLanguageCreate,
   resolveCustomPollCreateWithModel,
 } from "../src/custom/poll-llm-parser.js";
 
 assert.equal(isCustomPollCreateNeedingModel("/bot-poll list"), false);
 assert.equal(isCustomPollCreateNeedingModel("/bot-poll status poll-1"), false);
 assert.equal(isCustomPollCreateNeedingModel("/bot-poll 晚上吃什么，肯德基还是麦当劳"), true);
+assert.equal(isCustomPollNaturalLanguageCreate("中午吃什么，麦当劳，华莱士，塔斯汀，单选投票，1分钟后收集结果"), true);
+assert.equal(isCustomPollNaturalLanguageCreate("创建投票：晚上吃什么，肯德基还是麦当劳"), true);
+assert.equal(isCustomPollNaturalLanguageCreate("查看投票结果"), false);
 assert.equal(extractPollRequestText("/bot-poll create 晚上吃什么，肯德基还是麦当劳"), "晚上吃什么，肯德基还是麦当劳");
 assert.equal(extractPollRequestText("/bot-poll 晚上吃什么，肯德基还是麦当劳"), "晚上吃什么，肯德基还是麦当劳");
 

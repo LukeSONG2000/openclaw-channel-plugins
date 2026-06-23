@@ -133,6 +133,45 @@ assert.equal(normalizeCustomSlashPrequeueContent({
 }
 
 {
+  const naturalContent = "中午吃什么，麦当劳，华莱士，塔斯汀，单选投票，1分钟后收集结果";
+  const msg = event({ content: naturalContent });
+  const t = baseParams(msg);
+  let modelRawContent = "";
+  const parsedContent = encodeCustomPollCreateCommand({
+    kind: "create",
+    question: "中午吃什么",
+    options: ["麦当劳", "华莱士", "塔斯汀"],
+    multiple: false,
+    anonymous: false,
+    durationMs: 60_000,
+  });
+  const result = await handleCustomSlashPrequeueGateway({
+    ...t.params,
+    resolvePollCreateWithModel: async ({ rawContent }) => {
+      modelRawContent = rawContent;
+      return {
+        handled: true,
+        content: parsedContent,
+      };
+    },
+    handleCustomSlashCommand: ({ rawContent }) => rawContent === parsedContent
+      ? {
+          handled: true,
+          reply: {
+            kind: "keyboard",
+            text: "投票卡片",
+            keyboard: { content: { rows: [{ buttons: [] }] } },
+          },
+        }
+      : ({ handled: false } as const),
+  });
+  assert.equal(result.kind, "custom-slash");
+  assert.equal(modelRawContent, `/bot-poll ${naturalContent}`);
+  assert.equal(msg.content, parsedContent);
+  assert.deepEqual(t.sentKeyboard, [{ kind: "group", text: "<@MEMBER_OPENID>\n投票卡片" }]);
+}
+
+{
   const t = baseParams(event({ content: "/bot-poll 晚上吃什么" }));
   const result = await handleCustomSlashPrequeueGateway({
     ...t.params,

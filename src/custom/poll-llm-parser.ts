@@ -39,6 +39,15 @@ interface PollParseJson {
 
 const POLL_PARSE_TIMEOUT_MS = 8_000;
 
+export function isCustomPollNaturalLanguageCreate(rawContent: string): boolean {
+  const content = rawContent.trim();
+  if (!content || content.startsWith("/")) return false;
+  if (!/投票/.test(content)) return false;
+  if (/^(查询|查看|列出|打开|结束|关闭)投票/.test(content)) return false;
+  return /(?:创建|发起|新建|开|搞|来(?:一|1)?个|做|单选|多选|匿名|实名|收票|收集结果|结束|截止).*投票/.test(content)
+    || /投票.*(?:创建|发起|新建|单选|多选|匿名|实名|选项|收票|收集结果|结束|截止)/.test(content);
+}
+
 export function isCustomPollCreateNeedingModel(rawContent: string): boolean {
   const parsed = splitBotPollCommand(rawContent);
   if (!parsed) return false;
