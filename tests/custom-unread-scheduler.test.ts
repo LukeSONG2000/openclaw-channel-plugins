@@ -11,6 +11,7 @@ const cfg = resolveCustomUnreadConfig({
       enabled: true,
       followupDelayMs: 1_000,
       sleepDelayMs: 10_000,
+      pollIntervalsMs: [60_000, 120_000, 300_000],
     },
   },
   scene: {
@@ -75,10 +76,10 @@ scheduler.apply(
   }),
   cfg,
 );
-assert.equal(scheduler.timerCount("sleep-digest"), 1);
-assert.equal([...scheduled.values()][0]?.delayMs, 10_000);
+assert.equal(scheduler.timerCount("followup"), 1);
+assert.equal([...scheduled.values()][0]?.delayMs, 300_000);
 assert.equal(persisted.length, 1);
-assert.equal(logs.some((line) => line.includes("sleep-digest timer set")), true);
+assert.equal(logs.some((line) => line.includes("followup timer set")), true);
 
 const mention = unread.observeMention({
   message: { ...inbound, mentionedBot: true, messageId: "mention-1" },
@@ -112,7 +113,7 @@ unread.recordNonMention({
   cfg,
   now: 2_500,
 });
-now = 3_000;
+now = 62_000;
 const fireFollowup = [...scheduled.values()][0]?.callback;
 if (!fireFollowup) throw new Error("expected followup timer");
 fireFollowup();

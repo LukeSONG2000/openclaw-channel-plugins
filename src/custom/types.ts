@@ -113,6 +113,7 @@ export interface CustomUnreadConfig {
   historyLimit?: number;
   followupDelayMs?: number;
   sleepDelayMs?: number;
+  pollIntervalsMs?: number[];
   allowAutonomousReply?: boolean;
   allowProactiveSend?: boolean;
 }

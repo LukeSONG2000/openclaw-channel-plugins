@@ -10,6 +10,7 @@ const cfg = resolveCustomUnreadConfig({
       enabled: true,
       followupDelayMs: 1_000,
       sleepDelayMs: 10_000,
+      pollIntervalsMs: [60_000, 120_000, 300_000],
     },
   },
   scene: {

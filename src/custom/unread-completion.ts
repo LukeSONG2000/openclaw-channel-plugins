@@ -48,7 +48,11 @@ export function completeCustomUnreadAfterDispatch(params: {
       ? effectsFromCustomUnreadIntents({
           accountId: params.accountId,
           peer,
-          intents: params.unread.markOutputComplete({ peerId: params.groupOpenid, cfg: params.cfg }),
+          intents: params.unread.markOutputComplete({
+            peerId: params.groupOpenid,
+            cfg: params.cfg,
+            resetToMin: consumed.source === "mention-followup",
+          }),
         })
       : [];
     return { handled: true, effects, persist: true, logs };
@@ -81,7 +85,7 @@ export function completeCustomUnreadAfterDispatch(params: {
       effects: effectsFromCustomUnreadIntents({
         accountId: params.accountId,
         peer,
-        intents: params.unread.markOutputComplete({ peerId: params.groupOpenid, cfg: params.cfg }),
+        intents: params.unread.markOutputComplete({ peerId: params.groupOpenid, cfg: params.cfg, resetToMin: true }),
       }),
       persist: false,
       logs,

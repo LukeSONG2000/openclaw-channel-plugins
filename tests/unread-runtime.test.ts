@@ -20,6 +20,7 @@ const baseRuntime: CustomRuntimeConfig = {
     historyLimit: 3,
     followupDelayMs: 1_000,
     sleepDelayMs: 10_000,
+    pollIntervalsMs: [60_000, 120_000, 300_000],
   },
 };
 
@@ -63,8 +64,8 @@ const first = runtime.recordNonMention({ message: msg(), cfg, now: 2_000 });
 assert.equal(first.recorded, true);
 assert.equal(first.pendingCount, 1);
 assert.equal(first.intents.length, 1);
-assert.equal(first.intents[0]!.kind, "schedule-sleep-digest");
-assert.equal(first.intents[0]!.dueAt, 12_000);
+assert.equal(first.intents[0]!.kind, "schedule-followup");
+assert.equal(first.intents[0]!.dueAt, 302_000);
 
 const botIgnored = runtime.recordNonMention({
   message: msg({ actor: { id: "BOT_OPENID", isBot: true }, messageId: "bot-msg" }),
@@ -85,8 +86,8 @@ const mention = runtime.observeMention({ message: msg({ mentionedBot: true, mess
 assert.equal(mention.pendingCount, 3);
 assert.equal(mention.shouldCatchUpAfterReply, true);
 assert.equal(mention.intents.length, 1);
-assert.equal(mention.intents[0]!.kind, "clear-sleep-digest");
-assert.equal(runtime.getState().peers.GROUP_OPENID!.scheduledSleepDigestDueAt, undefined);
+assert.equal(mention.intents[0]!.kind, "clear-followup");
+assert.equal(runtime.getState().peers.GROUP_OPENID!.scheduledFollowupDueAt, undefined);
 
 const mentionFollowup = runtime.createCatchup({
   peerId: "GROUP_OPENID",
@@ -107,14 +108,14 @@ assert.equal(consume.remaining, 0);
 const scheduled = runtime.markOutputComplete({ peerId: "GROUP_OPENID", cfg, now: 10_000 });
 assert.equal(scheduled.length, 1);
 assert.equal(scheduled[0]!.kind, "schedule-followup");
-assert.equal(scheduled[0]!.dueAt, 11_000);
+assert.equal(scheduled[0]!.dueAt, 70_000);
 assert.equal(runtime.getState().peers.GROUP_OPENID!.followupActive, true);
 
 runtime.recordNonMention({ message: msg({ messageId: "msg-5", timestamp: 10_500 }), cfg, now: 10_500 });
 const followup = runtime.fireScheduledFollowup({
   peerId: "GROUP_OPENID",
   cfg,
-  now: 11_000,
+  now: 70_000,
 });
 assert.equal(followup.length, 1);
 assert.equal(followup[0]!.snapshot!.entries.map((entry) => entry.messageId).join(","), "msg-5");
@@ -161,7 +162,7 @@ assert.deepEqual(inspection.peers[0], {
   oldestPendingAt: 1_000,
   newestPendingAt: 1_000,
   followupActive: false,
-  scheduledFollowupDueAt: undefined,
+  scheduledFollowupDueAt: 620_000,
   scheduledSleepDigestDueAt: undefined,
   snapshotCount: 2,
   policyGatedSnapshotCount: 2,
