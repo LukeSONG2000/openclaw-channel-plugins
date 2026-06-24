@@ -54,6 +54,8 @@ export function resolveCustomDispatchCapability(params: {
   message: QueuedMessage;
   rawContent: string;
 }): Exclude<CustomCapability, "*"> {
+  if (params.message._customUnreadSnapshotId) return "chat.send";
+
   const content = params.rawContent.trim();
 
   if (detectCustomRuleWriteIntent(content)) return "config.write";
