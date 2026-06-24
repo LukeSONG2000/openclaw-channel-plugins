@@ -90,7 +90,11 @@ export class CustomUnreadScheduler {
       }
       if (intents.length === 0) continue;
       const cfg = this.options.resolveConfigForPeer(peerId);
-      if (!cfg) continue;
+      if (!cfg) {
+        this.options.log?.debug?.(`Custom unread restore skipped for ${peerId}: no config`);
+        continue;
+      }
+      this.options.log?.info?.(`Custom unread restore scheduling ${intents.length} timer(s) for ${peerId}`);
       this.apply(
         effectsFromCustomUnreadIntents({
           accountId: this.options.accountId,
@@ -126,9 +130,11 @@ export class CustomUnreadScheduler {
     const delay = Math.max(1_000, dueAt - this.now());
     const timer = this.setTimer(() => {
       this.timers[kind].delete(peerId);
+      const latestCfg = this.options.resolveConfigForPeer(peerId) ?? cfg;
+      this.options.log?.info?.(`Custom unread ${kind} timer fired for ${peerId}`);
       const intents = kind === "followup"
-        ? this.options.unread.fireScheduledFollowup({ peerId, cfg })
-        : this.options.unread.fireSleepDigest({ peerId, cfg });
+        ? this.options.unread.fireScheduledFollowup({ peerId, cfg: latestCfg })
+        : this.options.unread.fireSleepDigest({ peerId, cfg: latestCfg });
       const peer: CustomPeer = { kind: "group", id: peerId };
       this.apply(
         effectsFromCustomUnreadIntents({
@@ -136,7 +142,7 @@ export class CustomUnreadScheduler {
           peer,
           intents,
         }),
-        cfg,
+        latestCfg,
       );
       this.options.persist();
     }, delay);
