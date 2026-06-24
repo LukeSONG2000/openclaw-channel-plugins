@@ -15,14 +15,15 @@ const dmPeer: CustomPeer = { kind: "c2c", id: "USER_OPENID", label: "Luke" };
 
 assert.equal(formatCustomPeerKey(groupPeer), "qqbot:group:GROUP_OPENID");
 assert.equal(formatCustomPeerKindWildcard(groupPeer), "qqbot:group:*");
-assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send"]);
+assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send", "web.search"]);
 assert.equal(getCustomSceneProfile("dev-lab").capabilities.includes("codex.longTask"), true);
 
 const defaultGroup = resolveCustomScene({ enabled: true }, groupPeer);
 assert.equal(defaultGroup.source, "default");
 assert.equal(defaultGroup.config.scene, "chat");
-assert.deepEqual(defaultGroup.capabilities, ["chat.send"]);
-assert.equal(defaultGroup.profile.allowAutonomousReply, false);
+assert.deepEqual(defaultGroup.capabilities, ["chat.send", "web.search"]);
+assert.equal(defaultGroup.profile.allowAutonomousReply, true);
+assert.equal(defaultGroup.profile.allowProactiveSend, true);
 
 const defaultDm = resolveCustomScene({ enabled: true }, dmPeer);
 assert.equal(defaultDm.config.scene, "default-dm");
@@ -63,7 +64,7 @@ assert.equal(buildCustomSceneSystemPrompt(exact).includes("只处理二开开发
 const otherGroup = resolveCustomScene(runtime, { kind: "group", id: "OTHER_GROUP" });
 assert.equal(otherGroup.source, "kind-wildcard");
 assert.equal(otherGroup.config.scene, "codex-only");
-assert.deepEqual(otherGroup.capabilities, ["codex.run", "codex.longTask"]);
+assert.deepEqual(otherGroup.capabilities, ["web.search", "codex.run", "codex.longTask"]);
 
 const fallback = resolveCustomScene(runtime, { kind: "dm", id: "GUILD_DM" });
 assert.equal(fallback.source, "wildcard");

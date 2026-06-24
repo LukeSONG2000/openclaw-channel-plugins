@@ -49,13 +49,14 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
   chat: {
     scene: "chat",
     label: CUSTOM_SCENE_LABELS.chat,
-    description: "日常群聊场景，可以进行安全的自然对话。",
+    description: "日常群聊场景，可以进行安全的自然对话，并允许未读轮询后自然跟进。",
     capabilities: ["chat.send", "web.search"],
-    allowAutonomousReply: false,
-    allowProactiveSend: false,
+    allowAutonomousReply: true,
+    allowProactiveSend: true,
     prompt: [
       "当前 QQBot 场景是 chat。",
-      "可以自然参与聊天，但不要执行系统管理、配置修改、部署更新或长程任务，除非权限机制明确放行。",
+      "可以自然参与聊天；普通非 @ 消息先积累为上下文，再通过自适应未读轮询短句跟进。",
+      "不要执行系统管理、配置修改、部署更新或长程任务，除非权限机制明确放行。",
     ].join("\n"),
   },
   "system-admin": {

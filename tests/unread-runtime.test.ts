@@ -56,8 +56,8 @@ const defaults = resolveCustomUnreadConfig({ runtime: { enabled: true }, scene: 
 assert.equal(defaults.historyLimit, DEFAULT_UNREAD_HISTORY_LIMIT);
 assert.equal(defaults.followupDelayMs, DEFAULT_UNREAD_FOLLOWUP_DELAY_MS);
 assert.equal(defaults.sleepDelayMs, DEFAULT_UNREAD_SLEEP_DELAY_MS);
-assert.equal(defaults.allowAutonomousReply, false);
-assert.equal(defaults.allowProactiveSend, false);
+assert.equal(defaults.allowAutonomousReply, true);
+assert.equal(defaults.allowProactiveSend, true);
 
 const runtime = new CustomUnreadRuntime();
 const first = runtime.recordNonMention({ message: msg(), cfg, now: 2_000 });
@@ -124,7 +124,7 @@ runtime.consumeSnapshot(followup[0]!.snapshot!.id);
 const gatedRuntime = new CustomUnreadRuntime();
 const gatedCfg = resolveCustomUnreadConfig({
   runtime: { enabled: true, unread: { enabled: true } },
-  scene: { scene: "chat" },
+  scene: { scene: "chat", allowAutonomousReply: false, allowProactiveSend: false },
 });
 gatedRuntime.recordNonMention({
   message: msg({ peer: { kind: "group", id: "GATED_GROUP" }, messageId: "gated-1" }),

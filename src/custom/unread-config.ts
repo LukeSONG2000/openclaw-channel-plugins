@@ -29,6 +29,7 @@ export function resolveCustomUnreadConfig(params: {
 }): ResolvedCustomUnreadConfig {
   const runtimeUnread = params.runtime?.unread ?? {};
   const sceneUnread = params.scene?.unread ?? {};
+  const defaultAllowChatUnread = params.scene?.scene === "chat";
   const enabled = sceneUnread.enabled ?? runtimeUnread.enabled ?? true;
   const historyLimit = Math.min(MAX_UNREAD_HISTORY_LIMIT, normalizePositiveInt(
     sceneUnread.historyLimit ?? runtimeUnread.historyLimit,
@@ -52,12 +53,12 @@ export function resolveCustomUnreadConfig(params: {
       sceneUnread.allowAutonomousReply
       ?? params.scene?.allowAutonomousReply
       ?? runtimeUnread.allowAutonomousReply
-      ?? false,
+      ?? defaultAllowChatUnread,
     allowProactiveSend:
       sceneUnread.allowProactiveSend
       ?? params.scene?.allowProactiveSend
       ?? runtimeUnread.allowProactiveSend
-      ?? false,
+      ?? defaultAllowChatUnread,
   };
 }
 

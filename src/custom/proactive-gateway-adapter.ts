@@ -1,12 +1,10 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
-import { resolveCustomRuntimeConfig } from "./config.js";
 import {
-  inspectCustomProactiveConfig,
   type CustomProactiveBudgetDecision,
   type CustomProactiveBudgetRuntime,
 } from "./runtime.js";
 import type { CustomProactiveSendGuard, CustomProactiveSendGuardDecision } from "./proactive-send-guard.js";
-import type { CustomActor, CustomPeer } from "./types.js";
+import type { CustomActor } from "./types.js";
 
 export interface CustomProactiveGatewayLogger {
   info?: (msg: string) => void;
@@ -28,57 +26,14 @@ export interface CustomProactiveGatewayGuardParams {
 export function createCustomProactiveGatewayGuard(
   params: CustomProactiveGatewayGuardParams,
 ): CustomProactiveSendGuard {
+  // 本地主动发送保护已关闭：不再受 monthlyLimit / rateLimitMax 拦截。
+  // 仍保留 commit 钩子与可观测日志，保持调用链稳定。
   return ({ targetType, targetId, text }): CustomProactiveSendGuardDecision => {
-    if (resolveCustomRuntimeConfig(params.cfg).enabled !== true) {
-      return { allowed: true };
-    }
-
     const now = params.clock?.() ?? Date.now();
-    const peer: CustomPeer = { kind: targetType, id: targetId };
-    const proactiveCfg = inspectCustomProactiveConfig({
-      cfg: params.cfg,
-      message: {
-        accountId: params.accountId,
-        peer,
-        actor: params.actor ?? {
-          id: params.accountId,
-          label: params.accountId,
-          isBot: true,
-        },
-        content: text,
-        messageId: params.sourceMessageId ?? `custom-proactive-${now}`,
-        timestamp: params.sourceTimestamp ?? now,
-        mentionedBot: false,
-      },
-    });
-
-    const check = params.budget.check({
-      accountId: params.accountId,
-      peer,
-      cfg: proactiveCfg,
-      now,
-    });
-    if (!check.allowed) {
-      return {
-        allowed: false,
-        reason: formatCustomProactiveBudgetBlockReason(check),
-      };
-    }
-
     return {
       allowed: true,
       commit: () => {
-        const recorded = params.budget.record({
-          accountId: params.accountId,
-          peer,
-          cfg: proactiveCfg,
-          now: params.clock?.() ?? Date.now(),
-        });
-        if (!recorded.allowed) {
-          params.log?.warn?.(`[qqbot:${params.accountId}] Custom proactive budget record skipped for ${recorded.key}: reason=${recorded.reason}`);
-          return;
-        }
-        params.log?.info?.(`[qqbot:${params.accountId}] Custom proactive budget recorded for ${recorded.key}: used=${recorded.used}/${recorded.monthlyLimit}, recent=${recorded.recentCount}/${recorded.rateLimitMax}`);
+        params.log?.info?.(`[qqbot:${params.accountId}] Custom proactive send allowed (protection disabled) for ${targetType}:${targetId} text="${text.slice(0, 40)}" now=${now}`);
         params.persistBudgetState?.();
       },
     };

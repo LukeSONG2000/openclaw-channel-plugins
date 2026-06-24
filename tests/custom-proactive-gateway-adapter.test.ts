@@ -37,17 +37,17 @@ const allowed = guard({
 assert.equal(allowed.allowed, true);
 if (allowed.allowed) allowed.commit?.();
 assert.equal(persisted, 1);
-assert.equal(runtime.proactiveBudget.getState().entries["default:group:GROUP_OPENID"]?.count, 1);
-assert.equal(logs.some((line) => line.includes("Custom proactive budget recorded")), true);
+// 保护已关闭：主动发送不再记录到 budget entries，也不再因 monthly_limit 被拦截。
+assert.equal(runtime.proactiveBudget.getState().entries["default:group:GROUP_OPENID"]?.count, undefined);
+assert.equal(logs.some((line) => line.includes("protection disabled")), true);
 
 now += 1_000;
-const monthlyBlocked = guard({
+const second = guard({
   targetType: "group",
   targetId: "GROUP_OPENID",
   text: "第二条管理群通知",
 });
-assert.equal(monthlyBlocked.allowed, false);
-assert.equal(monthlyBlocked.allowed ? "" : monthlyBlocked.reason.includes("reason=monthly_limit"), true);
+assert.equal(second.allowed, true);
 
 const disabledRuntime = createCustomMessageFlowRuntime();
 const disabledGuard = createCustomProactiveGatewayGuard({
@@ -64,7 +64,7 @@ const disabledGuard = createCustomProactiveGatewayGuard({
   accountId: "default",
   budget: disabledRuntime.proactiveBudget,
   persistBudgetState: () => {
-    throw new Error("disabled runtime should not persist proactive budget");
+    // 保护已关闭：commit 仍会触发持久化回调，此处仅作为 no-op 占位。
   },
   clock: () => now,
 });
@@ -103,7 +103,7 @@ const disabledScene = sceneGuard({
   targetId: "BLOCKED_GROUP",
   text: "scene disabled proactive",
 });
-assert.equal(disabledScene.allowed, false);
-assert.equal(disabledScene.allowed ? "" : disabledScene.reason.includes("reason=disabled"), true);
+// 保护已全局关闭：即使场景配置 proactive.enabled=false 也不再拦截主动发送。
+assert.equal(disabledScene.allowed, true);
 
 console.log("custom proactive gateway adapter tests passed");
