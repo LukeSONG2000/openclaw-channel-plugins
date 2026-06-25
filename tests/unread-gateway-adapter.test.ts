@@ -54,9 +54,9 @@ const timerEffects = effectsFromCustomUnreadIntents({
 assert.equal(timerEffects.length, 1);
 assert.deepEqual(timerEffects[0], {
   kind: "set-timer",
-  timer: "sleep-digest",
+  timer: "followup",
   peerId: "GROUP_OPENID",
-  dueAt: 11_000,
+  dueAt: 601_000,
 });
 
 const clearEffects = effectsFromCustomUnreadIntents({
@@ -67,20 +67,20 @@ const clearEffects = effectsFromCustomUnreadIntents({
 });
 assert.deepEqual(clearEffects, [{
   kind: "clear-timer",
-  timer: "sleep-digest",
+  timer: "followup",
   peerId: "GROUP_OPENID",
 }]);
 
-const catchupIntent = runtime.fireSleepDigest({
+const catchupIntent = runtime.fireScheduledFollowup({
   peerId: "GROUP_OPENID",
   cfg,
-  now: 11_000,
+  now: 601_000,
 });
 const enqueueEffects = effectsFromCustomUnreadIntents({
   accountId: "default",
   peer,
   intents: catchupIntent,
-  now: 11_000,
+  now: 601_000,
 });
 assert.equal(enqueueEffects.length, 1);
 assert.equal(enqueueEffects[0]!.kind, "enqueue");
@@ -104,11 +104,13 @@ const synthetic = buildCustomUnreadCatchupMessage({
 });
 assert.equal(synthetic.messageId, "qqbot-digest-default-GROUP_OPENID-12000");
 assert.equal(synthetic._customUnreadSnapshotId, snapshot.id);
+assert.equal(synthetic.attachments?.[0]?.content_type, "image/png");
+assert.equal(synthetic.attachments?.[0]?.url, "https://example.com/a.png");
 assert.equal(getCustomUnreadSnapshotId(synthetic), snapshot.id);
 
 const gatedCfg = resolveCustomUnreadConfig({
   runtime: { enabled: true, unread: { enabled: true } },
-  scene: { scene: "chat" },
+  scene: { scene: "chat", allowAutonomousReply: false, allowProactiveSend: false },
 });
 const gatedRuntime = new CustomUnreadRuntime();
 gatedRuntime.recordNonMention({ message: inbound, cfg: gatedCfg, now: 1_000 });

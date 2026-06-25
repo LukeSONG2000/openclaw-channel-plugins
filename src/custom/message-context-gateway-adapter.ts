@@ -7,6 +7,7 @@ import type { ResolvedQQBotAccount } from "../types.js";
 import { applyCustomAgentContextGateway } from "./agent-context-gateway-adapter.js";
 import { applyCustomGroupDispatchGateway, type ApplyCustomGroupDispatchGatewayParams } from "./group-dispatch-gateway-adapter.js";
 import { prepareCustomInboundMessageGateway } from "./inbound-preparation-gateway-adapter.js";
+import { buildCustomInboundMediaContext, type CustomInboundMediaContext } from "./inbound-media-context.js";
 import type { CustomMergedEnvelopeInput } from "./agent-message-body-context.js";
 import type { CustomGatewayMessageRouteContext } from "./gateway-message-routing.js";
 import type { CustomInboundContextPayload } from "./inbound-context-payload.js";
@@ -158,6 +159,18 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     };
   }
 
+  const historyImageMedia = await prepareCustomUnreadHistoryImageMedia({
+    cfg: params.cfg,
+    account: { accountId: account.accountId, appId: account.appId },
+    peerId: messageRoute.peerId,
+    history: groupDispatch.customUnreadHistoryForEvent,
+    processAttachments: params.processAttachments,
+    log: params.log,
+  });
+  const inboundMediaForAgent = historyImageMedia
+    ? mergeCustomInboundMedia(inboundPrepared.inboundMedia, historyImageMedia)
+    : inboundPrepared.inboundMedia;
+
   const historyLimitForAgentBody = event.type === "group" && event.groupOpenid
     ? params.resolveHistoryLimit(event.groupOpenid, account.accountId)
     : 0;
@@ -187,14 +200,14 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     groupSubject: groupDispatch.groupSubject,
     hasAsrReferFallback: inboundPrepared.inboundMedia.hasAsrReferFallback,
     voiceTranscriptSources: inboundPrepared.processed.voiceTranscriptSources,
-    uniqueVoicePaths: inboundPrepared.inboundMedia.uniqueVoicePaths,
-    uniqueVoiceUrls: inboundPrepared.inboundMedia.uniqueVoiceUrls,
-    uniqueVoiceAsrReferTexts: inboundPrepared.inboundMedia.uniqueVoiceAsrReferTexts,
+    uniqueVoicePaths: inboundMediaForAgent.uniqueVoicePaths,
+    uniqueVoiceUrls: inboundMediaForAgent.uniqueVoiceUrls,
+    uniqueVoiceAsrReferTexts: inboundMediaForAgent.uniqueVoiceAsrReferTexts,
     commandAuthorized,
     media: {
-      localMediaPaths: inboundPrepared.inboundMedia.localMediaPaths,
-      localMediaTypes: inboundPrepared.inboundMedia.localMediaTypes,
-      remoteMediaUrls: inboundPrepared.inboundMedia.remoteMediaUrls,
+      localMediaPaths: inboundMediaForAgent.localMediaPaths,
+      localMediaTypes: inboundMediaForAgent.localMediaTypes,
+      remoteMediaUrls: inboundMediaForAgent.remoteMediaUrls,
     },
     quote: inboundPrepared.quoteRef,
     log: params.log,
@@ -225,4 +238,105 @@ export function resolveCustomCommandAuthorized(
   if (resolveCommandAuthorized(allowFrom, event.senderId)) return true;
   const runtime = resolveCustomRuntimeConfig(cfg);
   return runtime.enabled === true && isCustomRuntimeAdmin(runtime, toCustomActorFromQueuedMessage(event));
+}
+
+async function prepareCustomUnreadHistoryImageMedia<TConfig extends OpenClawConfig>(params: {
+  cfg: TConfig;
+  account: Pick<ResolvedQQBotAccount, "accountId" | "appId">;
+  peerId: string;
+  history?: HistoryEntry[];
+  processAttachments: RunCustomMessageContextGatewayParams<TConfig>["processAttachments"];
+  log?: CustomMessageContextGatewayLogger;
+}): Promise<CustomInboundMediaContext | null> {
+  const attachments = rawImageAttachmentsFromHistory(params.history);
+  if (attachments.length === 0) return null;
+  const processed = await params.processAttachments(attachments, {
+    appId: params.account.appId,
+    peerId: params.peerId,
+    cfg: params.cfg,
+    log: asProcessLogger(params.log),
+  });
+  const media = buildCustomInboundMediaContext(processed);
+  params.log?.info?.(`[qqbot:${params.account.accountId}] Custom unread history images attached for model: count=${processed.imageUrls.length}`);
+  return media;
+}
+
+function rawImageAttachmentsFromHistory(history?: HistoryEntry[]): RawAttachment[] {
+  const attachments: RawAttachment[] = [];
+  const seen = new Set<string>();
+  for (const entry of history ?? []) {
+    for (const att of entry.attachments ?? []) {
+      if (att.type !== "image") continue;
+      const url = att.url || att.localPath;
+      if (!url) continue;
+      const contentType = att.contentType || inferImageContentType(att.filename || url);
+      const key = `${contentType}\n${url}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      attachments.push({
+        content_type: contentType,
+        url,
+        filename: att.filename,
+      });
+    }
+  }
+  return attachments;
+}
+
+function mergeCustomInboundMedia(
+  current: CustomInboundMediaContext,
+  extra: CustomInboundMediaContext,
+): CustomInboundMediaContext {
+  return {
+    ...current,
+    uniqueVoicePaths: uniqueStrings([...current.uniqueVoicePaths, ...extra.uniqueVoicePaths]),
+    uniqueVoiceUrls: uniqueStrings([...current.uniqueVoiceUrls, ...extra.uniqueVoiceUrls]),
+    uniqueVoiceAsrReferTexts: uniqueStrings([...current.uniqueVoiceAsrReferTexts, ...extra.uniqueVoiceAsrReferTexts]),
+    sttTranscriptCount: current.sttTranscriptCount + extra.sttTranscriptCount,
+    asrFallbackCount: current.asrFallbackCount + extra.asrFallbackCount,
+    fallbackCount: current.fallbackCount + extra.fallbackCount,
+    hasAsrReferFallback: current.hasAsrReferFallback || extra.hasAsrReferFallback,
+    dynamicContext: `${current.dynamicContext}${extra.dynamicContext}`,
+    localMediaPaths: uniqueStrings([...current.localMediaPaths, ...extra.localMediaPaths]),
+    localMediaTypes: mergeMediaTypes(current.localMediaPaths, current.localMediaTypes, extra.localMediaPaths, extra.localMediaTypes),
+    remoteMediaUrls: uniqueStrings([...current.remoteMediaUrls, ...extra.remoteMediaUrls]),
+    remoteMediaTypes: mergeMediaTypes(current.remoteMediaUrls, current.remoteMediaTypes, extra.remoteMediaUrls, extra.remoteMediaTypes),
+  };
+}
+
+function mergeMediaTypes(
+  currentValues: readonly string[],
+  currentTypes: readonly string[],
+  extraValues: readonly string[],
+  extraTypes: readonly string[],
+): string[] {
+  const map = new Map<string, string>();
+  currentValues.forEach((value, index) => map.set(value, currentTypes[index] ?? "image/png"));
+  extraValues.forEach((value, index) => {
+    if (!map.has(value)) map.set(value, extraTypes[index] ?? "image/png");
+  });
+  return [...map.values()];
+}
+
+function uniqueStrings(values: readonly string[]): string[] {
+  return [...new Set(values)].filter(Boolean);
+}
+
+function inferImageContentType(value: string | undefined): string {
+  const lower = (value ?? "").toLowerCase();
+  if (lower.endsWith(".jpg") || lower.endsWith(".jpeg")) return "image/jpeg";
+  if (lower.endsWith(".gif")) return "image/gif";
+  if (lower.endsWith(".webp")) return "image/webp";
+  return "image/png";
+}
+
+function asProcessLogger(
+  log: CustomMessageContextGatewayLogger | undefined,
+): { info: (msg: string) => void; error: (msg: string) => void; debug?: (msg: string) => void } | undefined {
+  if (!log?.info || !log.error) return undefined;
+  return {
+    info: log.info,
+    error: log.error,
+    debug: log.debug,
+  };
 }

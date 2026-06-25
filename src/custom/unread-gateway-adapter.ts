@@ -57,6 +57,7 @@ export function historyEntryFromCustomUnread(entry: CustomUnreadHistoryEntry): H
     messageId: entry.messageId,
     attachments: entry.attachments?.map((att) => ({
       type: inferAttachmentType(att.contentType),
+      contentType: att.contentType,
       filename: att.filename,
       transcript: att.transcript,
       url: att.url,
@@ -93,10 +94,33 @@ export function buildCustomUnreadCatchupMessage(params: {
     groupOpenid: params.peer.id,
     eventType: "GROUP_AT_MESSAGE_CREATE",
     mentions: [{ is_you: true }],
+    attachments: rawImageAttachmentsFromCustomUnreadSnapshot(params.snapshot),
     _customUnreadSnapshotId: params.snapshot.id,
     _customUnreadSnapshot: historySnapshotFromCustomUnread(params.snapshot),
     _noMerge: true,
   };
+}
+
+export function rawImageAttachmentsFromCustomUnreadSnapshot(
+  snapshot?: CustomUnreadCatchupSnapshot,
+): QueuedMessage["attachments"] | undefined {
+  if (!snapshot) return undefined;
+  const attachments: NonNullable<QueuedMessage["attachments"]> = [];
+  const seen = new Set<string>();
+  for (const entry of snapshot.entries) {
+    for (const att of entry.attachments ?? []) {
+      if (!att.url || !att.contentType?.toLowerCase().startsWith("image/")) continue;
+      const key = `${att.contentType}\n${att.url}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+      attachments.push({
+        content_type: att.contentType,
+        url: att.url,
+        filename: att.filename,
+      });
+    }
+  }
+  return attachments.length > 0 ? attachments : undefined;
 }
 
 export function effectsFromCustomUnreadIntents(params: {

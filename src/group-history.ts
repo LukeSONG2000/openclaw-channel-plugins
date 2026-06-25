@@ -35,6 +35,8 @@ const MAX_HISTORY_CONTEXT_CHARS = 8000;
 export interface AttachmentSummary {
   /** 附件类型 */
   type: "image" | "voice" | "video" | "file" | "unknown";
+  /** 原始 MIME/content_type（如 image/png），用于历史媒体重新进入模型输入 */
+  contentType?: string;
   /** 文件名（如有） */
   filename?: string;
   /** 语音转录文本（入站：STT/ASR识别结果；出站：TTS原文本） */
@@ -83,6 +85,7 @@ export function toAttachmentSummaries(attachments?: RawAttachment[]): Attachment
   if (!attachments?.length) return undefined;
   return attachments.map((att) => ({
     type: inferAttachmentType(att.content_type),
+    contentType: att.content_type,
     filename: att.filename,
     transcript: att.asr_refer_text || undefined,
     url: att.url || undefined,
