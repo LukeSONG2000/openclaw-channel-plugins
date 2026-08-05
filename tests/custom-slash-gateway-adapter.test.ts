@@ -504,7 +504,7 @@ const unreadStatus = handleCustomSlashGatewayCommand({
 assert.equal(unreadStatus.handled, true);
 assert.equal(unreadStatus.persist, undefined);
 assert.equal(unreadStatus.reply?.kind, "text");
-assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("自定义未读状态"), true);
+assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("自适应未读轮询状态"), true);
 assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("hidden unread content"), false);
 
 const deniedFallbackClear = handleCustomSlashGatewayCommand({

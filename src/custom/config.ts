@@ -34,6 +34,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     proactive: runtime.proactive,
     tasks: runtime.tasks,
     fallbackAlerts: runtime.fallbackAlerts,
+    auth: runtime.auth,
     initBind: normalizeCustomRuntimeInitBindConfig(runtime.initBind),
     context: runtime.context,
   };

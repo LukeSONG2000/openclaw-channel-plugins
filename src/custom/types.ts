@@ -21,7 +21,8 @@ export type CustomCapability =
   | "deploy.check"
   | "deploy.apply"
   | "proactive.send"
-  | "game.interact";
+  | "game.interact"
+  | "schedule.run";
 
 export interface CustomPeer {
   kind: CustomPeerKind;
@@ -190,6 +191,9 @@ export interface CustomAuthorizationApprovalRequest {
   adminGroup?: string;
   taskId?: string;
   status: "pending" | "approved" | "denied" | "expired";
+  /** Extra capabilities displayed together for compound approvals such as scheduled jobs. */
+  requiredCapabilities?: Exclude<CustomCapability, "*">[];
+  actionSummary?: string;
   resolvedBy?: string;
   resolvedAt?: number;
 }
@@ -350,4 +354,31 @@ export interface CustomDeployConfirmation {
 
 export interface CustomDeployConfirmationRuntimeState {
   confirmations: Record<string, CustomDeployConfirmation>;
+}
+
+
+export type CustomScheduledTaskStatus = "pending_auth" | "active" | "cancelled";
+export type CustomScheduledTaskActionKind = "message" | "agent";
+
+export interface CustomScheduledTask {
+  id: string;
+  accountId: string;
+  peer: CustomPeer;
+  creator: CustomActor;
+  targetActors: CustomActor[];
+  intervalMs: number;
+  actionKind: CustomScheduledTaskActionKind;
+  prompt: string;
+  requiredCapabilities: Exclude<CustomCapability, "*">[];
+  status: CustomScheduledTaskStatus;
+  createdAt: number;
+  updatedAt: number;
+  nextDueAt: number;
+  endAt?: number;
+  lastFiredAt?: number;
+  cancelledAt?: number;
+}
+
+export interface CustomScheduledTaskRuntimeState {
+  tasks: Record<string, CustomScheduledTask>;
 }

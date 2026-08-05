@@ -17,6 +17,7 @@ import type { CustomTaskCommandExecutor } from "./task-command-executor.js";
 import type { CustomTaskNotificationSendText } from "./task-notification-gateway-adapter.js";
 import type { CustomUnreadScheduler } from "./unread-scheduler.js";
 import type { CustomPollExpirationScheduler } from "./poll-expiration-scheduler.js";
+import type { CustomScheduledTaskScheduler } from "./scheduled-task-scheduler.js";
 import {
   handleQQBotWebSocketConnectionFailureGateway as defaultHandleQQBotWebSocketConnectionFailureGateway,
 } from "./websocket-close-gateway-adapter.js";
@@ -39,6 +40,7 @@ export interface RunQQBotGatewayConnectAttemptParams {
   setTaskExecutor: (executor: CustomTaskCommandExecutor) => void;
   setUnreadScheduler: (scheduler: CustomUnreadScheduler) => void;
   setPollExpirationScheduler?: (scheduler: CustomPollExpirationScheduler | undefined) => void;
+  setScheduledTaskScheduler?: (scheduler: CustomScheduledTaskScheduler | undefined) => void;
   enqueueMessage: CreateCustomConnectionHandlersGatewayParams["enqueueMessage"];
   getQueueSnapshot: CreateCustomConnectionHandlersGatewayParams["getQueueSnapshot"];
   persistAuthState: () => void;
@@ -48,6 +50,7 @@ export interface RunQQBotGatewayConnectAttemptParams {
   persistGameState: () => void;
   persistDeployConfirmationState: () => void;
   persistUnreadState: () => void;
+  persistScheduledTaskState: () => void;
   sendTaskStatusText: CustomTaskNotificationSendText;
   buildProactiveGuard: CreateCustomConnectionHandlersGatewayParams["buildProactiveGuard"];
   sendMedia: CreateCustomConnectionHandlersGatewayParams["sendMedia"];
@@ -119,6 +122,7 @@ export async function runQQBotGatewayConnectAttempt(
       persistGameState: params.persistGameState,
       persistDeployConfirmationState: params.persistDeployConfirmationState,
       persistUnreadState: params.persistUnreadState,
+      persistScheduledTaskState: params.persistScheduledTaskState,
       sendTaskStatusText: params.sendTaskStatusText,
       buildProactiveGuard: params.buildProactiveGuard,
       sendMedia: params.sendMedia,
@@ -141,6 +145,7 @@ export async function runQQBotGatewayConnectAttempt(
     params.setTaskExecutor(connectionHandlers.taskExecutor);
     params.setUnreadScheduler(connectionHandlers.unreadScheduler);
     params.setPollExpirationScheduler?.(connectionHandlers.customRuntimeServices.pollExpirationScheduler as CustomPollExpirationScheduler | undefined);
+    params.setScheduledTaskScheduler?.(connectionHandlers.customRuntimeServices.scheduledTaskScheduler as CustomScheduledTaskScheduler | undefined);
 
     await (params.startTransportRunner ?? defaultStartQQBotGatewayTransportRunner)({
       account: params.account,

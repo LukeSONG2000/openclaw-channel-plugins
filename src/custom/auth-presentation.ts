@@ -41,10 +41,16 @@ export function buildCustomAuthApprovalText(request: CustomAuthorizationApproval
     `🔐 需要授权`,
     `位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `用户：${formatCustomAuthApplicantIdentity(request)}`,
-    `权限：${formatCapabilityForUser(request.capability)}`,
+    `权限：${formatRequestCapabilitiesForUser(request)}`,
+    ...(request.actionSummary ? [`任务：${request.actionSummary}`] : []),
     `操作：${slashCommandInput(approveCommand, request.taskId ? "允许此任务" : "允许一次")} ${slashCommandInput(`/bot-auth deny ${request.id}`, "拒绝")}`,
   ];
   return lines.join("\n");
+}
+
+function formatRequestCapabilitiesForUser(request: CustomAuthorizationApprovalRequest): string {
+  const caps = request.requiredCapabilities?.length ? request.requiredCapabilities : [request.capability];
+  return Array.from(new Set(caps)).map(formatCapabilityForUser).join("、");
 }
 
 export function buildCustomAuthApprovalKeyboard(request: CustomAuthorizationApprovalRequest | string): InlineKeyboard {
@@ -313,7 +319,8 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
       ``,
       `位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
       `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
-      `权限：${formatCapabilityForUser(request.capability)}`,
+      `权限：${formatRequestCapabilitiesForUser(request)}`,
+    ...(request.actionSummary ? [`任务：${request.actionSummary}`] : []),
     ].join("\n");
   }
 
@@ -330,7 +337,8 @@ export function formatApprovalResolution(intent: Extract<CustomAuthorizationInte
     ``,
     `位置：${formatCustomPeerIdentity(request.peer, cfg)}`,
     `用户：${formatCustomActorIdentity(request.actor, { idLabel: request.peer.kind === "group" ? "member_openid" : "user_openid" })}`,
-    `权限：${formatCapabilityForUser(request.capability)}`,
+    `权限：${formatRequestCapabilitiesForUser(request)}`,
+    ...(request.actionSummary ? [`任务：${request.actionSummary}`] : []),
     grantDesc,
   ].join("\n");
 }

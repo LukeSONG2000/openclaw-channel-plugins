@@ -136,8 +136,9 @@ const deniedPlainPoll = checkCustomSlashAuthorization({
   now: 2_100,
 });
 assert.equal(deniedPlainPoll.enabled, true);
-assert.equal(deniedPlainPoll.allowed, false);
-assert.equal(deniedPlainPoll.capability, "game.interact");
+assert.equal(deniedPlainPoll.allowed, true);
+assert.equal(deniedPlainPoll.capability, undefined);
+assert.equal(deniedPlainPoll.reason, "not_custom_command");
 assert.deepEqual(parseCustomAuthCommand("/bot-auth approve authreq-2000-1 count 3"), {
   matched: true,
   command: {
@@ -350,12 +351,72 @@ const dispatchDenied = checkCustomDispatchAuthorization({
   now: 5_500,
 });
 assert.equal(dispatchDenied.enabled, true);
-assert.equal(dispatchDenied.allowed, false);
-assert.equal(dispatchDenied.capability, "codex.run");
-assert.equal(dispatchDenied.result?.decision.requestId, "authreq-5500-1");
-assert.equal(formatCustomDispatchAuthorizationDeniedMessage(dispatchDenied).includes("权限：执行 Codex 任务（codex.run）"), true);
+assert.equal(dispatchDenied.allowed, true);
+assert.equal(dispatchDenied.capability, "chat.send");
 
-const dispatchRequest = firstCustomAuthApprovalRequest(dispatchDenied.result?.intents ?? []);
+const gohDispatch = checkCustomDispatchAuthorization({
+  cfg: authCfg,
+  auth: dispatchAuth,
+  message: {
+    ...memberGroupMessage,
+    content: "/goh",
+  },
+  rawContent: "/goh",
+  now: 5_520,
+});
+assert.equal(gohDispatch.allowed, true);
+assert.equal(gohDispatch.capability, "chat.send");
+
+const gohDelegateDispatch = checkCustomDispatchAuthorization({
+  cfg: authCfg,
+  auth: dispatchAuth,
+  message: {
+    ...memberGroupMessage,
+    _slashAuthorized: {
+      command: "/goh 查一下农场小子卢克的技能",
+      capability: undefined,
+    },
+    content: [
+      "请作为 Star Wars: Galaxy of Heroes（SWGOH，星球大战：银河英雄）资料助手回答用户问题。",
+      "用户查询：查一下农场小子卢克的技能",
+      "",
+      "要求：",
+      "1. 优先围绕 SWGOH 游戏内角色、技能、队伍、机制、活动和养成资料回答。",
+      "2. 如果需要最新资料，请使用可用的联网搜索或资料工具核实。",
+      "3. 回答要适合 QQ 聊天阅读，简洁但信息完整。",
+    ].join("\n"),
+  },
+  rawContent: [
+    "请作为 Star Wars: Galaxy of Heroes（SWGOH，星球大战：银河英雄）资料助手回答用户问题。",
+    "用户查询：查一下农场小子卢克的技能",
+    "",
+    "要求：",
+    "1. 优先围绕 SWGOH 游戏内角色、技能、队伍、机制、活动和养成资料回答。",
+    "2. 如果需要最新资料，请使用可用的联网搜索或资料工具核实。",
+    "3. 回答要适合 QQ 聊天阅读，简洁但信息完整。",
+  ].join("\n"),
+  now: 5_540,
+});
+assert.equal(gohDelegateDispatch.allowed, true);
+assert.equal(gohDelegateDispatch.capability, "chat.send");
+assert.equal(gohDelegateDispatch.reason, "slash_authorized");
+
+const codexDispatchDenied = checkCustomDispatchAuthorization({
+  cfg: authCfg,
+  auth: dispatchAuth,
+  message: {
+    ...memberGroupMessage,
+    content: "帮我执行一下脚本",
+  },
+  rawContent: "帮我执行一下脚本",
+  now: 5_500,
+});
+assert.equal(codexDispatchDenied.allowed, false);
+assert.equal(codexDispatchDenied.capability, "codex.run");
+assert.equal(codexDispatchDenied.result?.decision.requestId, "authreq-5500-1");
+assert.equal(formatCustomDispatchAuthorizationDeniedMessage(codexDispatchDenied).includes("权限：执行 Codex 任务（codex.run）"), true);
+
+const dispatchRequest = firstCustomAuthApprovalRequest(codexDispatchDenied.result?.intents ?? []);
 if (!dispatchRequest) throw new Error("expected dispatch auth request");
 const dispatchApproved = dispatchAuth.resolveApproval({
   requestId: dispatchRequest.id,
@@ -370,9 +431,9 @@ const dispatchAllowedByGrant = checkCustomDispatchAuthorization({
   auth: dispatchAuth,
   message: {
     ...memberGroupMessage,
-    content: "/new",
+    content: "帮我执行一下脚本",
   },
-  rawContent: "/new",
+  rawContent: "帮我执行一下脚本",
   now: 5_700,
 });
 assert.equal(dispatchAllowedByGrant.allowed, true);
@@ -382,9 +443,9 @@ const dispatchSecondUse = checkCustomDispatchAuthorization({
   auth: dispatchAuth,
   message: {
     ...memberGroupMessage,
-    content: "/new",
+    content: "帮我执行一下脚本",
   },
-  rawContent: "/new",
+  rawContent: "帮我执行一下脚本",
   now: 5_800,
 });
 assert.equal(dispatchSecondUse.allowed, false);

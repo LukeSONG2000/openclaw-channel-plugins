@@ -2,6 +2,7 @@ import type { CustomFallbackDeliverPayload } from "./fallback-dispatch-state.js"
 import type { CustomDispatchFallbackRecorder } from "./fallback-record-gateway-adapter.js";
 import { isCustomModelSkipOutput } from "./fallbacks.js";
 import type { CustomToolFallbackLogger } from "./tool-fallback-gateway-adapter.js";
+import { isCustomUnreadSilentDecisionOutput } from "./unread-output.js";
 
 export interface CustomDispatchDeliverInfo {
   kind: string;
@@ -10,6 +11,7 @@ export interface CustomDispatchDeliverInfo {
 export interface CustomDispatchBlockDeliverState {
   readonly toolDeliverCount: number;
   markBlockResponse(): void;
+  markModelSkipOutput?: () => void;
 }
 
 export interface HandleCustomLateDispatchDeliverParams {
@@ -28,6 +30,7 @@ export interface PrepareCustomBlockDeliverParams {
     type: string;
     senderId?: string;
     content?: string;
+    customUnreadSnapshotId?: string;
   };
   state: CustomDispatchBlockDeliverState;
   stopTyping: () => void;
@@ -78,11 +81,14 @@ export function prepareCustomBlockDeliver(
   params: PrepareCustomBlockDeliverParams,
 ): PrepareCustomBlockDeliverResult {
   const blockReplyText = (params.payload.text ?? "").trim();
-  if (params.event.type === "group" && isCustomModelSkipOutput(blockReplyText)) {
+  const explicitModelSkip = params.event.type === "group" && isCustomModelSkipOutput(blockReplyText);
+  const unreadDecisionSkip = isCustomUnreadSilentDecisionOutput(blockReplyText, params.event);
+  if (explicitModelSkip || unreadDecisionSkip) {
+    params.state.markModelSkipOutput?.();
     params.log?.info?.(`[qqbot:${params.accountId}] Model decided to skip group message (token=${blockReplyText}) from ${params.event.senderId ?? ""}: ${params.event.content?.slice(0, 50) ?? ""}`);
     return {
       kind: "model-skip",
-      token: blockReplyText,
+      token: explicitModelSkip ? blockReplyText : "CUSTOM_UNREAD_SILENT",
     };
   }
 

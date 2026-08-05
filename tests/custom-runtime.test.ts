@@ -176,7 +176,7 @@ const unreadCfg = inspectCustomUnreadConfig({
     mentionedBot: false,
   },
 });
-assert.equal(unreadCfg.historyLimit, 20);
+assert.equal(unreadCfg.historyLimit, 12);
 assert.equal(unreadCfg.followupDelayMs, 5_000);
 assert.equal(unreadCfg.sleepDelayMs, 60_000);
 

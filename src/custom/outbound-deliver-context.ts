@@ -54,6 +54,7 @@ export function buildCustomOutboundDeliverEvent(
     channelId: event.channelId,
     groupOpenid: event.groupOpenid,
     msgIdx: event.msgIdx,
+    customUnreadSnapshotId: event._customUnreadSnapshotId,
   };
 }
 

@@ -37,6 +37,7 @@ export function cloneCustomAuthorizationRequest(request: CustomAuthorizationAppr
     peer: { ...request.peer },
     actor: { ...request.actor },
     admins: request.admins.slice(),
+    requiredCapabilities: request.requiredCapabilities ? [...request.requiredCapabilities] : undefined,
   };
 }
 

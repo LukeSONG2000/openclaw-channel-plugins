@@ -8,7 +8,10 @@ import {
   inspectCustomUnreadRuntimeState,
   resolveCustomUnreadConfig,
 } from "../src/custom/unread-runtime.js";
-import { buildDefaultCatchupPrompt } from "../src/custom/unread-catchup-prompt.js";
+import {
+  buildDefaultCatchupPrompt,
+  buildMentionReplyScopePrompt,
+} from "../src/custom/unread-catchup-prompt.js";
 import { resolveCustomUnreadConfig as resolveCustomUnreadConfigDirect } from "../src/custom/unread-config.js";
 import { inspectCustomUnreadRuntimeState as inspectCustomUnreadRuntimeStateDirect } from "../src/custom/unread-inspection.js";
 import type { CustomInboundMessage, CustomRuntimeConfig, CustomSceneConfig } from "../src/custom/types.js";
@@ -58,6 +61,11 @@ assert.equal(defaults.followupDelayMs, DEFAULT_UNREAD_FOLLOWUP_DELAY_MS);
 assert.equal(defaults.sleepDelayMs, DEFAULT_UNREAD_SLEEP_DELAY_MS);
 assert.equal(defaults.allowAutonomousReply, true);
 assert.equal(defaults.allowProactiveSend, true);
+assert.match(buildDefaultCatchupPrompt(), /dongwuyuan-skill/);
+assert.match(buildDefaultCatchupPrompt(), /不要使用“开庭”/);
+assert.match(buildDefaultCatchupPrompt("mention-followup"), /完全无关/);
+assert.match(buildDefaultCatchupPrompt("mention-followup"), /NO_REPLY/);
+assert.match(buildMentionReplyScopePrompt(), /正文只能直接回答当前 @ 消息/);
 
 const runtime = new CustomUnreadRuntime();
 const first = runtime.recordNonMention({ message: msg(), cfg, now: 2_000 });
@@ -99,11 +107,21 @@ assert.equal(mentionFollowup.length, 1);
 assert.equal(mentionFollowup[0]!.kind, "enqueue-catchup");
 assert.equal(mentionFollowup[0]!.snapshot!.entries.length, 3);
 assert.equal(mentionFollowup[0]!.snapshot!.policyGated, false);
-assert.equal(mentionFollowup[0]!.snapshot!.prompt, buildDefaultCatchupPrompt());
+assert.equal(mentionFollowup[0]!.snapshot!.prompt, buildDefaultCatchupPrompt("mention-followup"));
 
 const consume = runtime.consumeSnapshot(mentionFollowup[0]!.snapshot!.id);
 assert.equal(consume.consumed, 3);
 assert.equal(consume.remaining, 0);
+
+const restoredSnapshotRuntime = runtimeWithRestorableSnapshot();
+const restoredSnapshotState = restoredSnapshotRuntime.getState();
+const restoredSnapshotId = Object.keys(restoredSnapshotState.snapshots)[0];
+if (!restoredSnapshotId) throw new Error("expected restorable snapshot");
+const reloadedSnapshotRuntime = new CustomUnreadRuntime();
+reloadedSnapshotRuntime.loadState(restoredSnapshotState);
+const restoredConsume = reloadedSnapshotRuntime.consumeSnapshot(restoredSnapshotId);
+assert.equal(restoredConsume.consumed, 1);
+assert.equal(restoredConsume.remaining, 0);
 
 const scheduled = runtime.markOutputComplete({ peerId: "GROUP_OPENID", cfg, now: 10_000 });
 assert.equal(scheduled.length, 1);
@@ -153,8 +171,8 @@ const inspection = inspectCustomUnreadRuntimeState(gatedRuntime.getState());
 assert.deepEqual(inspection, inspectCustomUnreadRuntimeStateDirect(gatedRuntime.getState()));
 assert.equal(inspection.peerCount, 1);
 assert.equal(inspection.totalPendingCount, 1);
-assert.equal(inspection.snapshotCount, 2);
-assert.equal(inspection.policyGatedSnapshotCount, 2);
+assert.equal(inspection.snapshotCount, 0);
+assert.equal(inspection.policyGatedSnapshotCount, 0);
 assert.equal(inspection.scheduledSleepDigestCount, 0);
 assert.deepEqual(inspection.peers[0], {
   peerId: "GATED_GROUP",
@@ -164,8 +182,8 @@ assert.deepEqual(inspection.peers[0], {
   followupActive: false,
   scheduledFollowupDueAt: 620_000,
   scheduledSleepDigestDueAt: undefined,
-  snapshotCount: 2,
-  policyGatedSnapshotCount: 2,
+  snapshotCount: 0,
+  policyGatedSnapshotCount: 0,
 });
 assert.equal(JSON.stringify(inspection).includes("hello"), false);
 
@@ -206,4 +224,46 @@ assert.equal(orderedInspection.peerCount, 2);
 assert.equal(orderedInspection.peers.length, 1);
 assert.equal(orderedInspection.peers[0]?.peerId, "B_GROUP");
 
+const stuckRuntime = new CustomUnreadRuntime();
+stuckRuntime.loadState({
+  peers: {
+    GROUP_OPENID: {
+      history: [{
+        actorId: "USER_OPENID",
+        actorLabel: "Luke",
+        body: "pending before crash",
+        timestamp: 90_000,
+        messageId: "stuck-old",
+      }],
+      followupActive: true,
+    },
+  },
+  snapshots: {},
+});
+const recovered = stuckRuntime.recordNonMention({
+  message: msg({ messageId: "stuck-new", timestamp: 100_000 }),
+  cfg,
+  now: 100_000,
+});
+assert.equal(recovered.intents.length, 1);
+assert.equal(recovered.intents[0]?.kind, "schedule-followup");
+assert.equal(recovered.intents[0]?.dueAt, 160_000);
+
 console.log("unread runtime tests passed");
+
+function runtimeWithRestorableSnapshot(): CustomUnreadRuntime {
+  const candidate = new CustomUnreadRuntime();
+  const now = Date.now();
+  candidate.recordNonMention({
+    message: msg({ messageId: "restorable-1", timestamp: now - 1_000 }),
+    cfg,
+    now: now - 1_000,
+  });
+  candidate.createCatchup({
+    peerId: "GROUP_OPENID",
+    cfg,
+    source: "mention-followup",
+    now,
+  });
+  return candidate;
+}

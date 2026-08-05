@@ -53,4 +53,10 @@ noModelOutput.markBlockResponse({ modelOutput: false });
 assert.equal(noModelOutput.hasBlockResponse, true);
 assert.equal(noModelOutput.hasModelBlockOutput, false);
 
+const modelSkip = new CustomFallbackDispatchState();
+modelSkip.markModelSkipOutput();
+assert.equal(modelSkip.hasResponse, true);
+assert.equal(modelSkip.hasModelSkipOutput, true);
+assert.equal(modelSkip.hasModelBlockOutput, false);
+
 console.log("custom fallback dispatch state tests passed");

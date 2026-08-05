@@ -2,6 +2,11 @@ export interface CustomFallbackDeliverPayload {
   text?: string;
   mediaUrls?: string[];
   mediaUrl?: string;
+  isReasoning?: boolean;
+  isReasoningSnapshot?: boolean;
+  isStatusNotice?: boolean;
+  isFallbackNotice?: boolean;
+  isCompactionNotice?: boolean;
 }
 
 export interface CustomFallbackDispatchStateSnapshot {
@@ -26,6 +31,7 @@ export class CustomFallbackDispatchState {
   private responseSeen = false;
   private blockResponseSeen = false;
   private modelBlockOutputSeen = false;
+  private modelSkipOutputSeen = false;
   private timedOut = false;
   private fallbackSent = false;
   private renewalCount = 0;
@@ -44,6 +50,10 @@ export class CustomFallbackDispatchState {
 
   get hasModelBlockOutput(): boolean {
     return this.modelBlockOutputSeen;
+  }
+
+  get hasModelSkipOutput(): boolean {
+    return this.modelSkipOutputSeen;
   }
 
   get dispatchTimedOut(): boolean {
@@ -76,6 +86,11 @@ export class CustomFallbackDispatchState {
     if (options.modelOutput !== false) {
       this.modelBlockOutputSeen = true;
     }
+  }
+
+  markModelSkipOutput(): void {
+    this.responseSeen = true;
+    this.modelSkipOutputSeen = true;
   }
 
   markDispatchTimedOut(): void {

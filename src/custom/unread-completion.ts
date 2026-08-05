@@ -24,6 +24,7 @@ export function completeCustomUnreadAfterDispatch(params: {
   cfg?: ResolvedCustomUnreadConfig | null;
   snapshotId?: string;
   hasModelBlockOutput: boolean;
+  hasModelSkipOutput?: boolean;
   shouldCatchUpAfterReply: boolean;
   wasMentioned: boolean;
 }): CustomUnreadCompletionResult {
@@ -31,18 +32,30 @@ export function completeCustomUnreadAfterDispatch(params: {
   const peer: CustomPeer = { kind: "group", id: params.groupOpenid };
 
   if (params.snapshotId) {
-    if (!params.hasModelBlockOutput) {
+    if (!params.hasModelBlockOutput && !params.hasModelSkipOutput) {
       logs.push({
         level: "info",
-        message: `Group ${params.groupOpenid}: custom unread catch-up produced no model output; snapshot kept (${params.snapshotId})`,
+        message: `Group ${params.groupOpenid}: custom unread catch-up produced no model output; snapshot kept and follow-up recovered (${params.snapshotId})`,
       });
-      return { handled: true, effects: [], persist: false, logs };
+      const effects = params.cfg
+        ? effectsFromCustomUnreadIntents({
+            accountId: params.accountId,
+            peer,
+            intents: params.unread.recoverStuckFollowup({
+              peerId: params.groupOpenid,
+              cfg: params.cfg,
+            }),
+          })
+        : [];
+      return { handled: true, effects, persist: effects.length > 0, logs };
     }
 
     const consumed = params.unread.consumeSnapshot(params.snapshotId);
     logs.push({
       level: "info",
-      message: `Group ${params.groupOpenid}: custom unread catch-up completed, consumed=${consumed.consumed}, remaining=${consumed.remaining}`,
+      message: params.hasModelSkipOutput
+        ? `Group ${params.groupOpenid}: custom unread catch-up completed silently, consumed=${consumed.consumed}, remaining=${consumed.remaining}`
+        : `Group ${params.groupOpenid}: custom unread catch-up completed, consumed=${consumed.consumed}, remaining=${consumed.remaining}`,
     });
     const effects = params.cfg
       ? effectsFromCustomUnreadIntents({

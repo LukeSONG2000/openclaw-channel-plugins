@@ -195,6 +195,17 @@ assert.equal(normalizeCustomSlashPrequeueContent({
 }
 
 {
+  const t = baseParams(event({ content: "/codex new fix-login" }));
+  const result = await handleCustomSlashPrequeueGateway(t.params);
+  assert.equal(result.kind, "framework-reply");
+  assert.deepEqual(t.sentText, [{
+    kind: "group",
+    text: "Codex 群频道已关闭。Codex 现在仅作为 OpenClaw 工具调用使用。",
+  }]);
+  assert.equal(t.q.enqueued.length, 0);
+}
+
+{
   const msg = event({ content: "/delegate" });
   const t = baseParams(msg);
   const result = await handleCustomSlashPrequeueGateway({
@@ -204,6 +215,10 @@ assert.equal(normalizeCustomSlashPrequeueContent({
   assert.equal(result.kind, "framework-delegate-enqueued");
   assert.equal(msg.content, "delegated prompt");
   assert.equal(t.q.enqueued[0]?.content, "delegated prompt");
+  assert.deepEqual(t.q.enqueued[0]?._slashAuthorized, {
+    command: "/delegate",
+    capability: undefined,
+  });
 }
 
 {

@@ -77,6 +77,7 @@ const ADMIN_CAPABILITIES: Exclude<CustomCapability, "*">[] = [
   "deploy.apply",
   "proactive.send",
   "game.interact",
+  "schedule.run",
 ];
 
 export { defaultSceneCapabilities };
@@ -91,6 +92,7 @@ const ADMIN_OR_GRANT_CAPABILITIES = new Set<Exclude<CustomCapability, "*">>([
   "deploy.check",
   "deploy.apply",
   "proactive.send",
+  "schedule.run",
 ]);
 
 export function requiresCustomAdminOrGrant(capability: Exclude<CustomCapability, "*">): boolean {
@@ -171,6 +173,8 @@ export class CustomAuthorizationRuntime {
     consumeGrant?: boolean;
     requestApproval?: boolean;
     approvalTtlMs?: number;
+    requiredCapabilities?: Exclude<CustomCapability, "*">[];
+    actionSummary?: string;
   }): CustomAuthorizationCheckResult {
     const now = params.now ?? Date.now();
     const intents = this.pruneExpired(now);
@@ -212,6 +216,8 @@ export class CustomAuthorizationRuntime {
         now,
         ttlMs: params.approvalTtlMs ?? DEFAULT_CUSTOM_AUTH_APPROVAL_TTL_MS,
         taskId: params.taskId,
+        requiredCapabilities: params.requiredCapabilities,
+        actionSummary: params.actionSummary,
       });
       if (request) {
         intents.push({ kind: "request-approval", request: cloneCustomAuthorizationRequest(request.request), deduped: request.deduped });
@@ -379,6 +385,8 @@ export class CustomAuthorizationRuntime {
     now: number;
     ttlMs: number;
     taskId?: string;
+    requiredCapabilities?: Exclude<CustomCapability, "*">[];
+    actionSummary?: string;
   }): { request: CustomAuthorizationApprovalRequest; deduped: boolean } | null {
     if (params.admins.length === 0) return null;
     const pending = findMatchingPendingCustomAuthorizationRequest({
@@ -388,6 +396,8 @@ export class CustomAuthorizationRuntime {
       capability: params.capability,
       now: params.now,
       taskId: params.taskId,
+      requiredCapabilities: params.requiredCapabilities,
+      actionSummary: params.actionSummary,
     });
     if (pending) {
       return { request: pending, deduped: true };
@@ -405,6 +415,8 @@ export class CustomAuthorizationRuntime {
       now: params.now,
       ttlMs: params.ttlMs,
       taskId: params.taskId,
+      requiredCapabilities: params.requiredCapabilities,
+      actionSummary: params.actionSummary,
     });
     this.requests.set(request.id, request);
     return { request: cloneCustomAuthorizationRequest(request), deduped: false };

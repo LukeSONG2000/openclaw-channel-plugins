@@ -16,6 +16,7 @@ import { runCustomMessageDispatchGateway } from "./message-dispatch-gateway-adap
 import { runCustomMessageIngressGateway } from "./message-ingress-gateway-adapter.js";
 import type { CustomRuntimeServicesGatewayResult } from "./runtime-services-gateway-adapter.js";
 import type { CustomUnreadScheduler } from "./unread-scheduler.js";
+import { handleCustomScheduledTaskNaturalLanguage } from "./scheduled-task-gateway-adapter.js";
 
 export interface CustomMessageHandlerGatewayLogger {
   info?: (msg: string) => void;
@@ -34,6 +35,7 @@ export interface CreateCustomMessageHandlerGatewayParams {
   getUnreadScheduler: () => CustomUnreadScheduler | null;
   persistAuthState: () => void;
   persistCustomUnreadState: () => void;
+  persistScheduledTaskState: () => void;
   buildProactiveGuard: Parameters<typeof runCustomMessageDispatchGateway>[0]["buildProactiveGuard"];
   sendMedia: Parameters<typeof runCustomMessageDispatchGateway>[0]["sendMedia"];
   createDebouncer: Parameters<typeof runCustomMessageDispatchGateway>[0]["createDebouncer"];
@@ -95,6 +97,25 @@ export function createCustomMessageHandlerGateway(
     if (routeWindow.rotated) {
       log?.info?.(`[qqbot:${account.accountId}] Session context window rotated for ${peerId}: generation=${routeWindow.generation} reason=${routeWindow.reason}`);
     }
+
+    const scheduledTaskContent = normalizeSessionWindowCommandContent(event, params.stripMentionText);
+    const scheduledTask = await handleCustomScheduledTaskNaturalLanguage({
+      cfg: cfg as any,
+      account,
+      auth: params.runtime.auth,
+      scheduledTasks: params.runtime.scheduledTasks,
+      message: event,
+      content: scheduledTaskContent,
+      persistAuthState: params.persistAuthState,
+      persistScheduledTaskState: params.persistScheduledTaskState,
+      notifyAdminGroup: params.adminGroupNotifications.sendAuthAdminGroupNotification,
+      log,
+    });
+    if (scheduledTask.handled) {
+      typing.stop();
+      return;
+    }
+
     const route = routeWindow.route;
     const windowedIngress = {
       ...ingress,

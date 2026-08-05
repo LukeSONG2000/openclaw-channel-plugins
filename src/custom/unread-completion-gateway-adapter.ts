@@ -18,6 +18,7 @@ export interface ApplyCustomUnreadCompletionGatewayParams {
   cfg?: ResolvedCustomUnreadConfig | null;
   snapshotId?: string;
   hasModelBlockOutput: boolean;
+  hasModelSkipOutput?: boolean;
   shouldCatchUpAfterReply: boolean;
   wasMentioned: boolean;
   groupHistories: Map<string, HistoryEntry[]>;
@@ -57,6 +58,7 @@ export function applyCustomUnreadCompletionGateway(
     cfg: params.cfg,
     snapshotId: params.snapshotId,
     hasModelBlockOutput: params.hasModelBlockOutput,
+    hasModelSkipOutput: params.hasModelSkipOutput,
     shouldCatchUpAfterReply: params.shouldCatchUpAfterReply,
     wasMentioned: params.wasMentioned,
   });

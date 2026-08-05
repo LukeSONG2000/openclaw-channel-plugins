@@ -81,6 +81,7 @@ assert.equal(logs.some((line) => line.includes("Block deliver after 2 tool deliv
 
 let skipBlockMarked = false;
 let skipTypingStopped = false;
+let modelSkipMarked = false;
 const skipped = prepareCustomBlockDeliver({
   accountId: "default",
   payload: { text: "NO_REPLY" },
@@ -88,6 +89,7 @@ const skipped = prepareCustomBlockDeliver({
   state: {
     toolDeliverCount: 0,
     markBlockResponse: () => { skipBlockMarked = true; },
+    markModelSkipOutput: () => { modelSkipMarked = true; },
   },
   stopTyping: () => { skipTypingStopped = true; },
   clearResponseTimeout: () => {
@@ -102,6 +104,33 @@ assert.equal(skipped.kind, "model-skip");
 assert.equal(skipped.token, "NO_REPLY");
 assert.equal(skipBlockMarked, false);
 assert.equal(skipTypingStopped, false);
+assert.equal(modelSkipMarked, true);
+
+let narrationSkipMarked = false;
+const narrationSkipped = prepareCustomBlockDeliver({
+  accountId: "default",
+  payload: { text: "Vinty发照片那段我刚才已经回了，没啥新话题就先不重复了" },
+  event: {
+    type: "group",
+    senderId: "__qqbot_digest__",
+    content: "unread catch-up",
+    customUnreadSnapshotId: "snapshot-1",
+  },
+  state: {
+    toolDeliverCount: 0,
+    markBlockResponse: () => {
+      throw new Error("silent narration should not be marked as visible output");
+    },
+    markModelSkipOutput: () => { narrationSkipMarked = true; },
+  },
+  stopTyping: () => {},
+  clearResponseTimeout: () => {},
+  clearToolOnlyTimeout: () => {},
+  log,
+});
+assert.equal(narrationSkipped.kind, "model-skip");
+assert.equal(narrationSkipped.token, "CUSTOM_UNREAD_SILENT");
+assert.equal(narrationSkipMarked, true);
 
 const c2cSkipToken = prepareCustomBlockDeliver({
   accountId: "default",

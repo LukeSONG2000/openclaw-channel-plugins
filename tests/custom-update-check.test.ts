@@ -14,7 +14,7 @@ import {
 import type { UpdateInfo } from "../src/update-checker.js";
 
 const updateInfo: UpdateInfo = {
-  packageName: "@lukesong/openclaw-qqbot",
+  packageName: "@lukesong/luke-qqbot",
   current: "1.7.2-luke.1",
   latest: "1.7.2-luke.2",
   stable: "1.7.2-luke.2",
@@ -25,7 +25,7 @@ const updateInfo: UpdateInfo = {
 
 assert.deepEqual(resolveCustomUpdateCheckConfig({} as any), {
   enabled: true,
-  packageName: "@lukesong/openclaw-qqbot",
+  packageName: "@lukesong/luke-qqbot",
   intervalMs: DEFAULT_CUSTOM_UPDATE_CHECK_INTERVAL_MS,
 });
 
@@ -127,7 +127,7 @@ const failed = await runCustomUpdateCheck({
   now: () => 13_000,
 });
 assert.equal(failed.status, "error");
-assert.equal(failed.packageName, "@lukesong/openclaw-qqbot");
+assert.equal(failed.packageName, "@lukesong/luke-qqbot");
 assert.equal(failed.checkedAt, 13_000);
 assert.match(failed.error ?? "", /registry offline/);
 

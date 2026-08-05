@@ -157,7 +157,9 @@ function baseParams(overrides: Record<string, unknown> = {}) {
   assert.equal(mentioned.customUnreadHistoryForEvent?.[0]?.body, "hello");
   assert.equal(mentioned.senderLabel, "Member (MEMBER_OPENID)");
   assert.equal(mentioned.groupSubject, "Master Luke的图书馆");
-  assert.equal(mentioned.groupSystemPrompt, "群介绍\n群行为提示");
+  assert.equal(mentioned.groupSystemPrompt.startsWith("群介绍\n群行为提示\n"), true);
+  assert.equal(mentioned.groupSystemPrompt.includes("正文只能直接回答当前 @ 消息"), true);
+  assert.equal(mentioned.groupSystemPrompt.includes("不要在同一条正文中追加回应历史"), true);
   assert.equal(setup.scheduledEffects, 2);
   assert.equal(setup.persistCount, 2);
   assert.equal(setup.logs.some((line) => line.includes("mention with 1 custom unread message(s)")), true);

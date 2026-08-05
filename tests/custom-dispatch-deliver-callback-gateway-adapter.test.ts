@@ -1,5 +1,9 @@
 import assert from "node:assert";
 import { handleCustomDispatchDeliverCallbackGateway } from "../src/custom/dispatch-deliver-callback-gateway-adapter.js";
+import {
+  captureCustomAgentFinalOutput,
+  resetCustomAgentOutputBoundaryForTests,
+} from "../src/custom/agent-output-boundary.js";
 
 function makeState(overrides: Record<string, unknown> = {}) {
   return {
@@ -59,6 +63,7 @@ const baseParams = {
     type: "group",
     senderId: "MEMBER_OPENID",
     content: "hello",
+    messageId: "MSG",
     msgIdx: "QUOTE_REF",
   },
   payload: { text: "reply" },
@@ -86,6 +91,57 @@ const baseParams = {
   handleStructuredPayload: (async () => false) as any,
   sendPlainReply: (async () => {}) as any,
 };
+
+{
+  const state = makeState();
+  const session = makeSession(state);
+  let prepareCalled = 0;
+  const result = await handleCustomDispatchDeliverCallbackGateway({
+    ...baseParams,
+    payload: { text: "private reasoning", isReasoning: true },
+    info: { kind: "block" },
+    fallbackSession: session,
+    prepareBlockDeliver: () => {
+      prepareCalled += 1;
+      return { kind: "ready", toolDeliverCount: 0 };
+    },
+  });
+
+  assert.equal(result.kind, "reasoning-skipped");
+  assert.equal(prepareCalled, 0);
+  assert.equal(state.markResponseCalls, 0);
+}
+
+{
+  resetCustomAgentOutputBoundaryForTests();
+  captureCustomAgentFinalOutput({
+    runId: "MSG",
+    assistantTexts: ["模型的内部判断\n\nNO_REPLY"],
+  });
+  const state = makeState({
+    markModelSkipOutputCalls: 0,
+    markModelSkipOutput() {
+      this.markModelSkipOutputCalls += 1;
+    },
+  });
+  const session = makeSession(state);
+  let staticCalled = 0;
+  const result = await handleCustomDispatchDeliverCallbackGateway({
+    ...baseParams,
+    payload: { text: "模型的内部判断" },
+    info: { kind: "final" },
+    fallbackSession: session,
+    applyStaticDeliver: async () => {
+      staticCalled += 1;
+      return { kind: "plain" };
+    },
+  });
+
+  assert.equal(result.kind, "model-skip");
+  assert.equal(result.kind === "model-skip" && result.token, "NO_REPLY");
+  assert.equal(state.markModelSkipOutputCalls, 1);
+  assert.equal(staticCalled, 0);
+}
 
 {
   const state = makeState({ dispatchTimedOut: true });

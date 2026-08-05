@@ -31,6 +31,7 @@ const CAPABILITY_LABELS: Record<ConcreteCapability, string> = {
   "deploy.apply": "执行部署/升级",
   "proactive.send": "主动发消息",
   "game.interact": "创建或管理互动",
+  "schedule.run": "创建/执行定时任务",
 };
 
 const TASK_STATUS_LABELS: Record<CustomTaskStatus, string> = {

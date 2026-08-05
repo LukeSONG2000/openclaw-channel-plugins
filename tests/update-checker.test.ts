@@ -9,12 +9,12 @@ assert.equal(normalizeNpmPackageName("lukesong/openclaw-qqbot"), "@lukesong/open
 assert.equal(normalizeNpmPackageName("@lukesong/openclaw-qqbot"), "@lukesong/openclaw-qqbot");
 assert.equal(normalizeNpmPackageName("   "), null);
 
-assert.equal(resolveConfiguredUpgradePackage(null), "@lukesong/openclaw-qqbot");
+assert.equal(resolveConfiguredUpgradePackage(null), "@lukesong/luke-qqbot");
 assert.equal(
   resolveConfiguredUpgradePackage({ upgradePkg: "custom/openclaw-qqbot" } as any),
   "@custom/openclaw-qqbot",
 );
 
-assert.equal(getUpdatePackageName(), "@lukesong/openclaw-qqbot");
+assert.equal(getUpdatePackageName(), "@lukesong/luke-qqbot");
 
 console.log("update checker tests passed");

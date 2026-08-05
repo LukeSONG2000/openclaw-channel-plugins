@@ -55,7 +55,7 @@ unread.createCatchup({
   peerId: "GROUP_OPENID",
   cfg,
   source: "manual",
-  now: 4_000,
+  now: Date.now(),
 });
 
 const status = handleCustomUnreadStatusCommand({

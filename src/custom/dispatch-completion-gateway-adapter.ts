@@ -21,6 +21,7 @@ import type {
 
 export interface CustomDispatchCompletionState extends CustomDispatchFailureState, CustomToolOnlyCompletionFallbackState {
   readonly hasModelBlockOutput: boolean;
+  readonly hasModelSkipOutput?: boolean;
 }
 
 export interface CustomDispatchCompletionFallbackSession {
@@ -35,6 +36,7 @@ export interface CustomDispatchCompletionFallbackSession {
 
 export interface CustomDispatchCompletionSummary {
   hasModelBlockOutput: boolean;
+  hasModelSkipOutput?: boolean;
 }
 
 export interface RunCustomDispatchCompletionGatewayParams {
@@ -95,9 +97,13 @@ export async function runCustomDispatchCompletionGateway(
     });
 
     if (params.onAfterFinalize) {
-      await params.onAfterFinalize({
+      const completionSummary: CustomDispatchCompletionSummary = {
         hasModelBlockOutput: fallbackSession.state.hasModelBlockOutput,
-      });
+      };
+      if (fallbackSession.state.hasModelSkipOutput === true) {
+        completionSummary.hasModelSkipOutput = true;
+      }
+      await params.onAfterFinalize(completionSummary);
       result.afterFinalizeCalled = true;
     }
   }

@@ -157,4 +157,43 @@ assert.deepEqual([...restoredScheduled.values()].map((item) => item.delayMs).sor
 restoredScheduler.dispose();
 assert.equal(restoredScheduled.size, 0);
 
+const stuckRuntime = new CustomUnreadRuntime();
+stuckRuntime.loadState({
+  peers: {
+    GROUP_OPENID: {
+      history: [{
+        actorId: "MEMBER_OPENID",
+        actorLabel: "Member",
+        body: "pending",
+        timestamp: 10_000,
+        messageId: "stuck-1",
+      }],
+      followupActive: true,
+    },
+  },
+  snapshots: {},
+});
+const stuckScheduled = new Map<number, { callback: () => void; delayMs: number }>();
+const stuckScheduler = new CustomUnreadScheduler({
+  accountId: "default",
+  unread: stuckRuntime,
+  enqueue: () => undefined,
+  persist: () => undefined,
+  resolveConfigForPeer: () => cfg,
+  now: () => 20_000,
+  setTimer: (callback, delayMs) => {
+    const id = ++nextTimerId;
+    stuckScheduled.set(id, { callback, delayMs });
+    return id;
+  },
+  clearTimer: (timer) => {
+    stuckScheduled.delete(timer as number);
+  },
+});
+stuckScheduler.restore(stuckRuntime.getState());
+assert.equal(stuckScheduler.timerCount("followup"), 1);
+assert.equal([...stuckScheduled.values()][0]?.delayMs, 60_000);
+assert.equal(stuckRuntime.getState().peers.GROUP_OPENID?.scheduledFollowupDueAt, 80_000);
+stuckScheduler.dispose();
+
 console.log("custom unread scheduler tests passed");

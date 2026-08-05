@@ -46,7 +46,7 @@ const devScene: CustomSceneConfig = {
   capabilities: ["chat.send", "codex.run"],
 };
 
-assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send"]);
+assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send", "web.search"]);
 assert.equal(resolveCustomAdminGroupKey(runtimeCfg.adminGroup), "qqbot:group:ADMIN_GROUP_OPENID");
 assert.equal(resolveCustomAdminGroupKey(runtimeCfg.adminGroup), resolveCustomAdminGroupKeyDirect(runtimeCfg.adminGroup));
 assert.deepEqual(inspectCustomAdminBindings(runtimeCfg), {

@@ -3,7 +3,10 @@ import type {
   CustomInboundMessage,
 } from "./types.js";
 import { buildDefaultCatchupPrompt } from "./unread-catchup-prompt.js";
-import type { ResolvedCustomUnreadConfig } from "./unread-config.js";
+import {
+  DEFAULT_UNREAD_POLL_INTERVALS_MS,
+  type ResolvedCustomUnreadConfig,
+} from "./unread-config.js";
 
 export {
   DEFAULT_UNREAD_FOLLOWUP_DELAY_MS,
@@ -19,6 +22,9 @@ export {
 } from "./unread-inspection.js";
 
 export const CUSTOM_UNREAD_ACTOR_ID = "__qqbot_digest__";
+export const CUSTOM_UNREAD_RECOVERY_DELAY_MS = 60_000;
+const CUSTOM_UNREAD_SNAPSHOT_TTL_MS = 2 * 60 * 60_000;
+const CUSTOM_UNREAD_MAX_SNAPSHOTS = 50;
 
 export type CustomUnreadIntentKind =
   | "schedule-followup"
@@ -122,6 +128,7 @@ export class CustomUnreadRuntime {
     trimHistory(peer.history, params.cfg.historyLimit);
 
     const intents: CustomUnreadIntent[] = [];
+    intents.push(...this.recoverStuckFollowup({ peerId: params.message.peer.id, cfg: params.cfg, now }));
     if (!peer.followupActive && !peer.scheduledFollowupDueAt && !peer.scheduledSleepDigestDueAt) {
       const dueAt = now + currentPollIntervalMs(peer, params.cfg);
       peer.scheduledFollowupDueAt = dueAt;
@@ -267,9 +274,8 @@ export class CustomUnreadRuntime {
       entries: peer.history.slice(),
       createdAt: now,
       policyGated: !params.cfg.allowAutonomousReply || !params.cfg.allowProactiveSend,
-      prompt: buildDefaultCatchupPrompt(),
+      prompt: buildDefaultCatchupPrompt(params.source),
     };
-    this.snapshots.set(snapshot.id, snapshot);
 
     const enqueueIntent: CustomUnreadIntent = {
       kind: "enqueue-catchup",
@@ -277,7 +283,11 @@ export class CustomUnreadRuntime {
       source: params.source,
       snapshot,
     };
-    if (!snapshot.policyGated) return [enqueueIntent];
+    if (!snapshot.policyGated) {
+      this.snapshots.set(snapshot.id, snapshot);
+      this.pruneSnapshots(now);
+      return [enqueueIntent];
+    }
     return [
       {
         kind: "policy-gated",
@@ -287,6 +297,25 @@ export class CustomUnreadRuntime {
         snapshot,
       },
     ];
+  }
+
+  recoverStuckFollowup(params: {
+    peerId: string;
+    cfg: ResolvedCustomUnreadConfig;
+    now?: number;
+  }): CustomUnreadIntent[] {
+    if (!params.cfg.enabled) return [];
+    const peer = this.getPeer(params.peerId);
+    if (!peer.followupActive || peer.scheduledFollowupDueAt || peer.scheduledSleepDigestDueAt) return [];
+    const now = params.now ?? Date.now();
+    peer.scheduledFollowupDueAt = now + CUSTOM_UNREAD_RECOVERY_DELAY_MS;
+    return [{
+      kind: "schedule-followup",
+      peerId: params.peerId,
+      dueAt: peer.scheduledFollowupDueAt,
+      source: "followup",
+      reason: "recover stuck follow-up without a live timer",
+    }];
   }
 
   consumeSnapshot(snapshotId: string): {
@@ -299,8 +328,8 @@ export class CustomUnreadRuntime {
     if (!snapshot) return { consumed: 0, remaining: 0 };
     this.snapshots.delete(snapshotId);
     const peer = this.getPeer(snapshot.peerId);
-    const consumed = new Set(snapshot.entries);
-    peer.history = peer.history.filter((entry) => !consumed.has(entry));
+    const consumedMessageIds = new Set(snapshot.entries.map((entry) => entry.messageId));
+    peer.history = peer.history.filter((entry) => !consumedMessageIds.has(entry.messageId));
     return { consumed: snapshot.entries.length, remaining: peer.history.length, peerId: snapshot.peerId, source: snapshot.source };
   }
 
@@ -309,6 +338,7 @@ export class CustomUnreadRuntime {
   }
 
   getState(): CustomUnreadRuntimeState {
+    this.pruneSnapshots(Date.now());
     const peers: CustomUnreadRuntimeState["peers"] = {};
     for (const [peerId, peer] of this.peers) {
       peers[peerId] = {
@@ -332,6 +362,7 @@ export class CustomUnreadRuntime {
 
   loadState(state: CustomUnreadRuntimeState): void {
     this.clear();
+    const now = Date.now();
     for (const [peerId, peer] of Object.entries(state.peers ?? {})) {
       this.peers.set(peerId, {
         history: (peer.history ?? []).map(cloneHistoryEntry),
@@ -343,11 +374,13 @@ export class CustomUnreadRuntime {
       });
     }
     for (const [id, snapshot] of Object.entries(state.snapshots ?? {})) {
+      if (isSnapshotExpired(snapshot, now)) continue;
       this.snapshots.set(id, {
         ...snapshot,
         entries: (snapshot.entries ?? []).map(cloneHistoryEntry),
       });
     }
+    this.pruneSnapshots(now);
   }
 
   clear(peerId?: string): void {
@@ -376,6 +409,22 @@ export class CustomUnreadRuntime {
     peer.scheduledFollowupDueAt = undefined;
     peer.scheduledSleepDigestDueAt = undefined;
   }
+
+  private pruneSnapshots(now: number): void {
+    for (const [id, snapshot] of this.snapshots) {
+      if (isSnapshotExpired(snapshot, now)) this.snapshots.delete(id);
+    }
+    const extra = this.snapshots.size - CUSTOM_UNREAD_MAX_SNAPSHOTS;
+    if (extra <= 0) return;
+    const oldest = Array.from(this.snapshots.entries())
+      .sort((a, b) => a[1].createdAt - b[1].createdAt)
+      .slice(0, extra);
+    for (const [id] of oldest) this.snapshots.delete(id);
+  }
+}
+
+function isSnapshotExpired(snapshot: Pick<CustomUnreadCatchupSnapshot, "createdAt">, now: number): boolean {
+  return snapshot.createdAt + CUSTOM_UNREAD_SNAPSHOT_TTL_MS <= now;
 }
 
 function toHistoryEntry(message: CustomInboundMessage): CustomUnreadHistoryEntry {
@@ -402,13 +451,14 @@ function trimHistory(history: CustomUnreadHistoryEntry[], limit: number): void {
 }
 
 function currentPollIntervalMs(peer: PeerState, cfg: ResolvedCustomUnreadConfig): number {
-  const intervals = cfg.pollIntervalsMs.length ? cfg.pollIntervalsMs : [60_000];
+  const intervals = resolvePollIntervals(cfg);
   return intervals[sanitizePollLevel(peer.pollLevelIndex, intervals.length)] ?? intervals[0]!;
 }
 
 function increasePollInterval(peer: PeerState, cfg: ResolvedCustomUnreadConfig): void {
-  const max = Math.max(0, cfg.pollIntervalsMs.length - 1);
-  peer.pollLevelIndex = Math.min(max, sanitizePollLevel(peer.pollLevelIndex, cfg.pollIntervalsMs.length) + 1);
+  const intervals = resolvePollIntervals(cfg);
+  const max = Math.max(0, intervals.length - 1);
+  peer.pollLevelIndex = Math.min(max, sanitizePollLevel(peer.pollLevelIndex, intervals.length) + 1);
 }
 
 function decreasePollInterval(peer: PeerState): void {
@@ -420,4 +470,10 @@ function sanitizePollLevel(value: unknown, length = 6): number {
   const n = Number(value);
   if (!Number.isFinite(n) || n < 0) return fallback;
   return Math.min(Math.max(0, Math.floor(n)), Math.max(0, length - 1));
+}
+
+function resolvePollIntervals(cfg: ResolvedCustomUnreadConfig): readonly number[] {
+  return Array.isArray(cfg.pollIntervalsMs) && cfg.pollIntervalsMs.length > 0
+    ? cfg.pollIntervalsMs
+    : DEFAULT_UNREAD_POLL_INTERVALS_MS;
 }

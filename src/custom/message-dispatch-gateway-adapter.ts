@@ -167,7 +167,7 @@ export async function runCustomMessageDispatchGateway(
       resolveEffectiveMessagesConfig: params.resolveEffectiveMessagesConfig,
       dispatchReply: params.dispatchReply,
       log: params.log,
-      onAfterFinalize: ({ hasModelBlockOutput }) => {
+      onAfterFinalize: ({ hasModelBlockOutput, hasModelSkipOutput }) => {
         (params.completeUnreadGateway ?? applyCustomUnreadCompletionGateway)({
           accountId: params.account.accountId,
           unread: params.runtime.unread,
@@ -175,6 +175,7 @@ export async function runCustomMessageDispatchGateway(
           cfg: params.customUnreadCfgForEvent,
           snapshotId: params.event._customUnreadSnapshotId,
           hasModelBlockOutput,
+          hasModelSkipOutput,
           shouldCatchUpAfterReply: params.shouldCatchUpUnreadAfterReply,
           wasMentioned: params.wasMentioned,
           groupHistories: params.groupHistories,
@@ -196,8 +197,8 @@ function applyCustomAuthorizationContextToPayload(
 ): void {
   if (!decision.enabled || !decision.allowed || !payload || typeof payload !== "object" || Array.isArray(payload)) return;
   const record = payload as Record<string, unknown>;
-  const source = decision.result?.decision.source;
-  const privileged = source === "admin" || source === "temporary-grant";
+  const source = decision.result?.decision.source ?? decision.reason;
+  const privileged = source === "admin" || source === "temporary-grant" || (decision.reason === "slash_authorized" && decision.capability === "schedule.run");
   record.CommandAuthorized = privileged;
 
   const prompt = buildCustomAuthorizationContextPrompt(decision, privileged);
@@ -210,12 +211,19 @@ function buildCustomAuthorizationContextPrompt(
   privileged: boolean,
 ): string {
   const capability = decision.capability ?? "chat.send";
-  const source = decision.result?.decision.source ?? "unknown";
+  const source = decision.result?.decision.source ?? decision.reason ?? "unknown";
   if (capability === "web.search") {
     return [
       "QQBot 自定义权限状态：当前消息按低风险联网搜索放行。",
       `本次授权能力：${capability}；来源：${source}。`,
       "可以使用联网搜索/网页提取类工具回答当前问题，但不要运行命令、读写文件、读取配置/日志/环境/密钥、改配置、部署/升级/重启或写入记忆/规则。",
+    ].join("\n");
+  }
+  if (capability === "schedule.run") {
+    return [
+      "QQBot 自定义权限状态：当前消息来自已授权的内部定时任务。",
+      `本次授权能力：${capability}；来源：${source}。`,
+      "只能执行定时任务中已经授权的动作，不要扩大到其他无关配置、部署、文件或记忆操作。",
     ].join("\n");
   }
   if (privileged) {

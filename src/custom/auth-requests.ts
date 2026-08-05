@@ -15,6 +15,8 @@ export interface CustomAuthorizationPendingRequestLookup {
   capability: Exclude<CustomCapability, "*">;
   now: number;
   taskId?: string;
+  requiredCapabilities?: Exclude<CustomCapability, "*">[];
+  actionSummary?: string;
 }
 
 export interface CustomAuthorizationApprovalRequestBuildParams {
@@ -29,6 +31,8 @@ export interface CustomAuthorizationApprovalRequestBuildParams {
   now: number;
   ttlMs: number;
   taskId?: string;
+  requiredCapabilities?: Exclude<CustomCapability, "*">[];
+  actionSummary?: string;
 }
 
 export function findMatchingPendingCustomAuthorizationRequest(
@@ -65,6 +69,8 @@ export function buildCustomAuthorizationApprovalRequest(
     admins: params.admins.slice(),
     adminGroup: params.adminGroup,
     taskId: params.taskId,
+    requiredCapabilities: params.requiredCapabilities?.length ? Array.from(new Set(params.requiredCapabilities)) : undefined,
+    actionSummary: params.actionSummary,
     status: "pending",
   };
 }

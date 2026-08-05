@@ -66,12 +66,27 @@ assert.equal(consumed.effects.length, 1);
 assert.equal(consumed.effects[0]?.kind, "set-timer");
 assert.equal(Object.keys(snapshotRuntime.getState().snapshots).length, 0);
 
-const keptRuntime = runtimeWithHistory();
-const keptSnapshot = keptRuntime.createCatchup({
+const keptRuntime = new CustomUnreadRuntime();
+const keptNow = Date.now();
+keptRuntime.markOutputComplete({ peerId: "GROUP_OPENID", cfg, now: keptNow - 60_000 });
+keptRuntime.recordNonMention({
+  message: toCustomInboundGroupMessage({
+    accountId: "default",
+    groupOpenid: "GROUP_OPENID",
+    senderId: "MEMBER_OPENID",
+    senderName: "Member",
+    content: "hello",
+    messageId: "msg-kept",
+    timestamp: 2_000,
+    mentionedBot: false,
+  }),
+  cfg,
+  now: keptNow - 30_000,
+});
+const keptSnapshot = keptRuntime.fireScheduledFollowup({
   peerId: "GROUP_OPENID",
   cfg,
-  source: "sleep-timer",
-  now: 3_000,
+  now: keptNow,
 })[0]?.snapshot?.id;
 if (!keptSnapshot) throw new Error("expected kept snapshot");
 const kept = completeCustomUnreadAfterDispatch({
@@ -85,9 +100,38 @@ const kept = completeCustomUnreadAfterDispatch({
   wasMentioned: false,
 });
 assert.equal(kept.handled, true);
-assert.equal(kept.persist, false);
-assert.equal(kept.effects.length, 0);
+assert.equal(kept.persist, true);
+assert.equal(kept.effects.length, 1);
+assert.equal(kept.effects[0]?.kind, "set-timer");
 assert.equal(Object.keys(keptRuntime.getState().snapshots).length, 1);
+assert.equal(keptRuntime.getPendingCount("GROUP_OPENID"), 1);
+
+const skippedRuntime = runtimeWithHistory();
+const skippedNow = Date.now();
+const skippedSnapshotId = skippedRuntime.createCatchup({
+  peerId: "GROUP_OPENID",
+  cfg,
+  source: "mention-followup",
+  now: skippedNow,
+})[0]?.snapshot?.id;
+if (!skippedSnapshotId) throw new Error("expected skipped snapshot");
+const skipped = completeCustomUnreadAfterDispatch({
+  accountId: "default",
+  unread: skippedRuntime,
+  groupOpenid: "GROUP_OPENID",
+  cfg,
+  snapshotId: skippedSnapshotId,
+  hasModelBlockOutput: false,
+  hasModelSkipOutput: true,
+  shouldCatchUpAfterReply: false,
+  wasMentioned: false,
+});
+assert.equal(skipped.handled, true);
+assert.equal(skipped.persist, true);
+assert.equal(skipped.logs[0]?.message.includes("completed silently"), true);
+assert.equal(skipped.effects[0]?.kind, "set-timer");
+assert.equal(Object.keys(skippedRuntime.getState().snapshots).length, 0);
+assert.equal(skippedRuntime.getPendingCount("GROUP_OPENID"), 0);
 
 const mentionRuntime = runtimeWithHistory();
 const mentionCatchup = completeCustomUnreadAfterDispatch({

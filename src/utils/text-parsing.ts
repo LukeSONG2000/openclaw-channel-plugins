@@ -34,11 +34,49 @@ export function filterInternalMarkers(text: string): string {
   if (!text) return text;
   
   let result = text.replace(/\[\[[a-z_]+:\s*[^\]]*\]\]/gi, "");
+  // OpenClaw may prepend model fallback diagnostics; chat users only need the answer.
+  result = result.replace(/^↪️\s*Model Fallback:[\s\S]*?(?:\n\s*---\s*\n+|\n{2,})(?=\S)/, "");
   // 过滤框架内部图片引用标记：@image:image_xxx.png、@voice:voice_xxx.silk 等
   result = result.replace(/@(?:image|voice|video|file):[a-zA-Z0-9_.-]+/g, "");
+  result = filterChatMetaNarration(result);
   result = result.replace(/\n{3,}/g, "\n\n").trim();
   
   return result;
+}
+
+/**
+ * Remove occasional model narration about how it plans to answer a chat.
+ * This is deliberately limited to unmistakable meta phrases and short
+ * "term = explanation" notes so ordinary conversational prose is preserved.
+ */
+export function filterChatMetaNarration(text: string): string {
+  if (!text) return text;
+
+  let result = text.trim();
+  const original = result;
+  result = result.replace(
+    /^(?:我(?:来|先|就)?接(?:一)?句(?:话)?|(?:这句话|这话)(?:是说|的意思是|意思是|说的是|是在说))\s*[：:,，。-]*\s*/,
+    "",
+  );
+  if (/^我(?:就)?不接(?:这个|这茬|这话题|这个话题)?\s*[。.!！]?\s*$/.test(result)) {
+    return "";
+  }
+
+  const sentences = result.match(/[^。！？!?\n]+[。！？!?]?/g)?.map((part) => part.trim()).filter(Boolean) ?? [];
+  const metaPattern = /^(?:上一个|当前|这个)(?:话题|消息)(?:就是|是|说的是)|^(?:我(?:来|先|就)?接(?:一)?句(?:话)?|接(?:一)?句(?:就行|即可)|我(?:就)?不接(?:这个|这茬|这话题|这个话题)?|(?:简单)?总结一下)/;
+  let lastMetaIndex = -1;
+  for (let index = 0; index < sentences.length; index += 1) {
+    if (metaPattern.test(sentences[index]!)) lastMetaIndex = index;
+  }
+  if (lastMetaIndex < 0) return result === original ? text : result;
+
+  const selected = lastMetaIndex >= 0 && lastMetaIndex < sentences.length - 1
+    ? sentences.slice(lastMetaIndex + 1)
+    : sentences.filter((sentence) => !metaPattern.test(sentence));
+  return selected
+    .filter((sentence) => !/^[^=＝\n]{1,24}[=＝][^=＝\n]+[。.!！]?$/.test(sentence))
+    .join("")
+    .trim();
 }
 
 /** 从 ext 和 msg_elements 中解析引用索引，仅 MSG_TYPE_QUOTE 时取 msg_elements */

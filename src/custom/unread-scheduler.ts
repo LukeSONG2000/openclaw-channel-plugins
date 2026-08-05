@@ -88,12 +88,15 @@ export class CustomUnreadScheduler {
           source: "sleep-timer",
         });
       }
-      if (intents.length === 0) continue;
       const cfg = this.options.resolveConfigForPeer(peerId);
       if (!cfg) {
         this.options.log?.debug?.(`Custom unread restore skipped for ${peerId}: no config`);
         continue;
       }
+      if (intents.length === 0 && peerState.followupActive) {
+        intents.push(...this.options.unread.recoverStuckFollowup({ peerId, cfg, now: this.now() }));
+      }
+      if (intents.length === 0) continue;
       this.options.log?.info?.(`Custom unread restore scheduling ${intents.length} timer(s) for ${peerId}`);
       this.apply(
         effectsFromCustomUnreadIntents({

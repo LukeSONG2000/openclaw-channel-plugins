@@ -46,6 +46,7 @@ export interface CreateCustomConnectionHandlersGatewayParams {
   persistGameState: () => void;
   persistDeployConfirmationState: () => void;
   persistUnreadState: () => void;
+  persistScheduledTaskState: () => void;
   sendTaskStatusText: CustomTaskNotificationSendText;
   buildProactiveGuard: CreateCustomMessageHandlerGatewayParams["buildProactiveGuard"];
   sendMedia: CreateCustomMessageHandlerGatewayParams["sendMedia"];
@@ -96,6 +97,7 @@ export function createCustomConnectionHandlersGateway(
     persistTaskState: params.persistTaskState,
     persistPollState: params.persistPollState,
     persistUnreadState: params.persistUnreadState,
+    persistScheduledTaskState: params.persistScheduledTaskState,
     sendTaskStatusText: params.sendTaskStatusText,
     sendPollResultText: params.sendTaskStatusText as any,
     log: params.log,
@@ -115,6 +117,7 @@ export function createCustomConnectionHandlersGateway(
     getUnreadScheduler: () => unreadScheduler,
     persistAuthState: params.persistAuthState,
     persistCustomUnreadState: params.persistUnreadState,
+    persistScheduledTaskState: params.persistScheduledTaskState,
     buildProactiveGuard: params.buildProactiveGuard,
     sendMedia: params.sendMedia,
     createDebouncer: params.createDebouncer,

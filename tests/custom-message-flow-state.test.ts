@@ -53,7 +53,7 @@ try {
   const budgetState: CustomProactiveBudgetRuntimeState = {
     entries: {
       "default:group:GROUP_OPENID": {
-        period: "2026-06",
+        period: new Date().toISOString().slice(0, 7),
         count: 1,
         recent: [1_000],
         updatedAt: 1_000,

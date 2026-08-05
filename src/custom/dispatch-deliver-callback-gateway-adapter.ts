@@ -24,6 +24,11 @@ import type { CustomDispatchFallbackRecorder } from "./fallback-record-gateway-a
 import { handleCustomToolDeliverGateway, type CustomToolDeliverGatewayState, type CustomToolOnlyTimerClearer, type CustomToolOnlyTimerHandle } from "./tool-deliver-gateway-adapter.js";
 import type { CustomToolFallbackLogger, CustomToolFallbackSendMedia } from "./tool-fallback-gateway-adapter.js";
 import { handleCustomStreamingDeliver, type CustomStreamingGatewayController } from "./streaming-gateway-adapter.js";
+import {
+  consumeCustomAgentFinalOutput,
+  isCustomFinalDeliverKind,
+  isCustomReasoningDeliver,
+} from "./agent-output-boundary.js";
 
 export interface CustomDispatchDeliverCallbackState extends CustomToolDeliverGatewayState, CustomDispatchBlockDeliverState {
   readonly dispatchTimedOut: boolean;
@@ -49,7 +54,9 @@ export interface HandleCustomDispatchDeliverCallbackGatewayParams {
     type: string;
     senderId?: string;
     content?: string;
+    messageId?: string;
     msgIdx?: string;
+    _customUnreadSnapshotId?: string;
   };
   payload: CustomFallbackDeliverPayload;
   info: DeliverInfo;
@@ -81,6 +88,7 @@ export interface HandleCustomDispatchDeliverCallbackGatewayParams {
 
 export type HandleCustomDispatchDeliverCallbackGatewayResult =
   | { kind: "late-ignored" }
+  | { kind: "reasoning-skipped" }
   | { kind: "tool"; result: Awaited<ReturnType<typeof handleCustomToolDeliverGateway>> }
   | { kind: "model-skip"; token: string }
   | { kind: "streaming-handled" }
@@ -100,6 +108,11 @@ export async function handleCustomDispatchDeliverCallbackGateway(
   });
   if (lateDeliver.kind === "late-ignored") {
     return { kind: "late-ignored" };
+  }
+
+  if (isCustomReasoningDeliver(params.payload, params.info.kind)) {
+    params.log?.debug?.(`[qqbot:${params.accountId}] Suppressed non-final reasoning payload`);
+    return { kind: "reasoning-skipped" };
   }
 
   fallbackState.markResponse();
@@ -122,6 +135,17 @@ export async function handleCustomDispatchDeliverCallbackGateway(
     return { kind: "tool", result };
   }
 
+  if (isCustomFinalDeliverKind(params.info.kind)) {
+    const capturedOutput = consumeCustomAgentFinalOutput(params.message.messageId);
+    if (capturedOutput?.silent) {
+      fallbackState.markModelSkipOutput?.();
+      params.log?.info?.(
+        `[qqbot:${params.accountId}] Suppressed structurally silent final output for runId=${params.message.messageId ?? ""}`,
+      );
+      return { kind: "model-skip", token: "NO_REPLY" };
+    }
+  }
+
   const blockDeliver = (params.prepareBlockDeliver ?? prepareCustomBlockDeliver)({
     accountId: params.accountId,
     payload: params.payload,
@@ -129,6 +153,7 @@ export async function handleCustomDispatchDeliverCallbackGateway(
       type: params.message.type,
       senderId: params.message.senderId,
       content: params.message.content,
+      customUnreadSnapshotId: params.message._customUnreadSnapshotId,
     },
     state: fallbackState,
     stopTyping: params.stopTyping,

@@ -17,6 +17,8 @@ assert.equal(formatCustomPeerKey(groupPeer), "qqbot:group:GROUP_OPENID");
 assert.equal(formatCustomPeerKindWildcard(groupPeer), "qqbot:group:*");
 assert.deepEqual(defaultSceneCapabilities("chat"), ["chat.send", "web.search"]);
 assert.equal(getCustomSceneProfile("dev-lab").capabilities.includes("codex.longTask"), true);
+assert.match(getCustomSceneProfile("chat").prompt, /dongwuyuan-skill/);
+assert.match(getCustomSceneProfile("chat").prompt, /不要把“开庭”/);
 
 const defaultGroup = resolveCustomScene({ enabled: true }, groupPeer);
 assert.equal(defaultGroup.source, "default");

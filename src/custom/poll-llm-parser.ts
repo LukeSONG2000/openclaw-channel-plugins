@@ -38,6 +38,8 @@ interface PollParseJson {
 }
 
 const POLL_PARSE_TIMEOUT_MS = 8_000;
+const POLL_PARSE_MAX_RETRIES = 2;
+const POLL_PARSE_RETRY_BASE_DELAY_MS = 600;
 
 export function isCustomPollNaturalLanguageCreate(rawContent: string): boolean {
   const content = rawContent.trim();
@@ -72,16 +74,11 @@ export async function resolveCustomPollCreateWithModel(params: {
 
   try {
     const signal = AbortSignal.timeout(POLL_PARSE_TIMEOUT_MS);
-    const completion = await complete({
-      ...(params.agentId ? { agentId: params.agentId } : {}),
-      purpose: "qqbot.poll.parse",
-      maxTokens: 600,
-      temperature: 0,
+    const completion = await completeWithRetry({
+      complete,
+      requestText,
+      agentId: params.agentId,
       signal,
-      messages: [
-        { role: "system", content: buildPollParseSystemPrompt() },
-        { role: "user", content: requestText },
-      ],
     });
     const parsed = parsePollJson(completion.text);
     const command = pollJsonToCommand(parsed);
@@ -178,4 +175,45 @@ function resolveRuntimeComplete(): CustomPollLlmComplete | null {
   } catch {
     return null;
   }
+}
+
+async function completeWithRetry(params: {
+  complete: CustomPollLlmComplete;
+  requestText: string;
+  agentId?: string;
+  signal: AbortSignal;
+}): Promise<{ text: string }> {
+  let lastError: unknown;
+  for (let attempt = 0; attempt <= POLL_PARSE_MAX_RETRIES; attempt += 1) {
+    try {
+      return await params.complete({
+        ...(params.agentId ? { agentId: params.agentId } : {}),
+        purpose: "qqbot.poll.parse",
+        maxTokens: 600,
+        temperature: 0,
+        signal: params.signal,
+        messages: [
+          { role: "system", content: buildPollParseSystemPrompt() },
+          { role: "user", content: params.requestText },
+        ],
+      });
+    } catch (error) {
+      lastError = error;
+      if (attempt >= POLL_PARSE_MAX_RETRIES || !isRetryablePollParseError(error)) {
+        throw error;
+      }
+      await sleep(POLL_PARSE_RETRY_BASE_DELAY_MS * (attempt + 1));
+    }
+  }
+  throw lastError instanceof Error ? lastError : new Error(String(lastError));
+}
+
+function isRetryablePollParseError(error: unknown): boolean {
+  if (!error) return false;
+  const text = String(error);
+  return /overload|429|rate limit|rate-limit|too many requests|service unavailable|temporarily unavailable|timeout|timed out|503|502|504/i.test(text);
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }

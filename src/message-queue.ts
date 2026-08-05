@@ -48,6 +48,11 @@ export interface QueuedMessage {
   _customUnreadSnapshot?: HistoryEntry[];
   /** 自定义消息流要求跳过群消息合并 */
   _noMerge?: boolean;
+  /** 由插件级 slash 命令完成前置鉴权后委托给 AI 的内部消息。 */
+  _slashAuthorized?: {
+    command: string;
+    capability?: string;
+  };
 }
 
 export interface MessageQueueContext {

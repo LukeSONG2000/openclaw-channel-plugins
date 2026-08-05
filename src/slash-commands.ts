@@ -271,6 +271,8 @@ interface SlashCommand {
   usage?: string;
   /** 自定义运行时鉴权所需能力；未设置则不由插件级权限拦截 */
   capability?: SlashCommandCapabilityResolver;
+  /** 隐藏/停用普通聊天入口；保留注册仅用于兼容或内部测试。 */
+  hidden?: boolean;
   /** 处理函数 */
   handler: (ctx: SlashCommandContext) => SlashCommandResult | Promise<SlashCommandResult>;
 }
@@ -331,7 +333,7 @@ function formatSlashCommandHelp(): string {
   ];
 
   for (const category of HELP_CATEGORY_ORDER) {
-    const items = Array.from(commands.values()).filter((cmd) => cmd.category === category);
+    const items = Array.from(commands.values()).filter((cmd) => cmd.category === category && !cmd.hidden);
     if (!items.length) continue;
     lines.push(``, `#### ${category}`);
     for (const cmd of items) {
@@ -475,6 +477,37 @@ registerCommand({
     `使用 ${slashCommandInput("/bot-ping ?", "/<指令> ?")} 可查看某条指令的详细用法。`,
   ].join("\n"),
   handler: () => formatSlashCommandHelp(),
+});
+
+registerCommand({
+  name: "goh",
+  category: "互动",
+  description: "查询 SWGOH 资料",
+  scope: "全部会话",
+  access: "无",
+  usage: [
+    `/goh <查询内容>`,
+    ``,
+    `查询 Star Wars: Galaxy of Heroes 角色、技能、队伍、机制或活动资料。`,
+    `示例：${slashCommandInput("/goh 查一下农场小子卢克的技能")}`,
+  ].join("\n"),
+  handler: (ctx) => {
+    const query = ctx.args.trim();
+    if (!query) {
+      return `请输入要查询的 SWGOH 内容，例如 ${slashCommandInput("/goh 查一下农场小子卢克的技能")}`;
+    }
+    return {
+      delegatePrompt: [
+        `请作为 Star Wars: Galaxy of Heroes（SWGOH，星球大战：银河英雄）资料助手回答用户问题。`,
+        `用户查询：${query}`,
+        ``,
+        `要求：`,
+        `1. 优先围绕 SWGOH 游戏内角色、技能、队伍、机制、活动和养成资料回答。`,
+        `2. 如果需要最新资料，请使用可用的联网搜索或资料工具核实。`,
+        `3. 回答要适合 QQ 聊天阅读，简洁但信息完整。`,
+      ].join("\n"),
+    };
+  },
 });
 
 registerCommand({
@@ -2758,6 +2791,7 @@ registerCommand({
   description: "初始化或切换 remote Codex thread",
   scope: "仅群聊",
   access: "初始化 config.write；使用无权限限制",
+  hidden: true,
   capability: (request) => {
     const action = request.args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
     return action === "init" ? "config.write" : null;
@@ -2821,6 +2855,7 @@ registerCommand({
   description: "绑定当前群到 remote Codex",
   scope: "仅群聊",
   access: "查看 config.read；绑定/解绑 config.write",
+  hidden: true,
   capability: (request) => {
     const action = request.args.trim().split(/\s+/).filter(Boolean)[0]?.toLowerCase();
     return !action || action === "status" || action === "help" || action === "?" ? "config.read" : "config.write";
@@ -3103,7 +3138,7 @@ export function getSlashCommandCapability(rawContent: string): SlashCommandCapab
   if (!request) return null;
 
   const cmd = commands.get(request.name);
-  if (!cmd) return null;
+  if (!cmd || cmd.hidden) return null;
   if (request.args === "?") return null;
 
   if (!cmd.capability) return null;
@@ -3121,7 +3156,7 @@ export async function matchSlashCommand(ctx: SlashCommandContext): Promise<Slash
   if (!request) return null;
 
   const cmd = commands.get(request.name);
-  if (!cmd) return null; // 不是插件级指令，交给框架
+  if (!cmd || cmd.hidden) return null; // 不是插件级指令，交给框架
 
   // /指令 ? — 返回用法说明
   if (request.args === "?") {

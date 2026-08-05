@@ -19,6 +19,7 @@ import {
   applyCustomGroupMentionIngress,
   applyCustomGroupSkippedMessageIngress,
 } from "./group-ingress-gateway-adapter.js";
+import { buildMentionReplyScopePrompt } from "./unread-catchup-prompt.js";
 
 export interface CustomGroupDispatchGatewayLogger {
   info?: (msg: string) => void;
@@ -221,11 +222,14 @@ export function applyCustomGroupDispatchGateway<TConfig extends OpenClawConfig =
     resolveGroupIntroHint: params.resolveGroupIntroHint,
     resolveGroupPrompt: params.resolveGroupPrompt,
   });
+  const groupSystemPrompt = wasMentioned && customUnreadHistoryForEvent?.length
+    ? [promptContext.groupSystemPrompt, buildMentionReplyScopePrompt()].filter(Boolean).join("\n")
+    : promptContext.groupSystemPrompt;
 
   return {
     action: "continue",
     wasMentioned,
-    groupSystemPrompt: promptContext.groupSystemPrompt,
+    groupSystemPrompt,
     groupSubject: promptContext.groupSubject,
     senderLabel: promptContext.senderLabel,
     customUnreadCfgForEvent,

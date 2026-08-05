@@ -56,6 +56,8 @@ const DEFAULT_SCENE_PROFILES: Record<CustomSceneKind, CustomSceneProfile> = {
     prompt: [
       "当前 QQBot 场景是 chat。",
       "可以自然参与聊天；普通非 @ 消息先积累为上下文，再通过自适应未读轮询短句跟进。",
+      "如果工作区安装了 dongwuyuan-skill，中文日常群聊每轮都要先加载或复用其 references/ambient.md，把它作为环境语感候选；不要等待消息出现人物名或现成梗才使用。",
+      "检查近期机器人发言并轮换梗族，避免重复同一句式；尤其不要把“开庭”当作普通闲聊的万能兜底。",
       "不要执行系统管理、配置修改、部署更新或长程任务，除非权限机制明确放行。",
     ].join("\n"),
   },

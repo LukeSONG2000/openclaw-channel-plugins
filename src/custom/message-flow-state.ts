@@ -19,6 +19,11 @@ import {
   type CustomDeployConfirmationStoreOptions,
 } from "./deploy-confirmation-store.js";
 import {
+  loadCustomScheduledTaskState,
+  saveCustomScheduledTaskState,
+  type CustomScheduledTaskStoreOptions,
+} from "./scheduled-task-store.js";
+import {
   loadCustomProactiveBudgetState,
   saveCustomProactiveBudgetState,
   type CustomProactiveBudgetStoreOptions,
@@ -48,6 +53,7 @@ export interface CustomMessageFlowStateStoreOptions {
   games?: CustomGameStoreOptions;
   deployConfirmations?: CustomDeployConfirmationStoreOptions;
   unread?: CustomUnreadStoreOptions;
+  scheduledTasks?: CustomScheduledTaskStoreOptions;
 }
 
 export interface CustomMessageFlowStateController {
@@ -60,6 +66,7 @@ export interface CustomMessageFlowStateController {
   persistGameState: () => void;
   persistDeployConfirmationState: () => void;
   persistUnreadState: () => void;
+  persistScheduledTaskState: () => void;
   persistAllState: () => void;
 }
 
@@ -111,6 +118,12 @@ export function createCustomMessageFlowStateController(params: {
     log?.info(`[qqbot:${accountId}] Restored custom deploy confirmation state: confirmations=${Object.keys(restoredDeployConfirmationState.confirmations).length}`);
   }
 
+  const restoredScheduledTaskState = loadCustomScheduledTaskState(accountId, storeOptions?.scheduledTasks);
+  if (restoredScheduledTaskState) {
+    runtime.scheduledTasks.loadState(restoredScheduledTaskState);
+    log?.info(`[qqbot:${accountId}] Restored custom scheduled task state: tasks=${Object.keys(restoredScheduledTaskState.tasks).length}`);
+  }
+
   const restoredUnreadState = loadCustomUnreadState(accountId, storeOptions?.unread);
   if (restoredUnreadState) {
     runtime.unread.loadState(restoredUnreadState);
@@ -138,6 +151,9 @@ export function createCustomMessageFlowStateController(params: {
   const persistUnreadState = (): void => {
     saveCustomUnreadState(accountId, runtime.unread.getState(), storeOptions?.unread);
   };
+  const persistScheduledTaskState = (): void => {
+    saveCustomScheduledTaskState(accountId, runtime.scheduledTasks.getState(), storeOptions?.scheduledTasks);
+  };
 
   return {
     runtime,
@@ -149,6 +165,7 @@ export function createCustomMessageFlowStateController(params: {
     persistGameState,
     persistDeployConfirmationState,
     persistUnreadState,
+    persistScheduledTaskState,
     persistAllState: () => {
       persistAuthState();
       persistProactiveBudgetState();
@@ -157,6 +174,7 @@ export function createCustomMessageFlowStateController(params: {
       persistGameState();
       persistDeployConfirmationState();
       persistUnreadState();
+      persistScheduledTaskState();
     },
   };
 }

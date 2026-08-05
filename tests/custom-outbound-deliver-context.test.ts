@@ -26,7 +26,13 @@ assert.deepEqual(buildCustomOutboundDeliverEvent(groupMessage, "MSG_ID"), {
   channelId: undefined,
   groupOpenid: "GROUP_OPENID",
   msgIdx: "MSG_IDX",
+  customUnreadSnapshotId: undefined,
 });
+
+assert.equal(buildCustomOutboundDeliverEvent({
+  ...groupMessage,
+  _customUnreadSnapshotId: "snapshot-1",
+}, undefined).customUnreadSnapshotId, "snapshot-1");
 
 const account = {
   accountId: "default",
@@ -73,6 +79,7 @@ assert.deepEqual(buildCustomOutboundDeliverEvent(guildMessage, "GUILD_MSG"), {
   channelId: "CHANNEL_ID",
   groupOpenid: undefined,
   msgIdx: "MSG_IDX",
+  customUnreadSnapshotId: undefined,
 });
 
 console.log("custom outbound deliver context tests passed");

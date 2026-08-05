@@ -39,6 +39,7 @@ assert.equal(getSlashCommandCapability("/bot-poll list"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-poll status poll-default-group-GROUP_OPENID-1000-1"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-poll 晚上吃什么，肯德基还是麦当劳"), "game.interact");
 assert.equal(getSlashCommandCapability("/bot-poll close poll-default-group-GROUP_OPENID-1000-1"), "game.interact");
+assert.equal(getSlashCommandCapability("/goh 查一下农场小子卢克的技能"), null);
 assert.equal(getSlashCommandCapability("/bot-game"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-game list"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-game status guess-default-group-GROUP_OPENID-1000-1"), "system.status");
@@ -66,10 +67,10 @@ assert.equal(getSlashCommandCapability("/bot-queue status"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread status 5"), "system.status");
 assert.equal(getSlashCommandCapability("/bot-unread summary 5"), "system.status");
-assert.equal(getSlashCommandCapability("/codex init"), "config.write");
+assert.equal(getSlashCommandCapability("/codex init"), null);
 assert.equal(getSlashCommandCapability("/codex new fix-login"), null);
-assert.equal(getSlashCommandCapability("/bot-remote-codex status"), "config.read");
-assert.equal(getSlashCommandCapability("/bot-remote-codex bind current-host"), "config.write");
+assert.equal(getSlashCommandCapability("/bot-remote-codex status"), null);
+assert.equal(getSlashCommandCapability("/bot-remote-codex bind current-host"), null);
 assert.equal(getSlashCommandCapability("/bot-group rename friends-main"), "config.write");
 
 const blockedPkgOverride = await matchSlashCommand({
@@ -126,14 +127,13 @@ for (const name of [
   "bot-version",
   "bot-task",
   "bot-poll",
+  "goh",
   "bot-game",
   "bot-deploy",
   "bot-scene",
   "bot-fallback",
   "bot-queue",
   "bot-unread",
-  "codex",
-  "bot-remote-codex",
   "bot-upgrade",
   "bot-logs",
   "bot-clear-storage",
@@ -145,10 +145,35 @@ for (const name of [
 ]) {
   assert.match(help as string, new RegExp(`/${name}\\b`));
 }
+assert.doesNotMatch(help as string, /\/codex\b/);
+assert.doesNotMatch(help as string, /\/bot-remote-codex\b/);
 assert.match(help as string, /\/bot-unread.*自适应未读轮询/);
 assert.match(help as string, /<qqbot-cmd-input text="\/bot-upgrade" show="\/bot-upgrade"\/>.*仅私聊；<qqbot-cmd-input text="\/bot-deploy" show="\/bot-deploy"\/> 可在群里创建确认卡｜需要权限 检查部署\/版本（deploy\.check）；执行部署\/升级（deploy\.apply）/);
 assert.doesNotMatch(help as string, /\/help.*（/);
 assert.doesNotMatch(help as string, /范围：/);
 assert.doesNotMatch(help as string, /权限：/);
+
+const goh = await matchSlashCommand({
+  type: "c2c",
+  senderId: "USER_OPENID",
+  messageId: "MSG_ID",
+  eventTimestamp: new Date(0).toISOString(),
+  receivedAt: 0,
+  rawContent: "/goh 查一下农场小子卢克的技能",
+  args: "",
+  accountId: "default",
+  appId: "APP_ID",
+  accountConfig: {},
+  queueSnapshot: {
+    totalPending: 0,
+    activeUsers: 0,
+    maxConcurrentUsers: 1,
+    senderPending: 0,
+  },
+});
+assert.equal(typeof goh, "object");
+assert.match((goh as { delegatePrompt: string }).delegatePrompt, /SWGOH/);
+assert.match((goh as { delegatePrompt: string }).delegatePrompt, /农场小子卢克/);
+assert.doesNotMatch((goh as { delegatePrompt: string }).delegatePrompt, /Codex|终端|脚本|执行/);
 
 console.log("slash command capability tests passed");

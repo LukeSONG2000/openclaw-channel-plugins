@@ -8,6 +8,7 @@ import { resolveTaskSandboxConfig, type CustomTaskSandboxConfig } from "./task-s
 import { CustomPollRuntime } from "./poll.js";
 import { CustomGameRuntime } from "./game.js";
 import { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
+import { CustomScheduledTaskRuntime } from "./scheduled-task.js";
 import type { CustomAuthorizationDecision, CustomCapability, CustomInboundMessage, CustomSceneConfig } from "./types.js";
 import { buildCustomSceneSystemPrompt, type ResolvedCustomScene } from "./scenes.js";
 
@@ -56,6 +57,7 @@ export interface CustomMessageFlowRuntime {
   polls: CustomPollRuntime;
   games: CustomGameRuntime;
   deployConfirmations: CustomDeployConfirmationRuntime;
+  scheduledTasks: CustomScheduledTaskRuntime;
 }
 
 export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
@@ -67,6 +69,7 @@ export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
     polls: new CustomPollRuntime(),
     games: new CustomGameRuntime(),
     deployConfirmations: new CustomDeployConfirmationRuntime(),
+    scheduledTasks: new CustomScheduledTaskRuntime(),
   };
 }
 
@@ -120,6 +123,7 @@ export { CustomTaskSandboxRuntime, resolveTaskSandboxConfig } from "./task-sandb
 export { CustomPollRuntime } from "./poll.js";
 export { CustomGameRuntime } from "./game.js";
 export { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
+export { CustomScheduledTaskRuntime } from "./scheduled-task.js";
 export type { CustomAuthorizationCheckResult } from "./auth.js";
 export type { CustomSceneProfile, ResolvedCustomScene } from "./scenes.js";
 export type {

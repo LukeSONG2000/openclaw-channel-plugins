@@ -35,6 +35,7 @@ import {
   type CustomProactiveSendGuardDecision,
   type CustomProactiveSendPayloadKind,
 } from "./custom/proactive-send-guard.js";
+import { sanitizeCustomUnreadProactiveMentions } from "./custom/unread-output.js";
 
 // ============ 类型定义 ============
 
@@ -46,6 +47,7 @@ export interface DeliverEventContext {
   channelId?: string;
   groupOpenid?: string;
   msgIdx?: string;
+  customUnreadSnapshotId?: string;
 }
 
 export interface DeliverAccountContext {
@@ -81,6 +83,7 @@ export async function parseAndSendMediaTags(
 ): Promise<{ handled: boolean; normalizedText: string }> {
   const { account, log } = actx;
   const prefix = `[qqbot:${account.accountId}]`;
+  replyText = sanitizeCustomUnreadProactiveMentions(replyText, event);
 
   // 使用 media-send.ts 的统一解析器（内含 normalizeMediaTags + 路径编码修复）
   const { hasMediaTags: hasMedia, sendQueue } = parseMediaTagsToSendQueue(replyText, log);
@@ -144,6 +147,7 @@ export async function sendPlainReply(
 ): Promise<void> {
   const { account, qualifiedTarget, log } = actx;
   const prefix = `[qqbot:${account.accountId}]`;
+  replyText = sanitizeCustomUnreadProactiveMentions(replyText, event);
 
   // 预去重：把 payload 自带的媒体 URL 从 toolMediaUrls 中移除，
   // 防止同一个文件既被 payload.mediaUrl/mediaUrls 发送，又被 toolMediaUrls 重复发送

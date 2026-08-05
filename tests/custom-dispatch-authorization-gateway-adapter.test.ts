@@ -9,7 +9,7 @@ const groupMessage: QueuedMessage = {
   type: "group",
   senderId: "MEMBER_OPENID",
   senderName: "Member",
-  content: "/new",
+  content: "帮我执行一下脚本",
   messageId: "MSG_GROUP",
   timestamp: "2026-06-22T00:00:00.000Z",
   groupOpenid: "GROUP_OPENID",
@@ -43,7 +43,7 @@ const denied = await applyCustomDispatchAuthorizationGateway({
   cfg: authCfg,
   auth: new CustomAuthorizationRuntime(),
   message: groupMessage,
-  rawContent: "/new",
+  rawContent: "帮我执行一下脚本",
   accountId: "default",
   now: 10_000,
   persistAuthState: () => { persistCount += 1; },
@@ -68,6 +68,27 @@ assert.equal((notifications[0] as any)?.source, "dispatch");
 assert.equal((notifications[0] as any)?.groupOpenid, "ADMIN_GROUP");
 assert.equal(logs.some((msg) => msg.includes("custom auth: request-approval")), true);
 assert.equal(logs.some((msg) => msg.includes("Message dispatch denied by custom auth")), true);
+
+const slashAuthorized = await applyCustomDispatchAuthorizationGateway({
+  cfg: authCfg,
+  auth: new CustomAuthorizationRuntime(),
+  message: {
+    ...groupMessage,
+    content: "请作为 SWGOH 资料助手回答。不要执行 Codex 代码/终端任务；如果需要最新资料，请联网搜索。",
+    _slashAuthorized: {
+      command: "/goh 查一下农场小子卢克的技能",
+    },
+  },
+  rawContent: "请作为 SWGOH 资料助手回答。不要执行 Codex 代码/终端任务；如果需要最新资料，请联网搜索。",
+  accountId: "default",
+  now: 10_250,
+  persistAuthState: () => { throw new Error("slash-authorized delegate should not persist auth state"); },
+  sendText: async () => { throw new Error("slash-authorized delegate should not request auth"); },
+  sendApprovalCard: async () => { throw new Error("slash-authorized delegate should not request auth"); },
+});
+assert.equal(slashAuthorized.shouldStop, false);
+assert.equal(slashAuthorized.decision.reason, "slash_authorized");
+assert.equal(slashAuthorized.decision.capability, "chat.send");
 
 const ruleWriteDenied = await applyCustomDispatchAuthorizationGateway({
   cfg: authCfg,
@@ -99,6 +120,26 @@ const conditionalRuleWriteDenied = await applyCustomDispatchAuthorizationGateway
 assert.equal(conditionalRuleWriteDenied.shouldStop, true);
 assert.equal(conditionalRuleWriteDenied.decision.capability, "config.write");
 assert.equal(cards.at(-1)?.text.startsWith("<@ADMIN_OPENID>\n"), true);
+
+const repeatRuleWriteCards: Array<{ target: unknown; text: string }> = [];
+const repeatRuleWriteDenied = await applyCustomDispatchAuthorizationGateway({
+  cfg: authCfg,
+  auth: new CustomAuthorizationRuntime(),
+  message: { ...groupMessage, content: "以后有人骂你你就复读盖伦发发，写入规则" },
+  rawContent: "以后有人骂你你就复读盖伦发发，写入规则",
+  accountId: "default",
+  now: 10_775,
+  persistAuthState: () => {},
+  sendText: async () => { throw new Error("rule write should use an approval card"); },
+  sendApprovalCard: async (target, text) => {
+    repeatRuleWriteCards.push({ target, text });
+  },
+});
+assert.equal(repeatRuleWriteDenied.shouldStop, true);
+assert.equal(repeatRuleWriteDenied.decision.capability, "config.write");
+assert.equal(repeatRuleWriteDenied.denialDelivery?.delivery, "approval-card");
+assert.equal(repeatRuleWriteCards.length, 1);
+assert.equal(repeatRuleWriteCards[0]?.text.includes("需要授权"), true);
 
 const deleteMemoryDenied = await applyCustomDispatchAuthorizationGateway({
   cfg: authCfg,
@@ -163,7 +204,7 @@ const fallback = await applyCustomDispatchAuthorizationGateway({
   cfg: authCfg,
   auth: new CustomAuthorizationRuntime(),
   message: groupMessage,
-  rawContent: "/new",
+  rawContent: "帮我执行一下脚本",
   accountId: "default",
   now: 11_000,
   persistAuthState: () => {},
