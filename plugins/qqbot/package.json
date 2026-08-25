@@ -1,0 +1,72 @@
+{
+  "name": "@lukesong/luke-qqbot",
+  "version": "1.7.2-luke.1",
+  "publishConfig": {
+    "access": "public"
+  },
+  "type": "module",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "bin": {
+    "openclaw-qqbot": "./bin/qqbot-cli.js",
+    "qqbot": "./bin/qqbot-cli.js"
+  },
+  "files": [
+    "dist",
+    "bin",
+    "src",
+    "skills",
+    "scripts",
+    "index.ts",
+    "preload.cjs",
+    "tsconfig.json",
+    "openclaw.plugin.json"
+  ],
+  "openclaw": {
+    "id": "openclaw-qqbot",
+    "extensions": [
+      "./preload.cjs"
+    ],
+    "channel": {
+      "id": "qqbot",
+      "label": "Luke-QQBot"
+    }
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "npm run clean && tsc || true",
+    "postbuild": "node -e \"const fs=require('fs'),p=require('path'),ext=p.join(require('os').homedir(),'.openclaw/extensions/openclaw-qqbot');if(fs.existsSync(ext)&&!fs.lstatSync(ext).isSymbolicLink()){const d=p.join(ext,'dist'),pr=p.join(ext,'preload.cjs');fs.cpSync('dist',d,{recursive:true});fs.copyFileSync('preload.cjs',pr);console.log('[postbuild] synced to',ext)}\"",
+    "dev": "tsc --watch",
+    "prepack": "npm run build && npm install --omit=dev",
+    "postinstall": "node scripts/postinstall-link-sdk.js 2>/dev/null || true"
+  },
+  "dependencies": {
+    "mpg123-decoder": "^1.0.3",
+    "silk-wasm": "^3.7.1",
+    "ws": "^8.18.0"
+  },
+  "bundledDependencies": [
+    "mpg123-decoder",
+    "silk-wasm",
+    "ws"
+  ],
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/ws": "^8.5.0",
+    "typescript": "^5.9.3"
+  },
+  "peerDependencies": {
+    "openclaw": "*"
+  },
+  "homepage": "https://github.com/LukeSONG2000/openclaw-qqbot",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/LukeSONG2000/openclaw-qqbot.git"
+  },
+  "bundleDependencies": [
+    "mpg123-decoder",
+    "silk-wasm",
+    "ws"
+  ],
+  "description": "Luke-QQBot custom QQ Bot channel plugin for OpenClaw"
+}

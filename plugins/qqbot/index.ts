@@ -1,0 +1,34 @@
+import type { OpenClawPluginApi } from "openclaw/plugin-sdk";
+import { emptyPluginConfigSchema } from "openclaw/plugin-sdk";
+
+import { qqbotPlugin } from "./src/channel.js";
+import { setQQBotRuntime } from "./src/runtime.js";
+import { registerChannelTool } from "./src/tools/channel.js";
+import { registerRemindTool } from "./src/tools/remind.js";
+import { registerCustomAgentOutputBoundary } from "./src/custom/agent-output-boundary.js";
+
+const plugin = {
+  id: "openclaw-qqbot",
+  name: "QQ Bot",
+  description: "QQ Bot channel plugin",
+  configSchema: emptyPluginConfigSchema(),
+  register(api: OpenClawPluginApi) {
+    setQQBotRuntime(api.runtime);
+    registerCustomAgentOutputBoundary(api as unknown as Parameters<typeof registerCustomAgentOutputBoundary>[0]);
+    api.registerChannel({ plugin: qqbotPlugin as any });
+    registerChannelTool(api);
+    registerRemindTool(api);
+  },
+};
+
+export default plugin;
+
+export { qqbotPlugin } from "./src/channel.js";
+export { setQQBotRuntime, getQQBotRuntime } from "./src/runtime.js";
+export { qqbotOnboardingAdapter } from "./src/onboarding.js";
+export * from "./src/types.js";
+export * from "./src/api.js";
+export * from "./src/config.js";
+export * from "./src/gateway.js";
+export * from "./src/outbound.js";
+export * from "./src/transport/index.js";

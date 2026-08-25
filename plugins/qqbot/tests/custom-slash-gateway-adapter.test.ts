@@ -1,0 +1,525 @@
+import assert from "node:assert";
+import { createCustomMessageFlowRuntime } from "../src/custom/runtime.js";
+import { encodeCustomPollCreateCommand } from "../src/custom/poll-command-parser.js";
+import { handleCustomSlashGatewayCommand } from "../src/custom/slash-gateway-adapter.js";
+import type { QueuedMessage } from "../src/message-queue.js";
+
+const baseMessage: QueuedMessage = {
+  type: "group",
+  senderId: "MEMBER_OPENID",
+  senderName: "Member",
+  content: "/bot-ping",
+  messageId: "msg-1",
+  timestamp: "2026-06-21T00:00:00.000Z",
+  groupOpenid: "GROUP_OPENID",
+};
+
+const cfg = {
+  channels: {
+    qqbot: {
+      customRuntime: {
+        enabled: true,
+        admins: ["ADMIN_OPENID"],
+        adminGroup: "GROUP_OPENID",
+        tasks: {
+          workspaceRoot: "/tmp/global-slash-tasks",
+          maxActiveTasksPerPeer: 4,
+        },
+        scenes: {
+          "qqbot:group:GROUP_OPENID": {
+            scene: "chat",
+            capabilities: ["chat.send", "system.status", "codex.longTask", "game.interact", "config.write", "deploy.check", "deploy.apply"],
+            tasks: {
+              workspaceRoot: "/tmp/group-slash-tasks",
+              maxActiveTasksPerPeer: 1,
+            },
+          },
+        },
+      },
+    },
+  },
+} as any;
+
+const deniedCfg = {
+  channels: {
+    qqbot: {
+      customRuntime: {
+        enabled: true,
+        admins: ["ADMIN_OPENID"],
+        adminGroup: "GROUP_OPENID",
+        scenes: {
+          "qqbot:group:GROUP_OPENID": {
+            scene: "chat",
+            capabilities: ["chat.send"],
+          },
+        },
+      },
+    },
+  },
+} as any;
+
+const noMatch = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: baseMessage,
+  rawContent: "/bot-ping",
+  now: 1_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.deepEqual(noMatch, { handled: false });
+
+const deniedRuntime = createCustomMessageFlowRuntime();
+const denied = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: deniedRuntime,
+  message: { ...baseMessage, content: "/bot-streaming on" },
+  rawContent: "/bot-streaming on",
+  now: 2_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(denied.handled, true);
+assert.equal(denied.persist?.auth, true);
+assert.equal(denied.reply?.kind, "auth-approval");
+if (denied.reply?.kind !== "auth-approval") throw new Error("expected auth approval reply");
+assert.equal(denied.reply.denialText.includes("权限：写入配置/规则（config.write）"), true);
+assert.equal(denied.reply.approvalText?.startsWith("<@ADMIN_OPENID>\n"), true);
+assert.equal(denied.reply.approvalText?.includes("用户：<@MEMBER_OPENID> Member（member_openid：MEMBER_OPENID）"), true);
+assert.equal(denied.reply.approvalText?.includes("位置：群聊（group_openid：GROUP_OPENID）"), true);
+assert.equal(denied.reply.keyboard?.content?.rows[0]?.buttons[0]?.action?.data, "custom-auth:authreq-2000-1:allow-once");
+assert.equal(denied.reply.adminGroupNotification, null);
+assert.equal(denied.logs?.some((item) => item.message.includes("Slash command denied by custom auth")), true);
+
+const dmDeniedRuntime = createCustomMessageFlowRuntime();
+const dmDenied = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: dmDeniedRuntime,
+  message: {
+    ...baseMessage,
+    type: "c2c",
+    groupOpenid: undefined,
+    content: "/bot-streaming on",
+  },
+  rawContent: "/bot-streaming on",
+  now: 2_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(dmDenied.handled, true);
+assert.equal(dmDenied.reply?.kind, "auth-approval");
+if (dmDenied.reply?.kind !== "auth-approval") throw new Error("expected dm auth approval reply");
+assert.equal(dmDenied.reply.adminGroupNotification?.groupOpenid, "GROUP_OPENID");
+assert.equal(dmDenied.reply.adminGroupNotification?.requestId, "authreq-2500-1");
+
+const noCopyDenied = handleCustomSlashGatewayCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          ...deniedCfg.channels.qqbot.customRuntime,
+          auth: { copyRequestsToAdminGroup: false },
+        },
+      },
+    },
+  } as any,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: {
+    ...baseMessage,
+    type: "c2c",
+    groupOpenid: undefined,
+    content: "/bot-streaming on",
+  },
+  rawContent: "/bot-streaming on",
+  now: 2_550,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(noCopyDenied.handled, true);
+assert.equal(noCopyDenied.reply?.kind, "auth-approval");
+if (noCopyDenied.reply?.kind !== "auth-approval") throw new Error("expected no-copy auth approval reply");
+assert.equal(noCopyDenied.reply.adminGroupNotification, null);
+
+const adminCopyOff = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-auth admin-copy off" },
+  rawContent: "/bot-auth admin-copy off",
+  now: 2_575,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(adminCopyOff.handled, true);
+assert.deepEqual(adminCopyOff.persist?.authConfig, { copyRequestsToAdminGroup: false });
+assert.equal(adminCopyOff.reply?.kind === "text" && adminCopyOff.reply.text.includes("授权抄送已关闭"), true);
+
+const initBind = handleCustomSlashGatewayCommand({
+  cfg: {
+    channels: {
+      qqbot: {
+        customRuntime: {
+          enabled: true,
+          initBind: { code: "BIND123", expiresAt: 3_000, enableRuntimeOnComplete: true },
+        },
+      },
+    },
+  } as any,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-init-bind BIND123" },
+  rawContent: "/bot-init-bind BIND123",
+  now: 2_600,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(initBind.handled, true);
+assert.equal(initBind.persist?.initBind?.adminGroup, "qqbot:group:GROUP_OPENID");
+assert.deepEqual(initBind.persist?.initBind?.admins, ["MEMBER_OPENID"]);
+assert.equal(initBind.persist?.initBind?.clearInitBind, true);
+assert.equal(initBind.persist?.initBind?.enableRuntime, true);
+assert.equal(initBind.reply?.kind, "text");
+assert.equal(initBind.reply?.kind === "text" && initBind.reply.text.includes("group_openid"), true);
+
+const taskRuntime = createCustomMessageFlowRuntime();
+const task = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-task create Build custom slash adapter" },
+  rawContent: "/bot-task create Build custom slash adapter",
+  now: 3_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(task.handled, true);
+assert.equal(task.persist?.tasks, true);
+assert.equal(task.reply?.kind, "keyboard");
+assert.equal(task.reply?.kind === "keyboard" && task.reply.text.includes("长任务已创建"), true);
+assert.equal(task.reply?.kind === "keyboard" && task.reply.keyboard.content?.rows[1]?.buttons[0]?.action?.data, "/bot-task add qqbot-default-group-GROUP_OPENID-3000-1 ");
+assert.equal(Object.keys(taskRuntime.tasks.getState().tasks)[0], "qqbot-default-group-GROUP_OPENID-3000-1");
+assert.equal(taskRuntime.tasks.getTask("qqbot-default-group-GROUP_OPENID-3000-1")?.workspace, "/tmp/group-slash-tasks/qqbot-default-group-GROUP_OPENID-3000-1");
+
+const taskOverSceneLimit = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-task create second scene task" },
+  rawContent: "/bot-task create second scene task",
+  now: 3_100,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(taskOverSceneLimit.handled, true);
+assert.equal(taskOverSceneLimit.persist?.tasks, undefined);
+assert.equal(taskOverSceneLimit.reply?.kind === "text" && taskOverSceneLimit.reply.text.includes("活跃长任务过多"), true);
+
+const taskId = Object.keys(taskRuntime.tasks.getState().tasks)[0]!;
+const cancelTask = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: `/bot-task cancel ${taskId}`, messageId: "msg-cancel" },
+  rawContent: `/bot-task cancel ${taskId}`,
+  now: 3_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(cancelTask.handled, true);
+assert.equal(cancelTask.persist?.tasks, true);
+assert.equal(cancelTask.reply?.kind, "keyboard");
+assert.equal(cancelTask.reply?.kind === "keyboard" && cancelTask.reply.keyboard.content?.rows.length, 2);
+assert.equal(cancelTask.taskNotificationDeliveries?.length, 1);
+assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.type, "group");
+assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.target.messageId, "msg-cancel");
+assert.equal(cancelTask.taskNotificationDeliveries?.[0]?.text.includes("长任务已取消"), true);
+
+const taskAuthRuntime = createCustomMessageFlowRuntime();
+const ownerTask = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-task create Owner task" },
+  rawContent: "/bot-task create Owner task",
+  now: 3_600,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(ownerTask.handled, true);
+const ownerTaskId = Object.keys(taskAuthRuntime.tasks.getState().tasks)[0]!;
+
+const deniedTaskAdd = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "MEMBER_OPENID", senderName: "Member", content: `/bot-task add ${ownerTaskId} member idea` },
+  rawContent: `/bot-task add ${ownerTaskId} member idea`,
+  now: 3_700,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deniedTaskAdd.handled, true);
+assert.equal(deniedTaskAdd.persist?.auth, true);
+assert.equal(deniedTaskAdd.persist?.tasks, undefined);
+assert.equal(deniedTaskAdd.reply?.kind, "auth-approval");
+if (deniedTaskAdd.reply?.kind !== "auth-approval") throw new Error("expected task auth approval reply");
+assert.equal(deniedTaskAdd.reply.denialText.includes("权限：创建或修改长任务（codex.longTask）"), true);
+assert.equal(deniedTaskAdd.reply.approvalText?.includes("位置：群聊（group_openid：GROUP_OPENID）"), true);
+assert.equal(deniedTaskAdd.reply.adminGroupNotification, null);
+assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.render_data?.label, "允许此任务");
+assert.equal(deniedTaskAdd.reply.keyboard?.content?.rows[0]?.buttons[0]?.action?.data?.endsWith(":allow-task"), true);
+
+const taskRequestId = Object.keys(taskAuthRuntime.auth.getState().requests)[0]!;
+const approveTask = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: `/bot-auth approve ${taskRequestId}` },
+  rawContent: `/bot-auth approve ${taskRequestId}`,
+  now: 3_800,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(approveTask.handled, true);
+assert.equal(approveTask.persist?.auth, true);
+assert.equal(taskAuthRuntime.auth.getState().grants[Object.keys(taskAuthRuntime.auth.getState().grants)[0]!]!.taskId, ownerTaskId);
+
+const allowedTaskAdd = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: { ...baseMessage, senderId: "MEMBER_OPENID", senderName: "Member", content: `/bot-task add ${ownerTaskId} member idea after approval` },
+  rawContent: `/bot-task add ${ownerTaskId} member idea after approval`,
+  now: 3_900,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(allowedTaskAdd.handled, true);
+assert.equal(allowedTaskAdd.persist?.tasks, true);
+assert.equal(allowedTaskAdd.reply?.kind === "keyboard" && allowedTaskAdd.reply.text.includes("当前追加需求数：1"), true);
+assert.equal(allowedTaskAdd.reply?.kind === "keyboard" && allowedTaskAdd.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.data, `/bot-task status ${ownerTaskId}`);
+
+const crossPeerTaskAdd = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: taskAuthRuntime,
+  message: {
+    ...baseMessage,
+    groupOpenid: "OTHER_GROUP_OPENID",
+    senderId: "MEMBER_OPENID",
+    senderName: "Member",
+    content: `/bot-task add ${ownerTaskId} cross peer idea`,
+  },
+  rawContent: `/bot-task add ${ownerTaskId} cross peer idea`,
+  now: 3_950,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(crossPeerTaskAdd.handled, true);
+assert.equal(crossPeerTaskAdd.persist?.auth, undefined);
+assert.equal(crossPeerTaskAdd.persist?.tasks, undefined);
+assert.equal(crossPeerTaskAdd.reply?.kind, "text");
+assert.equal(crossPeerTaskAdd.reply?.kind === "text" && crossPeerTaskAdd.reply.text.includes("不属于当前会话"), true);
+assert.equal(Object.values(taskAuthRuntime.auth.getState().requests).filter((request) => request.status === "pending").length, 0);
+
+const pollRuntime = createCustomMessageFlowRuntime();
+const poll = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: pollRuntime,
+  message: { ...baseMessage, content: encodeCustomPollCreateCommand({ kind: "create", question: "Pick one", options: ["A", "B"] }) },
+  rawContent: encodeCustomPollCreateCommand({ kind: "create", question: "Pick one", options: ["A", "B"] }),
+  now: 4_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(poll.handled, true);
+assert.equal(poll.persist?.polls, true);
+assert.equal(poll.reply?.kind, "keyboard");
+assert.equal(poll.reply?.kind === "keyboard" && poll.reply.keyboard.content?.rows.length, 2);
+assert.equal(Object.keys(pollRuntime.polls.getState().polls)[0], "poll-default-group-GROUP_OPENID-4000-1");
+
+const gameRuntime = createCustomMessageFlowRuntime();
+const game = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: gameRuntime,
+  message: { ...baseMessage, content: "/bot-game guess" },
+  rawContent: "/bot-game guess",
+  now: 4_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(game.handled, true);
+assert.equal(game.persist?.games, true);
+assert.equal(game.reply?.kind, "keyboard");
+assert.equal(game.reply?.kind === "keyboard" && game.reply.keyboard.content?.rows.length, 4);
+assert.equal(Object.keys(gameRuntime.games.getState().guessGames)[0], "guess-default-group-GROUP_OPENID-4500-1");
+
+const sceneRuntime = createCustomMessageFlowRuntime();
+const sceneStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: sceneRuntime,
+  message: { ...baseMessage, content: "/bot-scene status" },
+  rawContent: "/bot-scene status",
+  now: 5_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(sceneStatus.handled, true);
+assert.equal(sceneStatus.persist, undefined);
+assert.equal(sceneStatus.reply?.kind, "keyboard");
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.text.includes("场景：日常聊天（chat）"), true);
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.type, 1);
+assert.equal(sceneStatus.reply?.kind === "keyboard" && sceneStatus.reply.keyboard.content?.rows[0]?.buttons[0]?.action?.data, "custom-scene:set:codex-only");
+
+const sceneSet = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: sceneRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-scene set dev-lab" },
+  rawContent: "/bot-scene set dev-lab",
+  now: 5_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(sceneSet.handled, true);
+assert.equal(sceneSet.persist?.config?.sceneKey, "qqbot:group:GROUP_OPENID");
+assert.equal(sceneSet.persist?.config?.sceneConfig.scene, "dev-lab");
+assert.equal(sceneSet.reply?.kind, "keyboard");
+assert.equal(sceneSet.reply?.kind === "keyboard" && sceneSet.reply.text.includes("场景：开发实验室（dev-lab）"), true);
+assert.equal(sceneSet.reply?.kind === "keyboard" && sceneSet.reply.keyboard.content?.rows[3]?.buttons[0]?.render_data?.label, "当前：开发实验室");
+assert.equal(cfg.channels.qqbot.customRuntime.scenes["qqbot:group:GROUP_OPENID"].scene, "dev-lab");
+assert.equal(sceneSet.logs?.some((item) => item.message.includes("custom scene updated")), true);
+
+const sceneBindings = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: sceneRuntime,
+  message: { ...baseMessage, content: "/bot-scene bindings" },
+  rawContent: "/bot-scene bindings",
+  now: 5_700,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(sceneBindings.handled, true);
+assert.equal(sceneBindings.persist, undefined);
+assert.equal(sceneBindings.reply?.kind, "text");
+assert.equal(sceneBindings.reply?.kind === "text" && sceneBindings.reply.text.includes("已配置自定义场景绑定"), true);
+assert.equal(sceneBindings.reply?.kind === "text" && sceneBindings.reply.text.includes("qqbot:group:GROUP_OPENID"), true);
+
+const deployRuntime = createCustomMessageFlowRuntime();
+const deploy = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: deployRuntime,
+  message: { ...baseMessage, senderId: "ADMIN_OPENID", senderName: "Admin", content: "/bot-deploy confirm /bot-upgrade --latest" },
+  rawContent: "/bot-deploy confirm /bot-upgrade --latest",
+  now: 5_800,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deploy.handled, true);
+assert.equal(deploy.persist?.deployConfirmations, true);
+assert.equal(deploy.reply?.kind, "keyboard");
+assert.equal(deploy.reply?.kind === "keyboard" && deploy.reply.text.includes("不会自动执行热更新"), true);
+assert.equal(Object.keys(deployRuntime.deployConfirmations.getState().confirmations)[0], "deploy-default-group-GROUP_OPENID-5800-1");
+
+const deployDeniedRuntime = createCustomMessageFlowRuntime();
+const deployDenied = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: deployDeniedRuntime,
+  message: { ...baseMessage, content: "/bot-deploy confirm /bot-upgrade --latest" },
+  rawContent: "/bot-deploy confirm /bot-upgrade --latest",
+  now: 5_900,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deployDenied.handled, true);
+assert.equal(deployDenied.persist?.auth, true);
+assert.equal(deployDenied.persist?.deployConfirmations, undefined);
+assert.equal(deployDenied.reply?.kind, "auth-approval");
+if (deployDenied.reply?.kind !== "auth-approval") throw new Error("expected deploy auth approval reply");
+assert.equal(deployDenied.reply.denialText.includes("权限：执行部署/升级（deploy.apply）"), true);
+assert.deepEqual(deployDeniedRuntime.deployConfirmations.getState().confirmations, {});
+
+const fallbackStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-fallback" },
+  rawContent: "/bot-fallback",
+  now: 6_000,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(fallbackStatus.handled, true);
+assert.equal(fallbackStatus.persist, undefined);
+assert.equal(fallbackStatus.reply?.kind, "text");
+assert.equal(fallbackStatus.reply?.kind === "text" && fallbackStatus.reply.text.includes("最近兜底事件"), true);
+
+const queueStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-queue" },
+  rawContent: "/bot-queue",
+  now: 6_100,
+  queueStatus: {
+    peerId: "group:GROUP_OPENID",
+    snapshot: {
+      totalPending: 7,
+      activeUsers: 2,
+      maxConcurrentUsers: 10,
+      senderPending: 3,
+      senderActiveMs: 12_000,
+      maxActiveMs: 44_000,
+    },
+  },
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(queueStatus.handled, true);
+assert.equal(queueStatus.persist, undefined);
+assert.equal(queueStatus.reply?.kind, "text");
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("当前会话：group:GROUP_OPENID"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("本会话待处理：3"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("全局待处理：7"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes("本会话活跃：12秒"), true);
+assert.equal(queueStatus.reply?.kind === "text" && queueStatus.reply.text.includes(`<qqbot-cmd-input text="/compact" show="压缩上下文"/>`), true);
+
+const unreadRuntime = createCustomMessageFlowRuntime();
+unreadRuntime.unread.recordNonMention({
+  message: {
+    accountId: "default",
+    peer: { kind: "group", id: "GROUP_OPENID" },
+    actor: { id: "MEMBER_OPENID", label: "Member" },
+    content: "hidden unread content",
+    messageId: "unread-1",
+    timestamp: 6_100,
+    mentionedBot: false,
+  },
+  cfg: {
+    enabled: true,
+    historyLimit: 10,
+    followupDelayMs: 1_000,
+    sleepDelayMs: 10_000,
+    allowAutonomousReply: false,
+    allowProactiveSend: false,
+  },
+  now: 6_100,
+});
+const unreadStatus = handleCustomSlashGatewayCommand({
+  cfg,
+  accountId: "default",
+  runtime: unreadRuntime,
+  message: { ...baseMessage, content: "/bot-unread" },
+  rawContent: "/bot-unread",
+  now: 6_200,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(unreadStatus.handled, true);
+assert.equal(unreadStatus.persist, undefined);
+assert.equal(unreadStatus.reply?.kind, "text");
+assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("自适应未读轮询状态"), true);
+assert.equal(unreadStatus.reply?.kind === "text" && unreadStatus.reply.text.includes("hidden unread content"), false);
+
+const deniedFallbackClear = handleCustomSlashGatewayCommand({
+  cfg: deniedCfg,
+  accountId: "default",
+  runtime: createCustomMessageFlowRuntime(),
+  message: { ...baseMessage, content: "/bot-fallback clear --force" },
+  rawContent: "/bot-fallback clear --force",
+  now: 6_500,
+  applyTaskWorkspaceEffects: false,
+});
+assert.equal(deniedFallbackClear.handled, true);
+assert.equal(deniedFallbackClear.persist?.auth, true);
+assert.equal(deniedFallbackClear.reply?.kind, "auth-approval");
+if (deniedFallbackClear.reply?.kind !== "auth-approval") throw new Error("expected fallback clear auth approval reply");
+assert.equal(deniedFallbackClear.reply.denialText.includes("权限：写入配置/规则（config.write）"), true);
+
+console.log("custom slash gateway adapter tests passed");

@@ -1,0 +1,33 @@
+{
+  "id": "openclaw-qqbot",
+  "name": "Luke-QQBot",
+  "description": "Luke-QQBot custom QQ Bot channel plugin with message support, cron jobs, proactive messaging, and remote Codex integration",
+  "channels": [
+    "qqbot"
+  ],
+  "extensions": [
+    "./preload.cjs"
+  ],
+  "skills": [
+    "skills/qqbot-channel",
+    "skills/qqbot-remind",
+    "skills/qqbot-media",
+    "skills/qqbot-upgrade"
+  ],
+  "capabilities": {
+    "proactiveMessaging": true,
+    "cronJobs": true
+  },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {}
+  },
+  "channelConfigs": {
+    "qqbot": {
+      "preferOver": [
+        "qqbot"
+      ]
+    }
+  }
+}

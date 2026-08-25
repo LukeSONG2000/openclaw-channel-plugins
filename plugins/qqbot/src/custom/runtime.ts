@@ -1,0 +1,143 @@
+import type { OpenClawConfig } from "openclaw/plugin-sdk";
+import { resolveCustomRuntimeConfig, resolveCustomSceneConfig, resolveCustomSceneState } from "./config.js";
+import { CustomAuthorizationRuntime, evaluateCustomAuthorization } from "./auth.js";
+import { CustomUnreadRuntime, resolveCustomUnreadConfig, type ResolvedCustomUnreadConfig } from "./unread-runtime.js";
+import { CustomProactiveBudgetRuntime, resolveCustomProactiveConfig, type ResolvedCustomProactiveConfig } from "./proactive-budget.js";
+import { CustomTaskSandboxRuntime } from "./task-sandbox.js";
+import { resolveTaskSandboxConfig, type CustomTaskSandboxConfig } from "./task-sandbox.js";
+import { CustomPollRuntime } from "./poll.js";
+import { CustomGameRuntime } from "./game.js";
+import { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
+import { CustomScheduledTaskRuntime } from "./scheduled-task.js";
+import type { CustomAuthorizationDecision, CustomCapability, CustomInboundMessage, CustomSceneConfig } from "./types.js";
+import { buildCustomSceneSystemPrompt, type ResolvedCustomScene } from "./scenes.js";
+
+export interface CustomRuntimeDecision {
+  enabled: boolean;
+  scene: CustomSceneConfig;
+  sceneState: ResolvedCustomScene;
+  sceneSystemPrompt?: string;
+  authorization?: CustomAuthorizationDecision;
+}
+
+export function inspectCustomRuntimeMessage(params: {
+  cfg: OpenClawConfig;
+  message: CustomInboundMessage;
+  capability?: Exclude<CustomCapability, "*">;
+}): CustomRuntimeDecision {
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const sceneState = resolveCustomSceneState(params.cfg, params.message.peer);
+  const scene = sceneState.config;
+  const sceneSystemPrompt = buildCustomSceneSystemPrompt(sceneState);
+  if (!runtime.enabled || !sceneState.enabled) {
+    return { enabled: false, scene, sceneState, sceneSystemPrompt };
+  }
+
+  const capability = params.capability ?? "chat.send";
+  return {
+    enabled: true,
+    scene,
+    sceneState,
+    sceneSystemPrompt,
+    authorization: evaluateCustomAuthorization({
+      runtime,
+      scene,
+      peer: params.message.peer,
+      actor: params.message.actor,
+      capability,
+    }),
+  };
+}
+
+export interface CustomMessageFlowRuntime {
+  auth: CustomAuthorizationRuntime;
+  unread: CustomUnreadRuntime;
+  proactiveBudget: CustomProactiveBudgetRuntime;
+  tasks: CustomTaskSandboxRuntime;
+  polls: CustomPollRuntime;
+  games: CustomGameRuntime;
+  deployConfirmations: CustomDeployConfirmationRuntime;
+  scheduledTasks: CustomScheduledTaskRuntime;
+}
+
+export function createCustomMessageFlowRuntime(): CustomMessageFlowRuntime {
+  return {
+    auth: new CustomAuthorizationRuntime(),
+    unread: new CustomUnreadRuntime(),
+    proactiveBudget: new CustomProactiveBudgetRuntime(),
+    tasks: new CustomTaskSandboxRuntime(),
+    polls: new CustomPollRuntime(),
+    games: new CustomGameRuntime(),
+    deployConfirmations: new CustomDeployConfirmationRuntime(),
+    scheduledTasks: new CustomScheduledTaskRuntime(),
+  };
+}
+
+export function inspectCustomUnreadConfig(params: {
+  cfg: OpenClawConfig;
+  message: CustomInboundMessage;
+}): ResolvedCustomUnreadConfig {
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
+  return resolveCustomUnreadConfig({ runtime, scene });
+}
+
+export function inspectCustomProactiveConfig(params: {
+  cfg: OpenClawConfig;
+  message: CustomInboundMessage;
+}): ResolvedCustomProactiveConfig {
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
+  return resolveCustomProactiveConfig({ runtime, scene });
+}
+
+export function inspectCustomTaskSandboxConfig(params: {
+  cfg: OpenClawConfig;
+  message: CustomInboundMessage;
+}): Required<CustomTaskSandboxConfig> {
+  const runtime = resolveCustomRuntimeConfig(params.cfg);
+  const scene = resolveCustomSceneConfig(params.cfg, params.message.peer);
+  return resolveTaskSandboxConfig(runtime.tasks, scene.tasks);
+}
+
+export {
+  CustomAuthorizationRuntime,
+  defaultSceneCapabilities,
+  evaluateCustomAuthorization,
+  isCustomRuntimeAdmin,
+} from "./auth.js";
+export {
+  applySceneDefaults,
+  buildCustomSceneSystemPrompt,
+  formatCustomPeerKey,
+  formatCustomPeerKindWildcard,
+  getCustomSceneProfile,
+  resolveCustomScene,
+} from "./scenes.js";
+export { CUSTOM_UNREAD_ACTOR_ID, CustomUnreadRuntime, resolveCustomUnreadConfig } from "./unread-runtime.js";
+export {
+  CustomProactiveBudgetRuntime,
+  resolveCustomProactiveConfig,
+} from "./proactive-budget.js";
+export { CustomTaskSandboxRuntime, resolveTaskSandboxConfig } from "./task-sandbox.js";
+export { CustomPollRuntime } from "./poll.js";
+export { CustomGameRuntime } from "./game.js";
+export { CustomDeployConfirmationRuntime } from "./deploy-confirmation.js";
+export { CustomScheduledTaskRuntime } from "./scheduled-task.js";
+export type { CustomAuthorizationCheckResult } from "./auth.js";
+export type { CustomSceneProfile, ResolvedCustomScene } from "./scenes.js";
+export type {
+  CustomProactiveBudgetDecision,
+  ResolvedCustomProactiveConfig,
+} from "./proactive-budget.js";
+export type {
+  CustomUnreadCatchupSnapshot,
+  CustomUnreadCatchupSource,
+  CustomUnreadHistoryEntry,
+  CustomUnreadIntent,
+  CustomUnreadIntentKind,
+  CustomUnreadRecordResult,
+  CustomUnreadMentionResult,
+  CustomUnreadRuntimeState,
+  ResolvedCustomUnreadConfig,
+} from "./unread-runtime.js";
