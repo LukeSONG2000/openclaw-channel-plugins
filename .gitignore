@@ -1,4 +1,7 @@
 .DS_Store
+.idea/
+.codebuddy/
+.codebuddy.zip
 .env
 .env.*
 !.env.example
@@ -6,6 +9,7 @@ node_modules/
 **/node_modules/
 **/dist/
 **/*.tgz
+**/*.zip
 *.log
 plugins/*/openclaw.json
 plugins/*/.openclaw/

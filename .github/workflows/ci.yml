@@ -20,12 +20,13 @@ jobs:
           cache: npm
           cache-dependency-path: |
             package-lock.json
+            plugins/qqbot/package-lock.json
             plugins/dingtalk/package-lock.json
       - name: Install root tools
         run: npm ci
       - name: Install QQBot dependencies
         if: matrix.channel == 'qqbot'
-        run: npm install --prefix plugins/qqbot
+        run: npm ci --prefix plugins/qqbot
       - name: Install DingTalk dependencies
         if: matrix.channel == 'dingtalk'
         run: npm ci --prefix plugins/dingtalk
