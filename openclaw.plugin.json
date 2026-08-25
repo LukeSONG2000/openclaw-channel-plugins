@@ -66,6 +66,10 @@
           },
           "defaultAccount": {
             "type": "string"
+          },
+          "adminUserId": {
+            "type": "string",
+            "description": "定制版管理员 staffId；授权申请通过私聊发送给该用户"
           }
         },
         "definitions": {
@@ -119,6 +123,10 @@
                 "type": "string",
                 "description": "DingTalk AppSecret / Client Secret"
               },
+              "adminUserId": {
+                "type": "string",
+                "description": "定制版管理员 staffId"
+              },
               "allowFrom": {
                 "type": "array",
                 "items": {
@@ -162,6 +170,9 @@
         },
         "defaultAccount": {
           "label": "Default account"
+        },
+        "adminUserId": {
+          "label": "管理员 staffId"
         }
       }
     }

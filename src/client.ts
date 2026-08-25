@@ -1,5 +1,11 @@
-import type { ResolvedDingTalkAccount, WebhookResponse, MarkdownReplyBody } from "./types.js";
+import type {
+  MarkdownReplyBody,
+  ResolvedDingTalkAccount,
+  TextReplyBody,
+  WebhookResponse,
+} from "./types.js";
 import { logger } from "./logger.js";
+import { stripDingTalkControlTags } from "./reply-filter.js";
 
 // ======================= 钉钉 API 基础封装 =======================
 
@@ -99,21 +105,11 @@ export async function replyViaWebhook(
     isAtAll?: boolean;
   }
 ): Promise<WebhookResponse> {
-  const contentPreview = content.slice(0, 50).replace(/\n/g, " ");
-  logger.log(`[回复消息] via Webhook | ${contentPreview}${content.length > 50 ? "..." : ""}`);
+  const safeContent = stripDingTalkControlTags(content);
+  const contentPreview = safeContent.slice(0, 50).replace(/\n/g, " ");
+  logger.log(`[回复消息] via Webhook | ${contentPreview}${safeContent.length > 50 ? "..." : ""}`);
 
-  const title = content.slice(0, 10).replace(/\n/g, " ");
-  const body: MarkdownReplyBody = {
-    msgtype: "markdown",
-    markdown: {
-      title,
-      text: content,
-    },
-    at: {
-      atUserIds: options?.atUserIds ?? [],
-      isAtAll: options?.isAtAll ?? false,
-    },
-  };
+  const body = buildWebhookReplyBody(safeContent, options);
 
   const response = await fetch(webhook, {
     method: "POST",
@@ -132,6 +128,32 @@ export async function replyViaWebhook(
   }
 
   return result;
+}
+
+export function buildWebhookReplyBody(
+  content: string,
+  options?: { atUserIds?: string[]; isAtAll?: boolean },
+): MarkdownReplyBody | TextReplyBody {
+  const safeContent = stripDingTalkControlTags(content);
+  const at = {
+    atUserIds: options?.atUserIds ?? [],
+    isAtAll: options?.isAtAll ?? false,
+  };
+  if (at.atUserIds.length > 0 || at.isAtAll) {
+    return {
+      msgtype: "text",
+      text: { content: safeContent },
+      at,
+    };
+  }
+  return {
+      msgtype: "markdown",
+      markdown: {
+      title: safeContent.slice(0, 10).replace(/\n/g, " "),
+      text: safeContent,
+    },
+    at,
+  };
 }
 
 // ======================= 主动发送消息（BatchSendOTO / OrgGroupSend） =======================
@@ -258,12 +280,13 @@ export async function sendTextMessage(
   content: string,
   options: SendMessageOptions
 ): Promise<SendMessageResult> {
-  const contentPreview = content.slice(0, 50).replace(/\n/g, " ");
+  const safeContent = stripDingTalkControlTags(content);
+  const contentPreview = safeContent.slice(0, 50).replace(/\n/g, " ");
   const isGroup = isGroupTarget(to);
-  logger.log(`[主动发送] 文本消息 | ${isGroup ? "群聊" : "单聊"} | to: ${to} | ${contentPreview}${content.length > 50 ? "..." : ""}`);
+  logger.log(`[主动发送] 文本消息 | ${isGroup ? "群聊" : "单聊"} | to: ${to} | ${contentPreview}${safeContent.length > 50 ? "..." : ""}`);
 
-  const title = content.slice(0, 10).replace(/\n/g, " ");
-  const result = await sendMessage(to, "sampleMarkdown", { title, text: content }, options);
+  const title = safeContent.slice(0, 10).replace(/\n/g, " ");
+  const result = await sendMessage(to, "sampleMarkdown", { title, text: safeContent }, options);
 
   logger.log(`[主动发送] 文本消息发送成功 | messageId: ${result.messageId}`);
   return result;

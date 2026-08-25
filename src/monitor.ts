@@ -8,6 +8,20 @@ import { resolveDingTalkAccount } from "./accounts.js";
 import { getDingTalkRuntime } from "./runtime.js";
 import { logger } from "./logger.js";
 import { PLUGIN_ID } from "./constants.js";
+import {
+  buildDingTalkCatchupPrompt,
+  buildDingTalkMentionContext,
+  buildDingTalkReplyPolicyPrompt,
+  DingTalkChatRuntime,
+} from "./chat-runtime.js";
+import {
+  DingTalkAuthorizationRuntime,
+  formatAuthorizationRequest,
+} from "./authorization.js";
+import { fetchDwsGroupHistory } from "./dws-history.js";
+import { sanitizeDingTalkReplyText, shouldDeliverDingTalkReply } from "./reply-filter.js";
+import { KeyedAsyncQueue } from "./message-queue.js";
+import { DingTalkMemberDirectory } from "./member-directory.js";
 
 // ============================================================================
 // 媒体信息类型定义
@@ -671,15 +685,15 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
   const pluginRuntime = getDingTalkRuntime();
 
   const account = resolveDingTalkAccount({ cfg: config, accountId });
+  const authorization = new DingTalkAuthorizationRuntime(account.adminUserId);
 
   /** 检查发送者是否在 allowFrom 白名单中 */
   const isSenderAllowed = (senderId: string): boolean => {
+    if (authorization.isAdmin(senderId)) return true;
     const allowList = account.allowFrom.map((entry) => String(entry).trim()).filter(Boolean);
-    if (allowList.length === 0 || allowList.includes("*")) {
-      return true;
-    }
     const prefixPattern = new RegExp(`^${PLUGIN_ID}:(?:user:)?`, "i");
     return allowList
+      .filter((entry) => entry !== "*")
       .map((entry) => entry.replace(prefixPattern, ""))
       .includes(senderId);
   };
@@ -808,7 +822,9 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     data: DingTalkMessageData,
     sender: ReturnType<typeof buildSenderInfo>,
     rawBody: string,
-    media?: InboundMediaContext
+    media?: InboundMediaContext,
+    commandAuthorizedOverride?: boolean,
+    groupSystemPrompt?: string,
   ) => {
     const isGroup = sender.isGroup;
     const chatType = isGroup ? "group" : "direct";
@@ -859,12 +875,13 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
       WasMentioned: checkBotMentioned(data),
       OriginatingChannel: PLUGIN_ID,
       OriginatingTo: sender.toAddress,
-      CommandAuthorized: isSenderAllowed(sender.senderId),
+      CommandAuthorized: commandAuthorizedOverride ?? isSenderAllowed(sender.senderId),
     };
 
     // 群聊特有字段
     if (isGroup) {
       baseContext.GroupSubject = sender.conversationTitle ?? sender.groupId;
+      if (groupSystemPrompt) baseContext.GroupSystemPrompt = groupSystemPrompt;
     }
 
     // 合并媒体字段
@@ -878,25 +895,62 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     return { ctxPayload, route };
   };
 
-  /** 创建回复分发器 */
-  const createReplyDispatcher = (data: DingTalkMessageData) => ({
-    deliver: async (payload: { text?: string }) => {
-      const replyText = payload.text ?? "";
-      if (!replyText) return;
+  const memberDirectory = new DingTalkMemberDirectory({ log: logger });
 
+  /** 创建回复分发器 */
+  const createReplyDispatcher = (
+    data: DingTalkMessageData,
+    options?: { proactive?: boolean; onDelivered?: () => void },
+  ) => ({
+    deliver: async (payload: {
+      text?: string;
+      isReasoning?: boolean;
+      isStatusNotice?: boolean;
+      isFallbackNotice?: boolean;
+      isCompactionNotice?: boolean;
+    }, info: { kind: "tool" | "block" | "final" }) => {
+      if (!shouldDeliverDingTalkReply(payload, info.kind)) {
+        logger.log(`reply suppressed | kind: ${info.kind}`);
+        return { visibleReplySent: false };
+      }
       const isGroup = data.conversationType === "2";
+      const replyText = sanitizeDingTalkReplyText(payload.text ?? "", {
+        requireTaggedFinal: isGroup,
+      });
+      if (!replyText) return { visibleReplySent: false };
+
       const groupId = data.openConversationId ?? data.conversationId;
+      const mentionUserIds = new Set<string>();
+      if (isGroup) {
+        try {
+          const mentionedMembers = await memberDirectory.resolve(groupId, replyText);
+          for (const member of mentionedMembers) {
+            if (member.userId) mentionUserIds.add(member.userId);
+          }
+          if (mentionedMembers.length > 0) {
+            logger.log(`[mentions] resolved for ${groupId}: ${mentionedMembers.map((member) => member.displayName).join(", ")}`);
+          }
+        } catch (error) {
+          logger.warn(`[mentions] resolution failed for ${groupId}: ${String(error)}`);
+        }
+      }
+
+      const mentionSender = isGroup && !options?.proactive && checkBotMentioned(data);
+      if (mentionSender) mentionUserIds.add(data.senderStaffId);
 
       // 优先使用 sessionWebhook 回复（群聊/单聊通用）
       if (data.sessionWebhook) {
-        const result = await replyViaWebhook(data.sessionWebhook, replyText);
+        const result = await replyViaWebhook(data.sessionWebhook, replyText, mentionUserIds.size > 0
+          ? { atUserIds: [...mentionUserIds] }
+          : undefined);
         if (result.errcode === 0) {
           recordChannelRuntimeState({
             channel: PLUGIN_ID,
             accountId,
             state: { lastOutboundAt: Date.now() },
           });
-          return;
+          options?.onDelivered?.();
+          return { visibleReplySent: true };
         }
         // webhook 失败（可能已过期），尝试主动发送 API 降级
         logger.warn(`Webhook 回复失败 (errcode: ${result.errcode}), 尝试主动发送 API 降级`);
@@ -904,6 +958,9 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
 
       // 降级：通过主动发送 API
       const to = isGroup ? `chat:${groupId}` : data.senderStaffId;
+      if (isGroup && mentionUserIds.size > 0) {
+        logger.warn(`[mentions] no usable session webhook for ${groupId}; proactive API cannot render native mentions`);
+      }
       await sendTextMessage(to, replyText, { account });
 
       recordChannelRuntimeState({
@@ -911,26 +968,53 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         accountId,
         state: { lastOutboundAt: Date.now() },
       });
+      options?.onDelivered?.();
+      return { visibleReplySent: true };
     },
     onError: (err: unknown, info: { kind: string }) => {
       logger.error(`${info.kind} reply failed:`, err);
+    },
+    onSkip: (_payload: unknown, info: { reason: string }) => {
+      logger.log(`reply skipped | reason: ${info.reason}`);
     },
   });
 
   /** 异步处理消息（不阻塞钉钉响应） */
   const processMessageAsync = async (
     data: DingTalkMessageData,
-    media?: InboundMediaContext
-  ) => {
+    media?: InboundMediaContext,
+    options?: {
+      rawBodyOverride?: string;
+      proactive?: boolean;
+      commandAuthorizedOverride?: boolean;
+      onDelivered?: () => void;
+    },
+  ): Promise<boolean> => {
     try {
       // 1. 构建发送者信息
       const sender = buildSenderInfo(data);
 
       // 2. 构建消息体
-      const { rawBody } = buildMessageBody(data, media);
+      const { rawBody: originalRawBody } = buildMessageBody(data, media);
+      const rawBody = options?.rawBodyOverride ?? originalRawBody;
+      const configuredGroupPrompt = sender.groupId
+        ? resolveGroupConfig(sender.groupId)?.systemPrompt?.trim()
+        : undefined;
+      const runtimeReplyPolicy = buildDingTalkReplyPolicyPrompt({
+        proactive: options?.proactive,
+        wasMentioned: checkBotMentioned(data),
+      });
+      const groupSystemPrompt = [configuredGroupPrompt, runtimeReplyPolicy].filter(Boolean).join("\n\n") || undefined;
 
       // 3. 构建入站上下文（含路由信息）
-      const { ctxPayload, route } = buildInboundContext(data, sender, rawBody, media);
+      const { ctxPayload, route } = buildInboundContext(
+        data,
+        sender,
+        rawBody,
+        media,
+        options?.commandAuthorizedOverride,
+        groupSystemPrompt,
+      );
 
       // 4. 持久化 session 元数据 + 更新回复路由（参照 Discord/Telegram）
       const storePath = pluginRuntime.channel.session.resolveStorePath(undefined, {
@@ -956,16 +1040,30 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
       });
 
       // 5. 分发消息给 OpenClaw
+      let delivered = false;
       const { queuedFinal } = await pluginRuntime.channel.reply.dispatchReplyWithBufferedBlockDispatcher({
         ctx: ctxPayload,
         cfg: config,
-        dispatcherOptions: createReplyDispatcher(data),
-        replyOptions: {},
+        dispatcherOptions: createReplyDispatcher(data, {
+          ...options,
+          onDelivered: () => {
+            delivered = true;
+          },
+        }),
+        replyOptions: {
+          suppressDefaultToolProgressMessages: true,
+          suppressToolErrorWarnings: true,
+        },
       });
 
-      if (!queuedFinal) {
+      if (!queuedFinal && !delivered) {
         logger.log(`no response generated for message from ${sender.label}`);
       }
+      if (options?.proactive && !queuedFinal && !delivered) {
+        logger.log(`[chat] no visible reply selected; unread batch consumed for ${sender.label}`);
+      }
+      if (delivered) options?.onDelivered?.();
+      return queuedFinal || delivered || options?.proactive === true;
     } catch (error) {
       logger.error("处理消息出错:", error);
       recordChannelRuntimeState({
@@ -975,8 +1073,71 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           lastError: error instanceof Error ? error.message : String(error),
         },
       });
+      return false;
     }
   };
+
+  const messageQueue = new KeyedAsyncQueue();
+  const processMessageQueued = (
+    data: DingTalkMessageData,
+    media?: InboundMediaContext,
+    options?: {
+      rawBodyOverride?: string;
+      proactive?: boolean;
+      commandAuthorizedOverride?: boolean;
+      onDelivered?: () => void;
+    },
+  ): Promise<boolean> => {
+    const isGroup = data.conversationType === "2";
+    const conversationId = isGroup
+      ? (data.openConversationId ?? data.conversationId)
+      : data.senderStaffId;
+    const queueKey = `${isGroup ? "group" : "direct"}:${conversationId}`;
+    return messageQueue.run(queueKey, () => processMessageAsync(data, media, options));
+  };
+
+  const chatRuntime = new DingTalkChatRuntime({
+    accountId,
+    log: logger,
+    fetchHistory: ({ groupId, since }) => fetchDwsGroupHistory({
+      groupId,
+      since,
+      selfNames: [account.name ?? "R2-D2"],
+    }),
+    onCatchup: async ({ groupId, target, entries }) => {
+      const last = entries[entries.length - 1];
+      const mediaItems: MediaItem[] = entries.flatMap((entry) => entry.media ?? []);
+      const media: InboundMediaContext | undefined = mediaItems.length > 0
+        ? { items: mediaItems, primary: mediaItems[0] }
+        : undefined;
+      const synthetic: DingTalkMessageData = {
+        conversationId: target.conversationId,
+        openConversationId: target.openConversationId,
+        conversationTitle: target.conversationTitle,
+        conversationType: "2",
+        chatbotCorpId: "",
+        chatbotUserId: "",
+        msgId: `dingtalk-chat-${groupId}-${Date.now()}`,
+        msgtype: "text",
+        createAt: String(Date.now()),
+        senderNick: last?.senderName ?? "群聊成员",
+        senderStaffId: last?.senderId ?? "__dingtalk_chat__",
+        senderCorpId: "",
+        robotCode: account.clientId,
+        isInAtList: false,
+        sessionWebhook: target.sessionWebhook,
+        sessionWebhookExpiredTime: target.sessionWebhookExpiredTime,
+        text: { content: buildDingTalkCatchupPrompt(entries) },
+      };
+      logger.log(`[chat] 轮询命中未读消息 | groupId: ${groupId} | count: ${entries.length}`);
+      const replied = await processMessageQueued(synthetic, media, {
+        rawBodyOverride: synthetic.text?.content,
+        proactive: true,
+        commandAuthorizedOverride: false,
+      });
+      return replied;
+    },
+  });
 
   // 处理消息的回调函数（立即返回成功，异步处理）
   const handleMessage = async (message: DWClientDownStream) => {
@@ -984,6 +1145,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
       const data = JSON.parse(message.data) as DingTalkMessageData;
       const isGroup = data.conversationType === "2";
       const groupId = data.openConversationId ?? data.conversationId;
+      if (isGroup) memberDirectory.observe(groupId, data.senderStaffId, data.senderNick);
 
       // 群聊策略检查
       if (isGroup) {
@@ -1029,6 +1191,44 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         return;
       }
 
+      const commandText = data.text?.content?.trim() ?? "";
+      const authCommand = commandText.match(/^\/ding-auth\s+(approve|deny)\s+([a-z0-9]+)\s*$/i);
+      if (authCommand) {
+        if (!authorization.isAdmin(data.senderStaffId) || isGroup) {
+          await sendTextMessage(data.senderStaffId, "该命令仅限管理员私聊使用。", { account });
+          return;
+        }
+        const [, action, requestId] = authCommand;
+        const request = action.toLowerCase() === "approve"
+          ? authorization.take(requestId)
+          : authorization.deny(requestId);
+        if (!request) {
+          await sendTextMessage(account.adminUserId, "授权申请不存在或已过期。", { account });
+          return;
+        }
+        if (action.toLowerCase() === "approve") {
+          await sendTextMessage(account.adminUserId, `已批准 ${request.id}，正在执行原命令。`, { account });
+          void processMessageQueued(request.data, undefined, { commandAuthorizedOverride: true });
+        } else {
+          await sendTextMessage(account.adminUserId, `已拒绝 ${request.id}。`, { account });
+          const target = request.data.conversationType === "2"
+            ? `chat:${request.data.openConversationId ?? request.data.conversationId}`
+            : request.data.senderStaffId;
+          await sendTextMessage(target, `@${request.data.senderNick} 授权申请已被管理员拒绝。`, { account });
+        }
+        return;
+      }
+
+      if (authorization.isRestrictedCommand(data)) {
+        const request = authorization.create(data);
+        await sendTextMessage(account.adminUserId, formatAuthorizationRequest(request), { account });
+        const target = isGroup ? `chat:${groupId}` : data.senderStaffId;
+        await sendTextMessage(target, isGroup
+          ? `@${data.senderNick} 已向管理员提交授权申请。`
+          : "已向管理员提交授权申请。", { account });
+        return;
+      }
+
       // 异步处理消息
       handler.handle(data, account)
         .then((result) => {
@@ -1039,8 +1239,45 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           if (result.skipProcessing) {
             return;
           }
-          // 分发消息给 OpenClaw
-          return processMessageAsync(data, result.media);
+          if (isGroup && !checkBotMentioned(data) && !commandText.startsWith("/")) {
+            const body = buildMessageBody(data, result.media).rawBody;
+            const pending = chatRuntime.record(groupId, {
+              conversationId: data.conversationId,
+              openConversationId: data.openConversationId,
+              conversationTitle: data.conversationTitle,
+              sessionWebhook: data.sessionWebhook,
+              sessionWebhookExpiredTime: data.sessionWebhookExpiredTime,
+            }, {
+              messageId: data.msgId,
+              senderId: data.senderStaffId,
+              senderName: data.senderNick,
+              body,
+              timestamp: parseInt(data.createAt) || Date.now(),
+            });
+            logger.log(`[chat] 未@消息已进入轮询队列 | groupId: ${groupId} | pending: ${pending}`);
+            return;
+          }
+
+          let rawBodyOverride: string | undefined;
+          if (isGroup && checkBotMentioned(data)) {
+            const history = chatRuntime.prepareMentionReply(groupId);
+            if (history.length > 0) {
+              const current = buildMessageBody(data, result.media).rawBody;
+              rawBodyOverride = `${buildDingTalkMentionContext(history)}\n\n当前@消息（本轮只回复这一条）：${data.senderNick}: ${current}`;
+            }
+          }
+          return processMessageQueued(data, result.media, {
+            rawBodyOverride,
+            onDelivered: isGroup && checkBotMentioned(data)
+              ? () => chatRuntime.markMentionReplyComplete(groupId, {
+                  conversationId: data.conversationId,
+                  openConversationId: data.openConversationId,
+                  conversationTitle: data.conversationTitle,
+                  sessionWebhook: data.sessionWebhook,
+                  sessionWebhookExpiredTime: data.sessionWebhookExpiredTime,
+                })
+              : undefined,
+          });
         })
         .catch((err) => {
           const errMsg = getErrorMessage(err);
@@ -1118,6 +1355,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     const stopHandler = () => {
       logger.log(`[${accountId}] 停止 provider`);
       client.disconnect();
+      chatRuntime.dispose();
       recordChannelRuntimeState({
         channel: PLUGIN_ID,
         accountId,

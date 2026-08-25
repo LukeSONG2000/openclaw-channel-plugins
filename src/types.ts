@@ -43,6 +43,8 @@ export const DingTalkAccountConfigSchema = z.object({
   groupAllowFrom: z.array(z.union([z.string(), z.number()])).optional(),
   /** 按群 ID 的独立配置 */
   groups: z.record(z.string(), DingTalkGroupConfigSchema).optional(),
+  /** 定制版管理员 staffId；授权申请会私聊发送给该用户 */
+  adminUserId: z.string().optional(),
 });
 
 export type DingTalkAccountConfig = z.infer<typeof DingTalkAccountConfigSchema>;
@@ -105,6 +107,8 @@ export interface ResolvedDingTalkAccount {
   groupAllowFrom: Array<string | number>;
   /** 按群 ID 的独立配置 */
   groups: Record<string, DingTalkGroupConfig>;
+  /** 定制版管理员 staffId */
+  adminUserId: string;
 }
 
 // ======================= Message Types =======================

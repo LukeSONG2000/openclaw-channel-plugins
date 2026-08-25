@@ -152,6 +152,7 @@ export function resolveDingTalkAccount(params: {
     groupPolicy: merged.groupPolicy ?? "open",
     groupAllowFrom: merged.groupAllowFrom ?? [],
     groups: merged.groups ?? {},
+    adminUserId: merged.adminUserId?.trim() || "51135122",
   };
 }
 
