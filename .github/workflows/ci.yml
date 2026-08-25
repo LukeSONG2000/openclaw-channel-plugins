@@ -1,0 +1,33 @@
+name: Channel plugin checks
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        channel: [qqbot, dingtalk]
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: |
+            package-lock.json
+            plugins/dingtalk/package-lock.json
+      - name: Install root tools
+        run: npm ci
+      - name: Install QQBot dependencies
+        if: matrix.channel == 'qqbot'
+        run: npm install --prefix plugins/qqbot
+      - name: Install DingTalk dependencies
+        if: matrix.channel == 'dingtalk'
+        run: npm ci --prefix plugins/dingtalk
+      - name: Check channel
+        run: node scripts/check-all.mjs ${{ matrix.channel }}

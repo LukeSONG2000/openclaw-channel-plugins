@@ -1,0 +1,15 @@
+{
+  "name": "@lukesong/openclaw-channel-plugins",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Luke's customized OpenClaw channel plugins",
+  "scripts": {
+    "bootstrap": "npm install --prefix plugins/qqbot && npm ci --prefix plugins/dingtalk",
+    "check": "node scripts/check-all.mjs",
+    "check:qqbot": "node scripts/check-all.mjs qqbot",
+    "check:dingtalk": "node scripts/check-all.mjs dingtalk"
+  },
+  "devDependencies": {
+    "tsx": "^4.20.6"
+  }
+}
