@@ -1,0 +1,78 @@
+{
+  "name": "@largezhou/ddingtalk",
+  "version": "2.0.4",
+  "description": "OpenClaw DingTalk (钉钉) channel plugin",
+  "main": "./dist/index.js",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/largezhou/openclaw-dingtalk.git"
+  },
+  "homepage": "https://github.com/largezhou/openclaw-dingtalk#readme",
+  "bugs": {
+    "url": "https://github.com/largezhou/openclaw-dingtalk/issues"
+  },
+  "files": [
+    "dist",
+    "src",
+    "index.ts",
+    "openclaw.plugin.json",
+    "README.md",
+    "README.en.md"
+  ],
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "test": "tsx tests/custom-runtime.test.ts",
+    "prepack": "npm run build"
+  },
+  "keywords": [
+    "dingtalk",
+    "openclaw",
+    "robot",
+    "stream",
+    "typescript"
+  ],
+  "author": "largezhou",
+  "license": "MIT",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
+  "dependencies": {
+    "dingtalk-stream": "^2.1.4",
+    "zod": "^4.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^22.0.0",
+    "dotenv": "^17.3.1",
+    "tsx": "^4.6.0",
+    "typescript": "^5.3.0"
+  },
+  "peerDependencies": {
+    "openclaw": ">=2026.3.22"
+  },
+  "openclaw": {
+    "extensions": [
+      "./dist/index.js"
+    ],
+    "channel": {
+      "id": "ddingtalk",
+      "label": "DingTalk",
+      "selectionLabel": "DingTalk",
+      "docsPath": "/channels/ddingtalk",
+      "docsLabel": "ddingtalk",
+      "blurb": "DingTalk enterprise robot with Stream mode for Chinese market.",
+      "aliases": [
+        "dingtalk",
+        "dingding",
+        "钉钉"
+      ],
+      "order": 80,
+      "quickstartAllowFrom": true
+    },
+    "install": {
+      "npmSpec": "@largezhou/ddingtalk",
+      "localPath": "",
+      "defaultChoice": "npm"
+    }
+  }
+}

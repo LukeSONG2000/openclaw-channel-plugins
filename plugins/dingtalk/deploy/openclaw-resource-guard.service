@@ -1,0 +1,10 @@
+[Unit]
+Description=OpenClaw automation browser resource guard
+After=openclaw-gateway.service
+
+[Service]
+Type=oneshot
+ExecStart=%h/.local/bin/openclaw-resource-guard
+Nice=-5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
