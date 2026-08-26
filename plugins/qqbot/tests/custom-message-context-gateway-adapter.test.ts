@@ -208,6 +208,73 @@ function baseGroupDispatch(overrides: Record<string, unknown> = {}) {
   assert.equal(attachmentCalls.some((call) => call[0]?.url === "https://example.com/history.png"), true);
 }
 
+{
+  const unread = new CustomUnreadRuntime();
+  const unreadCfg = resolveCustomUnreadConfig({ runtime: { enabled: true }, scene: { scene: "chat" } });
+  for (const [index, url] of ["old.png", "middle.png", "latest.png"].entries()) {
+    unread.recordNonMention({
+      cfg: unreadCfg,
+      message: {
+        accountId: "default",
+        peer: { kind: "group", id: "GROUP_OPENID" },
+        actor: { id: `MEMBER_${index}`, label: `Member ${index}` },
+        content: `history image ${index}`,
+        messageId: `hist-image-${index}`,
+        timestamp: 1_000 + index,
+        mentionedBot: false,
+        attachments: [{ contentType: "image/png", url: `https://example.com/${url}`, filename: url }],
+      },
+      now: 1_000 + index,
+    });
+  }
+  const attachmentCalls: any[] = [];
+  const result = await runCustomMessageContextGateway({
+    cfg: { channels: { qqbot: { customRuntime: { enabled: true } } } } as any,
+    account: {
+      accountId: "default",
+      appId: "APP",
+      config: { allowFrom: ["*"] },
+    } as any,
+    event: { ...groupMessage, content: "@bot 这张图是什么", messageId: "mention-latest-image" },
+    ingress: baseIngress(groupMessage),
+    unread,
+    groupHistories: new Map(),
+    hasTTS: false,
+    processAttachments: async (attachments) => {
+      attachmentCalls.push(attachments ?? []);
+      return attachments?.length
+        ? {
+            ...emptyProcessed,
+            imageUrls: attachments.map((attachment) => `/tmp/${attachment.filename}`),
+            imageMediaTypes: attachments.map(() => "image/png"),
+            attachmentLocalPaths: attachments.map((attachment) => `/tmp/${attachment.filename}`),
+          }
+        : emptyProcessed;
+    },
+    formatVoiceText: () => "",
+    parseFaceTags: (content) => content,
+    stripMentionText: (text) => text,
+    getRefEntry: () => null,
+    setRefEntry: () => {},
+    formatRefEntry: () => "ref",
+    formatMessageReference: async () => "message ref",
+    formatInboundEnvelope: (input) => `BODY:${input.body}`,
+    groupDispatch: baseGroupDispatch(),
+    resolveHistoryLimit: () => 10,
+    formatSubMessageContent: (message) => message.content,
+    formatMergedEnvelope: (input) => `MERGED:${input.body}`,
+    formatHistoryEnvelope: (entry) => `HISTORY:${entry.body}`,
+    finalizeInboundContext: (payload) => payload,
+  });
+
+  assert.equal(result.action, "continue");
+  assert.equal((result as any).ctxPayload.MediaPath, "/tmp/latest.png");
+  assert.deepEqual(
+    attachmentCalls.filter((call) => call.length > 0).map((call) => call.map((attachment: any) => attachment.url)),
+    [["https://example.com/latest.png"]],
+  );
+}
+
 assert.equal(resolveCommandAuthorized(undefined, "USER"), true);
 assert.equal(resolveCommandAuthorized(["*"], "USER"), true);
 assert.equal(resolveCommandAuthorized(["user"], "USER"), true);

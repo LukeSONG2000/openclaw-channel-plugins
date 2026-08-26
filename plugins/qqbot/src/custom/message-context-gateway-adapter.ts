@@ -19,6 +19,9 @@ import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
 
+const CUSTOM_MENTION_HISTORY_IMAGE_LIMIT = 1;
+const CUSTOM_AUTONOMOUS_HISTORY_IMAGE_LIMIT = 4;
+
 export interface CustomMessageContextGatewayLogger {
   info?: (msg: string) => void;
   error?: (msg: string) => void;
@@ -164,6 +167,9 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     account: { accountId: account.accountId, appId: account.appId },
     peerId: messageRoute.peerId,
     history: groupDispatch.customUnreadHistoryForEvent,
+    maxImages: groupDispatch.wasMentioned
+      ? (inboundPrepared.processed.imageUrls.length > 0 ? 0 : CUSTOM_MENTION_HISTORY_IMAGE_LIMIT)
+      : CUSTOM_AUTONOMOUS_HISTORY_IMAGE_LIMIT,
     processAttachments: params.processAttachments,
     log: params.log,
   });
@@ -245,10 +251,11 @@ async function prepareCustomUnreadHistoryImageMedia<TConfig extends OpenClawConf
   account: Pick<ResolvedQQBotAccount, "accountId" | "appId">;
   peerId: string;
   history?: HistoryEntry[];
+  maxImages: number;
   processAttachments: RunCustomMessageContextGatewayParams<TConfig>["processAttachments"];
   log?: CustomMessageContextGatewayLogger;
 }): Promise<CustomInboundMediaContext | null> {
-  const attachments = rawImageAttachmentsFromHistory(params.history);
+  const attachments = rawImageAttachmentsFromHistory(params.history, params.maxImages);
   if (attachments.length === 0) return null;
   const processed = await params.processAttachments(attachments, {
     appId: params.account.appId,
@@ -261,11 +268,15 @@ async function prepareCustomUnreadHistoryImageMedia<TConfig extends OpenClawConf
   return media;
 }
 
-function rawImageAttachmentsFromHistory(history?: HistoryEntry[]): RawAttachment[] {
+function rawImageAttachmentsFromHistory(history: HistoryEntry[] | undefined, maxImages: number): RawAttachment[] {
+  if (maxImages <= 0) return [];
   const attachments: RawAttachment[] = [];
   const seen = new Set<string>();
-  for (const entry of history ?? []) {
-    for (const att of entry.attachments ?? []) {
+  const entries = history ?? [];
+  outer: for (let entryIndex = entries.length - 1; entryIndex >= 0; entryIndex -= 1) {
+    const entryAttachments = entries[entryIndex]?.attachments ?? [];
+    for (let attachmentIndex = entryAttachments.length - 1; attachmentIndex >= 0; attachmentIndex -= 1) {
+      const att = entryAttachments[attachmentIndex]!;
       if (att.type !== "image") continue;
       const url = att.url || att.localPath;
       if (!url) continue;
@@ -278,9 +289,10 @@ function rawImageAttachmentsFromHistory(history?: HistoryEntry[]): RawAttachment
         url,
         filename: att.filename,
       });
+      if (attachments.length >= maxImages) break outer;
     }
   }
-  return attachments;
+  return attachments.reverse();
 }
 
 function mergeCustomInboundMedia(
