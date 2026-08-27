@@ -19,6 +19,7 @@ import { getQQBotRuntime } from "./runtime.js";
 import { saveCredentialBackup, loadCredentialBackup } from "./credential-backup.js";
 import { initApiConfig } from "./api.js";
 import { getApprovalHandler } from "./approval-handler.js";
+import { mapQQBotGroupToolPolicy } from "./group-tool-policy.js";
 
 /** 检查 payload 是否为审批消息（与 getExecApprovalReplyMetadata 等效，内联避免版本兼容问题） */
 function isApprovalPayload(payload: unknown): boolean {
@@ -96,11 +97,7 @@ export const qqbotPlugin: ChannelPlugin<ResolvedQQBotAccount> = {
     resolveToolPolicy: ({ cfg, accountId, groupId }) => {
       if (!groupId) return undefined;
       const policy = resolveToolPolicy(cfg, groupId, accountId ?? undefined);
-      // 将简单字符串策略映射为 GroupToolPolicyConfig 对象
-      if (policy === "full") return undefined; // full = 默认不限制
-      if (policy === "none") return { allow: [], deny: ["*"] };
-      // restricted: 默认空 allow（框架会使用内置 restricted 列表）
-      return { allow: [] };
+      return mapQQBotGroupToolPolicy(policy);
     },
 
     /** QQ Bot 平台特有的群聊行为提示 */
