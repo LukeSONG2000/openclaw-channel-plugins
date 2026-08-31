@@ -55,6 +55,50 @@ assert.equal(processed[2]!._customUnreadSnapshotId, "snapshot-1");
 assert.equal(processed[2]!._noMerge, true);
 assert.equal(processed[3]!.messageId, "normal-2");
 
+const exactProcessed: QueuedMessage[] = [];
+let releaseExactBlocker: (() => void) | undefined;
+const exactQueue = createMessageQueue({
+  accountId: "default",
+  isAborted: () => false,
+});
+exactQueue.startProcessor(async (msg) => {
+  exactProcessed.push(msg);
+  if (msg.messageId === "exact-blocker") {
+    await new Promise<void>((resolve) => {
+      releaseExactBlocker = resolve;
+    });
+  }
+});
+exactQueue.enqueue(groupMessage("exact-blocker"));
+await new Promise((resolve) => setTimeout(resolve, 0));
+exactQueue.enqueue(groupMessage("exact-first", {
+  senderId: "FIRST_USER",
+  senderName: "First",
+  content: "first body",
+}));
+exactQueue.enqueue(groupMessage("exact-second", {
+  senderId: "SECOND_USER",
+  senderName: "Second",
+  content: "second body",
+  attachments: [{ content_type: "image/png", url: "https://example.com/second.png" }],
+}));
+releaseExactBlocker?.();
+await new Promise((resolve) => setTimeout(resolve, 0));
+await new Promise((resolve) => setTimeout(resolve, 0));
+
+assert.deepEqual(exactProcessed.map((msg) => msg.messageId), [
+  "exact-blocker",
+  "exact-first",
+  "exact-second",
+]);
+assert.equal(exactProcessed[1]!.senderId, "FIRST_USER");
+assert.equal(exactProcessed[1]!.content, "first body");
+assert.equal(exactProcessed[2]!.senderId, "SECOND_USER");
+assert.equal(exactProcessed[2]!.content, "second body");
+assert.equal(exactProcessed[2]!.attachments?.[0]?.url, "https://example.com/second.png");
+assert.equal(exactProcessed[1]!._mergedCount, undefined);
+assert.equal(exactProcessed[2]!._mergedCount, undefined);
+
 const immediateProcessed: QueuedMessage[] = [];
 const immediateQueue = createMessageQueue({
   accountId: "default",
@@ -119,5 +163,99 @@ assert.deepEqual(blockedPeerProcessed.map((msg) => msg.messageId), [
   "blocking-peer",
   "urgent-while-peer-blocked",
 ]);
+
+const priorityProcessed: QueuedMessage[] = [];
+let releasePriorityBlocker: (() => void) | undefined;
+const priorityQueue = createMessageQueue({
+  accountId: "default",
+  isAborted: () => false,
+});
+priorityQueue.startProcessor(async (msg) => {
+  priorityProcessed.push(msg);
+  if (msg.messageId === "priority-blocker") {
+    await new Promise<void>((resolve) => {
+      releasePriorityBlocker = resolve;
+    });
+  }
+});
+priorityQueue.enqueue(groupMessage("priority-blocker"));
+await new Promise((resolve) => setTimeout(resolve, 0));
+priorityQueue.enqueue(groupMessage("background", {
+  _queuePriority: "background",
+  _customUnreadSnapshotId: "snapshot-background",
+  _noMerge: true,
+}));
+priorityQueue.enqueue(groupMessage("mention", {
+  eventType: "GROUP_AT_MESSAGE_CREATE",
+  mentions: [{ is_you: true }],
+}));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(priorityProcessed.map((msg) => msg.messageId), [
+  "priority-blocker",
+  "mention",
+]);
+assert.equal(priorityProcessed[1]!._queueIsolatedSession, true);
+releasePriorityBlocker?.();
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(priorityProcessed.map((msg) => msg.messageId), [
+  "priority-blocker",
+  "mention",
+  "background",
+]);
+
+const fifoProcessed: QueuedMessage[] = [];
+let releaseFifoBlocker: (() => void) | undefined;
+const fifoQueue = createMessageQueue({
+  accountId: "default",
+  isAborted: () => false,
+  maxConcurrentUsers: 1,
+});
+fifoQueue.startProcessor(async (msg) => {
+  fifoProcessed.push(msg);
+  if (msg.messageId === "fifo-blocker") {
+    await new Promise<void>((resolve) => {
+      releaseFifoBlocker = resolve;
+    });
+  }
+});
+fifoQueue.enqueue(groupMessage("fifo-blocker"));
+await new Promise((resolve) => setTimeout(resolve, 0));
+fifoQueue.enqueue(groupMessage("mention-first", { eventType: "GROUP_AT_MESSAGE_CREATE" }));
+fifoQueue.enqueue(groupMessage("mention-second", { eventType: "GROUP_AT_MESSAGE_CREATE" }));
+releaseFifoBlocker?.();
+await new Promise((resolve) => setTimeout(resolve, 0));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.deepEqual(fifoProcessed.map((msg) => msg.messageId), [
+  "fifo-blocker",
+  "mention-first",
+  "mention-second",
+]);
+
+let preemptCalls = 0;
+let releaseBackground: (() => void) | undefined;
+const preemptProcessed: QueuedMessage[] = [];
+const preemptQueue = createMessageQueue({
+  accountId: "default",
+  isAborted: () => false,
+  abortActiveBackground: () => {
+    preemptCalls += 1;
+    releaseBackground?.();
+    return true;
+  },
+});
+preemptQueue.startProcessor(async (msg) => {
+  preemptProcessed.push(msg);
+  if (msg.messageId === "active-background") {
+    await new Promise<void>((resolve) => {
+      releaseBackground = resolve;
+    });
+  }
+});
+preemptQueue.enqueue(groupMessage("active-background", { _queuePriority: "background" }));
+await new Promise((resolve) => setTimeout(resolve, 0));
+preemptQueue.enqueue(groupMessage("preempting-mention", { eventType: "GROUP_AT_MESSAGE_CREATE" }));
+await new Promise((resolve) => setTimeout(resolve, 0));
+assert.equal(preemptCalls, 1);
+assert.equal(preemptProcessed.some((msg) => msg.messageId === "preempting-mention"), true);
 
 console.log("message queue tests passed");

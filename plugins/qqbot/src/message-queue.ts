@@ -7,6 +7,10 @@ const DEFAULT_GLOBAL_QUEUE_SIZE = 1000;
 const DEFAULT_PER_PEER_QUEUE_SIZE = 20;
 const DEFAULT_GROUP_QUEUE_SIZE = 50;
 const DEFAULT_MAX_CONCURRENT_USERS = 10;
+const DEFAULT_MAX_CONCURRENT_BACKGROUND = 2;
+const DEFAULT_MAX_CONCURRENT_MENTIONS_PER_PEER = 3;
+
+export type MessageQueuePriority = "mention" | "normal" | "background";
 
 /**
  * 消息队列项类型（用于异步处理消息，防止阻塞心跳）
@@ -46,6 +50,12 @@ export interface QueuedMessage {
   _customUnreadSnapshotId?: string;
   /** 自定义 unread runtime 使用的历史快照 */
   _customUnreadSnapshot?: HistoryEntry[];
+  /** 已标记为已读、仅用于辅助理解的近期上下文 */
+  _customUnreadReadContext?: HistoryEntry[];
+  /** 轮询回复允许原生 @ 的本次未读成员白名单 */
+  _customUnreadMentionActorIds?: string[];
+  /** 被明确 @ 时，发送层必须原生 @ 的当前成员 */
+  _customReplyMentionActorId?: string;
   /** 自定义消息流要求跳过群消息合并 */
   _noMerge?: boolean;
   /** 由插件级 slash 命令完成前置鉴权后委托给 AI 的内部消息。 */
@@ -53,6 +63,14 @@ export interface QueuedMessage {
     command: string;
     capability?: string;
   };
+  /** 队列优先级：真实 @ 优先，轮询合成消息后台执行。 */
+  _queuePriority?: MessageQueuePriority;
+  /** 性能追踪：消息进入插件队列的时间。 */
+  _queueEnqueuedAt?: number;
+  /** 性能追踪：消息从插件队列开始处理的时间。 */
+  _queueStartedAt?: number;
+  /** 同群并发 @ 使用隔离会话，避免共享会话的单运行锁继续串行阻塞。 */
+  _queueIsolatedSession?: boolean;
 }
 
 export interface MessageQueueContext {
@@ -72,6 +90,12 @@ export interface MessageQueueContext {
   globalQueueSize?: number;
   /** 最大并发处理用户数（默认 10） */
   maxConcurrentUsers?: number;
+  /** 最大后台轮询并发数（默认 2，为实时消息保留槽位） */
+  maxConcurrentBackground?: number;
+  /** 每个群最多并发处理的 @ 数（默认 3） */
+  maxConcurrentMentionsPerPeer?: number;
+  /** 中止当前 peer 的后台模型运行；仅在真实 @ 抢占后台轮询时调用。 */
+  abortActiveBackground?: (peerId: string) => boolean;
 }
 
 export interface MessageQueue {
@@ -85,85 +109,9 @@ export interface MessageQueue {
   executeImmediate: (msg: QueuedMessage) => void;
 }
 
-// ── 群消息合并工具函数 ──
-
 /** 判断 peerId 是否属于群聊 */
 const isGroupPeer = (peerId: string): boolean =>
   peerId.startsWith("group:") || peerId.startsWith("guild:");
-
-/**
- * 将多条群消息合并为一条，用于群聊场景下排队消息的批量处理。
- * - content 拼接为多行，每行带发送者前缀
- * - 附件合并
- * - messageId / msgIdx / timestamp 取最后一条（用于回复引用）
- * - mentions 合并去重
- * - 如果有任意一条 @了你（is_you），合并结果也标记 @你
- * - senderIsBot 只要有一条不是 bot 就算非 bot
- */
-function mergeGroupMessages(batch: QueuedMessage[]): QueuedMessage {
-  if (batch.length === 1) return batch[0];
-
-  const last = batch[batch.length - 1];
-  const first = batch[0];
-
-  // 拼接内容：每条消息带发送者前缀
-  const mergedContent = batch
-    .map((m) => {
-      const name = m.senderName ?? m.senderId;
-      return `[${name}]: ${m.content}`;
-    })
-    .join("\n");
-
-  // 合并附件
-  const mergedAttachments: QueuedMessage["attachments"] = [];
-  for (const m of batch) {
-    if (m.attachments?.length) {
-      mergedAttachments.push(...m.attachments);
-    }
-  }
-
-  // 合并 mentions（去重 by member_openid/id）
-  const seenMentionIds = new Set<string>();
-  const mergedMentions: NonNullable<QueuedMessage["mentions"]> = [];
-  let hasAtYouEvent = false;
-  for (const m of batch) {
-    if (m.eventType === "GROUP_AT_MESSAGE_CREATE") {
-      hasAtYouEvent = true;
-    }
-    if (m.mentions) {
-      for (const mt of m.mentions) {
-        const key = mt.member_openid ?? mt.id ?? mt.user_openid ?? "";
-        if (key && seenMentionIds.has(key)) continue;
-        if (key) seenMentionIds.add(key);
-        mergedMentions.push(mt);
-      }
-    }
-  }
-
-  // senderIsBot: 只要有一条来自非 bot 用户，就算非 bot
-  const allFromBot = batch.every((m) => m.senderIsBot);
-
-  return {
-    type: last.type,
-    senderId: last.senderId,
-    senderName: last.senderName,
-    senderIsBot: allFromBot,
-    content: mergedContent,
-    messageId: last.messageId,
-    timestamp: last.timestamp,
-    channelId: last.channelId,
-    guildId: last.guildId,
-    groupOpenid: last.groupOpenid,
-    attachments: mergedAttachments.length > 0 ? mergedAttachments : undefined,
-    refMsgIdx: first.refMsgIdx,
-    msgIdx: last.msgIdx,
-    eventType: hasAtYouEvent ? "GROUP_AT_MESSAGE_CREATE" : last.eventType,
-    mentions: mergedMentions.length > 0 ? mergedMentions : undefined,
-    messageScene: last.messageScene,
-    _mergedCount: batch.length,
-    _mergedMessages: batch.length > 1 ? batch : undefined,
-  };
-}
 
 /**
  * 创建按用户并发的消息队列（同用户串行，跨用户并行）
@@ -171,7 +119,7 @@ function mergeGroupMessages(batch: QueuedMessage[]): QueuedMessage {
  * 内置群消息增强：
  * - 群聊 / 私聊使用不同队列上限
  * - 群聊溢出时优先丢弃 bot 消息
- * - drain 时自动合并群聊排队消息（斜杠命令单独处理）
+ * - 群聊排队消息逐条处理，保留各自的发送者、附件和已读状态
  */
 export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
   const { accountId, log } = ctx;
@@ -179,10 +127,21 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
   const peerQueueSize = ctx.peerQueueSize ?? DEFAULT_PER_PEER_QUEUE_SIZE;
   const groupQueueSize = ctx.groupQueueSize ?? DEFAULT_GROUP_QUEUE_SIZE;
   const maxConcurrentUsers = ctx.maxConcurrentUsers ?? DEFAULT_MAX_CONCURRENT_USERS;
+  const maxConcurrentBackground = Math.max(
+    1,
+    Math.min(maxConcurrentUsers, ctx.maxConcurrentBackground ?? DEFAULT_MAX_CONCURRENT_BACKGROUND),
+  );
+  const maxConcurrentMentionsPerPeer = Math.max(
+    1,
+    Math.min(5, ctx.maxConcurrentMentionsPerPeer ?? DEFAULT_MAX_CONCURRENT_MENTIONS_PER_PEER),
+  );
 
   const userQueues = new Map<string, QueuedMessage[]>();
   const activeUsers = new Set<string>();
   const activeStartedAt = new Map<string, number>();
+  const activePriorities = new Map<string, MessageQueuePriority>();
+  const concurrentMentionsByPeer = new Map<string, number>();
+  let activeConcurrentMentions = 0;
   const pendingImmediateMessages: QueuedMessage[] = [];
   let handleMessageFnRef: ((msg: QueuedMessage) => Promise<void>) | null = null;
   let totalEnqueued = 0;
@@ -206,6 +165,56 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
   const isSlashCommand = (msg: QueuedMessage): boolean =>
     (msg.content ?? "").trim().startsWith("/");
 
+  const resolvePriority = (msg: QueuedMessage): MessageQueuePriority => {
+    if (msg._queuePriority) return msg._queuePriority;
+    if (msg.type === "group" && (
+      msg.eventType === "GROUP_AT_MESSAGE_CREATE"
+      || msg.mentions?.some((mention) => mention.is_you)
+    )) {
+      return "mention";
+    }
+    return "normal";
+  };
+
+  const priorityRank = (priority: MessageQueuePriority): number => {
+    if (priority === "mention") return 2;
+    if (priority === "normal") return 1;
+    return 0;
+  };
+
+  const nextQueuePriority = (queue: QueuedMessage[]): MessageQueuePriority | undefined => {
+    let best: MessageQueuePriority | undefined;
+    for (const msg of queue) {
+      const priority = resolvePriority(msg);
+      if (!best || priorityRank(priority) > priorityRank(best)) best = priority;
+      if (best === "mention") break;
+    }
+    return best;
+  };
+
+  const takeNextMessage = (queue: QueuedMessage[]): QueuedMessage | undefined => {
+    let bestIndex = 0;
+    let bestRank = -1;
+    for (let index = 0; index < queue.length; index += 1) {
+      const rank = priorityRank(resolvePriority(queue[index]!));
+      if (rank > bestRank) {
+        bestIndex = index;
+        bestRank = rank;
+      }
+    }
+    return queue.splice(bestIndex, 1)[0];
+  };
+
+  const canStartPriority = (priority: MessageQueuePriority): boolean => {
+    if (activeUsers.size >= maxConcurrentUsers) return false;
+    if (priority !== "background") return true;
+    let activeBackground = 0;
+    for (const activePriority of activePriorities.values()) {
+      if (activePriority === "background") activeBackground += 1;
+    }
+    return activeBackground < maxConcurrentBackground;
+  };
+
   /** 处理单条消息，捕获异常并记录日志 */
   const processOne = async (
     msg: QueuedMessage,
@@ -213,6 +222,11 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
     label: string,
   ): Promise<boolean> => {
     try {
+      const startedAt = Date.now();
+      msg._queueStartedAt = startedAt;
+      log?.info(
+        `[qqbot:${accountId}:latency] phase=queue-start runId=${msg.messageId} priority=${resolvePriority(msg)} queueWaitMs=${Math.max(0, startedAt - (msg._queueEnqueuedAt ?? startedAt))}`,
+      );
       await handleMessageFnRef!(msg);
       return true;
     } catch (err) {
@@ -221,66 +235,98 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
     }
   };
 
-  /** 批量处理群聊排队消息：斜杠指令逐条处理，普通消息合并后处理 */
+  const canRunConcurrentMention = (peerId: string): boolean => {
+    const peerConcurrent = concurrentMentionsByPeer.get(peerId) ?? 0;
+    const baseMention = activePriorities.get(peerId) === "mention" ? 1 : 0;
+    return peerConcurrent + baseMention < maxConcurrentMentionsPerPeer
+      && activeUsers.size + activeConcurrentMentions < maxConcurrentUsers;
+  };
+
+  const runConcurrentMention = (msg: QueuedMessage, peerId: string): void => {
+    msg._queueIsolatedSession = true;
+    concurrentMentionsByPeer.set(peerId, (concurrentMentionsByPeer.get(peerId) ?? 0) + 1);
+    activeConcurrentMentions += 1;
+    log?.info(
+      `[qqbot:${accountId}] Concurrent mention started for ${peerId}: runId=${msg.messageId}, activeForPeer=${concurrentMentionsByPeer.get(peerId)}`,
+    );
+    void processOne(msg, peerId, "Concurrent mention processor").finally(() => {
+      const remaining = Math.max(0, (concurrentMentionsByPeer.get(peerId) ?? 1) - 1);
+      if (remaining === 0) concurrentMentionsByPeer.delete(peerId);
+      else concurrentMentionsByPeer.set(peerId, remaining);
+      activeConcurrentMentions = Math.max(0, activeConcurrentMentions - 1);
+      promoteQueuedMention(peerId);
+    });
+  };
+
+  const promoteQueuedMention = (peerId: string): void => {
+    if (!activeUsers.has(peerId) || !canRunConcurrentMention(peerId)) return;
+    const queue = userQueues.get(peerId);
+    if (!queue?.length) return;
+    const mentionIndex = queue.findIndex((queued) => resolvePriority(queued) === "mention");
+    if (mentionIndex < 0) return;
+    const [msg] = queue.splice(mentionIndex, 1);
+    totalEnqueued = Math.max(0, totalEnqueued - 1);
+    runConcurrentMention(msg!, peerId);
+  };
+
+  /** 逐条处理群聊排队消息，避免把多条未读消息压成一条。 */
   const drainGroupBatch = async (all: QueuedMessage[], peerId: string): Promise<void> => {
-    const commands: QueuedMessage[] = [];
-    const normal: QueuedMessage[] = [];
-    for (const m of all) {
-      (isSlashCommand(m) ? commands : normal).push(m);
+    if (all.length > 1) {
+      log?.info(`[qqbot:${accountId}] Draining ${all.length} queued group messages individually for ${peerId}`);
     }
-
-    // 指令消息逐条处理
-    for (const cmd of commands) {
-      log?.info(`[qqbot:${accountId}] Processing command independently for ${peerId}: ${(cmd.content ?? "").trim().slice(0, 50)}`);
-      await processOne(cmd, peerId, "Command processor");
-    }
-
-    const processMergeableBatch = async (batch: QueuedMessage[]): Promise<void> => {
-      if (batch.length === 0) return;
-      const merged = mergeGroupMessages(batch);
-      if (batch.length > 1) {
-        log?.info(`[qqbot:${accountId}] Merged ${batch.length} queued group messages for ${peerId} into one`);
+    for (const msg of all) {
+      if (isSlashCommand(msg)) {
+        log?.info(`[qqbot:${accountId}] Processing command independently for ${peerId}: ${(msg.content ?? "").trim().slice(0, 50)}`);
       }
-      await processOne(merged, peerId, `Message processor (merged batch of ${batch.length})`);
-    };
-
-    // 普通消息按 _noMerge 边界分段合并；合成 catch-up 消息必须保留快照字段。
-    let mergeableBatch: QueuedMessage[] = [];
-    for (const msg of normal) {
-      if (msg._noMerge) {
-        await processMergeableBatch(mergeableBatch);
-        mergeableBatch = [];
-        await processOne(msg, peerId, "Message processor (no-merge)");
-        continue;
-      }
-      mergeableBatch.push(msg);
+      await processOne(msg, peerId, isSlashCommand(msg) ? "Command processor" : "Message processor");
     }
-    await processMergeableBatch(mergeableBatch);
   };
 
   /** 处理指定 peer 队列中的消息（串行） */
   const drainUserQueue = async (peerId: string): Promise<void> => {
     if (activeUsers.has(peerId)) return;
-    if (activeUsers.size >= maxConcurrentUsers) {
-      log?.info(`[qqbot:${accountId}] Max concurrent users (${maxConcurrentUsers}) reached, ${peerId} will wait`);
-      return;
-    }
-
     const queue = userQueues.get(peerId);
     if (!queue || queue.length === 0) {
       userQueues.delete(peerId);
       return;
     }
 
+    const activePriority = nextQueuePriority(queue) ?? "normal";
+    if (!canStartPriority(activePriority)) {
+      log?.info(
+        `[qqbot:${accountId}] Queue priority wait for ${peerId}: priority=${activePriority}, active=${activeUsers.size}, backgroundLimit=${maxConcurrentBackground}`,
+      );
+      return;
+    }
+
     activeUsers.add(peerId);
     activeStartedAt.set(peerId, Date.now());
+    activePriorities.set(peerId, activePriority);
     const isGroup = isGroupPeer(peerId);
 
     try {
       while (queue.length > 0 && !ctx.isAborted()) {
-        // 群聊排队 > 1 条：批量处理
+        const nextPriority = nextQueuePriority(queue) ?? "normal";
+        activePriorities.set(peerId, nextPriority);
+
+        // 被 @ 的消息始终逐条优先处理，不能与轮询消息或其他群消息合并。
+        if (nextPriority === "mention") {
+          const msg = takeNextMessage(queue)!;
+          totalEnqueued = Math.max(0, totalEnqueued - 1);
+          if (handleMessageFnRef) {
+            await processOne(msg, peerId, "Mention processor");
+          }
+          continue;
+        }
+
+        // 群聊排队 > 1 条：批量取出后仍逐条处理，保留消息边界。
         if (isGroup && queue.length > 1 && handleMessageFnRef) {
-          const all = queue.splice(0, queue.length);
+          const all: QueuedMessage[] = [];
+          for (let index = queue.length - 1; index >= 0; index -= 1) {
+            if (resolvePriority(queue[index]!) === nextPriority) {
+              all.unshift(queue.splice(index, 1)[0]!);
+            }
+          }
           totalEnqueued = Math.max(0, totalEnqueued - all.length);
           await drainGroupBatch(all, peerId);
           continue;
@@ -296,9 +342,14 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
     } finally {
       activeUsers.delete(peerId);
       activeStartedAt.delete(peerId);
+      activePriorities.delete(peerId);
       userQueues.delete(peerId);
       // 尽量填满并发槽位
-      for (const [waitingPeerId, waitingQueue] of userQueues) {
+      const waitingPeers = [...userQueues.entries()].sort((a, b) => (
+        priorityRank(nextQueuePriority(b[1]) ?? "normal")
+        - priorityRank(nextQueuePriority(a[1]) ?? "normal")
+      ));
+      for (const [waitingPeerId, waitingQueue] of waitingPeers) {
         if (activeUsers.size >= maxConcurrentUsers) break;
         if (waitingQueue.length > 0 && !activeUsers.has(waitingPeerId)) {
           drainUserQueue(waitingPeerId);
@@ -336,8 +387,28 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
       log?.error(`[qqbot:${accountId}] Global queue limit reached (${totalEnqueued}), message from ${peerId} may be delayed`);
     }
 
+    const enqueuedAt = Date.now();
+    msg._queueEnqueuedAt ??= enqueuedAt;
+    msg._queuePriority = resolvePriority(msg);
     queue.push(msg);
+    log?.info(
+      `[qqbot:${accountId}:latency] phase=enqueue runId=${msg.messageId} priority=${msg._queuePriority} peer=${peerId} queueDepth=${queue.length}`,
+    );
     log?.debug?.(`[qqbot:${accountId}] Message enqueued for ${peerId}, user queue: ${queue.length}, active users: ${activeUsers.size}`);
+
+    if (msg._queuePriority === "mention" && (activeUsers.has(peerId) || (concurrentMentionsByPeer.get(peerId) ?? 0) > 0)) {
+      if (activePriorities.get(peerId) === "background") {
+        const aborted = ctx.abortActiveBackground?.(peerId) === true;
+        log?.info(`[qqbot:${accountId}] Mention preempted background for ${peerId}: aborted=${aborted}`);
+      }
+      if (canRunConcurrentMention(peerId)) {
+        const queuedIndex = queue.indexOf(msg);
+        if (queuedIndex >= 0) queue.splice(queuedIndex, 1);
+        totalEnqueued = Math.max(0, totalEnqueued - 1);
+        runConcurrentMention(msg, peerId);
+        return;
+      }
+    }
 
     // 如果该用户没有正在处理的消息，立即启动处理
     drainUserQueue(peerId);
@@ -345,7 +416,7 @@ export function createMessageQueue(ctx: MessageQueueContext): MessageQueue {
 
   const startProcessor = (handleMessageFn: (msg: QueuedMessage) => Promise<void>): void => {
     handleMessageFnRef = handleMessageFn;
-    log?.info(`[qqbot:${accountId}] Message processor started (per-user concurrency, max ${maxConcurrentUsers} users)`);
+    log?.info(`[qqbot:${accountId}] Message processor started (per-user concurrency, max ${maxConcurrentUsers} users, background max ${maxConcurrentBackground}, mentions per peer max ${maxConcurrentMentionsPerPeer})`);
     while (pendingImmediateMessages.length > 0 && !ctx.isAborted()) {
       const msg = pendingImmediateMessages.shift()!;
       executeImmediate(msg);
