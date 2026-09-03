@@ -28,6 +28,7 @@ export function resolveCustomRuntimeConfig(cfg: OpenClawConfig): CustomRuntimeCo
     enabled: runtime.enabled ?? DEFAULT_RUNTIME_CONFIG.enabled,
     defaultScene: runtime.defaultScene ?? DEFAULT_RUNTIME_CONFIG.defaultScene,
     scenes: runtime.scenes ?? {},
+    groupPermissions: runtime.groupPermissions,
     admins: runtime.admins ?? [],
     adminGroup: runtime.adminGroup,
     unread: runtime.unread,

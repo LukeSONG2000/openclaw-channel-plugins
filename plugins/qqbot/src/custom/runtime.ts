@@ -114,6 +114,12 @@ export {
   getCustomSceneProfile,
   resolveCustomScene,
 } from "./scenes.js";
+export {
+  DEFAULT_CUSTOM_GROUP_PERMISSION,
+  formatCustomGroupPermission,
+  normalizeCustomGroupPermission,
+  resolveCustomGroupPermission,
+} from "./group-permissions.js";
 export { CUSTOM_UNREAD_ACTOR_ID, CustomUnreadRuntime, resolveCustomUnreadConfig } from "./unread-runtime.js";
 export {
   CustomProactiveBudgetRuntime,

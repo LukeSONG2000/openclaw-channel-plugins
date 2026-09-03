@@ -1,5 +1,14 @@
 export type CustomPeerKind = "c2c" | "group" | "channel" | "dm";
 
+export type CustomGroupPermission = "free" | "admin" | "default";
+
+export interface CustomGroupPermissionConfig {
+  /** Permission assigned to groups without an explicit binding. Defaults to default. */
+  default?: CustomGroupPermission;
+  /** Keys may be raw group_openid values or qqbot:group:<group_openid> peer keys. */
+  bindings?: Record<string, CustomGroupPermission>;
+}
+
 export type CustomSceneKind =
   | "codex-only"
   | "chat"
@@ -74,6 +83,7 @@ export interface CustomSceneConfig {
 export interface CustomRuntimeConfig {
   enabled?: boolean;
   scenes?: Record<string, CustomSceneConfig>;
+  groupPermissions?: CustomGroupPermissionConfig;
   admins?: string[];
   auth?: CustomRuntimeAuthConfig;
   /**

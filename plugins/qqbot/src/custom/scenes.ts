@@ -1,5 +1,6 @@
 import type {
   CustomCapability,
+  CustomGroupPermission,
   CustomPeer,
   CustomRuntimeConfig,
   CustomSceneConfig,
@@ -10,6 +11,10 @@ import {
   formatCapabilitiesForDisplay,
   formatOnOff,
 } from "./presentation-labels.js";
+import {
+  formatCustomGroupPermission,
+  resolveCustomGroupPermission,
+} from "./group-permissions.js";
 
 export interface CustomSceneProfile {
   scene: CustomSceneKind;
@@ -24,6 +29,7 @@ export interface CustomSceneProfile {
 export interface ResolvedCustomScene {
   key: string;
   source: "exact" | "kind-wildcard" | "wildcard" | "default";
+  groupPermission?: CustomGroupPermission;
   config: CustomSceneConfig;
   profile: CustomSceneProfile;
   capabilities: CustomCapability[];
@@ -146,6 +152,15 @@ export function resolveCustomScene(
             config: { scene: defaultSceneKind(peer, runtime.defaultScene) },
           };
 
+  const groupPermission = resolveCustomGroupPermission(runtime, peer);
+  if (groupPermission) {
+    return applyGroupPermissionDefaults({
+      resolved,
+      permission: groupPermission,
+      peerKey: exactKey,
+    });
+  }
+
   return applySceneDefaults(resolved.config, resolved.key, resolved.source);
 }
 
@@ -199,10 +214,54 @@ export function buildCustomSceneSystemPrompt(resolved: ResolvedCustomScene): str
   ].join(", ");
   return [
     `QQBot 自定义场景：${resolved.profile.label} (${resolved.profile.scene})`,
+    resolved.groupPermission
+      ? `群权限：${formatCustomGroupPermission(resolved.groupPermission)}`
+      : "",
     `能力边界：${capabilityText}`,
     `主动策略：${autonomy}`,
     resolved.profile.prompt,
   ].filter(Boolean).join("\n");
+}
+
+function applyGroupPermissionDefaults(params: {
+  resolved: {
+    key: string;
+    source: ResolvedCustomScene["source"];
+    config: CustomSceneConfig;
+  };
+  permission: CustomGroupPermission;
+  peerKey: string;
+}): ResolvedCustomScene {
+  const isFree = params.permission === "free";
+  const targetScene: CustomSceneKind = params.permission === "admin" ? "system-admin" : "chat";
+  const sameScene = params.resolved.config.scene === targetScene;
+  const labels = {
+    free: "自由群聊",
+    admin: "管理群",
+    default: "默认群聊",
+  } as const;
+  const resolved = applySceneDefaults({
+    ...params.resolved.config,
+    scene: targetScene,
+    label: params.resolved.config.label ?? labels[params.permission],
+    capabilities: sameScene ? params.resolved.config.capabilities : undefined,
+    allowAutonomousReply: isFree,
+    allowProactiveSend: isFree,
+    unread: {
+      ...(params.resolved.config.unread ?? {}),
+      enabled: isFree,
+      allowAutonomousReply: isFree,
+      allowProactiveSend: isFree,
+    },
+    proactive: {
+      ...(params.resolved.config.proactive ?? {}),
+      enabled: isFree,
+    },
+  }, `group-permission:${params.permission}:${params.peerKey}`, params.resolved.source);
+  return {
+    ...resolved,
+    groupPermission: params.permission,
+  };
 }
 
 function defaultSceneKind(peer: CustomPeer, runtimeDefault?: CustomSceneKind): CustomSceneKind {
