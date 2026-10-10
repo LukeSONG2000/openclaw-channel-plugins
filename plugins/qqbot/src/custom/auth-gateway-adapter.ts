@@ -58,7 +58,7 @@ export function resolveCustomDispatchCapability(params: {
 
   const content = params.rawContent.trim();
 
-  if (detectCustomScheduledTaskIntent(content)) return "schedule.run";
+  if (params.message.type !== "group" && detectCustomScheduledTaskIntent(content)) return "schedule.run";
   if (detectCustomRuleWriteIntent(content)) return "config.write";
   if (detectCustomDeployApplyIntent(content)) return "deploy.apply";
   if (detectCustomConfigReadIntent(content)) return "config.read";

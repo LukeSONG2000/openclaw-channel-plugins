@@ -6,6 +6,7 @@ import { setQQBotRuntime } from "./src/runtime.js";
 import { registerChannelTool } from "./src/tools/channel.js";
 import { registerRemindTool } from "./src/tools/remind.js";
 import { registerCustomAgentOutputBoundary } from "./src/custom/agent-output-boundary.js";
+import { registerCustomGroupScheduledTaskPolicy } from "./src/custom/group-scheduled-task-policy.js";
 
 const plugin = {
   id: "openclaw-qqbot",
@@ -15,6 +16,7 @@ const plugin = {
   register(api: OpenClawPluginApi) {
     setQQBotRuntime(api.runtime);
     registerCustomAgentOutputBoundary(api as unknown as Parameters<typeof registerCustomAgentOutputBoundary>[0]);
+    registerCustomGroupScheduledTaskPolicy(api as unknown as Parameters<typeof registerCustomGroupScheduledTaskPolicy>[0]);
     api.registerChannel({ plugin: qqbotPlugin as any });
     registerChannelTool(api);
     registerRemindTool(api);

@@ -67,6 +67,8 @@ export async function handleCustomScheduledTaskNaturalLanguage(params: {
     return { handled: true, changed: true };
   }
 
+  if (params.message.type === "group") return { handled: false };
+
   const fallbackParsed = parseCustomScheduledTaskIntent(params.content, params.message);
   if (!fallbackParsed) return { handled: false };
   const modelParsed = await resolveCustomScheduledTaskCreateWithModel({
