@@ -2,6 +2,14 @@
 
 This directory records the custom QQBot fork plan, evidence, and migration notes.
 
+## 当前开发入口（2026-10-12）
+
+- 统一主仓：`LukeSONG2000/openclaw-channel-plugins`，分支 `main`，QQ 代码位于 `plugins/qqbot`。
+- [QQ 自由回复实现](free-reply.md)：当前自由回复链路、扩展点、测试和交付边界。
+- [QQ 与钉钉自由回复总览](../../../../docs/free-reply.md)：两渠道共性、差异与复用边界。
+- 后文 `Current Branch`、服务器快照与目标架构段落保留迁移前资料，不能作为当前仓库、分支或部署路径的自动判定依据。
+- 文档中“工作树改动”表示核查时尚未提交的代码；获取远端 `main` 不一定包含这些实现。线上部署也需单独核验。
+
 ## Current Branch
 
 - Fork: `https://github.com/LukeSONG2000/openclaw-qqbot`
