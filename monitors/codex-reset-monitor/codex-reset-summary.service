@@ -1,0 +1,15 @@
+[Unit]
+Description=OpenClaw daily public Codex global reset forecast
+After=network-online.target openclaw-gateway.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/.openclaw/monitors/codex-reset-monitor
+ExecStart=/usr/bin/python3 %h/.openclaw/monitors/codex-reset-monitor/monitor.py --daily-summary
+Environment=TZ=Asia/Shanghai
+NoNewPrivileges=true
+PrivateTmp=true
+
+[Install]
+WantedBy=default.target

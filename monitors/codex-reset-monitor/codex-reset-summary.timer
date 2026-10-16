@@ -1,0 +1,11 @@
+[Unit]
+Description=Send daily public Codex global reset forecast at 08:00 Asia/Shanghai
+
+[Timer]
+OnCalendar=*-*-* 08:00:00 Asia/Shanghai
+AccuracySec=1min
+Persistent=true
+Unit=codex-reset-summary.service
+
+[Install]
+WantedBy=timers.target
