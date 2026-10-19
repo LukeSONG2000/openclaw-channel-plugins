@@ -5,6 +5,7 @@ Wants=network-online.target
 
 [Service]
 Type=oneshot
+TimeoutStartSec=30min
 WorkingDirectory=%h/.openclaw/monitors/codex-reset-monitor
 ExecStart=/usr/bin/python3 %h/.openclaw/monitors/codex-reset-monitor/monitor.py --daily-summary
 Environment=TZ=Asia/Shanghai

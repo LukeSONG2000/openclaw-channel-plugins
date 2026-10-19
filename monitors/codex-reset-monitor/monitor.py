@@ -4,6 +4,7 @@
 from __future__ import annotations
 
 import argparse
+import hashlib
 import fcntl
 import json
 import math
@@ -22,6 +23,9 @@ from zoneinfo import ZoneInfo
 SOURCE_URL = "https://willreset.com"
 FORECAST_URL = f"{SOURCE_URL}/api/forecast"
 NOTIFY_URL = f"{SOURCE_URL}/api/notify"
+FEED_URL = f"{SOURCE_URL}/api/feed"
+SOURCE_PAGE = f"{SOURCE_URL}/zh/"
+OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 ROOT = Path(__file__).resolve().parent
 STATE_DIR = ROOT / "state"
@@ -32,6 +36,8 @@ FAILURE_THRESHOLD = 3
 MAX_NOTIFIED_IDS = 100
 MAX_SOURCE_AGE = timedelta(hours=2)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
+RENDER_TIMEOUT = 180
+SEND_TIMEOUT = 600
 
 
 def now_utc() -> datetime:
@@ -42,9 +48,12 @@ def parse_time(value: Any) -> datetime | None:
     if not isinstance(value, str) or not value.strip():
         return None
     try:
-        # Go emits nanoseconds; Python 3.9's ISO parser accepts at most microseconds.
+        # Python 3.9 requires 3 or 6 fraction digits; normalize Go/API precision to 6.
         normalized = value.strip().replace("Z", "+00:00")
-        normalized = re.sub(r"(\.\d{6})\d+(?=[+-]|$)", r"\1", normalized)
+        normalized = re.sub(
+            r"(\d{2}:\d{2}:\d{2})\.(\d+)(?=[+-]|$)",
+            lambda match: match[1] + "." + match[2][:6].ljust(6, "0"), normalized, count=1,
+        )
         parsed = datetime.fromisoformat(normalized)
         if parsed.tzinfo is None:
             parsed = parsed.replace(tzinfo=timezone.utc)
@@ -63,9 +72,17 @@ def format_shanghai(value: Any) -> str:
 def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
     tmp = path.with_suffix(".tmp")
-    tmp.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+    with tmp.open("w", encoding="utf-8") as stream:
+        stream.write(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
+        stream.flush()
+        os.fsync(stream.fileno())
     os.chmod(tmp, 0o600)
     os.replace(tmp, path)
+    directory = os.open(str(path.parent), os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
 
 
 def load_state() -> dict[str, Any]:
@@ -133,7 +150,7 @@ def validate_payloads(forecast: dict[str, Any], notify: dict[str, Any]) -> None:
         if timestamp is None or timestamp.year <= 1 or timestamp > now_utc():
             raise ValueError(f"{name}.last_reset_at: invalid or future timestamp")
         for key in ("prob_24", "prob_48"):
-            if not valid_percent(payload.get(key)):
+            if payload.get(key) is not None and not valid_percent(payload[key]):
                 raise ValueError(f"{name}.{key}: expected percentage number")
         for key in ("last_reset_text", "last_reset_url"):
             if key in payload and not isinstance(payload[key], str):
@@ -152,6 +169,8 @@ def validate_payloads(forecast: dict[str, Any], notify: dict[str, Any]) -> None:
             raise ValueError(f"forecast.{key}: expected nonempty string")
     for key in ("range_24", "range_48"):
         values = forecast.get(key)
+        if values is None:
+            continue
         if (not isinstance(values, list) or len(values) != 2
                 or not all(valid_percent(v) for v in values) or values[0] > values[1]):
             raise ValueError(f"forecast.{key}: expected ordered percentage pair")
@@ -196,9 +215,9 @@ def reset_is_older_than_state(reset_id: str, reset_at: str, state: dict[str, Any
 
 
 def forecast_probability(forecast: dict[str, Any], hours: int) -> str:
-    probability = forecast[f"prob_{hours}"]
-    bounds = forecast[f"range_{hours}"]
-    if not bounds[0] <= probability <= bounds[1]:
+    probability = forecast.get(f"prob_{hours}")
+    bounds = forecast.get(f"range_{hours}")
+    if probability is None or bounds is None or not bounds[0] <= probability <= bounds[1]:
         return "不可用（来源概率与区间矛盾）"
     return f"{percent(probability)}（置信区间 {interval(bounds)}）"
 
@@ -336,6 +355,312 @@ def failure_message(error: Exception, count: int) -> str:
     )
 
 
+def aware_time(value: Any, field: str) -> datetime:
+    if (not isinstance(value, str)
+            or not re.search(r"(?:Z|[+-]\d{2}:\d{2})$", value)):
+        raise ValueError(f"{field}: expected timezone-aware ISO timestamp")
+    stamp = parse_time(value)
+    if stamp is None or stamp.year <= 1:
+        raise ValueError(f"{field}: invalid timestamp")
+    return stamp
+
+
+def validate_feed(feed: dict[str, Any]) -> list[dict[str, Any]]:
+    stamp = aware_time(feed.get("fetched_at"), "feed.fetched_at")
+    current = now_utc()
+    if current - stamp > MAX_SOURCE_AGE or stamp - current > MAX_CLOCK_SKEW:
+        raise ValueError("feed.fetched_at: stale or future source timestamp")
+    events = feed.get("events")
+    if not isinstance(events, list) or not events:
+        raise ValueError("feed.events: expected nonempty full event list")
+    unique: dict[str, dict[str, Any]] = {}
+    for event in events:
+        if not isinstance(event, dict):
+            raise ValueError("feed.events: expected objects")
+        for key in ("id", "kind", "summary", "announced_at"):
+            if not isinstance(event.get(key), str) or not event[key].strip():
+                raise ValueError(f"feed.event.{key}: expected nonempty string")
+        announced = aware_time(event["announced_at"], "event.announced_at")
+        if announced > current + MAX_CLOCK_SKEW:
+            raise ValueError("event.announced_at: future announcement")
+        # Legacy history entries can lack a URL; validate URLs only in the send window.
+        previous = unique.get(event["id"])
+        keys = ("kind", "summary", "announced_at", "source_url")
+        if previous and any(previous.get(k) != event.get(k) for k in keys):
+            raise ValueError("feed.events: conflicting duplicate ID")
+        unique[event["id"]] = event
+    return sorted(unique.values(), key=lambda e: (aware_time(e["announced_at"], "event time"), e["id"]),
+                  reverse=True)
+
+
+def select_announcements(events: list[dict[str, Any]], state: dict[str, Any]) -> list[dict[str, Any]]:
+    lower = aware_time(state.get("migrationLowerBound"), "migrationLowerBound")
+    sent = set(state.get("sentAnnouncementIds", []))
+    result = []
+    for event in events:
+        if aware_time(event["announced_at"], "event time") < lower or event["id"] in sent:
+            continue
+        url = urlsplit(event.get("source_url") or "")
+        if (url.scheme != "https" or url.hostname not in ("x.com", "twitter.com")
+                or url.username or url.password or url.port not in (None, 443)
+                or not re.fullmatch(r"/[^/]+/status/[0-9]+", url.path)
+                or (event["id"].isdigit() and not url.path.endswith("/status/" + event["id"]))):
+            raise ValueError("pending announcement lacks a valid original X URL")
+        result.append(event)
+    return result
+
+
+def legacy_service_start(service: str, success: datetime) -> datetime | None:
+    completed = subprocess.run(
+        ["systemctl", "--user", "show", service, "--property=ExecMainStartTimestamp",
+         "--property=ExecMainExitTimestamp", "--property=ExecMainStatus", "--property=Result"],
+        capture_output=True, text=True, timeout=10, check=False,
+        env=dict(os.environ, TZ="UTC"),
+    )
+    fields = dict(line.split("=", 1) for line in completed.stdout.splitlines() if "=" in line)
+    if completed.returncode or fields.get("Result") != "success" or fields.get("ExecMainStatus") != "0":
+        return None
+    try:
+        start, end = (datetime.strptime(fields[key], "%a %Y-%m-%d %H:%M:%S %Z").replace(tzinfo=timezone.utc)
+                      for key in ("ExecMainStartTimestamp", "ExecMainExitTimestamp"))
+    except (KeyError, ValueError):
+        return None
+    return start if start <= success <= end + timedelta(seconds=2) else None
+
+
+def administrator_target() -> str:
+    try:
+        config = json.loads(OPENCLAW_CONFIG.read_text(encoding="utf-8"))
+        channel = config["channels"]["qqbot"]
+        accounts = channel.get("accounts")
+        account = accounts.get("default") if isinstance(accounts, dict) else None
+        if account is None:
+            account = channel
+        admins = channel.get("customRuntime", {}).get("admins", [])
+        admin = next((a for a in admins if isinstance(a, str) and a.strip()), None) if isinstance(admins, list) else None
+        if (channel.get("enabled") is False or account.get("enabled") is False
+                or not account.get("appId") or not account.get("clientSecret") or not admin
+                or (admin.startswith("qqbot:") and not admin.startswith("qqbot:c2c:"))):
+            raise ValueError("unavailable administrator")
+        identifier = re.sub(r"^qqbot:c2c:", "", admin)
+        if not identifier or re.search(r"[\s/]", identifier):
+            raise ValueError("invalid administrator")
+        return "qqbot:c2c:" + identifier
+    except (OSError, ValueError, KeyError, TypeError, AttributeError):
+        raise RuntimeError("configured first C2C administrator is unavailable") from None
+
+
+def legacy_delivery_evidence() -> dict[str, Any]:
+    target = administrator_target()
+    # --user can be empty on this host even when the system journal has user-unit logs.
+    # Give each indexed unit its own tail so busy monitor logs cannot hide a daily success.
+    records = []
+    for unit, prefix in (("codex-reset-summary.service", "daily summary sent date="),
+                         ("codex-reset-monitor.service", "reset notification sent id=")):
+        completed = subprocess.run(
+            ["journalctl", "--no-pager", "-o", "json", "-n", "100",
+             "--output-fields=__REALTIME_TIMESTAMP,_SYSTEMD_USER_UNIT,MESSAGE",
+             "_SYSTEMD_USER_UNIT=" + unit],
+            capture_output=True, text=True, timeout=15, check=False,
+        )
+        if completed.returncode:
+            raise RuntimeError("legacy migration could not read both required unit journals")
+        for line in completed.stdout.splitlines():
+            try:
+                row = json.loads(line)
+                message = row.get("MESSAGE", "")
+                if (not isinstance(message, str) or row.get("_SYSTEMD_USER_UNIT") != unit
+                        or not message.startswith(prefix) or not message.endswith(" target=" + target)):
+                    continue
+                micros = int(row["__REALTIME_TIMESTAMP"])
+                stamp = datetime.fromtimestamp(micros // 1000000, timezone.utc).replace(microsecond=micros % 1000000)
+                if stamp <= now_utc():
+                    records.append((stamp, unit))
+            except (ValueError, TypeError, KeyError):
+                continue
+    if not records:
+        raise RuntimeError("legacy migration requires an actual successful daily/reset C2C journal record")
+    success, unit = max(records)
+    start = legacy_service_start(unit, success)
+    # Five minutes bounds the old two fetches + two 45s sends if the unit no longer matches.
+    lower = start or (success - timedelta(minutes=5))
+    return {"lowerBound": lower.isoformat(), "observedSuccessAt": success.isoformat(),
+            "source": "system-journal-success", "unit": unit,
+            "uncertainty": "service-start-inclusive" if start else "legacy-runtime-bound-5min"}
+
+
+def migrate_delivery_state(state: dict[str, Any]) -> None:
+    if state.get("version") == 2:
+        aware_time(state.get("migrationLowerBound"), "migrationLowerBound")
+        return
+    evidence = legacy_delivery_evidence()
+    legacy_day = state.get("daily_summary_date")
+    success_day = aware_time(evidence["observedSuccessAt"], "observedSuccessAt").astimezone(SHANGHAI).date().isoformat()
+    if isinstance(legacy_day, str) and legacy_day > success_day:
+        raise RuntimeError("legacy journal does not cover the latest successful daily; migration needs newer evidence")
+    state.update(version=2, migrationLowerBound=evidence["lowerBound"], migrationEvidence=evidence,
+                 lastSuccessfulPushAt=None, announcementWatermark=None,
+                 sentAnnouncementIds=[], pendingBatch=None)
+
+
+def forecast_card_data(forecast: dict[str, Any]) -> dict[str, Any]:
+    probabilities = {}
+    for hours in (24, 48):
+        probability = forecast.get(f"prob_{hours}")
+        probabilities[f"probability_{hours}h"] = (probability / 100
+            if valid_percent(probability) else None)
+    answer = forecast["answer"]
+    did_reset = forecast.get("did_reset_today")
+    if did_reset is not None and type(did_reset) is not bool:
+        raise ValueError("forecast.did_reset_today: expected boolean")
+    status = {"yes": "已重置", "no": "尚未重置", "promised": "已预告"}.get(answer, "尚未确认")
+    summary = ("今天已确认发生全局重置。" if did_reset is True else
+               "今天还没有确认重置。Tibo 已预告未来会有一次全局重置。" if answer == "promised" else
+               "今天还没有确认重置。")
+    return dict(probabilities, status=status, summary=summary, updated_at=forecast["computed_at"],
+                last_reset_at=forecast["last_reset_at"] if confirmed_reset_id(forecast, forecast) else None)
+
+
+RENDER_WORKER = """
+import json, sys
+from pathlib import Path
+sys.path.insert(0, sys.argv[1])
+from render_cards import render_forecast_card, render_announcement_card
+p = json.load(sys.stdin)
+root = Path(p['directory'])
+s = p['snapshot']
+cards = [render_forecast_card(s['forecastCard'], root / 'forecast.png', now=s['createdAt'])]
+for i, event in enumerate(s['announcements']):
+    cards.append(render_announcement_card(dict(summary=event['summary'], published_at=event['announced_at'],
+                 kind=event['kind']), root / ('announcement-%04d.png' % i), now=s['createdAt']))
+print(json.dumps(cards))
+"""
+
+
+def render_snapshot(snapshot: dict[str, Any], directory: Path) -> list[dict[str, Any]]:
+    result = subprocess.run(
+        [sys.executable, "-c", RENDER_WORKER, str(ROOT)],
+        input=json.dumps({"directory": str(directory), "snapshot": snapshot}, ensure_ascii=False),
+        text=True, capture_output=True, timeout=RENDER_TIMEOUT, check=False,
+    )
+    if result.returncode:
+        raise RuntimeError("snapshot render failed; no batch delivered")
+    cards = json.loads(result.stdout)
+    if not isinstance(cards, list) or len(cards) != 1 + len(snapshot["announcements"]):
+        raise ValueError("snapshot renderer returned an incomplete card list")
+    for card in cards:
+        path = Path(card["path"])
+        if (not path.is_absolute() or path.resolve().parent != directory.resolve()
+                or not path.is_file() or hashlib.sha256(path.read_bytes()).hexdigest() != card["sha256"]
+                or type(card["width"]) is not int or card["width"] <= 0
+                or type(card["height"]) is not int or card["height"] <= 0):
+            raise ValueError("snapshot renderer returned an invalid card")
+    return cards
+
+
+def digest_json(value: Any) -> str:
+    return hashlib.sha256(json.dumps(value, ensure_ascii=False, sort_keys=True,
+                                     separators=(",", ":")).encode("utf-8")).hexdigest()
+
+
+def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[str, Any],
+                  events: list[dict[str, Any]], reset_id: str, daily_date: str | None,
+                  manual_preview: bool = False) -> dict[str, Any]:
+    announcements = select_announcements(events, state)
+    warnings = []
+    for hours in (24, 48):
+        probability = forecast.get(f"prob_{hours}")
+        bounds = forecast.get(f"range_{hours}")
+        if valid_percent(probability) and bounds is not None and not bounds[0] <= probability <= bounds[1]:
+            warning = dict(code="source_probability_interval_mismatch", field=f"prob_{hours}",
+                           probability=probability, interval=bounds)
+            warnings.append(warning)
+            print("source probability warning: " + json.dumps(warning, ensure_ascii=False))
+    snapshot = dict(createdAt=now_utc().isoformat(), forecastCard=forecast_card_data(forecast),
+                    announcements=announcements, feedFetchedAt=feed["fetched_at"],
+                    resetId=reset_id or None, dailyDate=daily_date, manualPreview=manual_preview,
+                    sourceWarnings=warnings)
+    batch_id = "codex-" + digest_json(snapshot)[:32]
+    directory = STATE_FILE.parent / "outbox" / batch_id
+    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    atomic_write_json(directory / "snapshot.json", snapshot)
+    cards = render_snapshot(snapshot, directory)
+    parts = [dict(type="text", text="Codex会重置吗？"),
+             dict(type="image", path=Path(cards[0]["path"]).name),
+             dict(type="link", label="信息来源", url=SOURCE_PAGE)]
+    if announcements:
+        parts.append(dict(type="text", text="\n\nTibo宣布了什么"))
+    for event, card in zip(announcements, cards[1:]):
+        parts.extend([dict(type="image", path=Path(card["path"]).name),
+                      dict(type="link", label="原始公告", url=event["source_url"])])
+    manifest = dict(version=1, batchId=batch_id, parts=parts)
+    atomic_write_json(directory / "batch.json", manifest)
+    return dict(batchId=batch_id, manifestSha256=digest_json(manifest), snapshotSha256=digest_json(snapshot),
+                imageHashes={Path(c["path"]).name: c["sha256"] for c in cards},
+                announcementIds=[e["id"] for e in announcements], dailyDate=daily_date,
+                resetId=reset_id or None, feedFetchedAt=feed["fetched_at"], manualPreview=manual_preview)
+
+
+def deliver_batch(batch: dict[str, Any]) -> bool:
+    batch_id = batch["batchId"]
+    if not isinstance(batch_id, str) or not re.fullmatch(r"codex-[a-f0-9]{32}", batch_id):
+        raise ValueError("invalid pending batch ID")
+    directory = STATE_FILE.parent / "outbox" / batch_id
+    manifest_path = directory / "batch.json"
+    receipt_path = directory / "batch.receipt.json"
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    snapshot = json.loads((directory / "snapshot.json").read_text(encoding="utf-8"))
+    if digest_json(manifest) != batch["manifestSha256"] or digest_json(snapshot) != batch["snapshotSha256"]:
+        raise ValueError("pending batch snapshot/manifest changed; manual reconciliation required")
+    for name, checksum in batch["imageHashes"].items():
+        if Path(name).name != name or hashlib.sha256((directory / name).read_bytes()).hexdigest() != checksum:
+            raise ValueError("pending batch image changed; manual reconciliation required")
+    timed_out = False
+    try:
+        result = subprocess.run(
+            ["node", str(PUSH_SCRIPT), "--manifest", str(manifest_path), "--receipt", str(receipt_path)],
+            cwd=str(ROOT), text=True, capture_output=True, timeout=SEND_TIMEOUT, check=False,
+        )
+    except subprocess.TimeoutExpired:
+        timed_out = True
+        result = None
+    # The durable receipt, never the exit code/stdout alone, is the delivery authority.
+    if not receipt_path.exists():
+        raise RuntimeError("sender has no receipt; delivery is unconfirmed")
+    receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
+    total = len(manifest["parts"])
+    complete = (receipt.get("version") == 1 and receipt.get("batchId") == batch_id
+                and receipt.get("ok") is True and receipt.get("status") == "complete"
+                and type(receipt.get("total")) is int and receipt["total"] == total
+                and type(receipt.get("nextIndex")) is int and receipt["nextIndex"] == total
+                and isinstance(receipt.get("parts"), list) and len(receipt["parts"]) == total
+                and all(type(p.get("partIndex")) is int and p["partIndex"] == i and p.get("status") == "sent"
+                        for i, p in enumerate(receipt["parts"]) if isinstance(p, dict))
+                and all(isinstance(p, dict) for p in receipt["parts"]))
+    if timed_out or result.returncode != 0 or not complete:
+        print(f"batch incomplete id={batch_id} status={receipt.get('status', 'invalid')} timeout={timed_out}")
+        return False
+    return True
+
+
+def complete_batch(state: dict[str, Any], batch: dict[str, Any]) -> None:
+    # Keep the migration floor fixed: late IDs must not be hidden by a rolling time watermark.
+    sent = state.setdefault("sentAnnouncementIds", [])
+    sent.extend(event_id for event_id in batch["announcementIds"] if event_id not in sent)
+    if batch.get("resetId"):
+        notified = state.setdefault("notified_reset_ids", [])
+        if batch["resetId"] not in notified:
+            notified.append(batch["resetId"])
+        state["notified_reset_ids"] = notified[-MAX_NOTIFIED_IDS:]
+    if batch.get("dailyDate") and batch["dailyDate"] > (state.get("daily_summary_date") or ""):
+        state["daily_summary_date"] = batch["dailyDate"]
+    state["lastSuccessfulPushAt"] = now_utc().isoformat()
+    previous = state.get("announcementWatermark")
+    state["announcementWatermark"] = (previous if previous and parse_time(previous) > parse_time(batch["feedFetchedAt"])
+                                       else batch["feedFetchedAt"])
+    state["pendingBatch"] = None
+
+
 def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: dict[str, Any],
                        dry_run: bool = False, no_send: bool = False) -> None:
     reset_id = confirmed_reset_id(forecast, notify)
@@ -343,8 +668,10 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
     state["last_reset_id"] = reset_id or None
     if reset_id:
         state["last_reset_at"] = notify["last_reset_at"]
-    if reset_id and not no_send:
-        state["notified_reset_ids"] = [reset_id]
+    state.update(version=2, migrationLowerBound=now_utc().replace(microsecond=0).isoformat(),
+                 migrationEvidence={"source": "fresh-baseline-not-a-delivery"},
+                 lastSuccessfulPushAt=None, announcementWatermark=None,
+                 sentAnnouncementIds=[], pendingBatch=None, baselineResetId=reset_id or None)
     state["consecutive_fetch_failures"] = 0
     state["failure_notified"] = False
     if not dry_run:
@@ -353,7 +680,7 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
 
 
 def run_once(baseline_only: bool = False, send_daily: bool = False,
-             dry_run: bool = False, no_send: bool = False) -> int:
+             dry_run: bool = False, no_send: bool = False, manual_preview: bool = False) -> int:
     state = load_state()
 
     def save() -> None:
@@ -370,6 +697,18 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         forecast = fetch_json(FORECAST_URL)
         notify = fetch_json(NOTIFY_URL)
         validate_payloads(forecast, notify)
+        forecast_card_data(forecast)
+        feed = fetch_json(FEED_URL)
+        events = validate_feed(feed)
+        if state.get("version") == 2:
+            select_announcements(events, state)
+        confirmed = confirmed_reset_id(forecast, notify)
+        if confirmed:
+            event = next((e for e in events if e["id"] == confirmed), None)
+            if (event is None or event["kind"] != "reset" or event.get("preview") is not False
+                    or event["announced_at"] != notify["last_reset_at"]
+                    or event.get("source_url") != notify.get("last_reset_url")):
+                raise ValueError("feed/confirmed forecast disagree on reset evidence")
     except Exception as exc:
         state["consecutive_fetch_failures"] = int(state.get("consecutive_fetch_failures") or 0) + 1
         count = state["consecutive_fetch_failures"]
@@ -384,6 +723,13 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         print(f"fetch failed count={count}: {exc}", file=sys.stderr)
         return 1
 
+    if dry_run or no_send:
+        state["consecutive_fetch_failures"] = 0
+        state["failure_notified"] = False
+        save()
+        print(f"fetch ok mode={'dry-run' if dry_run else 'no-send'}; no batch or delivery state advanced")
+        return 0
+
     if not state.get("initialized_at"):
         establish_baseline(state, forecast, notify, dry_run=dry_run, no_send=no_send)
         return 0
@@ -391,41 +737,52 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         print(f"baseline already exists id={state.get('last_reset_id') or 'none'}")
         return 0
 
-    state["consecutive_fetch_failures"] = 0
-    state["failure_notified"] = False
-    current = now_utc()
-    reset_id = confirmed_reset_id(forecast, notify)
-    notified = [str(value) for value in state.get("notified_reset_ids", []) if value]
-    if reset_id and reset_is_older_than_state(reset_id, notify["last_reset_at"], state):
-        print(f"older reset ignored id={reset_id}")
-        reset_id = ""
-
-    if reset_id and reset_id != state.get("last_reset_id"):
-        state["last_reset_id"] = reset_id
-        state["last_reset_at"] = notify["last_reset_at"]
+    try:
+        state["consecutive_fetch_failures"] = 0
+        state["failure_notified"] = False
+        migrate_delivery_state(state)
+        # Check all eligible announcements even on quiet polls; never silently drop malformed pending data.
+        select_announcements(events, state)
         save()
+        if state.get("pendingBatch"):
+            pending = state["pendingBatch"]
+            if not deliver_batch(pending):
+                return 1
+            complete_batch(state, pending)
+            save()
+            print(f"batch completed id={pending['batchId']}")
+            if manual_preview and pending.get("manualPreview"):
+                return 0
 
-    if reset_id and reset_id not in notified:
-        ok, target = deliver(reset_message(notify, reset_id, current), f"reset id={reset_id}")
-        if ok:
-            notified.append(reset_id)
-            state["notified_reset_ids"] = notified[-MAX_NOTIFIED_IDS:]
-            print(f"reset notification sent id={reset_id} target={target}")
-        elif not (dry_run or no_send):
-            print(f"reset notification push failed id={reset_id}: {target}", file=sys.stderr)
-
-    today = current.astimezone(SHANGHAI).date().isoformat()
-    if send_daily and state.get("daily_summary_date") != today:
-        ok, target = deliver(daily_summary(forecast, current), "daily-summary")
-        if ok:
-            state["daily_summary_date"] = today
-            print(f"daily summary sent date={today} target={target}")
-        elif not (dry_run or no_send):
-            print(f"daily summary push failed date={today}: {target}", file=sys.stderr)
-
-    save()
-    print(f"fetch ok confirmed_id={reset_id or 'none'} mode={'dry-run' if dry_run else 'no-send' if no_send else 'normal'}")
-    return 0
+        current = now_utc()
+        reset_id = confirmed_reset_id(forecast, notify)
+        if reset_id and reset_is_older_than_state(reset_id, notify["last_reset_at"], state):
+            print(f"older reset ignored id={reset_id}")
+            reset_id = ""
+        if reset_id and reset_id != state.get("last_reset_id"):
+            state["last_reset_id"] = reset_id
+            state["last_reset_at"] = notify["last_reset_at"]
+        needs_reset = (reset_id and reset_id not in state.get("notified_reset_ids", [])
+                       and reset_id != state.get("baselineResetId"))
+        today = current.astimezone(SHANGHAI).date().isoformat()
+        daily_date = today if send_daily and today > (state.get("daily_summary_date") or "") else None
+        if needs_reset or daily_date or manual_preview:
+            batch = prepare_batch(state, forecast, feed, events, reset_id if needs_reset else "", daily_date,
+                                  manual_preview=manual_preview)
+            state["pendingBatch"] = batch
+            save()
+            if not deliver_batch(batch):
+                return 1
+            complete_batch(state, batch)
+            save()
+            print(f"batch completed id={batch['batchId']}")
+        save()
+        print(f"fetch ok confirmed_id={reset_id or 'none'} mode=normal")
+        return 0
+    except Exception as exc:
+        # The outbox/receipt survives every incomplete batch, including process timeouts.
+        print(f"batch failed closed: {type(exc).__name__}: {exc}", file=sys.stderr)
+        return 1
 
 
 def main() -> int:
@@ -435,12 +792,16 @@ def main() -> int:
     parser.add_argument("--test-push", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Read-only fetch; no sends or state writes")
     parser.add_argument("--no-send", action="store_true", help="Persist fetch health without acknowledging deliveries")
+    parser.add_argument("--manual-preview", action="store_true", help="Explicit real-data preview; shares batch/delivery dedupe")
     args = parser.parse_args()
 
     if args.test_push and (args.dry_run or args.no_send):
         parser.error("--test-push cannot be used with --dry-run/--no-send")
+    if args.manual_preview and (args.test_push or args.baseline_only or args.daily_summary):
+        parser.error("--manual-preview cannot be combined with other send/baseline modes")
     if args.dry_run:
-        return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary, dry_run=True)
+        return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary, dry_run=True,
+                        manual_preview=args.manual_preview)
 
     STATE_DIR.mkdir(parents=True, exist_ok=True, mode=0o700)
     with LOCK_FILE.open("a+", encoding="utf-8") as lock:
@@ -464,7 +825,8 @@ def main() -> int:
             ok, target = push(message)
             print(json.dumps({"ok": ok, "target": target}, ensure_ascii=False))
             return 0 if ok else 1
-        return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary, no_send=args.no_send)
+        return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary, no_send=args.no_send,
+                        manual_preview=args.manual_preview)
 
 
 if __name__ == "__main__":
