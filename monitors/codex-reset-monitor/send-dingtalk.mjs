@@ -258,7 +258,7 @@ export function createDingtalkTransport(targetInput, { imageHost, cli = dwsJson,
   };
 }
 
-async function persist(file, value) {
+export async function persist(file, value) {
   const temporary = file + '.' + crypto.randomUUID() + '.tmp';
   try {
     const handle = await fs.open(temporary, 'wx', 0o600);
@@ -358,13 +358,16 @@ export async function runDingtalkManifest({ plan, receiptPath, loadTransport, dr
 }
 
 export async function main(argv = process.argv.slice(2), { loadPrivateTransport = loadPrivateTestTransport,
+  loadGroupTransport,
   output = value => process.stdout.write(JSON.stringify(value) + '\n') } = {}) {
   try {
     const { values } = parseArgs({ args: argv, options: {
       manifest: { type: 'string' }, 'dry-run': { type: 'boolean', default: false },
       'send-private-test': { type: 'boolean', default: false }, config: { type: 'string' }, receipt: { type: 'string' },
+      'send-group': { type: 'boolean', default: false },
     } });
-    check(values['dry-run'] !== values['send-private-test'], 'explicit_mode_required');
+    check([values['dry-run'], values['send-private-test'], values['send-group']].filter(Boolean).length === 1,
+      'explicit_mode_required');
     check(values['dry-run'] || (values.config && values.receipt), 'private_config_and_receipt_required');
     check(values.manifest, 'manifest_required');
     const file = path.resolve(values.manifest);
@@ -377,6 +380,13 @@ export async function main(argv = process.argv.slice(2), { loadPrivateTransport 
       });
       check(!(await Promise.all(protectedPaths.map(p => fs.realpath(p)))).includes(resolvedReceipt), 'receipt_overlaps_input');
     }
+    if (values['send-group']) {
+      const group = await import('./dingtalk-group-transport.mjs');
+      const result = await group.runGroupManifest({ plan, receiptPath,
+        loadTransport: () => (loadGroupTransport ?? group.loadGroupTransport)(path.resolve(values.config)) });
+      output(result);
+      return ['accepted', 'readback_confirmed'].includes(result.status) ? 0 : result.status === 'unknown' ? 5 : 4;
+    }
     const result = await runDingtalkManifest({ plan, receiptPath, dryRun: values['dry-run'],
       loadTransport: () => loadPrivateTransport(path.resolve(values.config)) });
     output(result);
@@ -388,6 +398,8 @@ export async function main(argv = process.argv.slice(2), { loadPrivateTransport 
       'qq_host_unavailable', 'receipt_overlaps_input', 'receipt_overlaps_image', 'receipt_locked',
       'current_identity_mismatch', 'current_profile_mismatch',
       'invalid_receipt', 'receipt_target_mismatch', 'receipt_manifest_mismatch']);
+    for (const code of ['invalid_group_config', 'group_target_mismatch', 'group_unverified',
+      'group_bot_unverified', 'group_membership_unverified', 'group_readback_unavailable']) publicCodes.add(code);
     output({ channel: 'dingtalk', ok: false, status: 'blocked',
       errorCode: publicCodes.has(error.message) ? error.message : 'preflight_blocked' });
     return 4;

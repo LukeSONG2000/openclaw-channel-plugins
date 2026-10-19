@@ -8,6 +8,8 @@ import { normalizeManifest, sha256 } from './sender-manifest.mjs';
 import { privateTarget, renderDingtalkMarkdown, qqUploadOnlyHost, createDingtalkTransport,
   runDingtalkManifest, contract, main, loadPrivateTestTransport, botAcceptance, sendCapabilities,
   privateTestPins } from './send-dingtalk.mjs';
+import { groupTarget, groupPins, groupContract, planProjection, matchGroupHistory,
+  loadGroupTransport, runGroupManifest, groupDwsText } from './dingtalk-group-transport.mjs';
 
 const target = { mode: 'bot_private', botName: 'R2-D2', robotCode: 'fixture-bot',
   userId: 'fixture-user', corpId: 'fixture-org', accountUserId: 'fixture-account',
@@ -454,4 +456,259 @@ test('QA P1: account drift after upload preparation is detected directly before 
   const result = await runDingtalkManifest({ plan: value.plan, receiptPath: value.receiptPath, loadTransport: async () => routed });
   assert.equal(result.status, 'failed'); assert.equal(result.errorCode, 'current_identity_mismatch');
   assert.equal(sends, 0);
+});
+
+const groupBotId = 'fixture-group-bot-openid', groupAccountId = 'fixture-group-account-openid';
+const groupRoute = { mode: 'bot_group', botName: 'R2-D2', robotCode: 'fixture-bot',
+  corpId: 'fixture-org', accountUserId: 'fixture-account', groupId: 'cidFixture==',
+  robotCodeSource: 'channels.ddingtalk.clientId' };
+const groupNow = Date.parse('2026-10-19T12:00:00+08:00');
+async function groupFixture(t, { modern = false, images = true } = {}) {
+  const value = await fixture(t), calls = [];
+  const root = path.join(value.directory, 'runtime'); await fs.mkdir(root);
+  const runtime = { channels: { ddingtalk: { enabled: true, clientId: groupRoute.robotCode, adminUserId: groupRoute.accountUserId } } };
+  await fs.writeFile(path.join(root, 'openclaw.json'), JSON.stringify(runtime));
+  const configFile = path.join(value.directory, 'group.json');
+  const config = { version: 1, openclawRoot: root, imageHosting: 'qq_upload_only', groupId: groupRoute.groupId };
+  await fs.writeFile(configFile, JSON.stringify(config), { mode: 0o600 });
+  if (!images) {
+    value.manifest.parts = [{ type: 'heading', level: 1, text: 'Health' }, { type: 'text', text: 'Source unavailable' }];
+    value.plan = await normalizeManifest(value.manifest, value.directory);
+  }
+  let history = { success: true, result: { messages: [], hasMore: false } }, sends = 0, uploads = 0;
+  const pins = { targetSha256: groupTarget(groupRoute).targetSha256,
+    botOpenDingTalkIdSha256: sha256(groupBotId), accountOpenDingTalkIdSha256: sha256(groupAccountId) };
+  const help = async args => {
+    const leaf = args.join(' ');
+    if (leaf === 'chat message send-by-bot') return '--group string\n--robot-code string\n--title string\n--text string'
+      + (modern ? '\n--profile string' : '');
+    if (leaf === 'chat search') return '--query string\n--limit int';
+    if (leaf === 'chat group bots') return '--group string';
+    if (leaf === 'chat group members list') return '--id string';
+    if (leaf === 'chat message list') return '--group string\n--time string\n--limit int\n--forward bool';
+    throw Error('unexpected help');
+  };
+  const cli = async args => {
+    calls.push(args);
+    const leaf = args.slice(0, 3).join(' ');
+    if (leaf === 'contact user get-self') return { success: true, result: [{ orgEmployeeModel: {
+      corpId: groupRoute.corpId, userId: groupRoute.accountUserId, orgUserName: '\u5b8b\u96e8\u626c' } }] };
+    if (args[0] === 'profile') return { success: true, profiles: [{ isCurrent: true, status: 'active',
+      corpId: groupRoute.corpId, userId: groupRoute.accountUserId, profile: `${groupRoute.corpId}:${groupRoute.accountUserId}` }] };
+    if (args[1] === 'search') return { success: true, result: { hasMore: false, groups: [{
+      title: '\u0041\u0049\u7ec4\u5185\u901a\u77e5', openConversationId: groupRoute.groupId }] } };
+    if (leaf === 'chat group bots') return { success: true, result: { bots: [{ name: 'R2-D2',
+      robotCode: groupRoute.robotCode, botOpenDingTalkId: groupBotId, status: 1, isCreator: true, manageable: true }] } };
+    if (leaf === 'chat group members') return { success: true, result: { hasMore: false, list: [{ openDingtalkId: groupAccountId }] } };
+    if (leaf === 'chat message list') return history;
+    if (leaf === 'chat message send-by-bot') { sends++; return { success: true, result: { processQueryKey: 'fixture-group-key' } }; }
+    throw Error('unexpected cli');
+  };
+  const dependencies = { cli, help, pins, imageHost: { kind: 'qq_upload_only',
+    prepareImage: async () => { uploads++; return url; } } };
+  return { ...value, root, config, configFile, runtime, pins, dependencies, calls,
+    sends: () => sends, uploads: () => uploads, setHistory: value => { history = value; } };
+}
+function groupMessage(plan, patch = {}) {
+  const text = plan.parts.filter(p => p.type !== 'image').map(p => p.type === 'link' ? p.label : p.text).join(' \n ');
+  return { content: text + '\n' + plan.parts.filter(p => p.type === 'image').map(() => '![image](@fixtureMediaId)').join('\n'),
+    createTime: '2026-10-19 12:00:00', openConversationId: groupRoute.groupId,
+    openMessageId: 'fixture-group-message', sendType: 'robot', sender: 'R2-D2', senderOpenDingTalkId: groupBotId, ...patch };
+}
+const historyResponse = (...messages) => ({ success: true, result: { hasMore: false, messages } });
+async function groupRun(value, overrides = {}) {
+  return runGroupManifest({ plan: value.plan, receiptPath: value.receiptPath,
+    loadTransport: () => loadGroupTransport(value.configFile, value.dependencies), now: () => groupNow, ...overrides });
+}
+
+test('group-only identity, namespace, contract and actual observed target pin', () => {
+  assert.notEqual(groupTarget(groupRoute).targetSha256, privateTarget(target).targetSha256);
+  for (const k of ['corpId', 'accountUserId', 'robotCode', 'groupId']) {
+    assert.notEqual(groupTarget({ ...groupRoute, [k]: 'other' }).targetSha256, groupTarget(groupRoute).targetSha256);
+  }
+  assert.throws(() => groupTarget({ ...groupRoute, userId: 'other' }), /invalid_target/);
+  assert.equal(groupContract.acceptanceIsDelivery, false);
+  assert.equal(groupContract.readbackKind, 'server_history_projection');
+  assert.equal(groupPins.targetSha256, groupTarget({ ...groupRoute,
+    corpId: 'dingcd17e98b5e38e99e35c2f4657eb6378f', accountUserId: '51135122',
+    robotCode: 'dingjt9lppnwihirkjpi', groupId: 'cidyHM8LHTEyQHtHoNc12qsUQ==' }).targetSha256);
+});
+test('group dispatch is one titled multi-image bot call, no personal or QQ message fallback', async t => {
+  for (const modern of [false, true]) {
+    const value = await groupFixture(t, { modern });
+    const receipt = await groupRun(value);
+    assert.equal(receipt.status, 'accepted'); assert.equal(receipt.ok, false);
+    assert.equal(receipt.accepted, true); assert.equal(receipt.deliveryVerified, false);
+    assert.equal(receipt.readbackObserved, false); assert.equal(value.sends(), 1); assert.equal(value.uploads(), 1);
+    const send = value.calls.find(a => a[2] === 'send-by-bot');
+    assert.equal(send[send.indexOf('--group') + 1], groupRoute.groupId);
+    assert.equal(send[send.indexOf('--title') + 1], value.plan.parts[0].text);
+    assert.equal((send[send.indexOf('--text') + 1].match(/!\[image\]/g) ?? []).length, 2);
+    assert.equal(send.includes('--users'), false); assert.equal(send.includes('--profile'), modern);
+    assert.equal(value.calls.at(-1).includes('--forward=true'), true);
+  }
+});
+test('accepted is durable before readback; same receipt is read-only and can observe later', async t => {
+  const value = await groupFixture(t); let queries = 0;
+  const transport = await loadGroupTransport(value.configFile, value.dependencies);
+  const read = transport.readback;
+  transport.readback = async receipt => {
+    queries++;
+    const disk = JSON.parse(await fs.readFile(value.receiptPath));
+    assert.equal(disk.accepted, true); assert.equal(disk.processQueryKey, 'fixture-group-key');
+    assert.equal(disk.status, 'accepted');
+    return read(receipt);
+  };
+  const options = { loadTransport: async () => transport };
+  assert.equal((await groupRun(value, options)).status, 'accepted');
+  value.setHistory(historyResponse(groupMessage(value.plan)));
+  const receipt = await groupRun(value, options);
+  assert.equal(receipt.status, 'readback_confirmed'); assert.equal(receipt.ok, true);
+  assert.equal(receipt.readbackObserved, true); assert.equal(receipt.deliveryVerified, false);
+  assert.equal(receipt.readback.evidence.providerKeyCorrelated, false);
+  assert.equal(receipt.readback.evidence.verifiesImageBytes, false);
+  assert.equal(receipt.readback.evidence.verifiesLinkDestinations, false);
+  assert.equal(value.sends(), 1); assert.equal(queries, 2);
+  assert.deepEqual(await groupRun(value, options), receipt); assert.equal(queries, 2);
+});
+test('real group history fields: wrong destination/bot/type/time/content/images never complete', async t => {
+  const value = await groupFixture(t), receipt = await groupRun(value);
+  const valid = groupMessage(value.plan);
+  const variants = [{ openConversationId: 'wrong' }, { senderOpenDingTalkId: 'wrong' }, { sendType: 'user' },
+    { createTime: '2026-10-19 11:58:00' }, { createTime: '2026-10-19 12:03:00' },
+    { createTime: 'not-time' }, { openMessageId: '' }, { content: 'different' },
+    { content: valid.content.replace('![image](@fixtureMediaId)', '') },
+    { content: valid.content + '\n![image](@anotherId)' }];
+  for (const patch of variants) {
+    const result = matchGroupHistory(historyResponse({ ...valid, ...patch }), groupRoute, groupBotId, receipt);
+    assert.equal(result.status, 'not_found'); assert.equal(result.evidence, undefined);
+  }
+  const ambiguous = matchGroupHistory(historyResponse(valid, { ...valid, openMessageId: 'second' }), groupRoute, groupBotId, receipt);
+  assert.equal(ambiguous.status, 'ambiguous'); assert.equal(ambiguous.evidence, undefined);
+  const partial = matchGroupHistory({ success: true, result: { messages: [valid], hasMore: true } }, groupRoute, groupBotId, receipt);
+  assert.equal(partial.status, 'incomplete'); assert.equal(partial.evidence, undefined);
+  for (const response of [{ success: false }, { success: true, result: { messages: [] } }]) {
+    assert.throws(() => matchGroupHistory(response, groupRoute, groupBotId, receipt), /group_readback_unavailable/);
+  }
+});
+test('group no-image health manifest needs no QQ credentials, imports or image API', async t => {
+  const value = await groupFixture(t, { images: false });
+  delete value.dependencies.imageHost;
+  value.dependencies.importModule = () => { throw Error('must-not-import-qq'); };
+  value.setHistory(historyResponse(groupMessage(value.plan)));
+  const result = await groupRun(value);
+  assert.equal(result.status, 'readback_confirmed'); assert.equal(value.sends(), 1); assert.equal(value.uploads(), 0);
+});
+test('group readback failures preserve accepted and process key; timeout never retries send', async t => {
+  for (const kind of ['readback', 'send']) {
+    const value = await groupFixture(t); const base = value.dependencies.cli; let sendCalls = 0;
+    value.dependencies.cli = async args => {
+      if (args[2] === 'send-by-bot') { sendCalls++; if (kind === 'send') throw Error('secret-timeout'); }
+      if (args[2] === 'list' && kind === 'readback') throw Error('secret-readback');
+      return base(args);
+    };
+    const first = await groupRun(value); const second = await groupRun(value);
+    assert.equal(sendCalls, 1); assert.equal(second.status, kind === 'send' ? 'unknown' : 'accepted');
+    assert.equal(second.accepted, kind !== 'send');
+    if (kind === 'readback') assert.equal(second.processQueryKey, 'fixture-group-key');
+    assert.ok(!JSON.stringify(first).includes('secret'));
+  }
+});
+test('QA: only a proven prepare-only failure can retry preparation, never an attempted dispatch', async t => {
+  const value = await groupFixture(t); let uploads = 0;
+  value.dependencies.imageHost.prepareImage = async () => { if (++uploads === 1) throw Error('temporary'); return url; };
+  const first = await groupRun(value);
+  assert.equal(first.status, 'failed'); assert.equal(first.errorCode, 'prepare_failed');
+  assert.equal(Object.hasOwn(first, 'dispatchStartedAt'), false); assert.equal(value.sends(), 0);
+  assert.equal((await groupRun(value)).status, 'accepted'); assert.equal(value.sends(), 1); assert.equal(uploads, 2);
+  await groupRun(value); assert.equal(value.sends(), 1); assert.equal(uploads, 2);
+  for (const patch of [{ dispatchStartedAt: new Date(groupNow).toISOString() }, { processQueryKey: 'key' },
+    { dispatchFinishedAt: new Date(groupNow).toISOString() }, { preparedMarkdownHash: sha256('prepared') }]) {
+    await fs.writeFile(value.receiptPath, JSON.stringify({ ...first, ...patch }));
+    assert.equal((await groupRun(value)).status, 'failed');
+  }
+  assert.equal(value.sends(), 1); assert.equal(uploads, 2);
+});
+test('group route rejects duplicate search, absent/changed bot, nonmember and switched account', async t => {
+  for (const failure of ['account', 'group', 'bot', 'membership']) {
+    const value = await groupFixture(t), base = value.dependencies.cli;
+    value.dependencies.cli = async args => {
+      const response = await base(args);
+      if (failure === 'account' && args[0] === 'contact') response.result[0].orgEmployeeModel.userId = 'wrong';
+      if (failure === 'group' && args[1] === 'search') response.result.groups.push(response.result.groups[0]);
+      if (failure === 'bot' && args[2] === 'bots') response.result.bots[0].botOpenDingTalkId = 'different-bot';
+      if (failure === 'membership' && args[2] === 'members') response.result.list = [];
+      return response;
+    };
+    await assert.rejects(groupRun(value)); assert.equal(value.sends(), 0); assert.equal(value.uploads(), 0);
+  }
+});
+test('group pins reject any other group and config cannot carry personal recipients', async t => {
+  const value = await groupFixture(t);
+  await assert.rejects(loadGroupTransport(value.configFile, { ...value.dependencies, pins: groupPins }), /group_target_mismatch/);
+  for (const patch of [{ groupId: 'another-group' }, { userId: 'someone' }, { profile: 'other' }]) {
+    await fs.writeFile(value.configFile, JSON.stringify({ ...value.config, ...patch }));
+    await assert.rejects(loadGroupTransport(value.configFile, value.dependencies));
+  }
+  assert.equal(value.sends(), 0);
+});
+test('group identity drift between image prep and dispatch fails closed', async t => {
+  const value = await groupFixture(t), base = value.dependencies.cli;
+  value.dependencies.cli = async args => {
+    const response = await base(args);
+    if (args[0] === 'contact' && value.uploads() > 0) response.result[0].orgEmployeeModel.corpId = 'switched';
+    return response;
+  };
+  const receipt = await groupRun(value);
+  assert.equal(receipt.status, 'failed'); assert.equal(receipt.errorCode, 'current_identity_mismatch');
+  assert.equal(value.sends(), 0);
+});
+test('private/QQ/corrupt/group target mismatched receipts cannot be dispatched or upgraded', async t => {
+  const value = await groupFixture(t);
+  const good = await groupRun(value);
+  for (const previous of [null, {}, { ...good, scope: 'private' }, { ...good, channel: 'qq' },
+    { ...good, targetSha256: sha256('other') }, { ...good, ok: true },
+    { ...good, status: 'readback_confirmed', ok: true, readbackObserved: true }]) {
+    await fs.writeFile(value.receiptPath, JSON.stringify(previous));
+    await assert.rejects(groupRun(value));
+  }
+  for (const status of ['preparing', 'inflight', 'unknown', 'failed']) {
+    const previous = { ...good, status, accepted: false }; delete previous.processQueryKey;
+    await fs.writeFile(value.receiptPath, JSON.stringify(previous));
+    assert.equal((await groupRun(value)).status, status);
+  }
+  assert.equal(value.sends(), 1);
+});
+test('group receipt lock and runtime overwrite guards protect dispatch', async t => {
+  const value = await groupFixture(t);
+  await fs.writeFile(value.receiptPath + '.lock', '');
+  await assert.rejects(groupRun(value), /receipt_locked/);
+  await assert.rejects(groupRun(value, { receiptPath: path.join(value.root, 'openclaw.json') }), /receipt_overlaps_input/);
+  assert.equal(value.sends(), 0);
+});
+test('group CLI mode is explicit/exclusive and does not load private routing', async t => {
+  const value = await groupFixture(t), outputs = [];
+  const manifestFile = path.join(value.directory, 'batch.json'); await fs.writeFile(manifestFile, JSON.stringify(value.manifest));
+  const dependencies = { loadGroupTransport: () => loadGroupTransport(value.configFile, value.dependencies),
+    loadPrivateTransport: () => { throw Error('private-forbidden'); }, output: x => outputs.push(x) };
+  const args = ['--manifest', manifestFile, '--config', value.configFile, '--receipt', value.receiptPath];
+  assert.equal(await main([...args, '--send-group'], dependencies), 0);
+  assert.equal(outputs.at(-1).status, 'accepted'); assert.equal(outputs.at(-1).ok, false);
+  const createTime = new Intl.DateTimeFormat('sv-SE', { timeZone: 'Asia/Shanghai', year: 'numeric', month: '2-digit',
+    day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23' })
+    .format(new Date(outputs.at(-1).dispatchStartedAt));
+  value.setHistory(historyResponse(groupMessage(value.plan, { createTime })));
+  assert.equal(await main([...args, '--send-group'], dependencies), 0);
+  assert.equal(outputs.at(-1).status, 'readback_confirmed'); assert.equal(outputs.at(-1).deliveryVerified, false);
+  for (const extra of [[], ['--send-group', '--send-private-test'], ['--send-group', '--dry-run']]) {
+    assert.equal(await main([...args, ...extra], dependencies), 4);
+  }
+  assert.equal(value.sends(), 1);
+});
+test('production group CLI wrapper forbids private/raw credential overrides without executing DWS', async () => {
+  for (const args of [['chat', 'message', 'send-by-bot', '--users', 'someone'],
+    ['chat', 'group', 'members', 'add-bot'], ['chat', 'message', 'send-by-bot', '--mock'],
+    ['chat', 'message', 'send-by-bot', '--client-secret=secret']]) {
+    await assert.rejects(groupDwsText(args), /invalid_dws_command/);
+  }
 });
