@@ -37,9 +37,18 @@ accepted/unknown/inflight 保留同一 pending，重入只核对回执，不另�
 incomplete/pending，需人工只读核对，不重发，也不宣称完成。
 
 新 `codex-reset-dingtalk-{monitor,summary}.{service,timer}` 分别为 15 分钟轮询和
-每日 08:00 Asia/Shanghai，未部署启用；旧 QQ 四个 unit 不变。
+每日 08:00 Asia/Shanghai；旧 QQ 四个 unit 不变。
 来源 helper 仅对同源暂态失败最多重试三次，每端点预算 81 秒，输出脱敏
 HTTP/curl 分类；不降级为旧数据、其他来源或放宽 freshness。
+
+2026-10-19 已按本轮授权部署代码候选 `5a1e2ba`，12 文件与最终 QA hash 一致，
+helper 先于 entry 落盘；运行机 131 项回归、唯一群只读目标预检和 unit verify 通过。
+群配置 0600，两个 DD timer 与原两个 QQ timer 均 active/enabled，未停 gateway。
+备份：`laptop-home:~/.openclaw/backups/codex-reset-monitor/group-20261019T103150Z/`。
+18:34 最后三个 API 全为 HTTP502；实际 QQ poll 失败计数 5、exit1，DD 计数 1。
+DD initializationPending=true，firstDailyCompletedAt/daily/pendingBatch 均为空，
+无 outbox/receipt、未真实初始化、群发送为零。DD 首次完整 fresh 后才自动尝试日报，
+不将已启用 timer 说成已恢复/已发送；未知发送只读核对，不重发。
 
 ## 钉钉私人样例
 
