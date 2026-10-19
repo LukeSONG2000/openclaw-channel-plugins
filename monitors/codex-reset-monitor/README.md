@@ -1,10 +1,42 @@
 # Codex 统一重置监控
 
+## 钉钉群运行
+
+正式群固定为“AI组内通知”，使用显式 `--group-config`，不复用私人测试配置。
+群配置权限 0600，字段为 `version: 1`、`openclawRoot`、
+`imageHosting: "qq_upload_only"`、经 Transport 核实的 `groupId`；实际配置不进 Git。
+配置默认安装位置为运行目录 `dingtalk-group.json`。
+
+```sh
+python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --baseline-only
+python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --daily-summary
+```
+
+首次仅建立独立来源基线，第二条才发送当日初始化；只有独立 QA、来源恢复及
+发布授权通过后执行。启用前必须三个官方端点真实 200，原 schema/freshness 校验
+通过，并观察 QQ 正常轮询成功；helper 测试通过不代表 HTTP 502 恢复。
+群独立使用 `state/dingtalk/group/{state.json,monitor.lock,outbox/}`，绑定渠道及
+固定目标 hash，不迁移 QQ state/journal、私人测试成功或 pending。
+基线以前的历史不推送，但基线确实观察过的同 ID 后续新阶段仍可触发。
+
+复用原图文和动态标题，单条多图不变。群 sender 使用 `--send-group`；
+accepted/unknown/inflight 保留同一 pending，重入只核对回执，不另建 batch 重发。
+`readback_confirmed/ok/readbackObserved` 及目标、manifest 校验全部通过后，
+才记录当日 daily 和阶段成功键。readback 仅是服务端消息历史匹配，
+不是客户端送达/已读，也不验证图片字节及链接目的地，`deliveryVerified` 仍为 false。
+持续缺少唯一证据须人工核对，不以重发解决。来源失败计数、健康消息及回执
+均只属于当前渠道，钉钉故障不得回退 QQ。
+
+新 `codex-reset-dingtalk-{monitor,summary}.{service,timer}` 分别为 15 分钟轮询和
+每日 08:00 Asia/Shanghai，未部署启用；旧 QQ 四个 unit 不变。
+来源 helper 仅对同源暂态失败最多重试三次，每端点预算 81 秒，输出脱敏
+HTTP/curl 分类；不降级为旧数据、其他来源或放宽 freshness。
+
 ## 钉钉私人样例
 
-本接入仅用于宋雨扬私人测试，不启用 DD 自动推送或群通知。默认命令及
+以下为已完成的私人测试记录，不代表正式群已启用。默认命令及
 `--channel qq` 保持 QQ 原行为、state、pending 和锁，现有 QQ timer/service 不变。
-`--channel dingtalk`（别名 `dd`）的监控入口仍只允许只读预检：
+不带 `--group-config` 的 `--channel dingtalk`（别名 `dd`）仍只允许只读预检：
 
 ```sh
 python3 monitors/codex-reset-monitor/monitor.py --channel dingtalk --dry-run

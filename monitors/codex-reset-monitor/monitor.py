@@ -12,12 +12,14 @@ import os
 import re
 import subprocess
 import sys
-import time
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Literal, TypedDict
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
+
+from source_fetch import fetch_json
 
 
 SOURCE_URL = "https://willreset.com"
@@ -39,6 +41,39 @@ MAX_SOURCE_AGE = timedelta(hours=2)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 RENDER_TIMEOUT = 180
 SEND_TIMEOUT = 600
+GROUP_CONFIG: Path | None = None
+GROUP_ID_SHA256 = "0d5f2f5090f8d0e2400b314bbd47f2607f4a922037b89cf4854ed6e87971e744"
+GROUP_TARGET_SHA256 = "83586e66a30c9dc2cba735eb540c5fe84c82cd436e827a3019e854ed49984b17"
+
+
+@contextmanager
+def dingtalk_runtime(config: Path):
+    """Scope the existing single-process pipeline to a separate group ledger."""
+    global STATE_FILE, GROUP_CONFIG, PUSH_SCRIPT
+    config = Path(config).resolve()
+    if GROUP_CONFIG is not None:
+        if config != GROUP_CONFIG:
+            raise ValueError("cannot nest a different DingTalk target")
+        yield
+        return
+    previous = STATE_FILE, GROUP_CONFIG, PUSH_SCRIPT
+    STATE_FILE = STATE_FILE.parent / "dingtalk" / "group" / "state.json"
+    GROUP_CONFIG = config
+    PUSH_SCRIPT = ROOT / "send-dingtalk.mjs"
+    try:
+        yield
+    finally:
+        STATE_FILE, GROUP_CONFIG, PUSH_SCRIPT = previous
+
+
+def group_binding() -> dict[str, str]:
+    config = json.loads(GROUP_CONFIG.read_text(encoding="utf-8"))
+    if (GROUP_CONFIG.stat().st_mode & 0o077 or config.get("version") != 1
+            or config.get("imageHosting") != "qq_upload_only"
+            or not isinstance(config.get("groupId"), str)
+            or hashlib.sha256(config["groupId"].encode()).hexdigest() != GROUP_ID_SHA256):
+        raise ValueError("invalid or unpinned DingTalk group configuration")
+    return dict(channel="dingtalk", groupIdSha256=GROUP_ID_SHA256, targetSha256=GROUP_TARGET_SHA256)
 
 
 class ResetPhaseEvent(TypedDict):
@@ -142,7 +177,9 @@ def pending_phase_events(phases: list[ResetPhaseEvent], state: dict[str, Any]) -
     seen = set(state.get("deliveredPhaseKeys", [])) | set(state.get("phaseBaselineKeys", []))
     pending = []
     for phase in phases:
-        if aware_time(phase["announcedAt"], "phase.announcedAt") < lower or phase_event_key(phase) in seen:
+        known_baseline = phase["eventId"] in state.get("groupBaselineEventIds", [])
+        if ((aware_time(phase["announcedAt"], "phase.announcedAt") < lower and not known_baseline)
+                or phase_event_key(phase) in seen):
             continue
         if phase["resetType"] == "regular" and phase["phase"] == "actual":
             if (phase["eventId"] == state.get("baselineResetId")
@@ -216,32 +253,6 @@ def load_state(path: Path | None = None) -> dict[str, Any]:
     except (OSError, json.JSONDecodeError):
         pass
     raise RuntimeError(f"状态文件损坏：{path}")
-
-
-def fetch_json(url: str) -> dict[str, Any]:
-    last_error: Exception | None = None
-    for attempt in range(2):
-        try:
-            # This host's IPv6 HTTPS path stalls; scope IPv4 to this fetch only.
-            response = subprocess.run(
-                ["curl", "--disable", "--ipv4", "--fail", "--silent", "--show-error",
-                 "--proto", "=https", "--connect-timeout", "5", "--max-time", "20",
-                 "--header", "Accept: application/json",
-                 "--user-agent", "OpenClaw-CodexResetMonitor/1.0", url],
-                capture_output=True, text=True, timeout=25, check=False,
-            )
-            if response.returncode:
-                # Do not echo proxy configuration or curl diagnostics containing credentials.
-                raise RuntimeError(f"curl exit={response.returncode}")
-            payload = json.loads(response.stdout)
-            if not isinstance(payload, dict):
-                raise RuntimeError("JSON 根节点不是对象")
-            return payload
-        except Exception as exc:
-            last_error = exc
-            if attempt == 0:
-                time.sleep(2)
-    raise RuntimeError(f"抓取 {url} 失败：{last_error}")
 
 
 def valid_percent(value: Any) -> bool:
@@ -525,9 +536,11 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
         phases_by_id.setdefault(phase["eventId"], set()).add(phase_event_key(phase))
     result = []
     for event in events:
-        if aware_time(event["announced_at"], "event time") < lower:
-            continue
         phase_keys = phases_by_id.get(event["id"], set())
+        baseline_upgrade = (event["id"] in state.get("groupBaselineEventIds", [])
+                            and bool(phase_keys.difference(seen_phase_keys)))
+        if aware_time(event["announced_at"], "event time") < lower and not baseline_upgrade:
+            continue
         # Trigger baselines are not content acknowledgements: unseen IDs remain deliverable.
         if event["id"] in sent and (not phase_keys or not phase_keys.difference(seen_phase_keys)):
             continue
@@ -719,6 +732,8 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                     resetId=reset_id or None, dailyDate=daily_date, manualPreview=manual_preview,
                     sourceWarnings=warnings, manifestVersion=2, delivery="single_markdown",
                     title=batch_phase_title(phases, daily=bool(daily_date)), eventPhases=phases)
+    if GROUP_CONFIG is not None:
+        snapshot.update(group_binding())
     primary = primary_phase(phases)
     if primary:
         snapshot["stageText"] = PHASE_DETAILS[(primary["resetType"], primary["phase"])]
@@ -787,6 +802,20 @@ def prepare_dingtalk_sample() -> dict[str, Any]:
     return report
 
 
+def prepare_health_batch(message: str) -> dict[str, Any]:
+    snapshot = dict(createdAt=now_utc().isoformat(), kind="source-failure", **group_binding())
+    batch_id = "codex-" + digest_json(snapshot)[:32]
+    directory = STATE_FILE.parent / "outbox" / batch_id
+    lines = message.splitlines()
+    manifest = dict(version=2, batchId=batch_id, delivery="single_markdown",
+                    parts=[dict(type="heading", level=1, text=lines[0]),
+                           dict(type="text", text="\n".join(lines[1:]))])
+    atomic_write_json(directory / "snapshot.json", snapshot)
+    atomic_write_json(directory / "batch.json", manifest)
+    return dict(batchId=batch_id, manifestSha256=digest_json(manifest),
+                snapshotSha256=digest_json(snapshot), imageHashes={})
+
+
 def deliver_batch(batch: dict[str, Any]) -> bool:
     batch_id = batch["batchId"]
     if not isinstance(batch_id, str) or not re.fullmatch(r"codex-[a-f0-9]{32}", batch_id):
@@ -798,22 +827,27 @@ def deliver_batch(batch: dict[str, Any]) -> bool:
     snapshot = json.loads((directory / "snapshot.json").read_text(encoding="utf-8"))
     if digest_json(manifest) != batch["manifestSha256"] or digest_json(snapshot) != batch["snapshotSha256"]:
         raise ValueError("pending batch snapshot/manifest changed; manual reconciliation required")
+    if GROUP_CONFIG is not None and any(snapshot.get(key) != value for key, value in group_binding().items()):
+        raise ValueError("pending batch DingTalk target binding mismatch")
     if manifest.get("version") != 2 or manifest.get("delivery") != "single_markdown":
         raise ValueError("legacy segmented batch cannot resume; preserve its receipt for manual reconciliation")
     if receipt_path.exists():
         existing = json.loads(receipt_path.read_text(encoding="utf-8"))
         if existing.get("version") != 2:
             raise ValueError("legacy receipt cannot be reused for single-message delivery")
-        if isinstance(existing.get("message"), dict) and existing["message"].get("status") in ("inflight", "unknown"):
+        if GROUP_CONFIG is None and isinstance(existing.get("message"), dict) and existing["message"].get("status") in ("inflight", "unknown"):
             print(f"batch blocked id={batch_id}; message outcome requires manual reconciliation")
             return False
     for name, checksum in batch["imageHashes"].items():
         if Path(name).name != name or hashlib.sha256((directory / name).read_bytes()).hexdigest() != checksum:
             raise ValueError("pending batch image changed; manual reconciliation required")
     timed_out = False
+    command = ["node", str(PUSH_SCRIPT), "--manifest", str(manifest_path), "--receipt", str(receipt_path)]
+    if GROUP_CONFIG is not None:
+        command.extend(["--send-group", "--config", str(GROUP_CONFIG)])
     try:
         result = subprocess.run(
-            ["node", str(PUSH_SCRIPT), "--manifest", str(manifest_path), "--receipt", str(receipt_path)],
+            command,
             cwd=str(ROOT), text=True, capture_output=True, timeout=SEND_TIMEOUT, check=False,
         )
     except subprocess.TimeoutExpired:
@@ -831,6 +865,14 @@ def deliver_batch(batch: dict[str, Any]) -> bool:
                 and isinstance(message, dict) and message.get("status") == "sent"
                 and isinstance(message.get("receiptSha256"), str)
                 and re.fullmatch(r"[a-f0-9]{64}", message["receiptSha256"]) is not None)
+    if GROUP_CONFIG is not None:
+        complete = (receipt.get("version") == 2 and receipt.get("batchId") == batch_id
+                    and receipt.get("delivery") == "single_markdown"
+                    and receipt.get("manifestSha256") == batch["manifestSha256"]
+                    and receipt.get("channel") == "dingtalk"
+                    and receipt.get("targetSha256") == GROUP_TARGET_SHA256
+                    and receipt.get("status") == "readback_confirmed"
+                    and receipt.get("ok") is True and receipt.get("readbackObserved") is True)
     if timed_out or result.returncode != 0 or not complete:
         print(f"batch incomplete id={batch_id} status={receipt.get('status', 'invalid')} timeout={timed_out}")
         return False
@@ -875,6 +917,11 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
     state["consecutive_fetch_failures"] = 0
     state["failure_notified"] = False
     initialize_phase_state(state, phase_events or [], fresh=True)
+    if GROUP_CONFIG is not None:
+        # Remember observed old stages so an in-place upgrade is new, not a history replay.
+        state["migrationLowerBound"] = state["initialized_at"]
+        state["phaseBaselineKeys"] = [phase_event_key(p) for p in phase_events or []]
+        state["groupBaselineEventIds"] = list(dict.fromkeys(p["eventId"] for p in phase_events or []))
     if not dry_run:
         atomic_write_json(STATE_FILE, state)
     print(f"baseline established id={reset_id or 'none'}")
@@ -882,10 +929,14 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
 
 def run_once(baseline_only: bool = False, send_daily: bool = False,
              dry_run: bool = False, no_send: bool = False, manual_preview: bool = False,
-             channel: str = "qq") -> int:
+             channel: str = "qq", group_config: Path | None = None) -> int:
     channel = "dingtalk" if channel == "dd" else channel
     if channel not in ("qq", "dingtalk"):
         raise ValueError("unsupported monitor channel")
+    if channel == "dingtalk" and group_config is not None:
+        with dingtalk_runtime(group_config):
+            return run_once(baseline_only=baseline_only, send_daily=send_daily,
+                            dry_run=dry_run, no_send=no_send, manual_preview=manual_preview)
     if channel == "dingtalk":
         if not (dry_run or no_send):
             raise RuntimeError("DingTalk is preview-only; transport/target acceptance is pending")
@@ -897,6 +948,13 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
             raise RuntimeError("DingTalk state requires its own channel binding; no QQ migration")
     else:
         state = load_state()
+    if GROUP_CONFIG is not None:
+        binding = group_binding()
+        if STATE_FILE.exists() and any(state.get(key) != value for key, value in binding.items()):
+            raise RuntimeError("DingTalk group state target/channel binding mismatch")
+        if state.get("initialized_at") and state.get("version") != 2:
+            raise RuntimeError("DingTalk group state cannot migrate QQ history")
+        state.update(binding)
 
     def save() -> None:
         if not dry_run:
@@ -906,6 +964,14 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         if dry_run or no_send:
             print(f"delivery suppressed kind={kind}")
             return False, "no-send"
+        if GROUP_CONFIG is not None:
+            if not state.get("pendingHealthBatch"):
+                state["pendingHealthBatch"] = prepare_health_batch(message)
+                save()
+            try:
+                return deliver_batch(state["pendingHealthBatch"]), "dingtalk-group"
+            except Exception:
+                return False, "dingtalk-health-unconfirmed"
         return push(message)
 
     try:
@@ -956,7 +1022,9 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
     try:
         state["consecutive_fetch_failures"] = 0
         state["failure_notified"] = False
-        migrate_delivery_state(state)
+        state.pop("pendingHealthBatch", None)
+        if GROUP_CONFIG is None:
+            migrate_delivery_state(state)
         initialize_phase_state(state, phases)
         # Check all eligible announcements even on quiet polls; never silently drop malformed pending data.
         select_announcements(events, state, phase_events=phases)
@@ -1006,7 +1074,8 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
 def main() -> int:
     parser = argparse.ArgumentParser()
     parser.add_argument("--channel", choices=("qq", "dingtalk", "dd"), default="qq",
-                        help="QQ by default; DingTalk (dd) is read-only until transport acceptance")
+                        help="QQ by default; DingTalk group delivery requires --group-config")
+    parser.add_argument("--group-config", type=Path, help="Explicit pinned DingTalk group configuration")
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--daily-summary", action="store_true")
     parser.add_argument("--test-push", action="store_true")
@@ -1016,6 +1085,8 @@ def main() -> int:
     parser.add_argument("--prepare-private-test", action="store_true",
                         help="DingTalk only: render an isolated sample; never send or change business state")
     args = parser.parse_args()
+    if args.group_config and (args.channel == "qq" or args.prepare_private_test or args.test_push):
+        parser.error("--group-config requires DingTalk group mode")
 
     if args.prepare_private_test:
         if args.channel == "qq" or any((args.test_push, args.dry_run, args.no_send, args.manual_preview,
@@ -1032,6 +1103,23 @@ def main() -> int:
     if args.manual_preview and (args.test_push or args.baseline_only or args.daily_summary):
         parser.error("--manual-preview cannot be combined with other send/baseline modes")
     if args.channel != "qq":
+        if args.group_config:
+            def group_run() -> int:
+                return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary,
+                                dry_run=args.dry_run, no_send=args.no_send, manual_preview=args.manual_preview)
+
+            with dingtalk_runtime(args.group_config):
+                group_binding()
+                if args.dry_run:
+                    return group_run()
+                STATE_FILE.parent.mkdir(parents=True, exist_ok=True, mode=0o700)
+                with (STATE_FILE.parent / "monitor.lock").open("a+", encoding="utf-8") as lock:
+                    try:
+                        fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                    except BlockingIOError:
+                        print("another DingTalk group run is active")
+                        return 0
+                    return group_run()
         if args.test_push or not (args.dry_run or args.no_send):
             parser.error("DingTalk is preview-only; use --dry-run or --no-send; sends are disabled")
         return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary,

@@ -1,4 +1,5 @@
 import contextlib
+import configparser
 import hashlib
 import importlib.util
 import io
@@ -9,6 +10,7 @@ import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from unittest.mock import call, patch
+import source_fetch
 
 
 SPEC = importlib.util.spec_from_file_location("reset_monitor", Path(__file__).with_name("monitor.py"))
@@ -531,7 +533,8 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(m.SHANGHAI.key, "Asia/Shanghai")
 
     def test_fetch_uses_ipv4_https_and_bounded_timeout(self):
-        result = subprocess.CompletedProcess([], 0, '{"ok": true}', "")
+        self.assertIs(m.fetch_json, source_fetch.fetch_json)
+        result = subprocess.CompletedProcess([], 0, b'{"ok": true}\nSOURCE_FETCH_HTTP:200', b"")
         with patch.object(m.subprocess, "run", return_value=result) as run:
             self.assertEqual(m.fetch_json(m.FORECAST_URL), {"ok": True})
         args, kwargs = run.call_args
@@ -541,17 +544,17 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(kwargs["timeout"], 25)
         self.assertNotIn("shell", kwargs)
 
-    def test_fetch_retries_http_and_invalid_json_without_leaking_stderr(self):
-        for response in (subprocess.CompletedProcess([], 28, "", "proxy secret"),
-                         subprocess.CompletedProcess([], 0, "[]", ""),
-                         subprocess.CompletedProcess([], 0, "bad json", "")):
+    def test_fetch_retries_only_transient_errors_without_leaking_stderr(self):
+        for response, attempts in ((subprocess.CompletedProcess([], 28, b"", b"proxy secret"), 3),
+                         (subprocess.CompletedProcess([], 0, b"[]\nSOURCE_FETCH_HTTP:200", b""), 1),
+                         (subprocess.CompletedProcess([], 0, b"bad json\nSOURCE_FETCH_HTTP:200", b""), 1)):
             with self.subTest(returncode=response.returncode, stdout=response.stdout), \
                     patch.object(m.subprocess, "run", return_value=response) as run, \
-                    patch.object(m.time, "sleep"):
+                    patch.object(source_fetch.time, "sleep"):
                 with self.assertRaises(RuntimeError) as error:
                     m.fetch_json(m.FORECAST_URL)
                 self.assertNotIn("proxy secret", str(error.exception))
-                self.assertEqual(run.call_count, 2)
+                self.assertEqual(run.call_count, attempts)
 
     def test_daily_and_reset_share_one_batch_and_watermarks(self):
         self.assertEqual(self.run_monitor(send_daily=True), 0)
@@ -1425,6 +1428,281 @@ class ChannelIsolationTests(unittest.TestCase):
             self.assertEqual(self.invoke("--channel", "dd", "--dry-run"), 0)
         self.qq_lock.unlink()
         self.assert_preview_untouched()
+
+
+class GroupMonitorTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name)
+        self.qq_state = self.root / "state.json"
+        self.qq_state.write_text(json.dumps(dict(pendingBatch={"batchId": "qq-keep"},
+                                                daily_summary_date="2099-01-01")))
+        self.qq_bytes = self.qq_state.read_bytes()
+        self.dd_state = self.root / "dingtalk" / "group" / "state.json"
+        self.config = self.root / "group.json"
+        self.config.write_text(json.dumps(dict(version=1, openclawRoot="/unused",
+            imageHosting="qq_upload_only", groupId="cidyHM8LHTEyQHtHoNc12qsUQ==")))
+        self.config.chmod(0o600)
+        self.status = "readback_confirmed"
+        self.dispatches = []
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch.object(m, "STATE_FILE", self.qq_state))
+        stack.enter_context(patch.object(m, "STATE_DIR", self.root))
+        stack.enter_context(patch.object(m, "LOCK_FILE", self.root / "monitor.lock"))
+        stack.enter_context(patch.object(m, "render_snapshot", side_effect=fake_render))
+        stack.enter_context(patch.object(m.subprocess, "run", side_effect=self.sender))
+        self.qq_push = stack.enter_context(patch.object(m, "push", side_effect=AssertionError("QQ forbidden")))
+        self.migration = stack.enter_context(patch.object(m, "migrate_delivery_state",
+                                                        side_effect=AssertionError("QQ migration forbidden")))
+
+    def sender(self, command, **kwargs):
+        self.assertEqual(Path(command[1]).name, "send-dingtalk.mjs")
+        self.assertIn("--send-group", command)
+        self.assertEqual(Path(command[command.index("--config") + 1]), self.config.resolve())
+        manifest_path = Path(command[command.index("--manifest") + 1])
+        receipt_path = Path(command[command.index("--receipt") + 1])
+        manifest = json.loads(manifest_path.read_text())
+        self.dispatches.append(manifest)
+        confirmed = self.status == "readback_confirmed"
+        m.atomic_write_json(receipt_path, dict(version=2, batchId=manifest["batchId"],
+            delivery="single_markdown", manifestSha256=m.digest_json(manifest),
+            channel="dingtalk", targetSha256=m.GROUP_TARGET_SHA256,
+            status=self.status, ok=confirmed, readbackObserved=confirmed, deliveryVerified=False))
+        return subprocess.CompletedProcess(command, 0 if self.status in ("accepted", "readback_confirmed") else 5)
+
+    def run_group(self, data=None, **flags):
+        forecast, notify = payloads()
+        with patch.object(m, "fetch_json", side_effect=data or [forecast, notify, feed_payload(forecast)]), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return m.run_once(channel="dingtalk", group_config=self.config, **flags)
+
+    def state(self):
+        return json.loads(self.dd_state.read_text())
+
+    def assert_qq_untouched(self):
+        self.assertEqual(self.qq_state.read_bytes(), self.qq_bytes)
+        self.assertFalse((self.root / "outbox").exists())
+        self.assertEqual(m.STATE_FILE, self.qq_state)
+        self.assertIsNone(m.GROUP_CONFIG)
+        self.qq_push.assert_not_called()
+        self.migration.assert_not_called()
+
+    def test_first_call_baselines_then_unique_daily_and_quiet_poll(self):
+        self.assertEqual(self.run_group(send_daily=True), 0)
+        self.assertFalse(self.dispatches)
+        self.assertIsNone(self.state()["daily_summary_date"])
+        self.assertEqual(self.run_group(send_daily=True), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assertEqual(sum(p["type"] == "image" for p in self.dispatches[0]["parts"]), 1)
+        self.assertEqual(self.state()["daily_summary_date"], m.now_utc().astimezone(m.SHANGHAI).date().isoformat())
+        self.assertEqual(self.run_group(send_daily=True), 0)
+        self.assertEqual(self.run_group(), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assert_qq_untouched()
+
+    def test_unconfirmed_receipt_preserves_same_batch_and_daily(self):
+        for status in ("accepted", "unknown", "inflight", "failed"):
+            with self.subTest(status=status):
+                self.status = status
+                self.assertEqual(self.run_group(baseline_only=True), 0)
+                self.assertEqual(self.run_group(send_daily=True), 1)
+                batch = self.state()["pendingBatch"]
+                self.assertIsNone(self.state()["daily_summary_date"])
+                self.assertEqual(self.run_group(send_daily=True), 1)
+                self.assertEqual(self.state()["pendingBatch"], batch)
+                self.assertEqual(self.dispatches[-1]["batchId"], self.dispatches[-2]["batchId"])
+        self.status = "readback_confirmed"
+        self.assertEqual(self.run_group(send_daily=True), 0)
+        self.assertIsNone(self.state()["pendingBatch"])
+        self.assert_qq_untouched()
+
+    def test_target_or_channel_copied_state_is_rejected(self):
+        self.run_group(baseline_only=True)
+        original = self.dd_state.read_bytes()
+        for key, wrong in (("channel", "qq"), ("targetSha256", "0" * 64), ("groupIdSha256", "1" * 64)):
+            state = json.loads(original)
+            state[key] = wrong
+            self.dd_state.write_text(json.dumps(state))
+            with self.subTest(key=key), self.assertRaisesRegex(RuntimeError, "binding mismatch"):
+                self.run_group(send_daily=True)
+        self.assertFalse(self.dispatches)
+        self.assert_qq_untouched()
+
+    def test_bad_config_fails_closed_and_restores_qq_context(self):
+        self.config.chmod(0o644)
+        with self.assertRaisesRegex(ValueError, "unpinned"):
+            self.run_group(send_daily=True)
+        self.config.chmod(0o600)
+        config = json.loads(self.config.read_text())
+        config["groupId"] = "wrong-group"
+        self.config.write_text(json.dumps(config))
+        with self.assertRaisesRegex(ValueError, "unpinned"):
+            self.run_group(send_daily=True)
+        self.assertFalse(self.dd_state.exists())
+        self.assert_qq_untouched()
+
+    def test_dd_health_failure_never_routes_to_qq_or_consumes_daily(self):
+        self.run_group(baseline_only=True)
+        self.status = "accepted"
+        for _ in range(4):
+            self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")]), 1)
+        state = self.state()
+        self.assertEqual(state["consecutive_fetch_failures"], 4)
+        self.assertFalse(state["failure_notified"])
+        self.assertIsNone(state["daily_summary_date"])
+        self.assertEqual(len(self.dispatches), 2)
+        self.assertEqual(self.dispatches[0]["batchId"], self.dispatches[1]["batchId"])
+        self.assertTrue(all(p["type"] != "image" for p in self.dispatches[0]["parts"]))
+        self.status = "readback_confirmed"
+        self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")]), 1)
+        self.assertTrue(self.state()["failure_notified"])
+        self.assertEqual(self.run_group(), 0)
+        self.assertEqual(self.state()["consecutive_fetch_failures"], 0)
+        self.assertNotIn("pendingHealthBatch", self.state())
+        self.assert_qq_untouched()
+
+    def test_dd_read_only_and_no_send_do_not_consume_delivery(self):
+        self.assertEqual(self.run_group(dry_run=True), 0)
+        self.assertFalse(self.dd_state.exists())
+        self.assertEqual(self.run_group(no_send=True), 0)
+        self.assertIsNone(self.state()["initialized_at"])
+        self.assertEqual(self.run_group(baseline_only=True), 0)
+        original = self.dd_state.read_bytes()
+        self.assertEqual(self.run_group(dry_run=True, send_daily=True), 0)
+        self.assertEqual(self.dd_state.read_bytes(), original)
+        self.assertFalse(self.dispatches)
+        self.assert_qq_untouched()
+
+    def test_qq_failure_cannot_consume_dd_pending(self):
+        self.run_group(baseline_only=True)
+        self.status = "accepted"
+        self.run_group(send_daily=True)
+        original = self.dd_state.read_bytes()
+        with patch.object(m, "fetch_json", side_effect=RuntimeError("offline")), \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(m.run_once(), 1)
+        self.assertEqual(self.dd_state.read_bytes(), original)
+        self.assertEqual(len(self.dispatches), 1)
+
+    def test_bad_readback_receipts_cannot_complete(self):
+        self.run_group(baseline_only=True)
+        for key, wrong in (("channel", "qq"), ("targetSha256", "0" * 64),
+                           ("manifestSha256", "1" * 64), ("batchId", "wrong"),
+                           ("readbackObserved", False), ("ok", False), ("status", "accepted")):
+            def bad_sender(command, **kwargs):
+                result = self.sender(command, **kwargs)
+                path = Path(command[command.index("--receipt") + 1])
+                receipt = json.loads(path.read_text())
+                receipt[key] = wrong
+                m.atomic_write_json(path, receipt)
+                return result
+            with self.subTest(key=key), patch.object(m.subprocess, "run", side_effect=bad_sender):
+                self.assertEqual(self.run_group(send_daily=True), 1)
+                self.assertIsNone(self.state()["daily_summary_date"])
+                self.assertIsNotNone(self.state()["pendingBatch"])
+        self.assert_qq_untouched()
+
+    def test_group_cli_uses_only_group_lock_and_qq_lock_cannot_block(self):
+        forecast, notify = payloads()
+        lock_path = self.root / "monitor.lock"
+        with lock_path.open("a+") as lock, \
+                patch.object(m.sys, "argv", ["monitor.py", "--channel", "dd", "--group-config",
+                                            str(self.config), "--baseline-only"]), \
+                patch.object(m, "fetch_json", side_effect=[forecast, notify, feed_payload(forecast)]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            m.fcntl.flock(lock, m.fcntl.LOCK_EX | m.fcntl.LOCK_NB)
+            self.assertEqual(m.main(), 0)
+        self.assertTrue(self.dd_state.with_name("monitor.lock").exists())
+        self.assert_qq_untouched()
+
+    def test_group_lock_prevents_duplicate_pipeline(self):
+        self.dd_state.parent.mkdir(parents=True)
+        with self.dd_state.with_name("monitor.lock").open("a+") as lock, \
+                patch.object(m.sys, "argv", ["monitor.py", "--channel", "dd", "--group-config",
+                                            str(self.config), "--daily-summary"]), \
+                patch.object(m, "fetch_json") as fetch, contextlib.redirect_stdout(io.StringIO()):
+            m.fcntl.flock(lock, m.fcntl.LOCK_EX | m.fcntl.LOCK_NB)
+            self.assertEqual(m.main(), 0)
+            fetch.assert_not_called()
+        self.assert_qq_untouched()
+
+    def test_context_restores_after_exception_and_nested_calls_do_not_append_paths(self):
+        original_script = m.PUSH_SCRIPT
+        for _ in range(2):
+            with self.assertRaisesRegex(RuntimeError, "forced"):
+                with m.dingtalk_runtime(self.config):
+                    self.assertEqual(m.STATE_FILE, self.dd_state)
+                    with m.dingtalk_runtime(self.config):
+                        self.assertEqual(m.STATE_FILE, self.dd_state)
+                    with self.assertRaisesRegex(ValueError, "different"):
+                        with m.dingtalk_runtime(self.config.with_name("other.json")):
+                            self.fail("must not enter")
+                    raise RuntimeError("forced")
+            self.assertEqual(m.PUSH_SCRIPT, original_script)
+            self.assertFalse(self.dd_state.parent.exists())
+            self.assert_qq_untouched()
+
+    def test_bad_target_cli_does_not_create_group_state_lock_or_outbox(self):
+        config = json.loads(self.config.read_text())
+        config["groupId"] = "wrong"
+        self.config.write_text(json.dumps(config))
+        with patch.object(m.sys, "argv", ["monitor.py", "--channel", "dd", "--group-config",
+                                        str(self.config), "--daily-summary"]), \
+                self.assertRaisesRegex(ValueError, "unpinned"):
+            m.main()
+        self.assertFalse(self.dd_state.parent.exists())
+        self.assert_qq_untouched()
+
+    def test_existing_old_banked_announcement_can_upgrade_without_historical_flood(self):
+        forecast, notify = payloads()
+        feed = feed_payload(forecast)
+        banked = dict(id=str(int(NEW_ID) + 10), kind="banked", reset_kind="banked",
+                      summary="Cards arriving", preview=True, banked_state="arriving",
+                      announced_at=(m.now_utc() - timedelta(minutes=1)).isoformat(),
+                      source_url=f"https://x.com/source/status/{int(NEW_ID) + 10}")
+        feed["events"].append(banked)
+        self.assertEqual(self.run_group(data=[forecast, notify, feed], baseline_only=True), 0)
+        self.assertIn("banked:upcoming:" + banked["id"], self.state()["phaseBaselineKeys"])
+        self.assertFalse(self.dispatches)
+        banked.update(summary="Cards distributed", preview=False, banked_state="available")
+        self.assertEqual(self.run_group(data=[forecast, notify, feed]), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assertEqual(self.dispatches[0]["parts"][0]["text"], m.PHASE_TITLES[("banked", "distributed")])
+        self.assertEqual(sum(p["type"] == "image" for p in self.dispatches[0]["parts"]), 2)
+        self.assertIn("banked:distributed:" + banked["id"], self.state()["deliveredPhaseKeys"])
+        self.assertEqual(self.run_group(data=[forecast, notify, feed]), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assert_qq_untouched()
+
+    def test_unknown_old_banked_history_stays_silent(self):
+        self.run_group(baseline_only=True)
+        forecast, notify = payloads()
+        feed = feed_payload(forecast)
+        feed["events"].append(dict(id=str(int(NEW_ID) + 10), kind="banked", reset_kind="banked",
+            summary="Previously unseen old cards", preview=False, banked_state="available",
+            announced_at=(m.now_utc() - timedelta(days=1)).isoformat(),
+            source_url=f"https://x.com/source/status/{int(NEW_ID) + 10}"))
+        self.assertEqual(self.run_group(data=[forecast, notify, feed]), 0)
+        self.assertFalse(self.dispatches)
+        self.assert_qq_untouched()
+
+    def test_group_units_schedule_and_timeout_cover_bounded_pipeline(self):
+        root = Path(__file__).parent
+        for kind, flag in (("monitor", False), ("summary", True)):
+            service = configparser.ConfigParser(interpolation=None)
+            service.read(root / f"codex-reset-dingtalk-{kind}.service")
+            self.assertEqual(service["Service"]["TimeoutStartSec"], "30min")
+            self.assertGreater(30 * 60, 3 * source_fetch.MAX_CALL_SECONDS + m.RENDER_TIMEOUT + m.SEND_TIMEOUT)
+            command = service["Service"]["ExecStart"]
+            self.assertIn("--channel dingtalk --group-config", command)
+            self.assertEqual("--daily-summary" in command, flag)
+            timer = configparser.ConfigParser(interpolation=None)
+            timer.read(root / f"codex-reset-dingtalk-{kind}.timer")
+            self.assertEqual(timer["Timer"]["Unit"], f"codex-reset-dingtalk-{kind}.service")
+            self.assertEqual(timer["Timer"].get("OnCalendar") if flag else timer["Timer"]["OnUnitActiveSec"],
+                             "*-*-* 08:00:00 Asia/Shanghai" if flag else "15min")
 
 
 if __name__ == "__main__":
