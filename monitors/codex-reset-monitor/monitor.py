@@ -895,6 +895,9 @@ def complete_batch(state: dict[str, Any], batch: dict[str, Any]) -> None:
         state["notified_reset_ids"] = notified[-MAX_NOTIFIED_IDS:]
     if batch.get("dailyDate") and batch["dailyDate"] > (state.get("daily_summary_date") or ""):
         state["daily_summary_date"] = batch["dailyDate"]
+    if GROUP_CONFIG is not None and batch.get("dailyDate"):
+        state.setdefault("firstDailyCompletedAt", now_utc().isoformat())
+        state["initializationPending"] = False
     state["lastSuccessfulPushAt"] = now_utc().isoformat()
     previous = state.get("announcementWatermark")
     state["announcementWatermark"] = (previous if previous and parse_time(previous) > parse_time(batch["feedFetchedAt"])
@@ -929,14 +932,18 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
 
 def run_once(baseline_only: bool = False, send_daily: bool = False,
              dry_run: bool = False, no_send: bool = False, manual_preview: bool = False,
-             channel: str = "qq", group_config: Path | None = None) -> int:
+             channel: str = "qq", group_config: Path | None = None,
+             initialize_on_success: bool = False) -> int:
     channel = "dingtalk" if channel == "dd" else channel
     if channel not in ("qq", "dingtalk"):
         raise ValueError("unsupported monitor channel")
     if channel == "dingtalk" and group_config is not None:
         with dingtalk_runtime(group_config):
             return run_once(baseline_only=baseline_only, send_daily=send_daily,
-                            dry_run=dry_run, no_send=no_send, manual_preview=manual_preview)
+                            dry_run=dry_run, no_send=no_send, manual_preview=manual_preview,
+                            initialize_on_success=initialize_on_success)
+    if initialize_on_success and GROUP_CONFIG is None:
+        raise ValueError("initialize-on-success requires a pinned DingTalk group")
     if channel == "dingtalk":
         if not (dry_run or no_send):
             raise RuntimeError("DingTalk is preview-only; transport/target acceptance is pending")
@@ -955,6 +962,9 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         if state.get("initialized_at") and state.get("version") != 2:
             raise RuntimeError("DingTalk group state cannot migrate QQ history")
         state.update(binding)
+        if initialize_on_success and not state.get("firstDailyCompletedAt"):
+            state["initializationPending"] = True
+    initializing = GROUP_CONFIG is not None and state.get("initializationPending") is True
 
     def save() -> None:
         if not dry_run:
@@ -994,7 +1004,8 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
     except Exception as exc:
         state["consecutive_fetch_failures"] = int(state.get("consecutive_fetch_failures") or 0) + 1
         count = state["consecutive_fetch_failures"]
-        if count >= FAILURE_THRESHOLD and not state.get("failure_notified"):
+        group_not_initialized = GROUP_CONFIG is not None and not state.get("firstDailyCompletedAt")
+        if count >= FAILURE_THRESHOLD and not state.get("failure_notified") and not group_not_initialized:
             ok, target = deliver(failure_message(exc, count), "failure")
             if ok:
                 state["failure_notified"] = True
@@ -1014,7 +1025,8 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
 
     if not state.get("initialized_at"):
         establish_baseline(state, forecast, notify, dry_run=dry_run, no_send=no_send, phase_events=phases)
-        return 0
+        if not initializing:
+            return 0
     if baseline_only:
         print(f"baseline already exists id={state.get('last_reset_id') or 'none'}")
         return 0
@@ -1036,6 +1048,8 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
             complete_batch(state, pending)
             save()
             print(f"batch completed id={pending['batchId']}")
+            if initializing and pending.get("dailyDate"):
+                return 0
             if manual_preview and pending.get("manualPreview"):
                 return 0
 
@@ -1051,7 +1065,7 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         pending_phases = pending_phase_events(phases, state)
         needs_reset = any(p["resetType"] == "regular" and p["phase"] == "actual" for p in pending_phases)
         today = current.astimezone(SHANGHAI).date().isoformat()
-        daily_date = today if send_daily and today > (state.get("daily_summary_date") or "") else None
+        daily_date = today if (send_daily or initializing) and today > (state.get("daily_summary_date") or "") else None
         if pending_phases or daily_date or manual_preview:
             batch = prepare_batch(state, forecast, feed, events, reset_id if needs_reset else "", daily_date,
                                   manual_preview=manual_preview, phase_events=phases)
@@ -1076,6 +1090,8 @@ def main() -> int:
     parser.add_argument("--channel", choices=("qq", "dingtalk", "dd"), default="qq",
                         help="QQ by default; DingTalk group delivery requires --group-config")
     parser.add_argument("--group-config", type=Path, help="Explicit pinned DingTalk group configuration")
+    parser.add_argument("--initialize-on-success", action="store_true",
+                        help="DingTalk group only: initialize one daily when fresh source validation first succeeds")
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--daily-summary", action="store_true")
     parser.add_argument("--test-push", action="store_true")
@@ -1087,6 +1103,8 @@ def main() -> int:
     args = parser.parse_args()
     if args.group_config and (args.channel == "qq" or args.prepare_private_test or args.test_push):
         parser.error("--group-config requires DingTalk group mode")
+    if args.initialize_on_success and (not args.group_config or args.baseline_only or args.manual_preview):
+        parser.error("--initialize-on-success requires group mode without baseline/manual preview")
 
     if args.prepare_private_test:
         if args.channel == "qq" or any((args.test_push, args.dry_run, args.no_send, args.manual_preview,
@@ -1106,7 +1124,8 @@ def main() -> int:
         if args.group_config:
             def group_run() -> int:
                 return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary,
-                                dry_run=args.dry_run, no_send=args.no_send, manual_preview=args.manual_preview)
+                                dry_run=args.dry_run, no_send=args.no_send, manual_preview=args.manual_preview,
+                                initialize_on_success=args.initialize_on_success)
 
             with dingtalk_runtime(args.group_config):
                 group_binding()

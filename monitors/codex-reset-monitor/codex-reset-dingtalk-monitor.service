@@ -7,7 +7,7 @@ Wants=network-online.target
 Type=oneshot
 TimeoutStartSec=30min
 WorkingDirectory=%h/.openclaw/monitors/codex-reset-monitor
-ExecStart=/usr/bin/python3 %h/.openclaw/monitors/codex-reset-monitor/monitor.py --channel dingtalk --group-config %h/.openclaw/monitors/codex-reset-monitor/dingtalk-group.json
+ExecStart=/usr/bin/python3 %h/.openclaw/monitors/codex-reset-monitor/monitor.py --channel dingtalk --group-config %h/.openclaw/monitors/codex-reset-monitor/dingtalk-group.json --initialize-on-success
 Environment=TZ=Asia/Shanghai
 NoNewPrivileges=true
 PrivateTmp=true

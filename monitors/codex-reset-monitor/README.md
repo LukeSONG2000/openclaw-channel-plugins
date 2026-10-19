@@ -12,9 +12,14 @@ python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --baseline-
 python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --daily-summary
 ```
 
-首次仅建立独立来源基线，第二条才发送当日初始化；只有独立 QA、来源恢复及
-发布授权通过后执行。启用前必须三个官方端点真实 200，原 schema/freshness 校验
-通过，并观察 QQ 正常轮询成功；helper 测试通过不代表 HTTP 502 恢复。
+上述为手动两步方式。正式 poll service 带 `--initialize-on-success`：可在独立 QA
+和部署启用授权通过后等待来源恢复，首次三个官方端点真实 200 且原 schema、
+freshness、confirmed 跨接口校验全部通过时，同次建立基线并发送唯一真实日报。
+首次日报完成前来源失败只写独立健康计数及 `initializationPending: true`，不往群
+发故障、不标 daily 成功；已有基线或未确认 pending 也会继续同一初始化意图。
+服务端 readback 确认后才置 pending 为 false，记录 firstDailyCompletedAt 和当日
+daily；之后普通轮询无变化静默，当日 08:00 不重复。不得用旧 snapshot 初始化；
+helper 测试或 timer 已启用均不代表来源恢复、QQ 轮询成功或初始化已经发送。
 群独立使用 `state/dingtalk/group/{state.json,monitor.lock,outbox/}`，绑定渠道及
 固定目标 hash，不迁移 QQ state/journal、私人测试成功或 pending。
 基线以前的历史不推送，但基线确实观察过的同 ID 后续新阶段仍可触发。
@@ -26,6 +31,8 @@ accepted/unknown/inflight 保留同一 pending，重入只核对回执，不另�
 不是客户端送达/已读，也不验证图片字节及链接目的地，`deliveryVerified` 仍为 false。
 持续缺少唯一证据须人工核对，不以重发解决。来源失败计数、健康消息及回执
 均只属于当前渠道，钉钉故障不得回退 QQ。
+群历史只从原发送时间向后取 30 条；超过 30 条且 hasMore 为 true 时保持
+incomplete/pending，需人工只读核对，不重发，也不宣称完成。
 
 新 `codex-reset-dingtalk-{monitor,summary}.{service,timer}` 分别为 15 分钟轮询和
 每日 08:00 Asia/Shanghai，未部署启用；旧 QQ 四个 unit 不变。

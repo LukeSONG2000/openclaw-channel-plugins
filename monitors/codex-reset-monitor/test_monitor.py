@@ -1545,13 +1545,16 @@ class GroupMonitorTests(unittest.TestCase):
 
     def test_dd_health_failure_never_routes_to_qq_or_consumes_daily(self):
         self.run_group(baseline_only=True)
+        self.run_group(send_daily=True)
+        daily = self.state()["daily_summary_date"]
+        self.dispatches.clear()
         self.status = "accepted"
         for _ in range(4):
             self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")]), 1)
         state = self.state()
         self.assertEqual(state["consecutive_fetch_failures"], 4)
         self.assertFalse(state["failure_notified"])
-        self.assertIsNone(state["daily_summary_date"])
+        self.assertEqual(state["daily_summary_date"], daily)
         self.assertEqual(len(self.dispatches), 2)
         self.assertEqual(self.dispatches[0]["batchId"], self.dispatches[1]["batchId"])
         self.assertTrue(all(p["type"] != "image" for p in self.dispatches[0]["parts"]))
@@ -1698,11 +1701,95 @@ class GroupMonitorTests(unittest.TestCase):
             command = service["Service"]["ExecStart"]
             self.assertIn("--channel dingtalk --group-config", command)
             self.assertEqual("--daily-summary" in command, flag)
+            self.assertEqual("--initialize-on-success" in command, not flag)
             timer = configparser.ConfigParser(interpolation=None)
             timer.read(root / f"codex-reset-dingtalk-{kind}.timer")
             self.assertEqual(timer["Timer"]["Unit"], f"codex-reset-dingtalk-{kind}.service")
             self.assertEqual(timer["Timer"].get("OnCalendar") if flag else timer["Timer"]["OnUnitActiveSec"],
                              "*-*-* 08:00:00 Asia/Shanghai" if flag else "15min")
+
+    def test_initialization_waits_silently_through_source_failures_then_sends_unique_daily(self):
+        for _ in range(5):
+            self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")], initialize_on_success=True), 1)
+        state = self.state()
+        self.assertTrue(state["initializationPending"])
+        self.assertIsNone(state["initialized_at"])
+        self.assertIsNone(state["daily_summary_date"])
+        self.assertNotIn("pendingHealthBatch", state)
+        self.assertFalse(self.dispatches)
+        self.assertFalse((self.dd_state.parent / "outbox").exists())
+        self.assertEqual(self.run_group(initialize_on_success=True), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assertEqual(sum(p["type"] == "image" for p in self.dispatches[0]["parts"]), 1)
+        self.assertFalse(self.state()["initializationPending"])
+        self.assertTrue(self.state()["firstDailyCompletedAt"])
+        self.assertEqual(self.state()["daily_summary_date"], m.now_utc().astimezone(m.SHANGHAI).date().isoformat())
+        self.assertEqual(self.run_group(initialize_on_success=True), 0)
+        self.assertEqual(self.run_group(send_daily=True), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assert_qq_untouched()
+
+    def test_first_fresh_poll_can_initialize_without_prior_failure(self):
+        self.assertEqual(self.run_group(initialize_on_success=True), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assertFalse(self.state()["initializationPending"])
+        self.assert_qq_untouched()
+
+    def test_initialization_intent_survives_accepted_and_plain_poll_resumes_same_batch(self):
+        self.status = "accepted"
+        self.assertEqual(self.run_group(initialize_on_success=True), 1)
+        state = self.state()
+        batch = state["pendingBatch"]
+        self.assertTrue(state["initializationPending"])
+        self.assertIsNone(state["daily_summary_date"])
+        self.assertNotIn("firstDailyCompletedAt", state)
+        for _ in range(4):
+            self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")]), 1)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assertNotIn("pendingHealthBatch", self.state())
+        self.assertEqual(self.run_group(), 1)
+        self.assertEqual(self.state()["pendingBatch"], batch)
+        self.status = "readback_confirmed"
+        self.assertEqual(self.run_group(), 0)
+        self.assertFalse(self.state()["initializationPending"])
+        self.assertTrue(all(p["batchId"] == batch["batchId"] for p in self.dispatches))
+        self.assertEqual(self.run_group(), 0)
+        self.assertEqual(len(self.dispatches), 3)
+        self.assert_qq_untouched()
+
+    def test_initialization_survives_render_failure_after_baseline(self):
+        with patch.object(m, "render_snapshot", side_effect=RuntimeError("temporary render failure")):
+            self.assertEqual(self.run_group(initialize_on_success=True), 1)
+        self.assertTrue(self.state()["initialized_at"])
+        self.assertTrue(self.state()["initializationPending"])
+        self.assertIsNone(self.state()["pendingBatch"])
+        self.assertIsNone(self.state()["daily_summary_date"])
+        self.assertEqual(self.run_group(), 0)
+        self.assertEqual(len(self.dispatches), 1)
+        self.assertFalse(self.state()["initializationPending"])
+        self.assert_qq_untouched()
+
+    def test_initialize_flag_dry_run_and_no_send_never_create_baseline_or_daily(self):
+        self.assertEqual(self.run_group(initialize_on_success=True, dry_run=True), 0)
+        self.assertFalse(self.dd_state.exists())
+        self.assertEqual(self.run_group(initialize_on_success=True, no_send=True), 0)
+        self.assertTrue(self.state()["initializationPending"])
+        self.assertIsNone(self.state()["initialized_at"])
+        self.assertIsNone(self.state()["daily_summary_date"])
+        self.assertFalse(self.dispatches)
+        self.assert_qq_untouched()
+
+    def test_initialize_flag_requires_valid_group_and_does_not_change_qq(self):
+        for args in (["--initialize-on-success"], ["--channel", "dd", "--initialize-on-success"],
+                     ["--channel", "dd", "--group-config", str(self.config),
+                      "--initialize-on-success", "--baseline-only"]):
+            with self.subTest(args=args), patch.object(m.sys, "argv", ["monitor.py", *args]), \
+                    self.assertRaises(SystemExit), contextlib.redirect_stderr(io.StringIO()):
+                m.main()
+        with self.assertRaisesRegex(ValueError, "pinned DingTalk"):
+            m.run_once(initialize_on_success=True)
+        self.assertFalse(self.dd_state.parent.exists())
+        self.assert_qq_untouched()
 
 
 if __name__ == "__main__":
