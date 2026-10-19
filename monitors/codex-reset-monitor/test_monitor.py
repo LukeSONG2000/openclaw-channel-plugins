@@ -8,7 +8,7 @@ import tempfile
 import unittest
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from unittest.mock import patch
+from unittest.mock import call, patch
 
 
 SPEC = importlib.util.spec_from_file_location("reset_monitor", Path(__file__).with_name("monitor.py"))
@@ -1034,6 +1034,149 @@ class MonitorTests(unittest.TestCase):
         self.sender.assert_not_called()
         self.batch_sender.assert_not_called()
 
+    def sample_payloads(self):
+        forecast, notify = payloads(False)
+        feed = feed_payload(forecast)
+        feed["events"].append(dict(feed["events"][0], id=OLD_ID, kind="reset_preview", preview=True,
+                                   source_url=f"https://x.com/source/status/{OLD_ID}"))
+        return [forecast, notify, feed]
+
+    def test_dd_private_sample_has_three_images_and_visible_history_notice_without_business_state(self):
+        with patch.object(m.sys, "argv", ["monitor.py", "--channel", "dd", "--prepare-private-test"]), \
+                patch.object(m, "fetch_json", side_effect=self.sample_payloads()), \
+                patch.object(m, "load_state") as load, patch.object(m, "migrate_delivery_state") as migrate, \
+                patch.object(m, "establish_baseline") as baseline, patch.object(m, "complete_batch") as complete, \
+                patch.object(m.fcntl, "flock") as lock, contextlib.redirect_stdout(io.StringIO()) as stdout:
+            self.assertEqual(m.main(), 0)
+        report = json.loads(stdout.getvalue())
+        directory = Path(report["manifestPath"]).parent
+        self.assertEqual(directory.parent, self.state_file.parent / "dingtalk" / "layout-preview")
+        manifest = json.loads(Path(report["manifestPath"]).read_text())
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        self.assertEqual(manifest["version"], 2)
+        self.assertEqual(manifest["delivery"], "single_markdown")
+        self.assertEqual(manifest["parts"][0], dict(type="heading", level=1, text="Codex会重置吗？"))
+        self.assertEqual(manifest["parts"][1], dict(type="link", label="信息来源", url=m.SOURCE_PAGE))
+        images = [part for part in manifest["parts"] if part["type"] == "image"]
+        self.assertEqual(len(images), 3)
+        self.assertTrue(all((directory / part["path"]).is_file() for part in images))
+        self.assertTrue(all(set(part) == {"type", "path"} for part in images))
+        self.assertEqual(report["channel"], "dingtalk")
+        self.assertEqual(manifest["parts"], [
+            dict(type="heading", level=1, text="Codex会重置吗？"),
+            dict(type="link", label="信息来源", url=m.SOURCE_PAGE),
+            dict(type="image", path="forecast.png"),
+            dict(type="heading", level=1, text="Tibo宣布了什么"),
+            dict(type="text", text="以下为历史公告，用于排版测试，非今日重置确认"),
+            dict(type="image", path="announcement-0000.png"),
+            dict(type="link", label="查看𝕏", url=f"https://x.com/source/status/{NEW_ID}"),
+            dict(type="image", path="announcement-0001.png"),
+            dict(type="link", label="查看𝕏", url=f"https://x.com/source/status/{OLD_ID}"),
+        ])
+        self.assertEqual([event["id"] for event in report["history"]], [NEW_ID, OLD_ID])
+        self.assertEqual(report["announcementIds"], [NEW_ID, OLD_ID])
+        self.assertEqual(report["messagesSent"], 0)
+        self.assertTrue(report["sampleOnly"])
+        self.assertFalse(report["businessStateMutation"])
+        self.assertEqual(snapshot["purpose"], "private-test-current-forecast-with-history")
+        self.assertEqual(snapshot["historicalNotice"], "以下为历史公告，用于排版测试，非今日重置确认")
+        self.assertEqual(len(snapshot["announcements"]), 2)
+        self.assertIsNotNone(snapshot["feedFetchedAt"])
+        self.assertIsNone(snapshot["resetId"])
+        self.assertIsNone(snapshot["dailyDate"])
+        self.assertFalse(Path(report["receiptPath"]).exists())
+        self.assertFalse((self.state_file.parent / "dingtalk" / "state.json").exists())
+        self.assertFalse((self.state_file.parent / "outbox").exists())
+        self.assertEqual(self.state_file.read_bytes(), self.original)
+        for mock in (load, migrate, baseline, complete, lock, self.sender, self.batch_sender):
+            mock.assert_not_called()
+
+    def test_dd_sample_cannot_be_completed_into_business_success(self):
+        with patch.object(m, "fetch_json", side_effect=self.sample_payloads()):
+            report = m.prepare_dingtalk_sample()
+        state = dict(self.state)
+        with self.assertRaisesRegex(ValueError, "cannot acknowledge business delivery"):
+            m.complete_batch(state, report)
+        self.assertEqual(state, self.state)
+        self.assertEqual(self.state_file.read_bytes(), self.original)
+
+    def test_dd_sample_stdout_is_json_even_when_source_probability_warns(self):
+        data = self.sample_payloads()
+        data[0]["prob_24"] = 71
+        with patch.object(m.sys, "argv", ["monitor.py", "--channel", "dd", "--prepare-private-test"]), \
+                patch.object(m, "fetch_json", side_effect=data), contextlib.redirect_stdout(io.StringIO()) as stdout, \
+                contextlib.redirect_stderr(io.StringIO()) as stderr:
+            self.assertEqual(m.main(), 0)
+        self.assertEqual(json.loads(stdout.getvalue())["messagesSent"], 0)
+        self.assertIn("source probability warning", stderr.getvalue())
+
+    def test_dd_sample_fetches_current_forecast_and_two_historical_announcements(self):
+        with patch.object(m, "fetch_json", side_effect=self.sample_payloads()) as fetch:
+            report = m.prepare_dingtalk_sample()
+        self.assertEqual(fetch.call_args_list, [call(m.FORECAST_URL), call(m.NOTIFY_URL), call(m.FEED_URL)])
+        self.assertEqual(len(report["history"]), 2)
+        self.assertEqual(len(report["imageHashes"]), 3)
+        self.sender.assert_not_called()
+
+    def test_dd_sample_missing_or_today_history_fails_before_creating_files(self):
+        for missing in (True, False):
+            data = self.sample_payloads()
+            if missing:
+                data[2]["events"] = data[2]["events"][:-1]
+            else:
+                for event in data[2]["events"]:
+                    event["announced_at"] = m.now_utc().isoformat()
+            with self.subTest(missing=missing), patch.object(m, "fetch_json", side_effect=data), \
+                    self.assertRaisesRegex(RuntimeError, "historical reset/preview pair"):
+                m.prepare_dingtalk_sample()
+            self.assertFalse((self.state_file.parent / "dingtalk").exists())
+        self.renderer.assert_not_called()
+
+    def test_qq_batch_does_not_gain_dd_private_history_notice(self):
+        forecast, _, feed = self.sample_payloads()
+        batch = m.prepare_batch(self.state, forecast, feed, m.validate_feed(feed), "", None)
+        directory = self.state_file.parent / "outbox" / batch["batchId"]
+        manifest = json.loads((directory / "batch.json").read_text())
+        self.assertTrue(any(part.get("text") == "Tibo宣布了什么" for part in manifest["parts"]))
+        self.assertFalse(any("历史公告" in part.get("text", "") for part in manifest["parts"]))
+        self.assertNotIn("historicalNotice", json.loads((directory / "snapshot.json").read_text()))
+
+    def test_dd_sample_stale_forecast_fails_before_creating_files(self):
+        data = self.sample_payloads()
+        data[0]["computed_at"] = (m.now_utc() - timedelta(hours=3)).isoformat()
+        with patch.object(m, "fetch_json", side_effect=data), self.assertRaises(ValueError):
+            m.prepare_dingtalk_sample()
+        self.assertFalse((self.state_file.parent / "dingtalk").exists())
+        self.renderer.assert_not_called()
+
+    def test_dd_sample_render_failure_preserves_business_state_and_has_no_receipt(self):
+        self.renderer.side_effect = RuntimeError("render failed")
+        with patch.object(m.sys, "argv", ["monitor.py", "--channel", "dd", "--prepare-private-test"]), \
+                patch.object(m, "fetch_json", side_effect=self.sample_payloads()), \
+                contextlib.redirect_stderr(io.StringIO()):
+            self.assertEqual(m.main(), 1)
+        output = self.state_file.parent / "dingtalk" / "layout-preview"
+        self.assertEqual(len(list(output.glob("*/snapshot.json"))), 1)
+        self.assertFalse(list(output.glob("*/batch.receipt.json")))
+        self.assertFalse(list(output.glob("*/preparation.json")))
+        self.assertEqual(self.state_file.read_bytes(), self.original)
+        self.sender.assert_not_called()
+        self.batch_sender.assert_not_called()
+
+    def test_prepare_private_test_rejects_qq_or_combined_modes_before_any_io(self):
+        for channel in ([], ["--channel", "qq"], ["--channel", "dd", "--dry-run"],
+                        ["--channel", "dd", "--no-send"], ["--channel", "dd", "--test-push"],
+                        ["--channel", "dd", "--baseline-only"], ["--channel", "dd", "--daily-summary"],
+                        ["--channel", "dd", "--manual-preview"]):
+            with self.subTest(channel=channel), \
+                    patch.object(m.sys, "argv", ["monitor.py", *channel, "--prepare-private-test"]), \
+                    patch.object(m, "fetch_json") as fetch, patch.object(m, "load_state") as load, \
+                    contextlib.redirect_stderr(io.StringIO()), self.assertRaises(SystemExit) as error:
+                m.main()
+            self.assertEqual(error.exception.code, 2)
+            fetch.assert_not_called()
+            load.assert_not_called()
+
     def test_frozen_pending_with_old_labels_and_timezone_footer_is_not_rewritten(self):
         batch, directory, manifest = self.make_pending()
         for part in manifest["parts"]:
@@ -1130,6 +1273,158 @@ class MonitorTests(unittest.TestCase):
                     m.deliver_batch(batch)
                 send.assert_not_called()
             path.write_bytes(original)
+
+
+class ChannelIsolationTests(unittest.TestCase):
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.root = Path(self.tmp.name) / "state"
+        self.root.mkdir()
+        self.qq_state = self.root / "state.json"
+        self.dd_state = self.root / "dingtalk" / "state.json"
+        self.qq_lock = self.root / "monitor.lock"
+        self.qq_state.write_text(json.dumps(dict(
+            version=1, initialized_at="2026-07-01T00:00:00Z",
+            daily_summary_date="2026-10-19", notified_reset_ids=[OLD_ID],
+            pendingBatch={"batchId": "existing-qq-pending"},
+            consecutive_fetch_failures=9, lastSuccessfulPushAt="2026-10-19T00:00:00Z")))
+        self.original = self.qq_state.read_bytes()
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch.object(m, "STATE_FILE", self.qq_state))
+        stack.enter_context(patch.object(m, "STATE_DIR", self.root))
+        stack.enter_context(patch.object(m, "LOCK_FILE", self.qq_lock))
+        self.forbidden = {}
+        for name in ("push", "deliver_batch", "prepare_batch", "render_snapshot", "complete_batch",
+                     "establish_baseline", "migrate_delivery_state", "legacy_delivery_evidence",
+                     "administrator_target", "atomic_write_json"):
+            self.forbidden[name] = stack.enter_context(patch.object(
+                m, name, side_effect=AssertionError(f"preview must not call {name}")))
+
+    def invoke(self, *args, failure=False):
+        forecast, notify = payloads()
+        data = [forecast, notify, feed_payload(forecast)]
+        with patch.object(m.sys, "argv", ["monitor.py", *args]), \
+                patch.object(m, "fetch_json", side_effect=RuntimeError("offline") if failure else data), \
+                patch.object(m.fcntl, "flock") as lock, \
+                contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            result = m.main()
+        lock.assert_not_called()
+        return result
+
+    def assert_preview_untouched(self):
+        self.assertEqual(self.qq_state.read_bytes(), self.original)
+        self.assertFalse(self.qq_lock.exists())
+        self.assertFalse((self.root / "outbox").exists())
+        self.assertFalse((self.dd_state.parent / "outbox").exists())
+        self.assertFalse((self.dd_state.parent / "monitor.lock").exists())
+        for mock in self.forbidden.values():
+            mock.assert_not_called()
+
+    def test_default_and_explicit_qq_keep_old_dispatch_arguments_and_paths(self):
+        for channel in ([], ["--channel", "qq"]):
+            for flags, expected in (
+                    ([], dict(baseline_only=False, send_daily=False, no_send=False, manual_preview=False)),
+                    (["--daily-summary"], dict(baseline_only=False, send_daily=True, no_send=False,
+                                              manual_preview=False)),
+                    (["--dry-run"], dict(baseline_only=False, send_daily=False, dry_run=True,
+                                        manual_preview=False)),
+                    (["--no-send"], dict(baseline_only=False, send_daily=False, no_send=True,
+                                        manual_preview=False))):
+                with self.subTest(channel=channel, flags=flags), \
+                        patch.object(m.sys, "argv", ["monitor.py", *channel, *flags]), \
+                        patch.object(m, "run_once", return_value=0) as runner:
+                    self.assertEqual(m.main(), 0)
+                    runner.assert_called_once_with(**expected)
+                    self.assertEqual(m.STATE_FILE, self.qq_state)
+                    self.assertEqual(m.LOCK_FILE, self.qq_lock)
+        self.assertTrue(self.qq_lock.exists())
+        self.assertFalse(self.dd_state.parent.exists())
+        self.assertEqual(self.qq_state.read_bytes(), self.original)
+
+    def test_dd_dry_run_ignores_qq_legacy_baseline_and_pending(self):
+        with patch.object(m, "load_state", wraps=m.load_state) as loader:
+            self.assertEqual(self.invoke("--channel", "dd", "--dry-run", "--daily-summary"), 0)
+        loader.assert_called_once_with(self.dd_state)
+        self.assertFalse(self.dd_state.parent.exists())
+        self.assert_preview_untouched()
+
+    def test_dd_does_not_read_even_corrupt_qq_state(self):
+        self.qq_state.write_bytes(b"corrupt QQ state must not affect DD preview")
+        self.original = self.qq_state.read_bytes()
+        self.assertEqual(self.invoke("--channel", "dingtalk", "--dry-run"), 0)
+        self.assert_preview_untouched()
+
+    def test_dd_no_send_is_also_read_only_without_initializing_baseline(self):
+        for flags in ([], ["--baseline-only"], ["--daily-summary"], ["--manual-preview"]):
+            with self.subTest(flags=flags):
+                self.assertEqual(self.invoke("--channel", "dingtalk", "--no-send", *flags), 0)
+                self.assertFalse(self.dd_state.parent.exists())
+                self.assert_preview_untouched()
+
+    def test_dd_failed_preflight_never_sends_warning_or_writes_health(self):
+        self.dd_state.parent.mkdir()
+        self.dd_state.write_text(json.dumps(dict(channel="dingtalk", version=1,
+                                                consecutive_fetch_failures=2)))
+        original = self.dd_state.read_bytes()
+        self.assertEqual(self.invoke("--channel", "dd", "--no-send", failure=True), 1)
+        self.assertEqual(self.dd_state.read_bytes(), original)
+        self.assert_preview_untouched()
+
+    def test_dd_bound_state_and_pending_are_not_advanced_by_preview(self):
+        self.dd_state.parent.mkdir()
+        self.dd_state.write_text(json.dumps(dict(
+            channel="dingtalk", version=2, initialized_at="2026-10-19T07:00:00Z",
+            migrationLowerBound="2026-10-19T07:00:00Z", sentAnnouncementIds=[],
+            deliveredPhaseKeys=[], pendingBatch={"batchId": "preserve-dd-pending"},
+            consecutive_fetch_failures=9, lastSuccessfulPushAt=None)))
+        original = self.dd_state.read_bytes()
+        for flag in ("--dry-run", "--no-send"):
+            with self.subTest(flag=flag):
+                self.assertEqual(self.invoke("--channel", "dd", flag), 0)
+                self.assertEqual(self.dd_state.read_bytes(), original)
+                self.assert_preview_untouched()
+
+    def test_dd_rejects_copied_qq_state_instead_of_using_qq_success(self):
+        self.dd_state.parent.mkdir()
+        for version in (1, 2):
+            for binding in (None, "qq"):
+                state = json.loads(self.original)
+                state.update(version=version, channel=binding)
+                self.dd_state.write_text(json.dumps(state))
+                with self.subTest(version=version, binding=binding), self.assertRaisesRegex(
+                        RuntimeError, "own channel binding"):
+                    self.invoke("--channel", "dd", "--dry-run")
+        self.assert_preview_untouched()
+
+    def test_dd_cli_cannot_enable_sends_with_any_existing_mode(self):
+        for channel in ("dd", "dingtalk"):
+            for flags in ([], ["--test-push"], ["--daily-summary"], ["--baseline-only"],
+                          ["--manual-preview"], ["--test-push", "--dry-run"]):
+                with self.subTest(channel=channel, flags=flags), \
+                        patch.object(m, "fetch_json") as fetch, self.assertRaises(SystemExit) as error:
+                    self.invoke("--channel", channel, *flags)
+                self.assertEqual(error.exception.code, 2)
+                fetch.assert_not_called()
+        self.assert_preview_untouched()
+
+    def test_direct_runner_cannot_bypass_dd_preview_gate(self):
+        for flags in ({}, {"send_daily": True}, {"baseline_only": True}, {"manual_preview": True}):
+            with self.subTest(flags=flags), patch.object(m, "load_state") as loader, \
+                    self.assertRaisesRegex(RuntimeError, "preview-only"):
+                m.run_once(channel="dingtalk", **flags)
+            loader.assert_not_called()
+        with self.assertRaisesRegex(ValueError, "unsupported monitor channel"):
+            m.run_once(channel="group", dry_run=True)
+        self.assert_preview_untouched()
+
+    def test_qq_lock_does_not_block_dd_preview(self):
+        with self.qq_lock.open("a+") as lock:
+            m.fcntl.flock(lock, m.fcntl.LOCK_EX | m.fcntl.LOCK_NB)
+            self.assertEqual(self.invoke("--channel", "dd", "--dry-run"), 0)
+        self.qq_lock.unlink()
+        self.assert_preview_untouched()
 
 
 if __name__ == "__main__":

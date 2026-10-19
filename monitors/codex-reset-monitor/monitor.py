@@ -197,8 +197,9 @@ def atomic_write_json(path: Path, data: dict[str, Any]) -> None:
         os.close(directory)
 
 
-def load_state() -> dict[str, Any]:
-    if not STATE_FILE.exists():
+def load_state(path: Path | None = None) -> dict[str, Any]:
+    path = STATE_FILE if path is None else path
+    if not path.exists():
         return {
             "version": 1,
             "initialized_at": None,
@@ -209,12 +210,12 @@ def load_state() -> dict[str, Any]:
             "failure_notified": False,
         }
     try:
-        data = json.loads(STATE_FILE.read_text(encoding="utf-8"))
+        data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
             return data
     except (OSError, json.JSONDecodeError):
         pass
-    raise RuntimeError(f"状态文件损坏：{STATE_FILE}")
+    raise RuntimeError(f"状态文件损坏：{path}")
 
 
 def fetch_json(url: str) -> dict[str, Any]:
@@ -696,7 +697,8 @@ def digest_json(value: Any) -> str:
 def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[str, Any],
                   events: list[dict[str, Any]], reset_id: str, daily_date: str | None,
                   manual_preview: bool = False,
-                  phase_events: list[ResetPhaseEvent] | None = None) -> dict[str, Any]:
+                  phase_events: list[ResetPhaseEvent] | None = None,
+                  dingtalk_sample: bool = False) -> dict[str, Any]:
     phases = phase_events or []
     announcements = select_announcements(events, state, phase_events=phases)
     selected_ids = {event["id"] for event in announcements}
@@ -710,7 +712,8 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
             warning = dict(code="source_probability_interval_mismatch", field=f"prob_{hours}",
                            probability=probability, interval=bounds)
             warnings.append(warning)
-            print("source probability warning: " + json.dumps(warning, ensure_ascii=False))
+            print("source probability warning: " + json.dumps(warning, ensure_ascii=False),
+                  file=sys.stderr if dingtalk_sample else sys.stdout)
     snapshot = dict(createdAt=now_utc().isoformat(), forecastCard=forecast_card_data(forecast),
                     announcements=announcements, feedFetchedAt=feed["fetched_at"],
                     resetId=reset_id or None, dailyDate=daily_date, manualPreview=manual_preview,
@@ -719,9 +722,15 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
     primary = primary_phase(phases)
     if primary:
         snapshot["stageText"] = PHASE_DETAILS[(primary["resetType"], primary["phase"])]
-    batch_id = "codex-" + digest_json(snapshot)[:32]
-    directory = STATE_FILE.parent / "outbox" / batch_id
-    directory.mkdir(parents=True, exist_ok=True, mode=0o700)
+    if dingtalk_sample:
+        snapshot.update(channel="dingtalk", purpose="private-test-current-forecast-with-history",
+                        businessStateMutation=False,
+                        historicalNotice="以下为历史公告，用于排版测试，非今日重置确认")
+    batch_id = ("layout-" if dingtalk_sample else "codex-") + digest_json(snapshot)[:32]
+    output = (STATE_FILE.parent / "dingtalk" / "layout-preview" if dingtalk_sample
+              else STATE_FILE.parent / "outbox")
+    directory = output / batch_id
+    directory.mkdir(parents=True, exist_ok=not dingtalk_sample, mode=0o700)
     atomic_write_json(directory / "snapshot.json", snapshot)
     cards = render_snapshot(snapshot, directory)
     parts = [dict(type="heading", level=1, text=snapshot["title"]),
@@ -731,6 +740,8 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
         parts.insert(1, dict(type="text", text=snapshot["stageText"]))
     if announcements:
         parts.append(dict(type="heading", level=1, text="Tibo宣布了什么"))
+        if dingtalk_sample:
+            parts.append(dict(type="text", text=snapshot["historicalNotice"]))
     for event, card in zip(announcements, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
                       dict(type="link", label="查看𝕏", url=event["source_url"])])
@@ -740,7 +751,40 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                 imageHashes={Path(c["path"]).name: c["sha256"] for c in cards},
                 announcementIds=[e["id"] for e in announcements], dailyDate=daily_date,
                 resetId=reset_id or None, feedFetchedAt=feed["fetched_at"], manualPreview=manual_preview,
-                manifestVersion=2, delivery="single_markdown", deliveredPhaseKeys=phase_keys)
+                manifestVersion=2, delivery="single_markdown", deliveredPhaseKeys=phase_keys,
+                **({"sampleOnly": True} if dingtalk_sample else {}))
+
+
+def prepare_dingtalk_sample() -> dict[str, Any]:
+    """Prepare a current forecast and clearly labelled history, without business state."""
+    forecast = fetch_json(FORECAST_URL)
+    notify = fetch_json(NOTIFY_URL)
+    validate_payloads(forecast, notify)
+    feed = fetch_json(FEED_URL)
+    events = validate_feed(feed)
+    today = now_utc().astimezone(SHANGHAI).date()
+    selected = []
+    for kind, preview in (("reset", False), ("reset_preview", True)):
+        event = next((event for event in events if event["kind"] == kind
+                      and event.get("preview") is preview
+                      and aware_time(event["announced_at"], "sample.announced_at").astimezone(SHANGHAI).date() < today),
+                     None)
+        if event is None:
+            raise RuntimeError("source lacks a historical reset/preview pair; review before preparing sample")
+        selected.append(event)
+    # This selection floor is in memory only, never a business baseline or success ledger.
+    selection = dict(migrationLowerBound=min(aware_time(event["announced_at"], "sample.announced_at")
+                                            for event in selected).isoformat(), sentAnnouncementIds=[])
+    batch = prepare_batch(selection, forecast, feed, selected, "", None,
+                          manual_preview=True, dingtalk_sample=True)
+    directory = STATE_FILE.parent / "dingtalk" / "layout-preview" / batch["batchId"]
+    report = dict(channel="dingtalk", purpose="private-test-preparation-only", **batch,
+                  manifestPath=str(directory / "batch.json"), receiptPath=str(directory / "batch.receipt.json"),
+                  history=[dict(id=event["id"], kind=event["kind"], announced_at=event["announced_at"],
+                                source_url=event["source_url"]) for event in selected],
+                  businessStateMutation=False, messagesSent=0)
+    atomic_write_json(directory / "preparation.json", report)
+    return report
 
 
 def deliver_batch(batch: dict[str, Any]) -> bool:
@@ -794,6 +838,8 @@ def deliver_batch(batch: dict[str, Any]) -> bool:
 
 
 def complete_batch(state: dict[str, Any], batch: dict[str, Any]) -> None:
+    if batch.get("sampleOnly"):
+        raise ValueError("private test sample cannot acknowledge business delivery")
     # Keep the migration floor fixed: late IDs must not be hidden by a rolling time watermark.
     sent = state.setdefault("sentAnnouncementIds", [])
     sent.extend(event_id for event_id in batch["announcementIds"] if event_id not in sent)
@@ -835,8 +881,22 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
 
 
 def run_once(baseline_only: bool = False, send_daily: bool = False,
-             dry_run: bool = False, no_send: bool = False, manual_preview: bool = False) -> int:
-    state = load_state()
+             dry_run: bool = False, no_send: bool = False, manual_preview: bool = False,
+             channel: str = "qq") -> int:
+    channel = "dingtalk" if channel == "dd" else channel
+    if channel not in ("qq", "dingtalk"):
+        raise ValueError("unsupported monitor channel")
+    if channel == "dingtalk":
+        if not (dry_run or no_send):
+            raise RuntimeError("DingTalk is preview-only; transport/target acceptance is pending")
+        # Fail closed before the QQ lock, sender, journal migration or any state write.
+        dry_run = True
+        state_path = STATE_FILE.parent / "dingtalk" / "state.json"
+        state = load_state(state_path)
+        if state_path.exists() and state.get("channel") != "dingtalk":
+            raise RuntimeError("DingTalk state requires its own channel binding; no QQ migration")
+    else:
+        state = load_state()
 
     def save() -> None:
         if not dry_run:
@@ -945,18 +1005,38 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
 
 def main() -> int:
     parser = argparse.ArgumentParser()
+    parser.add_argument("--channel", choices=("qq", "dingtalk", "dd"), default="qq",
+                        help="QQ by default; DingTalk (dd) is read-only until transport acceptance")
     parser.add_argument("--baseline-only", action="store_true")
     parser.add_argument("--daily-summary", action="store_true")
     parser.add_argument("--test-push", action="store_true")
     parser.add_argument("--dry-run", action="store_true", help="Read-only fetch; no sends or state writes")
     parser.add_argument("--no-send", action="store_true", help="Persist fetch health without acknowledging deliveries")
     parser.add_argument("--manual-preview", action="store_true", help="Explicit real-data preview; shares batch/delivery dedupe")
+    parser.add_argument("--prepare-private-test", action="store_true",
+                        help="DingTalk only: render an isolated sample; never send or change business state")
     args = parser.parse_args()
 
+    if args.prepare_private_test:
+        if args.channel == "qq" or any((args.test_push, args.dry_run, args.no_send, args.manual_preview,
+                                        args.baseline_only, args.daily_summary)):
+            parser.error("--prepare-private-test requires --channel dingtalk and no other mode flags")
+        try:
+            print(json.dumps(prepare_dingtalk_sample(), ensure_ascii=False))
+            return 0
+        except Exception as exc:
+            print(f"DingTalk sample preparation failed: {type(exc).__name__}: {exc}", file=sys.stderr)
+            return 1
     if args.test_push and (args.dry_run or args.no_send):
         parser.error("--test-push cannot be used with --dry-run/--no-send")
     if args.manual_preview and (args.test_push or args.baseline_only or args.daily_summary):
         parser.error("--manual-preview cannot be combined with other send/baseline modes")
+    if args.channel != "qq":
+        if args.test_push or not (args.dry_run or args.no_send):
+            parser.error("DingTalk is preview-only; use --dry-run or --no-send; sends are disabled")
+        return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary,
+                        dry_run=args.dry_run, no_send=args.no_send, manual_preview=args.manual_preview,
+                        channel="dingtalk")
     if args.dry_run:
         return run_once(baseline_only=args.baseline_only, send_daily=args.daily_summary, dry_run=True,
                         manual_preview=args.manual_preview)

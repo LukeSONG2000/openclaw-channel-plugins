@@ -1,5 +1,101 @@
 # Codex 统一重置监控
 
+## 钉钉私人样例
+
+当前只准备宋雨扬私人测试，不启用 DD 自动推送或群通知。默认命令及
+`--channel qq` 保持 QQ 原行为、state、pending 和锁，现有 QQ timer/service 不变。
+`--channel dingtalk`（别名 `dd`）的监控入口仍只允许只读预检：
+
+```sh
+python3 monitors/codex-reset-monitor/monitor.py --channel dingtalk --dry-run
+python3 monitors/codex-reset-monitor/monitor.py --channel dd --no-send
+```
+
+两者不发送、不渲染、不落盘、不拿 QQ 锁，只读 `state/dingtalk/state.json`；
+已有文件须含 `channel: 'dingtalk'`。DD `--no-send` 也不写健康计数；QQ
+`--no-send` 原行为不变。不迁移 QQ 日志，不继承 QQ 成功/baseline，不续传 QQ pending。
+
+### 准备与预检
+
+```sh
+python3 monitors/codex-reset-monitor/monitor.py --channel dd --prepare-private-test
+node monitors/codex-reset-monitor/send-dingtalk.mjs --manifest "$DD_MANIFEST" --dry-run
+```
+
+首条命令只准备，不发消息；不能与其他模式旗标合用。本次 DD 私测使用当前
+真实 forecast 加两张非今日的 reset/reset_preview 历史公告，复用原 renderer。
+整条 v2 消息为 H1、信息来源、预测卡、H1 `Tibo宣布了什么`、普通 text
+`以下为历史公告，用于排版测试，非今日重置确认`，再接两张历史卡及原始 X 链接。
+该提示仅加入本次 DD 私测，不修改生产/QQ 历史预览版式。
+产物在 `state/dingtalk/layout-preview/<batchId>/`：`snapshot.json`、三张 PNG、
+`batch.json`、`preparation.json`。返回 JSON 的 `manifestPath` 即 `DD_MANIFEST`，
+`receiptPath` 固定指向同目录 `batch.receipt.json`，准备阶段不创建 receipt。
+样例带 `private-test-current-forecast-with-history` 元数据和 sampleOnly 保护，不能 complete_batch；
+不读取或创建 QQ/DD 正式业务 state，不推进 baseline、daily、阶段或公告水位。
+来源无效、缺少历史对照或渲染失败则停止。之前无说明的三图候选和单卡候选
+保留原文件但不再使用；本次仅使用含上述可见提示的新三图 manifest。
+
+sender dry-run 不加载目标配置、不上传、不发送、不落 receipt。当前 sender 已有
+显式私人测试入口；以下命令只在独立 QA 与 PM 放行后执行，与 `--dry-run` 互斥：
+
+```sh
+node monitors/codex-reset-monitor/send-dingtalk.mjs --manifest "$DD_MANIFEST" \
+  --send-private-test --config "$DD_CONFIG" --receipt "$DD_RECEIPT"
+```
+
+`DD_MANIFEST`、`DD_CONFIG`、`DD_RECEIPT` 均使用运行机绝对路径。
+`DD_RECEIPT` 使用准备报告的 `receiptPath`，位于同一 DD batch 目录，禁止指向
+QQ receipt 或配置/图片。运行机私密配置只包含以下三个字段，由运行用户持有，
+权限 0600；运行机已独立创建该配置，不在 Git 中保存实际配置：
+
+```json
+{"version":1,"openclawRoot":"/home/PPfavorite/.openclaw","imageHosting":"qq_upload_only"}
+```
+
+真实测试只允许宋雨扬与 R2-D2；load 从 runtime 的 `channels.ddingtalk`、DWS
+get-self 和 bot find 取得身份，校验已固定的目标/机器人 hash，不允许在配置
+覆盖 ID。上传后、唯一发送前再次核验身份；旧 DWS 不传 `--profile`，新 DWS
+核对当前 active profile 后显式绑定。身份漂移、目标未知均停止，不切账户，
+不回退到群或其他人。身份取证见 `test_dingtalk_sender_identity_report.json`，
+这是只读取证报告，不是发送成功或独立 QA 放行证据。
+图片只复用显式 opt-in 的 QQ upload-only URL，不调用 QQ 消息发送接口。
+DWS bot 没有终态查询不阻止这一次测试：受理按 `unknown`/`accepted=true`
+记录真实 processQueryKey（CLI 退出 5），不能当 complete，不自动重发。
+可用时仅做一次有界 list-direct 只读查询，空结果或查询失败不抹掉受理证据，
+也不是重发理由；不能拿个人消息 query-send-status 查询机器人 processQueryKey。
+客户端三图、可见历史提示和链接验收另行记录，不能借样例确认业务成功或
+启用 DD 定时。CLI 0 表示 dry-run 或有验证证据的 complete，4 为阻断/失败，
+5 为 unknown（含已受理）；同一 matching receipt 已存在时 sender 不再发送。
+
+### 部署边界
+
+2026-10-19 经 FINAL-RELEASE QA 与 PM 授权，已在
+`laptop-home:/home/PPfavorite/.openclaw/monitors/codex-reset-monitor/` 逐文件备份并
+部署六文件：`monitor.py`、`test_monitor.py`、本 README、`send-dingtalk.mjs`、
+`test_dingtalk_sender.mjs`、`test_dingtalk_sender_identity_report.json`。
+备份及脱敏取证位于
+`/home/PPfavorite/.openclaw/backups/codex-reset-monitor/dingtalk-20261019T095346Z/`，
+`before/` 保留三个原文件，`backup-index.json` 标记三个新增文件。运行配置为
+`/home/PPfavorite/.openclaw/monitors/codex-reset-monitor/dingtalk-private-test.json`，
+已核权限 0600。共用 renderer/assets、sender helpers 和 QQ sender hash 不变。
+
+本次运行机生成新样例时，forecast 来源 HTTP 502（`curl exit=22`）阻断，
+安全阶段码为 `prepare/sample_prepare_failed`。尚未创建该次远端 manifest 或
+receipt，未上传图片、未调用 `--send-private-test`，没有受理 JSON/readback，
+不将其记为一次已投递测试。原本地三图 dry-run 样例仍只作 QA 证据，不代替
+当前真实来源或移作实发；实际发送授权尚未消耗，待来源恢复后协调继续。
+
+部署前后 QQ 业务 state 字节 hash 一致，pending 为空；两个 timer 保持
+active/enabled，日报仍为 08:00，轮询仍为 15 分钟，unit/配置与 gateway 不变。
+部署前 QQ 自然轮询已失败（17:54 UTC+08:00，连续抓取失败 2 次），本次没有
+清计数、补发、重启或修改 state，不把该既有失败归因于 DD 部署。
+
+唯一私人发送仍须先在运行机成功准备三图和可见提示并 dry-run 核对；受理、
+unknown、失败或发送后超时均保留同一 manifest/receipt，不换 batch 重试。
+回滚仅恢复本次备份的代码、撤回本次新增代码，不删除样例/receipt 证据，
+不回滚业务 state。提交仅上述六文件，不包含根 README、QQ 既有脏文件、
+私密配置、state 或生成样例；不启 DD 自动推送或群发。
+
 ## 类型与阶段
 
 内部 resetType=regular/banked，五种类型/阶段组合的成功键

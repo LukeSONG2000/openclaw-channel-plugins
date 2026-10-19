@@ -1,0 +1,113 @@
+{
+  "reportVersion": 1,
+  "observedDate": "2026-10-19",
+  "environment": "laptop-home",
+  "operations": { "dingtalkMessagesSent": 0, "qqMessagesSent": 0, "imagesUploaded": 0, "deployed": false },
+  "cli": {
+    "localVersion": "1.0.55",
+    "remoteVersion": "1.0.37",
+    "remoteCommand": "/home/PPfavorite/.nvm/versions/node/v24.14.0/bin/dws",
+    "remoteImplementation": "npm dingtalk-workspace-cli/bin/dws.js forwards arguments to vendor/dws",
+    "sendLeafHelpObserved": true,
+    "sendCommand": "chat message send-by-bot",
+    "requiredFlags": ["--robot-code", "--users", "--title", "--text"],
+    "format": "json",
+    "remoteSupportsProfile": false,
+    "remoteSupportsBotUUID": false,
+    "remoteBotTerminalQueryExposed": false,
+    "remoteSchemaLookup": "unknown canonical schema path; leaf help is available",
+    "personalQuerySendStatusNotApplicableToProcessQueryKey": true
+  },
+  "identity": {
+    "name": "宋雨扬",
+    "organization": "国仪量子技术（合肥）股份有限公司",
+    "localProfileCount": 1,
+    "localCurrentProfileStatusAfterRefresh": "active",
+    "remoteAuthenticated": true,
+    "remoteGetSelfMatchesConfiguredAdmin": true,
+    "remoteAisearchExactNameMatchCount": 1,
+    "contactDetailOrgUserIdMatchesConfiguredAdmin": true,
+    "botName": "R2-D2",
+    "availableBotExactMatchCount": 1,
+    "availableBotHasMore": false,
+    "ownedBotSearchCount": 0,
+    "botFindReturnedFields": ["name", "botOpenDingTalkId"],
+    "robotCodeSource": "channels.ddingtalk.clientId",
+    "targetSha256": "fedf8eacf5d2655dec8155385d6d914209f6e4ca88d1a50f122bc0a5361a321b",
+    "botOpenDingTalkIdSha256": "3a731b5625ab01fad417041ca93ce421e33ab89b4d62080c40f967cf698de7c8",
+    "clientIdSha256": "881307e5fc5c59a7e4096a3b57ce2f5fd27b0418ba5d27242ae959228e98df3d"
+  },
+  "bindingEvidence": {
+    "remoteConfigReference": "~/.openclaw/openclaw.json: channels.ddingtalk.clientId and adminUserId; no raw values included",
+    "remotePluginSource": "~/.openclaw/extensions/ddingtalk/src/client.ts:184-206",
+    "sourceObserved": "sendOTOMessage submits robotCode: options.account.clientId and userIds: [userId]",
+    "cliBotFind": "dws chat bot find --query R2-D2 --limit 20 --format json returned one exact R2-D2 and hasMore=false",
+    "cliGetSelf": "dws contact user get-self --format json returned the configured administrator in the expected organization",
+    "todayGatewayLog": "/tmp/openclaw/openclaw-2026-10-19.log: no matching DingTalk send/robotCode evidence found; no historical-send claim",
+    "assessment": "Use the deployed plugin/config binding plus the unique visible bot for the explicitly authorized single private test. CLI does not independently return the robotCode/name pair. This is not a reason to block that one test indefinitely."
+  },
+  "readback": {
+    "command": "chat message list-direct --open-dingtalk-id <CLI-returned R2 bot ID> --time <start> --forward false --limit 3 --format json",
+    "actuallyInvoked": true,
+    "success": true,
+    "observedResultFields": ["hasMore", "messages", "nextCursor"],
+    "observedMessageCount": 0,
+    "nonemptyMessageSchemaObserved": false,
+    "runtimePolicy": "One bounded readback after accepted dispatch. Save query response hash/count, but do not infer delivery from the empty/unverified history schema. Await user-client acceptance; never resend."
+  },
+  "sendResponse": {
+    "actualSuccessfulEnvelopeObserved": false,
+    "reason": "No real send was authorized in this implementation/review turn",
+    "parserPolicy": "Extract an unambiguous processQueryKey only if present in actual CLI JSON; record its field path and whole-response SHA256. Do not require success=true or assume result.processQueryKey. An explicit error prevents acceptance classification.",
+    "terminalSuccessClaimed": false,
+    "testEnvelopesAreSyntheticOnly": true
+  },
+  "imageHosting": {
+    "kind": "qq_upload_only",
+    "explicitOptInRequired": true,
+    "source": "existing sender-images.mjs:createImagePreparer",
+    "messageAPIsExposed": false,
+    "filesRequestSrvSendMsg": false,
+    "checks": ["PNG bytes", "image/png PUT", "anonymous GET", "SHA256 equality", "signed URL expiry at preparation and dispatch"],
+    "dependency": "Configured QQ account/API and temporary COS raw_url; effective signature may last about one hour, not permanent hosting",
+    "currentTurnLiveUploadVerified": false
+  },
+  "controlledCLI": {
+    "requiredSendFlags": ["--manifest", "--send-private-test", "--config", "--receipt"],
+    "dryRunMutuallyExclusiveWithSend": true,
+    "groupsSupported": false,
+    "automaticModeSupported": false,
+    "personalIdentityFallback": false,
+    "idOverrideInConfigAllowed": false,
+    "accountPreflight": {
+      "timing": "Live identity recheck immediately before the only DWS send, after image preparation",
+      "oldCLI": "Do not pass --profile; contact user get-self must match target.corpId and target.accountUserId",
+      "modernCLI": "get-self and the sole active current entry from profile list must agree with target; always pass deterministic corpId:accountUserId, even if target.profile was omitted",
+      "mismatchOrQueryFailure": "Zero DingTalk sends, no account switch and no fallback"
+    },
+    "privateConfigMode": "0600 or stricter, owned by current user",
+    "privateConfigTemplate": { "version": 1, "openclawRoot": "/home/PPfavorite/.openclaw", "imageHosting": "qq_upload_only" },
+    "runtimeConfigFileCreated": false,
+    "invocationTemplate": "node send-dingtalk.mjs --manifest <manifest.json> --send-private-test --config <private-0600-config.json> --receipt <independent-dingtalk.receipt.json>",
+    "exitCodes": { "dryRunOrVerifiedComplete": 0, "blockedOrFailed": 4, "unknownIncludingAccepted": 5 },
+    "retryPolicy": "Any existing matching receipt is returned without sending again; UNKNOWN/INFLIGHT/accepted are never replayed. No invented UUID flag.",
+    "receiptPolicy": "Independent dingtalk channel, target/account/org/bot digest, manifest and image hashes, provider receipt and readback evidence; no credentials, signed URLs or raw message bodies"
+  },
+  "developerVerification": {
+    "dingtalkTestsPassed": 37,
+    "combinedQQAndDingtalkTestsPassed": 72,
+    "qaP1RegressionCases": [
+      "omitted profile with changed account or organization is blocked on old CLI",
+      "modern CLI derives and passes explicit profile after live verification",
+      "current profile mismatch or identity query failure prevents dispatch",
+      "account drift after image preparation is blocked immediately before send"
+    ],
+    "independentQARereviewRequired": true
+  },
+  "remainingAcceptance": [
+    "QA review of adapter and controlled CLI tests",
+    "PM explicitly chooses the single private test dispatch after QA",
+    "Capture the actual bot-send JSON field layout on that attempt",
+    "User-client acceptance of the one-message H1/source/PNG/Tibo/X-link layout"
+  ]
+}
