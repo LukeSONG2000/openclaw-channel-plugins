@@ -61,7 +61,8 @@ test('canonical raw manifest matches Python UTF-8 sorted JSON, independent of lo
   const f = await fixture(t);
   const shuffled = { parts: manifest.parts, delivery: manifest.delivery, batchId: manifest.batchId, version: 2 };
   const unicode = { '\u{10000}': '\u4e2d\u6587\n\t"', '\ue000': 'x', '10': null, '2': [true, 2] };
-  for (const value of [manifest, shuffled, unicode]) {
+  const headingManifest = { ...manifest, parts: [{ type: 'heading', level: 1, text: 'H1\u4e2d\u6587' }] };
+  for (const value of [manifest, shuffled, unicode, headingManifest]) {
     const python = spawnSync('python3', ['-c',
       'import sys,json,hashlib; x=json.load(sys.stdin); print(hashlib.sha256(json.dumps(x,ensure_ascii=False,sort_keys=True,separators=(",",":")).encode("utf-8")).hexdigest())'],
     { input: JSON.stringify(value), encoding: 'utf8' });
@@ -143,6 +144,116 @@ test('sender never adds a timezone footer when backend did not provide one', asy
   const { api, calls } = apiFixture();
   await runManifest({ ...f, transport: createTransport(api, target) });
   assert.equal(calls.find(c => c.kind === 'message').body.markdown.content, 'only this');
+});
+
+test('H1 layout composes one strict body with source before first image and zero, one or multiple announcements', async t => {
+  for (const count of [0, 1, 3]) {
+    const parts = [
+      { type: 'heading', level: 1, text: '\u0043odex\u4f1a\u91cd\u7f6e\u5417\uff1f' },
+      { type: 'text', text: 'optional stage' },
+      { type: 'link', label: '\u4fe1\u606f\u6765\u6e90', url: 'https://willreset.com/zh/' },
+      { type: 'image', path: 'card.png' },
+    ];
+    if (count) parts.push({ type: 'heading', level: 1, text: 'Tibo\u5ba3\u5e03\u4e86\u4ec0\u4e48' });
+    for (let i = 0; i < count; i++) parts.push(
+      { type: 'image', path: 'card.png' },
+      { type: 'link', label: '\u67e5\u770b\u{1D54F}', url: 'https://x.com/example/status/' + i },
+    );
+    const input = { ...manifest, parts };
+    const f = await fixture(t, input);
+    assert.equal(f.plan.manifestSha256, sha256(canonicalStringify(input)));
+    const { api, calls } = apiFixture();
+    const result = await runManifest({ ...f, transport: createTransport(api, target, {
+      prepareImage: async () => 'https://' + host + '/image.png',
+    }) });
+    const messages = calls.filter(call => call.kind === 'message');
+    assert.equal(messages.length, 1);
+    assert.equal(result.ok, true);
+    const body = messages[0].body;
+    assert.equal(body.msg_type, 2);
+    assert.equal(body.markdown.force_verify_image_resource, true);
+    assert.equal(result.imageVerification, 'strict');
+    const content = body.markdown.content;
+    assert.ok(content.startsWith('# Codex\u4f1a\u91cd\u7f6e\u5417\uff1f\n\noptional stage\n\n'));
+    assert.equal(content.startsWith('\\# '), false);
+    const source = '[\u4fe1\u606f\u6765\u6e90](https://willreset.com/zh/)';
+    const image = '![image #1px #1px](https://' + host + '/image.png)';
+    assert.ok(content.includes(source + '\n\n' + image));
+    assert.equal((content.match(/^# /gm) ?? []).length, count ? 2 : 1);
+    assert.equal(content.includes('\n\n# Tibo\u5ba3\u5e03\u4e86\u4ec0\u4e48\n\n'), count > 0);
+    assert.equal((content.match(/\[\u67e5\u770b\u{1D54F}\]/gu) ?? []).length, count);
+    assert.equal((content.match(/!\[image /g) ?? []).length, count + 1);
+    assert.equal(content.includes('\u5386\u53f2\u6392\u7248\u793a\u4f8b'), false);
+    assert.equal(content.includes('time.ms'), false);
+    assert.equal(content.includes('UTC+'), false);
+  }
+});
+
+test('heading text is escaped but generated prefix is not; legacy text escaping is unchanged', async t => {
+  const text = '# _x_ *b* [link](https://example.com) `code` \\ ! <tag> {a}|';
+  const escaped = '\\# \\_x\\_ \\*b\\* \\[link\\]\\(https://example.com\\) \\`code\\` \\\\ \\! \\<tag\\> \\{a\\}\\|';
+  const input = { ...manifest, parts: [
+    { type: 'heading', level: 1, text: '  ' + text + '  ' },
+    { type: 'text', text },
+  ] };
+  const f = await fixture(t, input);
+  assert.equal(f.plan.parts[0].text, input.parts[0].text);
+  assert.equal(f.plan.manifestSha256, sha256(canonicalStringify(input)));
+  const { api, calls } = apiFixture();
+  assert.equal((await runManifest({ ...f, transport: createTransport(api, target) })).ok, true);
+  assert.equal(calls.find(call => call.kind === 'message').body.markdown.content,
+    '# ' + escaped + '\n\n' + escaped);
+});
+
+test('heading schema rejects newlines, controls, invalid levels, empty or long text and extra keys', async t => {
+  const f = await fixture(t);
+  const heading = { type: 'heading', level: 1, text: 'Safe' };
+  const invalid = [
+    ...[undefined, null, 0, 2, -1, 1.5, '1', true].map(level => ({ ...heading, level })),
+    ...[undefined, null, '', '  ', 12, 'x'.repeat(401), 'a\nb', 'a\rb', 'a\r\nb',
+      'a\u0085b', 'a\u2028b', 'a\u2029b', 'a\0b', 'a\tb', 'a\x7fb'].map(text => ({ ...heading, text })),
+  ];
+  for (const part of invalid) {
+    await assert.rejects(normalizeManifest({ ...manifest, parts: [part] }, f.directory), /invalid_heading/);
+  }
+  for (const extra of [{ url: 'https://example.com' }, { path: 'card.png' }, { raw: true }]) {
+    await assert.rejects(normalizeManifest({ ...manifest, parts: [{ ...heading, ...extra }] }, f.directory), /invalid_manifest/);
+  }
+  for (const text of ['x', 'x'.repeat(400)]) {
+    const plan = await normalizeManifest({ ...manifest, parts: [{ ...heading, text }] }, f.directory);
+    assert.deepEqual(plan.parts, [{ ...heading, text }]);
+  }
+  const manifestPath = path.join(f.directory, 'invalid-heading.json');
+  await fs.writeFile(manifestPath, JSON.stringify({ ...manifest, parts: [{ ...heading, level: 2 }] }));
+  const command = spawnSync(process.execPath, ['send-openclaw-qq.mjs', '--manifest', manifestPath,
+    '--receipt', f.receiptPath, '--root', '/not-a-config', '--dry-run'], { encoding: 'utf8' });
+  assert.equal(command.status, 4);
+  assert.equal(JSON.parse(command.stdout).errorCode, 'invalid_heading');
+  await assert.rejects(fs.access(f.receiptPath));
+});
+
+test('legacy text layout and completed receipt remain frozen without heading or source reordering', async t => {
+  const input = { ...manifest, parts: [
+    { type: 'text', text: '# old title' },
+    manifest.parts[1], manifest.parts[2],
+    { type: 'text', text: '\n\nHistory example (not today)\nTibo announcements' }, timezone,
+  ] };
+  const original = canonicalStringify(input);
+  const f = await fixture(t, input);
+  const { api, calls } = apiFixture();
+  const transport = createTransport(api, target, { prepareImage: async () => 'https://' + host + '/image.png' });
+  assert.equal((await runManifest({ ...f, transport })).ok, true);
+  const content = calls.find(call => call.kind === 'message').body.markdown.content;
+  assert.ok(content.startsWith('\\# old title\n\n![image '));
+  assert.ok(content.indexOf('![image ') < content.indexOf('[\u4fe1\u606f\u6765\u6e90]'));
+  assert.ok(content.endsWith('[UTC+08:00](https://time.ms/zh-cn/utc+8/)'));
+  const receipt = await fs.readFile(f.receiptPath, 'utf8');
+  const retry = fakeTransport();
+  assert.equal((await runManifest({ ...f, transport: retry })).ok, true);
+  assert.deepEqual(retry.prepared, []);
+  assert.equal(await fs.readFile(f.receiptPath, 'utf8'), receipt);
+  assert.equal(canonicalStringify(input), original);
+  assert.equal(f.plan.manifestSha256, sha256(original));
 });
 
 test('late image preparation failure sends zero messages; retry prepares complete message', async t => {

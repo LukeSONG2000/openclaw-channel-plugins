@@ -108,6 +108,11 @@ export async function normalizeManifest(manifest, directory) {
       keys(source, ['type', 'text']);
       check(nonempty(source.text) && source.text.length <= 4000, 'invalid_text');
       parts.push({ type: 'text', text: source.text });
+    } else if (source?.type === 'heading') {
+      keys(source, ['type', 'level', 'text']);
+      check(source.level === 1 && nonempty(source.text) && source.text.length <= 400
+        && !/[\x00-\x1f\x7f\u0085\u2028\u2029]/u.test(source.text), 'invalid_heading');
+      parts.push({ type: 'heading', level: 1, text: source.text });
     } else if (source?.type === 'link') {
       keys(source, ['type', 'label', 'url']);
       check(nonempty(source.label) && source.label.length <= 400, 'invalid_link');

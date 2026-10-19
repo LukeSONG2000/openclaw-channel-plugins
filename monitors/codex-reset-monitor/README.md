@@ -7,7 +7,7 @@
 确认 preview 后，实际到账的 actual 键仍未确认，即使来源复用同一 ID，也必须
 保留 actual 公告图文。只有整条 v2 消息成功才写 deliveredPhaseKeys。
 
-daily 首行为“Codex会重置吗？”。regular preview 为“Codex已确认重置！”，
+daily 首行为“Codex会重置吗？”，所有动态首行均为一级标题。regular preview 为“Codex已确认重置！”，
 regular actual 为“Codex已重置，速蹬！”；banked upcoming 为“Codex重置卡即将发放！”，
 banked distributed 为“Codex重置卡已发放！”，banked announced 为
 “Codex已公布重置卡消息！”。正文另有类型/阶段说明；预告明确尚未到账，
@@ -60,9 +60,9 @@ PNG 内的 UTC+08:00 标注保留，图片本身不承载可点击链接。
 
 ## 图文与投递事务
 
-每天 UTC+08:00 08:00 和新增明确事件使用同一排版：动态首行标题、预测卡、
-Markdown 信息来源链接；daily 标题固定“Codex会重置吗？”。有未发公告时再接空行、
-“Tibo宣布了什么”，逐公告卡和显示名为“查看𝕏”（𝕏 为 U+1D54F）的原始 X 链接。
+每天 UTC+08:00 08:00 和新增明确事件使用同一排版：动态首行一级标题、可选阶段正文、
+Markdown 信息来源链接、预测卡；daily 标题固定“Codex会重置吗？”。有未发公告时再接
+一级标题“Tibo宣布了什么”，逐公告卡和显示名为“查看𝕏”（𝕏 为 U+1D54F）的原始 X 链接。
 “信息来源”链接保持原样。无公告时省略 Tibo 空标题，
 不重发旧公告。预测卡不包含网站大标题、用量限额、关于或祈求；公告卡没有
 “在 X 查看”按钮。15 分钟轮询无新明确阶段时保持静默，boost/signal 不单独触发通知。
@@ -71,11 +71,16 @@ Markdown 信息来源链接；daily 标题固定“Codex会重置吗？”。有
 batch.receipt.json。manifest v2 为 `{version:2,batchId,delivery:'single_markdown',parts}`，
 parts 只定义整条原生 Markdown 的排版顺序，不代表多条聊天消息；图片 part
 严格只有 type/path，相对路径由 sender 读取 PNG 尺寸和 SHA，业务 state 的
-imageHashes 校验保留。新批次没有独立时区 footer，禁止
+imageHashes 校验保留。一级标题只接受 `{type:'heading',level:1,text:'...'}`，
+字段严格校验，文本单行非空、最多 400 个 UTF-16 code unit，不允许控制字符。
+sender 仅生成标题前缀 `# `，标题文字和旧 text 的 Markdown 转义保持不变。
+H1 语法见[腾讯官方 Markdown 文档](https://github.com/tencent-connect/bot-docs/blob/main/docs/develop/api-v2/server-inter/message/type/markdown.md)。
+canonical hash 仍基于原 manifest，旧 text/image/link 兼容。新批次没有独立时区 footer，禁止
 退回分段发送。manifest 使用 camelCase；
 重试只读原快照，不重新渲染相对时间、不修改 manifest。业务 state 绑定快照、
-manifest 和图片摘要；文件改变则拒绝续传。旧已冻结 pending 即使含旧公告显示名
-或时区 footer，也保留原 snapshot/manifest，不因新规则重写。两个 service 共用同一个 flock。
+manifest 和图片摘要；文件改变则拒绝续传。旧已冻结 pending 即使含旧公告显示名、
+旧普通文本标题、旧来源位置或时区 footer，也保留原 snapshot/manifest/receipt，
+不因新规则重写。两个 service 共用同一个 flock。
 
 sender v2 原子保存整消息 receipt.message；failed 可以重试，inflight/unknown
 必须人工核对，不能自动重发。只有 sender 退出 0 且持久化 v2 receipt 的
@@ -125,8 +130,9 @@ node --test monitors/codex-reset-monitor/test_sender.mjs
 
 `prepare_layout_preview.py` 是独立维护准备脚本，不是新的聊天指令。运行后只在
 ignored state/layout-preview/<batchId>/ 生成实时预测卡、最近一条 confirmed
-与一条 preview 的历史公告卡及 v2 manifest，标题明确标记“历史排版示例
-（非今日确认）”。顶部必须是实时已预告状态，不生成历史概率或模拟已确认
+与一条 preview 的历史公告卡及 v2 manifest。消息不输出独立“历史排版示例”说明行；
+snapshot.purpose、preparation.history、非今日确认保护及不写业务 state 的约束保留。
+顶部必须是实时已预告状态，不生成历史概率或模拟已确认
 预测；历史卡最多两条，图片 part 同样严格为 type/path，公告链接显示名同为“查看𝕏”，
 不附加独立时区 footer，PNG 内 UTC+08:00 标注及 UTC+8 时间计算保持不变。
 脚本不调用 sender/complete_batch，不修改正式业务 state 或公告去重，不创建

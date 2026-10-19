@@ -724,13 +724,13 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     atomic_write_json(directory / "snapshot.json", snapshot)
     cards = render_snapshot(snapshot, directory)
-    parts = [dict(type="text", text=snapshot["title"]),
-             dict(type="image", path=Path(cards[0]["path"]).name),
-             dict(type="link", label="信息来源", url=SOURCE_PAGE)]
+    parts = [dict(type="heading", level=1, text=snapshot["title"]),
+             dict(type="link", label="信息来源", url=SOURCE_PAGE),
+             dict(type="image", path=Path(cards[0]["path"]).name)]
     if primary:
         parts.insert(1, dict(type="text", text=snapshot["stageText"]))
     if announcements:
-        parts.append(dict(type="text", text="\n\nTibo宣布了什么"))
+        parts.append(dict(type="heading", level=1, text="Tibo宣布了什么"))
     for event, card in zip(announcements, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
                       dict(type="link", label="查看𝕏", url=event["source_url"])])

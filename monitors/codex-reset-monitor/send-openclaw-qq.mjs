@@ -6,7 +6,7 @@ import { parseArgs } from 'node:util';
 import { normalizeManifest, readReceipt, runManifest } from './sender-manifest.mjs';
 import { loadTransport } from './sender-transport.mjs';
 
-const publicErrors = new Set(['invalid_manifest', 'invalid_part', 'invalid_text', 'invalid_link',
+const publicErrors = new Set(['invalid_manifest', 'invalid_part', 'invalid_text', 'invalid_heading', 'invalid_link',
   'invalid_image', 'batch_too_large', 'image_changed_during_read', 'receipt_required', 'invalid_receipt',
   'receipt_manifest_mismatch', 'receipt_target_mismatch', 'receipt_image_mismatch', 'receipt_locked', 'invalid_target',
   'legacy_manifest_requires_reconciliation', 'legacy_receipt_requires_reconciliation',

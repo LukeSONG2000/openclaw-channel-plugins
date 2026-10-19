@@ -59,10 +59,10 @@ def main():
     directory.mkdir(parents=True, exist_ok=False, mode=0o700)
     monitor.atomic_write_json(directory / "snapshot.json", snapshot)
     cards = monitor.render_snapshot(snapshot, directory)
-    parts = [dict(type="text", text="Codex会重置吗？"),
-             dict(type="image", path=Path(cards[0]["path"]).name),
+    parts = [dict(type="heading", level=1, text="Codex会重置吗？"),
              dict(type="link", label="信息来源", url=monitor.SOURCE_PAGE),
-             dict(type="text", text="\n\n历史排版示例（非今日确认）\nTibo宣布了什么")]
+             dict(type="image", path=Path(cards[0]["path"]).name),
+             dict(type="heading", level=1, text="Tibo宣布了什么")]
     for event, card in zip(selected, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
                       dict(type="link", label="查看𝕏", url=event["source_url"])])

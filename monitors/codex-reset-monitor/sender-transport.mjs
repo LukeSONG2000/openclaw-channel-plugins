@@ -51,9 +51,11 @@ export function createTransport(api, target, {
           blocks.push(markdownLink(part.label, part.url));
         } else if (part.type === 'text') {
           blocks.push(markdownText(part.text.trim()));
+        } else if (part.type === 'heading') {
+          blocks.push('# ' + markdownText(part.text.trim()));
         } else { throw new Error('invalid_part'); }
       }
-      // All content, including the single timezone footer, belongs to backend parts.
+      // Frozen backend parts alone determine layout, including any legacy footer.
       const content = blocks.join('\n\n');
       if (!Number.isSafeInteger(maxMarkdownBytes) || maxMarkdownBytes < 1 || Buffer.byteLength(content) > maxMarkdownBytes) {
         throw new Error('markdown_too_large');
