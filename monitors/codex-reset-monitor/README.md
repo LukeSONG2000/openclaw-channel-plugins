@@ -2,7 +2,7 @@
 
 ## 钉钉私人样例
 
-当前只准备宋雨扬私人测试，不启用 DD 自动推送或群通知。默认命令及
+本接入仅用于宋雨扬私人测试，不启用 DD 自动推送或群通知。默认命令及
 `--channel qq` 保持 QQ 原行为、state、pending 和锁，现有 QQ timer/service 不变。
 `--channel dingtalk`（别名 `dd`）的监控入口仍只允许只读预检：
 
@@ -79,19 +79,26 @@ DWS bot 没有终态查询不阻止这一次测试：受理按 `unknown`/`accept
 `/home/PPfavorite/.openclaw/monitors/codex-reset-monitor/dingtalk-private-test.json`，
 已核权限 0600。共用 renderer/assets、sender helpers 和 QQ sender hash 不变。
 
-本次运行机生成新样例时，forecast 来源 HTTP 502（`curl exit=22`）阻断，
-安全阶段码为 `prepare/sample_prepare_failed`。尚未创建该次远端 manifest 或
-receipt，未上传图片、未调用 `--send-private-test`，没有受理 JSON/readback，
-不将其记为一次已投递测试。原本地三图 dry-run 样例仍只作 QA 证据，不代替
-当前真实来源或移作实发；实际发送授权尚未消耗，待来源恢复后协调继续。
+首次运行机准备因 forecast HTTP 502（`curl exit=22`）停止，未发送。
+随后获 PM 明确授权，复用本地 QA 冻结的 snapshot 与三图；原 snapshot/图片
+hash 均核验不变，仅在独立样例 manifest 加普通 text：
+`排版测试，数据采集于 2026-10-19 17:25:38（UTC+08:00），非实时播报`。
+历史提示保留，不伪装当前实况，不再请求来源、不修改代码或 QQ 排版。
+
+带日期样例在运行机 dry-run 三图通过后，于 2026-10-19 18:05 UTC+08:00
+仅执行一次 `--send-private-test`。实际受理字段为 `$.result.processQueryKey`，
+receipt 为 `unknown/accepted=true`，CLI 退出 5；只读回查返回 1 条消息，
+不将其冒称终态送达。manifest/receipt 在运行目录
+`state/dingtalk/layout-preview/layout-735d3a2c5631444fa7df27aaff2c5120-dated/`；
+脱敏受理 JSON 字段路径、响应 hash 与回查结果见上述备份目录的
+`send-summary.json`。三图、可见采集日期及历史提示、链接仍待用户客户端验收。
 
 部署前后 QQ 业务 state 字节 hash 一致，pending 为空；两个 timer 保持
 active/enabled，日报仍为 08:00，轮询仍为 15 分钟，unit/配置与 gateway 不变。
 部署前 QQ 自然轮询已失败（17:54 UTC+08:00，连续抓取失败 2 次），本次没有
 清计数、补发、重启或修改 state，不把该既有失败归因于 DD 部署。
 
-唯一私人发送仍须先在运行机成功准备三图和可见提示并 dry-run 核对；受理、
-unknown、失败或发送后超时均保留同一 manifest/receipt，不换 batch 重试。
+唯一私人发送授权已执行；保留同一 manifest/receipt，不再发送或换 batch。
 回滚仅恢复本次备份的代码、撤回本次新增代码，不删除样例/receipt 证据，
 不回滚业务 state。提交仅上述六文件，不包含根 README、QQ 既有脏文件、
 私密配置、state 或生成样例；不启 DD 自动推送或群发。
