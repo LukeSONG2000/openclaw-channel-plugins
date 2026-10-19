@@ -802,20 +802,6 @@ def prepare_dingtalk_sample() -> dict[str, Any]:
     return report
 
 
-def prepare_health_batch(message: str) -> dict[str, Any]:
-    snapshot = dict(createdAt=now_utc().isoformat(), kind="source-failure", **group_binding())
-    batch_id = "codex-" + digest_json(snapshot)[:32]
-    directory = STATE_FILE.parent / "outbox" / batch_id
-    lines = message.splitlines()
-    manifest = dict(version=2, batchId=batch_id, delivery="single_markdown",
-                    parts=[dict(type="heading", level=1, text=lines[0]),
-                           dict(type="text", text="\n".join(lines[1:]))])
-    atomic_write_json(directory / "snapshot.json", snapshot)
-    atomic_write_json(directory / "batch.json", manifest)
-    return dict(batchId=batch_id, manifestSha256=digest_json(manifest),
-                snapshotSha256=digest_json(snapshot), imageHashes={})
-
-
 def deliver_batch(batch: dict[str, Any]) -> bool:
     batch_id = batch["batchId"]
     if not isinstance(batch_id, str) or not re.fullmatch(r"codex-[a-f0-9]{32}", batch_id):
@@ -975,13 +961,7 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
             print(f"delivery suppressed kind={kind}")
             return False, "no-send"
         if GROUP_CONFIG is not None:
-            if not state.get("pendingHealthBatch"):
-                state["pendingHealthBatch"] = prepare_health_batch(message)
-                save()
-            try:
-                return deliver_batch(state["pendingHealthBatch"]), "dingtalk-group"
-            except Exception:
-                return False, "dingtalk-health-unconfirmed"
+            return False, "dingtalk-health-local-only"
         return push(message)
 
     try:
@@ -1004,8 +984,7 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
     except Exception as exc:
         state["consecutive_fetch_failures"] = int(state.get("consecutive_fetch_failures") or 0) + 1
         count = state["consecutive_fetch_failures"]
-        group_not_initialized = GROUP_CONFIG is not None and not state.get("firstDailyCompletedAt")
-        if count >= FAILURE_THRESHOLD and not state.get("failure_notified") and not group_not_initialized:
+        if GROUP_CONFIG is None and count >= FAILURE_THRESHOLD and not state.get("failure_notified"):
             ok, target = deliver(failure_message(exc, count), "failure")
             if ok:
                 state["failure_notified"] = True
@@ -1034,7 +1013,6 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
     try:
         state["consecutive_fetch_failures"] = 0
         state["failure_notified"] = False
-        state.pop("pendingHealthBatch", None)
         if GROUP_CONFIG is None:
             migrate_delivery_state(state)
         initialize_phase_state(state, phases)

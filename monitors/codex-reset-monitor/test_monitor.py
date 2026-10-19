@@ -1543,24 +1543,20 @@ class GroupMonitorTests(unittest.TestCase):
         self.assertFalse(self.dd_state.exists())
         self.assert_qq_untouched()
 
-    def test_dd_health_failure_never_routes_to_qq_or_consumes_daily(self):
+    def test_initialized_dd_fetch_failures_only_record_health_never_send_group_or_qq(self):
         self.run_group(baseline_only=True)
         self.run_group(send_daily=True)
         daily = self.state()["daily_summary_date"]
         self.dispatches.clear()
         self.status = "accepted"
-        for _ in range(4):
+        for _ in range(5):
             self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")]), 1)
         state = self.state()
-        self.assertEqual(state["consecutive_fetch_failures"], 4)
+        self.assertEqual(state["consecutive_fetch_failures"], 5)
         self.assertFalse(state["failure_notified"])
         self.assertEqual(state["daily_summary_date"], daily)
-        self.assertEqual(len(self.dispatches), 2)
-        self.assertEqual(self.dispatches[0]["batchId"], self.dispatches[1]["batchId"])
-        self.assertTrue(all(p["type"] != "image" for p in self.dispatches[0]["parts"]))
-        self.status = "readback_confirmed"
-        self.assertEqual(self.run_group(data=[RuntimeError("HTTP 502")]), 1)
-        self.assertTrue(self.state()["failure_notified"])
+        self.assertFalse(self.dispatches)
+        self.assertNotIn("pendingHealthBatch", state)
         self.assertEqual(self.run_group(), 0)
         self.assertEqual(self.state()["consecutive_fetch_failures"], 0)
         self.assertNotIn("pendingHealthBatch", self.state())
