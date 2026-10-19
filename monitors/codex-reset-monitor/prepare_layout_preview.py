@@ -65,8 +65,7 @@ def main():
              dict(type="text", text="\n\n历史排版示例（非今日确认）\nTibo宣布了什么")]
     for event, card in zip(selected, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
-                      dict(type="link", label="原始公告", url=event["source_url"])])
-    parts.append(dict(type="link", label="UTC+08:00", url=monitor.TIMEZONE_URL))
+                      dict(type="link", label="查看𝕏", url=event["source_url"])])
     manifest = dict(version=2, batchId=batch_id, delivery="single_markdown", parts=parts)
     monitor.atomic_write_json(directory / "batch.json", manifest)
 

@@ -29,7 +29,8 @@ phaseBaselineAt/phaseBaselineKeys，阻止已存在历史阶段即时补发；ba
 之后未见 ID 即使属于 trigger baseline，仍会在下一 daily/event 带出；旧已发 ID
 的 baseline 阶段不重复，同 ID 新阶段仍可投递。不会滚动过滤迟到新 ID，
 也不会重放下界外数月历史。历史排版示例保持隔离，不写这些业务成功键。
-生产当前仍保留 no-send，待独立 QA 及 QQ 单条展示验收后才能恢复正常投递。
+用户已验收 QQ 客户端图片展示，2026-10-19 15:22（UTC+8）已恢复自动投递。
+这是此前验收及恢复记录，不代表本次文本规则变更已部署；本次仍待 PM 整合及 QA。
 
 唯一来源为 [willreset.com 中文站](https://willreset.com/zh/)，使用公开的
 `/api/forecast`、`/api/notify`、`/api/feed`，不启动浏览器、不混入 feed.posts。
@@ -52,8 +53,8 @@ schema 错误按抓取失败计数；`computed_at`、`live_fetched_at` 和 `fetc
 及日志中，旧纯文本 forecast_probability 仍显示 CI 矛盾警告；JSON/schema、
 confirmed 和时效门禁不变。卡片更新时刻使用 computed_at，
 不是 live_fetched_at；图片时区标注统一为 UTC+08:00，时间偏移仍为 UTC+8，
-不改变时间语义。单条消息由 Backend 在 manifest 末尾提供一处可点击的
-[UTC+08:00](https://time.ms/zh-cn/utc+8/) 时区链接，图片本身不承载可点击链接。
+不改变时间语义。新 batch 的单条消息不附加独立时区 footer 或时区链接；
+PNG 内的 UTC+08:00 标注保留，图片本身不承载可点击链接。
 公告卡严格使用 event.summary，
 保留原文，不从 body 或 posts 回退。
 
@@ -61,7 +62,8 @@ confirmed 和时效门禁不变。卡片更新时刻使用 computed_at，
 
 每天 UTC+08:00 08:00 和新增明确事件使用同一排版：动态首行标题、预测卡、
 Markdown 信息来源链接；daily 标题固定“Codex会重置吗？”。有未发公告时再接空行、
-“Tibo宣布了什么”，逐公告卡和原始 X 链接。无公告时省略 Tibo 空标题，
+“Tibo宣布了什么”，逐公告卡和显示名为“查看𝕏”（𝕏 为 U+1D54F）的原始 X 链接。
+“信息来源”链接保持原样。无公告时省略 Tibo 空标题，
 不重发旧公告。预测卡不包含网站大标题、用量限额、关于或祈求；公告卡没有
 “在 X 查看”按钮。15 分钟轮询无新明确阶段时保持静默，boost/signal 不单独触发通知。
 
@@ -69,10 +71,11 @@ Markdown 信息来源链接；daily 标题固定“Codex会重置吗？”。有
 batch.receipt.json。manifest v2 为 `{version:2,batchId,delivery:'single_markdown',parts}`，
 parts 只定义整条原生 Markdown 的排版顺序，不代表多条聊天消息；图片 part
 严格只有 type/path，相对路径由 sender 读取 PNG 尺寸和 SHA，业务 state 的
-imageHashes 校验保留。只在整条消息 footer 放一次时区链接，禁止
+imageHashes 校验保留。新批次没有独立时区 footer，禁止
 退回分段发送。manifest 使用 camelCase；
 重试只读原快照，不重新渲染相对时间、不修改 manifest。业务 state 绑定快照、
-manifest 和图片摘要；文件改变则拒绝续传。两个 service 共用同一个 flock。
+manifest 和图片摘要；文件改变则拒绝续传。旧已冻结 pending 即使含旧公告显示名
+或时区 footer，也保留原 snapshot/manifest，不因新规则重写。两个 service 共用同一个 flock。
 
 sender v2 原子保存整消息 receipt.message；failed 可以重试，inflight/unknown
 必须人工核对，不能自动重发。只有 sender 退出 0 且持久化 v2 receipt 的
@@ -124,7 +127,8 @@ node --test monitors/codex-reset-monitor/test_sender.mjs
 ignored state/layout-preview/<batchId>/ 生成实时预测卡、最近一条 confirmed
 与一条 preview 的历史公告卡及 v2 manifest，标题明确标记“历史排版示例
 （非今日确认）”。顶部必须是实时已预告状态，不生成历史概率或模拟已确认
-预测；历史卡最多两条，图片 part 同样严格为 type/path，时区 footer 仅一次。
+预测；历史卡最多两条，图片 part 同样严格为 type/path，公告链接显示名同为“查看𝕏”，
+不附加独立时区 footer，PNG 内 UTC+08:00 标注及 UTC+8 时间计算保持不变。
 脚本不调用 sender/complete_batch，不修改正式业务 state 或公告去重，不创建
 发送 receipt。QA/PM 放行后只使用这个隔离 manifest/receipt 发送一次 corrected
 完整样例，不另外运行 current-only manual-preview。
@@ -149,8 +153,9 @@ receipt。诊断模式记录 `imageVerification=diagnostic_unverified`，跨模�
 
 此 flag 仅是诊断变量，不是生产修复；生产 monitor 不会附加该 flag，也不会
 自动降级为 false。API 返回真实成功 ID 只证明接口接受，不证明图片已展示。
-即使诊断 receipt 为 complete/sent，也必须保留两个 service 的 `--no-send`，
-等待用户在 QQ 客户端验收同一消息的三图和链接，并由 PM 明确决定后续恢复。
+历史诊断阶段即使 receipt 为 complete/sent，也须等待用户在 QQ 客户端验收
+同一消息的三图和链接，再由 PM 确认恢复。用户现已验收图片，自动投递已于
+2026-10-19 15:22（UTC+8）恢复；当时的 `--no-send` 暂停记录不是当前生产状态。
 不能仅因 timer active 或准备/上传成功宣称正常生产推送可用。
 
 `--dry-run` 不调用发送适配器，不创建锁或改写 state；`--no-send` 保留抓取

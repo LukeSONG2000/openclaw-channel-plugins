@@ -616,7 +616,8 @@ class MonitorTests(unittest.TestCase):
         self.run_monitor([*data, feed], send_daily=True)
         pending = self.batch_sender.call_args.args[0]
         manifest = json.loads((self.state_file.parent / "outbox" / pending["batchId"] / "batch.json").read_text())
-        self.assertEqual([p["type"] for p in manifest["parts"]], ["text", "image", "link", "link"])
+        self.assertEqual([p["type"] for p in manifest["parts"]], ["text", "image", "link"])
+        self.assertEqual(manifest["parts"][-1], dict(type="link", label="信息来源", url=m.SOURCE_PAGE))
 
     def test_boundary_is_inclusive_timezone_aware_and_does_not_use_posts(self):
         data = list(payloads(False))
@@ -916,16 +917,18 @@ class MonitorTests(unittest.TestCase):
             with self.subTest(mutation=mutation), patch.object(m.subprocess, "run", side_effect=send):
                 self.assertFalse(m.deliver_batch(batch))
 
-    def test_v2_manifest_keeps_layout_order_strict_image_schema_and_one_timezone_footer(self):
+    def test_v2_manifest_keeps_layout_order_strict_image_schema_without_timezone_footer(self):
         batch, directory, manifest = self.make_pending()
         self.assertEqual(manifest["version"], 2)
         self.assertEqual(manifest["delivery"], "single_markdown")
         self.assertEqual(batch["manifestVersion"], 2)
         self.assertEqual(batch["manifestSha256"], m.digest_json(manifest))
         self.assertEqual(manifest["parts"][0], dict(type="text", text="Codex会重置吗？"))
-        footer = dict(type="link", label="UTC+08:00", url="https://time.ms/zh-cn/utc+8/")
-        self.assertEqual(manifest["parts"][-1], footer)
-        self.assertEqual(manifest["parts"].count(footer), 1)
+        self.assertEqual([part for part in manifest["parts"] if part["type"] == "link"], [
+            dict(type="link", label="信息来源", url=m.SOURCE_PAGE),
+            dict(type="link", label="查看𝕏", url=f"https://x.com/source/status/{NEW_ID}"),
+        ])
+        self.assertEqual(manifest["parts"][-1]["label"], "查看𝕏")
         for part in manifest["parts"]:
             if part["type"] == "image":
                 self.assertEqual(set(part), {"type", "path"})
@@ -934,6 +937,87 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(manifest["parts"][1],
                          dict(type="text", text="常规重置（regular）｜已到账"))
         self.assertIn(dict(type="text", text="\n\nTibo宣布了什么"), manifest["parts"])
+
+    def test_new_batches_with_zero_or_multiple_announcements_have_no_timezone_footer(self):
+        forecast, _ = payloads(False)
+        feed = feed_payload(forecast)
+        first = feed["events"][0]
+        second = dict(first, id=OLD_ID, source_url=f"https://x.com/source/status/{OLD_ID}")
+        for events in ([], [first, second]):
+            with self.subTest(count=len(events)):
+                batch = m.prepare_batch(self.state, forecast, feed, events, "", None)
+                directory = self.state_file.parent / "outbox" / batch["batchId"]
+                manifest = json.loads((directory / "batch.json").read_text())
+                expected = [dict(type="text", text="Codex会重置吗？"),
+                            dict(type="image", path="forecast.png"),
+                            dict(type="link", label="信息来源", url=m.SOURCE_PAGE)]
+                if events:
+                    expected.append(dict(type="text", text="\n\nTibo宣布了什么"))
+                for i, event in enumerate(events):
+                    expected.extend([dict(type="image", path=f"announcement-{i:04d}.png"),
+                                     dict(type="link", label="查看𝕏", url=event["source_url"])])
+                self.assertEqual(manifest["delivery"], "single_markdown")
+                self.assertEqual(manifest["parts"], expected)
+
+    def test_historical_layout_helper_uses_new_links_without_mutating_business_state(self):
+        spec = importlib.util.spec_from_file_location(
+            "layout_preview", Path(__file__).with_name("prepare_layout_preview.py"))
+        helper = importlib.util.module_from_spec(spec)
+        spec.loader.exec_module(helper)
+        forecast, notify = payloads(False)
+        feed = feed_payload(forecast)
+        first = feed["events"][0]
+        preview = dict(first, id=OLD_ID, kind="reset_preview", preview=True,
+                       source_url=f"https://x.com/source/status/{OLD_ID}")
+        feed["events"].append(preview)
+        output = self.state_file.parent / "state" / "layout-preview"
+        before = self.state_file.read_bytes()
+        with patch.object(helper.importlib.util, "spec_from_file_location"), \
+                patch.object(helper.importlib.util, "module_from_spec", return_value=m), \
+                patch.object(m, "fetch_json", side_effect=[forecast, notify, feed]), \
+                patch("sys.argv", ["prepare_layout_preview.py", "--output-root", str(output)]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            helper.main()
+        manifests = list(output.glob("*/batch.json"))
+        self.assertEqual(len(manifests), 1)
+        manifest = json.loads(manifests[0].read_text())
+        self.assertEqual(manifest["version"], 2)
+        self.assertEqual(manifest["delivery"], "single_markdown")
+        self.assertEqual(manifest["parts"], [
+            dict(type="text", text="Codex会重置吗？"),
+            dict(type="image", path="forecast.png"),
+            dict(type="link", label="信息来源", url=m.SOURCE_PAGE),
+            dict(type="text", text="\n\n历史排版示例（非今日确认）\nTibo宣布了什么"),
+            dict(type="image", path="announcement-0000.png"),
+            dict(type="link", label="查看𝕏", url=first["source_url"]),
+            dict(type="image", path="announcement-0001.png"),
+            dict(type="link", label="查看𝕏", url=preview["source_url"]),
+        ])
+        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertFalse(self.state_file.parent.joinpath("outbox").exists())
+        self.assertFalse(list(output.glob("*/batch.receipt.json")))
+        self.sender.assert_not_called()
+        self.batch_sender.assert_not_called()
+
+    def test_frozen_pending_with_old_labels_and_timezone_footer_is_not_rewritten(self):
+        batch, directory, manifest = self.make_pending()
+        for part in manifest["parts"]:
+            if part.get("label") == "查看𝕏":
+                part["label"] = "原始公告"
+        manifest["parts"].append(dict(type="link", label="UTC+08:00", url=m.TIMEZONE_URL))
+        m.atomic_write_json(directory / "batch.json", manifest)
+        batch["manifestSha256"] = m.digest_json(manifest)
+        state = self.read_state()
+        state["pendingBatch"] = batch
+        m.atomic_write_json(self.state_file, state)
+        before = {path.name: path.read_bytes() for path in directory.iterdir()}
+        with patch.object(m.subprocess, "run", side_effect=self.receipt_sender(batch, directory, manifest)) as send:
+            self.assertEqual(self.run_monitor(), 0)
+        send.assert_called_once()
+        self.assertEqual(self.renderer.call_count, 1)
+        for name, content in before.items():
+            self.assertEqual((directory / name).read_bytes(), content)
+        self.assertIsNone(self.read_state()["pendingBatch"])
 
     def test_old_v1_batches_are_never_resumed_even_with_complete_receipt(self):
         batch, directory, manifest = self.make_pending()

@@ -20,11 +20,15 @@ from datetime import datetime, timedelta, timezone
 from functools import lru_cache
 from pathlib import Path
 
-from PIL import Image, ImageDraw, ImageFont, __version__ as PILLOW_VERSION
+from PIL import Image, ImageDraw, ImageFont, ImageOps, __version__ as PILLOW_VERSION
 
 
 BEIJING = timezone(timedelta(hours=8), "UTC+08:00")
-WIDTH = 1600
+WIDTH = 800
+BODY_SIZE = 40
+SMALL_SIZE = 32
+NUMBER_SIZE = 128
+AVATAR_PATH = Path(__file__).resolve().parent / "assets" / "tibo-avatar.jpg"
 INK = "#28221c"
 MUTED = "#655c50"
 PAPER = "#fffdf7"
@@ -110,6 +114,10 @@ def format_beijing(value):
     return parse_time(value).strftime("%Y年%m月%d日 %H:%M %Z")
 
 
+def date_lines(value):
+    return parse_time(value).strftime("%Y年%m月%d日\n%H:%M %Z")
+
+
 def relative_time(value, now=None):
     current = parse_time(now) if now is not None else datetime.now(BEIJING)
     seconds = int((current - parse_time(value)).total_seconds())
@@ -167,16 +175,42 @@ def fit_font(text, font_path, max_size, width, height):
     raise ValueError("text cannot fit in probability block")
 
 
-def card_canvas(height, dotted=False, left=26):
+def paper_shape(draw, box, fill, *, outline=None, tail=False):
+    left, top, right, bottom = box
+    draw.rounded_rectangle(box, radius=20, fill=fill, outline=outline, width=3)
+    if tail:
+        upper, middle, lower = top + 48, top + 68, top + 88
+        # Erase the left stroke inside the tail, then outline only the two slopes.
+        draw.polygon(((left + 4, upper - 2), (left - 20, middle),
+                      (left + 4, lower + 2)), fill=fill)
+        if outline:
+            draw.line(((left, upper), (left - 20, middle), (left, lower)),
+                      fill=outline, width=3)
+
+
+def card_canvas(height, dotted=False, left=18, tail=False):
     canvas = Image.new("RGB", (WIDTH, height), BACK)
     draw = ImageDraw.Draw(canvas)
-    draw.rounded_rectangle((left + 10, 32, WIDTH - 20, height - 16), radius=28, fill=INK)
-    draw.rounded_rectangle((left, 22, WIDTH - 30, height - 28), radius=28, fill=PAPER, outline=INK, width=4)
+    paper_shape(draw, (left + 8, 28, WIDTH - 14, height - 14), INK, tail=tail)
+    paper_shape(draw, (left, 20, WIDTH - 22, height - 22), PAPER, outline=INK, tail=tail)
     if dotted:
         for y in range(42, height - 40, 32):
             for x in range(left + 18, WIDTH - 44, 32):
                 draw.ellipse((x, y, x + 5, y + 5), fill="#e8e5df")
     return canvas, draw
+
+
+def draw_avatar(canvas):
+    size, x, y = 96, 18, 40
+    with Image.open(AVATAR_PATH) as source:
+        avatar = ImageOps.fit(source.convert("RGB"), (size, size), method=Image.Resampling.LANCZOS)
+    mask = Image.new("L", (size * 4, size * 4))
+    ImageDraw.Draw(mask).ellipse((0, 0, size * 4 - 1, size * 4 - 1), fill=255)
+    mask = mask.resize((size, size), Image.Resampling.LANCZOS)
+    draw = ImageDraw.Draw(canvas)
+    draw.ellipse((x + 3, y + 4, x + size + 3, y + size + 4), fill=INK)
+    canvas.paste(avatar, (x, y), mask)
+    draw.ellipse((x, y, x + size - 1, y + size - 1), outline=INK, width=3)
 
 
 def save_card(canvas, output_path):
@@ -196,9 +230,9 @@ def save_card(canvas, output_path):
 
 def render_forecast_card(data, output_path, *, now=None, font_path=None):
     font_file = find_font(font_path)
-    body = load_font(font_file, 30)
-    small = load_font(font_file, 26)
-    status_font = load_font(font_file, 44)
+    body = load_font(font_file, BODY_SIZE)
+    small = load_font(font_file, SMALL_SIZE)
+    status_font = load_font(font_file, 48)
     number_file = find_number_font(font_file)
     probabilities = []
     for key in ("probability_24h", "probability_48h"):
@@ -212,39 +246,49 @@ def render_forecast_card(data, output_path, *, now=None, font_path=None):
         probabilities.append("{}%".format(int(value * 100 + 0.5)))
     status = required_text(data, "status")
     summary = required_text(data, "summary")
-    updated = "更新于 " + format_beijing(data["updated_at"])
+    updated = "更新于\n" + date_lines(data["updated_at"])
     last = data.get("last_reset_at")
-    reset = ("最近一次全局重置  ·  " + relative_time(last, now) + "  ·  " + format_beijing(last)
-             if last is not None else "最近一次全局重置  ·  暂无记录")
-    x, available = 80, WIDTH - 160
-    status_y = 315
-    summary_y = status_y + block_height(status, status_font, available) + 24
-    updated_y = summary_y + block_height(summary, body, available) + 22
-    reset_y = updated_y + block_height(updated, small, available) + 34
-    height = reset_y + block_height(reset, small, available) + 68
+    reset = ("最近一次全局重置 · " + relative_time(last, now) + "\n" + date_lines(last)
+             if last is not None else "最近一次全局重置\n暂无记录")
+    x, available = 50, WIDTH - 100
+    status_y = 344
+    summary_y = status_y + block_height(status, status_font, available) + 18
+    updated_y = summary_y + block_height(summary, body, available) + 26
+    reset_y = updated_y + block_height(updated, small, available, gap=8) + 26
+    height = reset_y + block_height(reset, small, available, gap=8) + 50
     canvas, draw = card_canvas(height, dotted=True)
     for index, (label, value, color) in enumerate(zip(
             ("未来 24 小时", "未来 48 小时"), probabilities, (YELLOW, BLUE))):
-        px = x + index * 320
-        draw.text((px, 66), label, font=small, fill=MUTED, anchor="lt")
-        draw.rounded_rectangle((px, 112, px + 286, 276), radius=19, fill=color)
-        number = fit_font(value, font_file if value == "不可用" else number_file,
-                          116, 250, 128)
-        bounds = draw.textbbox((0, 0), value, font=number)
-        draw.text((px + (286 - (bounds[2] - bounds[0])) / 2 - bounds[0],
-                   112 + (164 - (bounds[3] - bounds[1])) / 2 - bounds[1]), value, font=number, fill=INK)
+        panel_width = (available - 24) // 2
+        px = x + index * (panel_width + 24)
+        draw.text((px, 62), label, font=small, fill=MUTED, anchor="lt")
+        draw.rounded_rectangle((px, 122, px + panel_width, 304), radius=16, fill=color)
+        if value == "不可用":
+            number = load_font(font_file, BODY_SIZE)
+            draw.text((px + panel_width / 2, 213), value, font=number, fill=INK, anchor="mm")
+        else:
+            # Keep the digits large even at 100%; only the unit uses a smaller face.
+            digits, unit = value[:-1], "%"
+            number = fit_font(digits, number_file, NUMBER_SIZE, panel_width - 76, 152)
+            percent = load_font(number_file, 48)
+            run_width = number.getlength(digits) + 8 + percent.getlength(unit)
+            start = px + (panel_width - run_width) / 2
+            draw.text((start, 262), digits, font=number, fill=INK, anchor="ls")
+            draw.text((start + number.getlength(digits) + 8, 262), unit,
+                      font=percent, fill=INK, anchor="ls")
     text_block(draw, status, status_font, (x, status_y), available, ORANGE)
     text_block(draw, summary, body, (x, summary_y), available, MUTED)
-    text_block(draw, updated, small, (x, updated_y), available, MUTED)
-    text_block(draw, reset, small, (x, reset_y), available, "#887b68")
+    draw.line((x, updated_y - 16, WIDTH - x, updated_y - 16), fill="#c9bda8", width=2)
+    text_block(draw, updated, small, (x, updated_y), available, MUTED, gap=8)
+    text_block(draw, reset, small, (x, reset_y), available, MUTED, gap=8)
     return save_card(canvas, output_path)
 
 
 def render_announcement_card(data, output_path, *, now=None, font_path=None):
     font_file = find_font(font_path)
-    body = load_font(font_file, 32)
-    small = load_font(font_file, 25)
-    badge_font = load_font(font_file, 27)
+    body = load_font(font_file, BODY_SIZE)
+    small = load_font(font_file, SMALL_SIZE)
+    title = load_font(font_file, 48)
     # Website event summaries are authoritative, not the sometimes unrelated body.
     text = required_text(data, "summary")
     published = data["published_at"]
@@ -252,29 +296,31 @@ def render_announcement_card(data, output_path, *, now=None, font_path=None):
     kind = {"reset_preview": "预告", "reset": "重置", "banked": "储备",
             "boost": "增益", "signal": "信号"}.get(kind, kind)
     age = relative_time(published, now)
-    header = [("Tibo", small, None), (age, badge_font, YELLOW),
-              (format_beijing(published), small, None), (kind, small, BLUE)]
-    x, y, right = 90, 62, WIDTH - 88
+    left, inset, right = 146, 178, WIDTH - 50
+    x, y = inset, 128
     elements = []
-    row_height = 54
-    for label, font, color in header:
-        for line in wrap_text(label, font, right - 90 - 32):
-            width = int(math.ceil(font.getlength(line))) + (32 if color else 4)
+    row_height = sum(small.getmetrics()) + 24
+    for label, color in ((age, YELLOW), (kind, BLUE)):
+        for line in wrap_text(label, small, right - inset - 32):
+            width = int(math.ceil(small.getlength(line))) + 32
             if x + width > right:
-                x, y = 90, y + row_height + 16
-            elements.append((line, font, color, x, y, width))
-            x += width + 24
+                x, y = inset, y + row_height + 14
+            elements.append((line, color, x, y, width))
+            x += width + 18
     body_y = y + row_height + 30
-    height = body_y + block_height(text, body, right - 90, gap=14) + 66
-    canvas, draw = card_canvas(height, left=38)
-    draw.polygon(((39, 78), (22, 96), (39, 114)), fill=PAPER)
-    draw.line(((39, 78), (22, 96), (39, 114)), fill=INK, width=4)
-    for label, font, color, x, y, width in elements:
-        if color:
-            draw.rounded_rectangle((x, y, x + width, y + 52), radius=26, fill=color, outline=INK, width=3)
-        draw.text((x + (16 if color else 0), y + 12), label, font=font,
-                  fill=INK if color else MUTED, anchor="lt")
-    text_block(draw, text, body, (90, body_y), right - 90, gap=14)
+    date_y = body_y + block_height(text, body, right - inset) + 28
+    date = date_lines(published)
+    height = date_y + block_height(date, small, right - inset, gap=8) + 50
+    canvas, draw = card_canvas(height, left=left, tail=True)
+    draw_avatar(canvas)
+    draw.text((inset, 60), "Tibo", font=title, fill=ORANGE, anchor="lt")
+    for label, color, x, y, width in elements:
+        draw.rounded_rectangle((x, y, x + width, y + row_height), radius=16,
+                               fill=color, outline=INK, width=2)
+        draw.text((x + 16, y + 12), label, font=small, fill=INK, anchor="lt")
+    text_block(draw, text, body, (inset, body_y), right - inset)
+    draw.line((inset, date_y - 16, right, date_y - 16), fill="#c9bda8", width=2)
+    text_block(draw, date, small, (inset, date_y), right - inset, MUTED, gap=8)
     return save_card(canvas, output_path)
 
 

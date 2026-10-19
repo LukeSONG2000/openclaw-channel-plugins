@@ -733,8 +733,7 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
         parts.append(dict(type="text", text="\n\nTibo宣布了什么"))
     for event, card in zip(announcements, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
-                      dict(type="link", label="原始公告", url=event["source_url"])])
-    parts.append(dict(type="link", label="UTC+08:00", url=TIMEZONE_URL))
+                      dict(type="link", label="查看𝕏", url=event["source_url"])])
     manifest = dict(version=2, batchId=batch_id, delivery="single_markdown", parts=parts)
     atomic_write_json(directory / "batch.json", manifest)
     return dict(batchId=batch_id, manifestSha256=digest_json(manifest), snapshotSha256=digest_json(snapshot),
