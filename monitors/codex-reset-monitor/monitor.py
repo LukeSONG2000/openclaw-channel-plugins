@@ -15,7 +15,7 @@ import sys
 import time
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal, TypedDict
 from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
@@ -25,6 +25,7 @@ FORECAST_URL = f"{SOURCE_URL}/api/forecast"
 NOTIFY_URL = f"{SOURCE_URL}/api/notify"
 FEED_URL = f"{SOURCE_URL}/api/feed"
 SOURCE_PAGE = f"{SOURCE_URL}/zh/"
+TIMEZONE_URL = "https://time.ms/zh-cn/utc+8/"
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
 ROOT = Path(__file__).resolve().parent
@@ -38,6 +39,117 @@ MAX_SOURCE_AGE = timedelta(hours=2)
 MAX_CLOCK_SKEW = timedelta(minutes=5)
 RENDER_TIMEOUT = 180
 SEND_TIMEOUT = 600
+
+
+class ResetPhaseEvent(TypedDict):
+    eventId: str
+    resetType: Literal["regular", "banked"]
+    phase: Literal["preview", "actual", "upcoming", "distributed", "announced"]
+    announcedAt: str
+
+
+PHASE_TITLES = {
+    ("regular", "preview"): "Codex已确认重置！",
+    ("regular", "actual"): "Codex已重置，速蹬！",
+    ("banked", "upcoming"): "Codex重置卡即将发放！",
+    ("banked", "distributed"): "Codex重置卡已发放！",
+    ("banked", "announced"): "Codex已公布重置卡消息！",
+}
+PHASE_DETAILS = {
+    ("regular", "preview"): "常规重置（regular）｜已预告，尚未到账",
+    ("regular", "actual"): "常规重置（regular）｜已到账",
+    ("banked", "upcoming"): "重置卡发放（banked）｜即将发放，尚未确认发放",
+    ("banked", "distributed"): "重置卡发放（banked）｜来源已发放，不代表个人到账",
+    ("banked", "announced"): "重置卡消息（banked）｜仅公告，未确认发放阶段",
+}
+
+
+def phase_event_key(event: ResetPhaseEvent) -> str:
+    if ((event.get("resetType"), event.get("phase")) not in PHASE_TITLES
+            or not isinstance(event.get("eventId"), str) or not event["eventId"].strip()):
+        raise ValueError("invalid typed reset phase event")
+    aware_time(event.get("announcedAt"), "phase.announcedAt")
+    return f"{event['resetType']}:{event['phase']}:{event['eventId']}"
+
+
+def primary_phase(phases: list[ResetPhaseEvent]) -> ResetPhaseEvent | None:
+    for phase in phases:
+        phase_event_key(phase)
+    if not phases:
+        return None
+    return max(phases, key=lambda phase: (aware_time(phase["announcedAt"], "phase.announcedAt"),
+                                         phase["phase"] in ("actual", "distributed")))
+
+
+def batch_phase_title(phases: list[ResetPhaseEvent], daily: bool = False) -> str:
+    latest = primary_phase(phases)
+    if daily or latest is None:
+        return "Codex会重置吗？"
+    return PHASE_TITLES[(latest["resetType"], latest["phase"])]
+
+
+def classify_reset_phase(event: dict[str, Any], forecast: dict[str, Any],
+                         notify: dict[str, Any]) -> ResetPhaseEvent | None:
+    kind, reset_kind = event["kind"], event.get("reset_kind")
+    tags = event.get("tags") or []
+    banked = kind == "banked" or reset_kind == "banked" or "banked" in tags
+    phase = None
+    reset_type = "banked" if banked else "regular"
+    if banked:
+        if kind == "banked":
+            state = event.get("banked_state")
+            if state == "available" and event.get("preview") is False:
+                phase = "distributed"
+            elif state == "arriving":
+                phase = "upcoming"
+            elif state == "announced":
+                phase = "announced"
+        elif (kind == "reset_preview" and "banked" in tags and event.get("preview") is True
+              and event.get("banked_state") in (None, "", "unknown")):
+            phase = "upcoming"
+    elif (reset_kind == "hard" or (reset_kind in (None, "")
+          and ("regular" in tags or (kind == "reset_preview" and event.get("preview") is True)))):
+        if kind == "reset_preview" and event.get("preview") is True:
+            phase = "preview"
+        elif (kind == "reset" and event.get("preview") is False
+              and event["id"] == confirmed_reset_id(forecast, notify)
+              and event["announced_at"] == forecast["last_reset_at"] == notify["last_reset_at"]
+              and event.get("source_url") == forecast.get("last_reset_url") == notify.get("last_reset_url")):
+            phase = "actual"
+    if phase is None:
+        return None
+    result = dict(eventId=event["id"], resetType=reset_type, phase=phase, announcedAt=event["announced_at"])
+    phase_event_key(result)
+    return result
+
+
+def initialize_phase_state(state: dict[str, Any], phases: list[ResetPhaseEvent], fresh: bool = False) -> None:
+    if state.get("phaseSchemaVersion") == 1:
+        return
+    lower = aware_time(state["migrationLowerBound"], "migrationLowerBound")
+    anchor = (parse_time(state.get("initialized_at")) if fresh else
+              parse_time(state.get("lastSuccessfulPushAt"))
+              or parse_time(state.get("migrationEvidence", {}).get("observedSuccessAt"))) or lower
+    state["phaseSchemaVersion"] = 1
+    state["phaseBaselineAt"] = anchor.isoformat()
+    state["phaseBaselineKeys"] = [phase_event_key(p) for p in phases
+                                  if lower <= aware_time(p["announcedAt"], "phase.announcedAt") <= anchor]
+    state.setdefault("deliveredPhaseKeys", [])
+
+
+def pending_phase_events(phases: list[ResetPhaseEvent], state: dict[str, Any]) -> list[ResetPhaseEvent]:
+    lower = aware_time(state["migrationLowerBound"], "migrationLowerBound")
+    seen = set(state.get("deliveredPhaseKeys", [])) | set(state.get("phaseBaselineKeys", []))
+    pending = []
+    for phase in phases:
+        if aware_time(phase["announcedAt"], "phase.announcedAt") < lower or phase_event_key(phase) in seen:
+            continue
+        if phase["resetType"] == "regular" and phase["phase"] == "actual":
+            if (phase["eventId"] == state.get("baselineResetId")
+                    or reset_is_older_than_state(phase["eventId"], phase["announcedAt"], state)):
+                continue
+        pending.append(phase)
+    return pending
 
 
 def now_utc() -> datetime:
@@ -292,7 +404,7 @@ def historical_window(forecast: dict[str, Any]) -> str:
     start_local = base.astimezone(SHANGHAI)
     end_local = end_dt.astimezone(SHANGHAI)
     return (
-        "历史高频候选窗口：北京时间 "
+        "历史高频候选窗口：UTC+08:00 "
         f"{start_local:%H:%M}–{end_local:%H:%M}（仅为历史时段，不代表具体日期）"
     )
 
@@ -310,7 +422,7 @@ def next_reset_text(forecast: dict[str, Any], current: datetime) -> str:
             and promised_at != last_reset_at
         )
         if explicit_future:
-            return f"来源明确给出的未来时间：{promised_at.astimezone(SHANGHAI):%Y-%m-%d %H:%M}（北京时间）"
+            return f"来源明确给出的未来时间：{promised_at.astimezone(SHANGHAI):%Y-%m-%d %H:%M}（UTC+08:00）"
     return historical_window(forecast)
 
 
@@ -321,7 +433,7 @@ def daily_summary(forecast: dict[str, Any], current: datetime) -> str:
             f"今日重置概率（未来 24 小时）：{forecast_probability(forecast, 24)}",
             f"48 小时概率：{forecast_probability(forecast, 48)}",
             f"置信度：{confidence_text(forecast)}",
-            (f"最近一次统一重置：{format_shanghai(forecast.get('last_reset_at'))}（北京时间）"
+            (f"最近一次统一重置：{format_shanghai(forecast.get('last_reset_at'))}（UTC+08:00）"
              if confirmed_reset_id(forecast, forecast) else "最近一次统一重置：暂无有效确认记录"),
             f"下次重置预测：{next_reset_text(forecast, current)}",
             f"来源：{SOURCE_URL}",
@@ -334,8 +446,8 @@ def reset_message(notify: dict[str, Any], reset_id: str, current: datetime) -> s
     return "\n".join(
         [
             "Codex 统一重置已确认",
-            f"确认时间：{current.astimezone(SHANGHAI):%Y-%m-%d %H:%M}（北京时间）",
-            f"重置时间：{format_shanghai(notify.get('last_reset_at'))}（北京时间）",
+            f"确认时间：{current.astimezone(SHANGHAI):%Y-%m-%d %H:%M}（UTC+08:00）",
+            f"重置时间：{format_shanghai(notify.get('last_reset_at'))}（UTC+08:00）",
             f"摘要：{summary}",
             f"新 ID：{reset_id}",
             f"来源：{SOURCE_URL}",
@@ -380,6 +492,15 @@ def validate_feed(feed: dict[str, Any]) -> list[dict[str, Any]]:
         for key in ("id", "kind", "summary", "announced_at"):
             if not isinstance(event.get(key), str) or not event[key].strip():
                 raise ValueError(f"feed.event.{key}: expected nonempty string")
+        for key in ("reset_kind", "banked_state"):
+            if event.get(key) is not None and not isinstance(event[key], str):
+                raise ValueError(f"feed.event.{key}: expected string or missing")
+        if ("tags" in event and (not isinstance(event["tags"], list)
+                or any(not isinstance(tag, str) for tag in event["tags"]))):
+            raise ValueError("feed.event.tags: expected string array")
+        for key in ("preview", "cadence"):
+            if key in event and type(event[key]) is not bool:
+                raise ValueError(f"feed.event.{key}: expected boolean")
         announced = aware_time(event["announced_at"], "event.announced_at")
         if announced > current + MAX_CLOCK_SKEW:
             raise ValueError("event.announced_at: future announcement")
@@ -393,12 +514,21 @@ def validate_feed(feed: dict[str, Any]) -> list[dict[str, Any]]:
                   reverse=True)
 
 
-def select_announcements(events: list[dict[str, Any]], state: dict[str, Any]) -> list[dict[str, Any]]:
+def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
+                         phase_events: list[ResetPhaseEvent] | None = None) -> list[dict[str, Any]]:
     lower = aware_time(state.get("migrationLowerBound"), "migrationLowerBound")
     sent = set(state.get("sentAnnouncementIds", []))
+    seen_phase_keys = set(state.get("deliveredPhaseKeys", [])) | set(state.get("phaseBaselineKeys", []))
+    phases_by_id: dict[str, set[str]] = {}
+    for phase in phase_events or []:
+        phases_by_id.setdefault(phase["eventId"], set()).add(phase_event_key(phase))
     result = []
     for event in events:
-        if aware_time(event["announced_at"], "event time") < lower or event["id"] in sent:
+        if aware_time(event["announced_at"], "event time") < lower:
+            continue
+        phase_keys = phases_by_id.get(event["id"], set())
+        # Trigger baselines are not content acknowledgements: unseen IDs remain deliverable.
+        if event["id"] in sent and (not phase_keys or not phase_keys.difference(seen_phase_keys)):
             continue
         url = urlsplit(event.get("source_url") or "")
         if (url.scheme != "https" or url.hostname not in ("x.com", "twitter.com")
@@ -565,8 +695,13 @@ def digest_json(value: Any) -> str:
 
 def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[str, Any],
                   events: list[dict[str, Any]], reset_id: str, daily_date: str | None,
-                  manual_preview: bool = False) -> dict[str, Any]:
-    announcements = select_announcements(events, state)
+                  manual_preview: bool = False,
+                  phase_events: list[ResetPhaseEvent] | None = None) -> dict[str, Any]:
+    phases = phase_events or []
+    announcements = select_announcements(events, state, phase_events=phases)
+    selected_ids = {event["id"] for event in announcements}
+    phases = [phase for phase in phases if phase["eventId"] in selected_ids]
+    phase_keys = list(dict.fromkeys(phase_event_key(event) for event in phases))
     warnings = []
     for hours in (24, 48):
         probability = forecast.get(f"prob_{hours}")
@@ -579,26 +714,34 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
     snapshot = dict(createdAt=now_utc().isoformat(), forecastCard=forecast_card_data(forecast),
                     announcements=announcements, feedFetchedAt=feed["fetched_at"],
                     resetId=reset_id or None, dailyDate=daily_date, manualPreview=manual_preview,
-                    sourceWarnings=warnings)
+                    sourceWarnings=warnings, manifestVersion=2, delivery="single_markdown",
+                    title=batch_phase_title(phases, daily=bool(daily_date)), eventPhases=phases)
+    primary = primary_phase(phases)
+    if primary:
+        snapshot["stageText"] = PHASE_DETAILS[(primary["resetType"], primary["phase"])]
     batch_id = "codex-" + digest_json(snapshot)[:32]
     directory = STATE_FILE.parent / "outbox" / batch_id
     directory.mkdir(parents=True, exist_ok=True, mode=0o700)
     atomic_write_json(directory / "snapshot.json", snapshot)
     cards = render_snapshot(snapshot, directory)
-    parts = [dict(type="text", text="Codex会重置吗？"),
+    parts = [dict(type="text", text=snapshot["title"]),
              dict(type="image", path=Path(cards[0]["path"]).name),
              dict(type="link", label="信息来源", url=SOURCE_PAGE)]
+    if primary:
+        parts.insert(1, dict(type="text", text=snapshot["stageText"]))
     if announcements:
         parts.append(dict(type="text", text="\n\nTibo宣布了什么"))
     for event, card in zip(announcements, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
                       dict(type="link", label="原始公告", url=event["source_url"])])
-    manifest = dict(version=1, batchId=batch_id, parts=parts)
+    parts.append(dict(type="link", label="UTC+08:00", url=TIMEZONE_URL))
+    manifest = dict(version=2, batchId=batch_id, delivery="single_markdown", parts=parts)
     atomic_write_json(directory / "batch.json", manifest)
     return dict(batchId=batch_id, manifestSha256=digest_json(manifest), snapshotSha256=digest_json(snapshot),
                 imageHashes={Path(c["path"]).name: c["sha256"] for c in cards},
                 announcementIds=[e["id"] for e in announcements], dailyDate=daily_date,
-                resetId=reset_id or None, feedFetchedAt=feed["fetched_at"], manualPreview=manual_preview)
+                resetId=reset_id or None, feedFetchedAt=feed["fetched_at"], manualPreview=manual_preview,
+                manifestVersion=2, delivery="single_markdown", deliveredPhaseKeys=phase_keys)
 
 
 def deliver_batch(batch: dict[str, Any]) -> bool:
@@ -612,6 +755,15 @@ def deliver_batch(batch: dict[str, Any]) -> bool:
     snapshot = json.loads((directory / "snapshot.json").read_text(encoding="utf-8"))
     if digest_json(manifest) != batch["manifestSha256"] or digest_json(snapshot) != batch["snapshotSha256"]:
         raise ValueError("pending batch snapshot/manifest changed; manual reconciliation required")
+    if manifest.get("version") != 2 or manifest.get("delivery") != "single_markdown":
+        raise ValueError("legacy segmented batch cannot resume; preserve its receipt for manual reconciliation")
+    if receipt_path.exists():
+        existing = json.loads(receipt_path.read_text(encoding="utf-8"))
+        if existing.get("version") != 2:
+            raise ValueError("legacy receipt cannot be reused for single-message delivery")
+        if isinstance(existing.get("message"), dict) and existing["message"].get("status") in ("inflight", "unknown"):
+            print(f"batch blocked id={batch_id}; message outcome requires manual reconciliation")
+            return False
     for name, checksum in batch["imageHashes"].items():
         if Path(name).name != name or hashlib.sha256((directory / name).read_bytes()).hexdigest() != checksum:
             raise ValueError("pending batch image changed; manual reconciliation required")
@@ -628,15 +780,14 @@ def deliver_batch(batch: dict[str, Any]) -> bool:
     if not receipt_path.exists():
         raise RuntimeError("sender has no receipt; delivery is unconfirmed")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
-    total = len(manifest["parts"])
-    complete = (receipt.get("version") == 1 and receipt.get("batchId") == batch_id
+    message = receipt.get("message")
+    complete = (receipt.get("version") == 2 and receipt.get("batchId") == batch_id
+                and receipt.get("delivery") == "single_markdown"
+                and receipt.get("manifestSha256") == batch["manifestSha256"]
                 and receipt.get("ok") is True and receipt.get("status") == "complete"
-                and type(receipt.get("total")) is int and receipt["total"] == total
-                and type(receipt.get("nextIndex")) is int and receipt["nextIndex"] == total
-                and isinstance(receipt.get("parts"), list) and len(receipt["parts"]) == total
-                and all(type(p.get("partIndex")) is int and p["partIndex"] == i and p.get("status") == "sent"
-                        for i, p in enumerate(receipt["parts"]) if isinstance(p, dict))
-                and all(isinstance(p, dict) for p in receipt["parts"]))
+                and isinstance(message, dict) and message.get("status") == "sent"
+                and isinstance(message.get("receiptSha256"), str)
+                and re.fullmatch(r"[a-f0-9]{64}", message["receiptSha256"]) is not None)
     if timed_out or result.returncode != 0 or not complete:
         print(f"batch incomplete id={batch_id} status={receipt.get('status', 'invalid')} timeout={timed_out}")
         return False
@@ -647,6 +798,9 @@ def complete_batch(state: dict[str, Any], batch: dict[str, Any]) -> None:
     # Keep the migration floor fixed: late IDs must not be hidden by a rolling time watermark.
     sent = state.setdefault("sentAnnouncementIds", [])
     sent.extend(event_id for event_id in batch["announcementIds"] if event_id not in sent)
+    if batch.get("deliveredPhaseKeys"):
+        delivered = state.setdefault("deliveredPhaseKeys", [])
+        delivered.extend(key for key in batch["deliveredPhaseKeys"] if key not in delivered)
     if batch.get("resetId"):
         notified = state.setdefault("notified_reset_ids", [])
         if batch["resetId"] not in notified:
@@ -662,7 +816,8 @@ def complete_batch(state: dict[str, Any], batch: dict[str, Any]) -> None:
 
 
 def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: dict[str, Any],
-                       dry_run: bool = False, no_send: bool = False) -> None:
+                       dry_run: bool = False, no_send: bool = False,
+                       phase_events: list[ResetPhaseEvent] | None = None) -> None:
     reset_id = confirmed_reset_id(forecast, notify)
     state["initialized_at"] = now_utc().isoformat()
     state["last_reset_id"] = reset_id or None
@@ -674,6 +829,7 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
                  sentAnnouncementIds=[], pendingBatch=None, baselineResetId=reset_id or None)
     state["consecutive_fetch_failures"] = 0
     state["failure_notified"] = False
+    initialize_phase_state(state, phase_events or [], fresh=True)
     if not dry_run:
         atomic_write_json(STATE_FILE, state)
     print(f"baseline established id={reset_id or 'none'}")
@@ -700,8 +856,6 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         forecast_card_data(forecast)
         feed = fetch_json(FEED_URL)
         events = validate_feed(feed)
-        if state.get("version") == 2:
-            select_announcements(events, state)
         confirmed = confirmed_reset_id(forecast, notify)
         if confirmed:
             event = next((e for e in events if e["id"] == confirmed), None)
@@ -709,6 +863,9 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
                     or event["announced_at"] != notify["last_reset_at"]
                     or event.get("source_url") != notify.get("last_reset_url")):
                 raise ValueError("feed/confirmed forecast disagree on reset evidence")
+        phases = [phase for event in events if (phase := classify_reset_phase(event, forecast, notify)) is not None]
+        if state.get("version") == 2:
+            select_announcements(events, state, phase_events=phases)
     except Exception as exc:
         state["consecutive_fetch_failures"] = int(state.get("consecutive_fetch_failures") or 0) + 1
         count = state["consecutive_fetch_failures"]
@@ -731,7 +888,7 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         return 0
 
     if not state.get("initialized_at"):
-        establish_baseline(state, forecast, notify, dry_run=dry_run, no_send=no_send)
+        establish_baseline(state, forecast, notify, dry_run=dry_run, no_send=no_send, phase_events=phases)
         return 0
     if baseline_only:
         print(f"baseline already exists id={state.get('last_reset_id') or 'none'}")
@@ -741,8 +898,9 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         state["consecutive_fetch_failures"] = 0
         state["failure_notified"] = False
         migrate_delivery_state(state)
+        initialize_phase_state(state, phases)
         # Check all eligible announcements even on quiet polls; never silently drop malformed pending data.
-        select_announcements(events, state)
+        select_announcements(events, state, phase_events=phases)
         save()
         if state.get("pendingBatch"):
             pending = state["pendingBatch"]
@@ -759,16 +917,17 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         if reset_id and reset_is_older_than_state(reset_id, notify["last_reset_at"], state):
             print(f"older reset ignored id={reset_id}")
             reset_id = ""
-        if reset_id and reset_id != state.get("last_reset_id"):
+        regular_actual = next((p for p in phases if p["resetType"] == "regular" and p["phase"] == "actual"), None)
+        if reset_id and regular_actual and reset_id != state.get("last_reset_id"):
             state["last_reset_id"] = reset_id
             state["last_reset_at"] = notify["last_reset_at"]
-        needs_reset = (reset_id and reset_id not in state.get("notified_reset_ids", [])
-                       and reset_id != state.get("baselineResetId"))
+        pending_phases = pending_phase_events(phases, state)
+        needs_reset = any(p["resetType"] == "regular" and p["phase"] == "actual" for p in pending_phases)
         today = current.astimezone(SHANGHAI).date().isoformat()
         daily_date = today if send_daily and today > (state.get("daily_summary_date") or "") else None
-        if needs_reset or daily_date or manual_preview:
+        if pending_phases or daily_date or manual_preview:
             batch = prepare_batch(state, forecast, feed, events, reset_id if needs_reset else "", daily_date,
-                                  manual_preview=manual_preview)
+                                  manual_preview=manual_preview, phase_events=phases)
             state["pendingBatch"] = batch
             save()
             if not deliver_batch(batch):
@@ -818,7 +977,7 @@ def main() -> int:
                     "Codex 统一重置监控测试",
                     "推送通道测试，不代表发生了重置。",
                     f"当前基线 ID：{reset_id}",
-                    "轮询周期：15 分钟；每日预测：北京时间 08:00。",
+                    "轮询周期：15 分钟；每日预测：UTC+08:00 08:00。",
                     f"唯一信息来源：{SOURCE_URL}",
                 ]
             )

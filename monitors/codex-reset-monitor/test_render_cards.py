@@ -1,9 +1,11 @@
 import ast
 import tempfile
 import unittest
+from datetime import timedelta
 from pathlib import Path
+from unittest.mock import patch
 
-from PIL import Image, ImageFont
+from PIL import Image, ImageDraw, ImageFont
 
 import render_cards as cards
 
@@ -18,7 +20,7 @@ ANNOUNCEMENT = {"summary": "Direct usage reset", "body": "Tibo: Done",
 
 class RenderCardsTests(unittest.TestCase):
     def test_beijing_and_aware_timestamp(self):
-        self.assertEqual(cards.format_beijing(ANNOUNCEMENT["published_at"]), "2026年10月18日 05:12 北京时间")
+        self.assertEqual(cards.format_beijing(ANNOUNCEMENT["published_at"]), "2026年10月18日 05:12 UTC+08:00")
         self.assertEqual(cards.relative_time(ANNOUNCEMENT["published_at"], NOW), "1天前")
         self.assertEqual(cards.relative_time(NOW, "2026-10-19T02:30:00Z"), "3分钟后")
         with self.assertRaises(ValueError):
@@ -45,7 +47,7 @@ class RenderCardsTests(unittest.TestCase):
             timestamp = "2026-10-19T03:08:02.68Z"
             forecast = dict(FORECAST, updated_at=timestamp,
                             last_reset_at="2026-10-17T21:12:21.12345Z")
-            self.assertEqual(cards.format_beijing(timestamp), "2026年10月19日 11:08 北京时间")
+            self.assertEqual(cards.format_beijing(timestamp), "2026年10月19日 11:08 UTC+08:00")
             for renderer, data in ((cards.render_forecast_card, forecast),
                                     (cards.render_announcement_card,
                                      dict(ANNOUNCEMENT, published_at=timestamp))):
@@ -63,10 +65,27 @@ class RenderCardsTests(unittest.TestCase):
     def test_cjk_glyphs_and_font_collection(self):
         font = cards.load_font(cards.find_font(), 30)
         missing = bytes(font.getmask("\U0010ffff"))
-        for char in "北京时间不可用最近一次全局重置储备增益信号预告":
+        for char in "UTC+08:00不可用最近一次全局重置储备增益信号预告":
             self.assertNotEqual(bytes(font.getmask(char)), missing, char)
         if "NotoSansCJK" in cards.find_font():
             self.assertIn("CJK SC", font.getname()[0])
+
+    def test_visible_timezone_labels_change_without_changing_utc8_instants(self):
+        parsed = cards.parse_time(ANNOUNCEMENT["published_at"])
+        self.assertEqual(parsed.utcoffset(), timedelta(hours=8))
+        self.assertEqual(parsed.isoformat(), "2026-10-18T05:12:21+08:00")
+        self.assertEqual(parsed.tzname(), "UTC+08:00")
+        labels = []
+        original = ImageDraw.ImageDraw.text
+        def record(draw, xy, text, *args, **kwargs):
+            labels.append(text)
+            return original(draw, xy, text, *args, **kwargs)
+        with tempfile.TemporaryDirectory() as directory, patch.object(ImageDraw.ImageDraw, "text", new=record):
+            target = Path(directory) / "timezone.png"
+            cards.render_forecast_card(FORECAST, target, now=NOW)
+            cards.render_announcement_card(ANNOUNCEMENT, target, now=NOW)
+        self.assertEqual(sum("UTC+08:00" in label for label in labels), 3)
+        self.assertFalse(any("北京时间" in label for label in labels))
 
     def test_all_kinds_preserve_summary_and_ignore_event_id(self):
         with tempfile.TemporaryDirectory() as directory:

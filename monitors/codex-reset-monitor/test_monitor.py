@@ -39,7 +39,8 @@ def payloads(confirmed=True):
 def feed_payload(forecast):
     return dict(fetched_at=m.now_utc().isoformat(), posts=[{"ignored": True}], events=[
         dict(id=forecast["last_reset_id"], kind="reset", summary="Direct usage reset", body="NOT summary",
-             announced_at=forecast["last_reset_at"], source_url=forecast["last_reset_url"], preview=False),
+             announced_at=forecast["last_reset_at"], source_url=forecast["last_reset_url"], preview=False,
+             reset_kind="hard", tags=["regular", "x_post"]),
         dict(id="history-july-2026-5", kind="reset", summary="Legacy history",
              announced_at="2026-07-01T00:00:00Z", source_url=""),
     ])
@@ -121,10 +122,187 @@ class MonitorTests(unittest.TestCase):
         self.sender.assert_not_called()
         self.assertIn(NEW_ID, self.read_state()["notified_reset_ids"])
 
+    def test_typed_phase_titles_keep_regular_and_banked_meanings_separate(self):
+        titles = {("regular", "preview"): "Codex已确认重置！",
+                  ("regular", "actual"): "Codex已重置，速蹬！",
+                  ("banked", "upcoming"): "Codex重置卡即将发放！",
+                  ("banked", "distributed"): "Codex重置卡已发放！",
+                  ("banked", "announced"): "Codex已公布重置卡消息！"}
+        keys = set()
+        for (reset_type, phase), title in titles.items():
+            event = dict(eventId=NEW_ID, resetType=reset_type, phase=phase,
+                         announcedAt="2026-10-19T03:00:00Z")
+            self.assertEqual(m.batch_phase_title([event]), title)
+            self.assertEqual(m.batch_phase_title([event], daily=True), "Codex会重置吗？")
+            keys.add(m.phase_event_key(event))
+        self.assertEqual(len(keys), 5)
+        with self.assertRaises(ValueError):
+            m.phase_event_key(dict(eventId=NEW_ID, resetType="banked", phase="promise_active",
+                                  announcedAt="2026-10-19T03:00:00Z"))
+
+    def test_real_legacy_quotareset_preview_without_reset_type_is_regular(self):
+        forecast, notify = payloads(confirmed=False)
+        event = dict(id="2094144275957350900", kind="reset_preview", preview=True,
+                     tags=["quotareset"], announced_at="2026-08-30T00:00:00Z",
+                     summary="Legacy preview fixture",
+                     source_url="https://x.com/thsottiaux/status/2094144275957350900")
+        phase = m.classify_reset_phase(event, forecast, notify)
+        self.assertEqual((phase["resetType"], phase["phase"]), ("regular", "preview"))
+        for explicit_type in ("unknown", "future_type"):
+            with self.subTest(reset_kind=explicit_type):
+                self.assertIsNone(m.classify_reset_phase(dict(event, reset_kind=explicit_type),
+                                                        forecast, notify))
+        banked = m.classify_reset_phase(dict(event, tags=["quotareset", "banked"]), forecast, notify)
+        self.assertEqual((banked["resetType"], banked["phase"]), ("banked", "upcoming"))
+        self.assertIsNone(m.classify_reset_phase(dict(event, preview=False), forecast, notify))
+        self.assertIsNone(m.classify_reset_phase(dict(event, kind="signal"), forecast, notify))
+
+    def test_daily_preview_success_does_not_ack_actual_phase_for_same_id(self):
+        forecast, notify = payloads()
+        feed = feed_payload(forecast)
+        preview = dict(eventId=NEW_ID, resetType="regular", phase="preview",
+                       announcedAt="2026-10-19T03:00:00Z")
+        actual = dict(preview, phase="actual")
+        state = dict(self.state)
+        batch = m.prepare_batch(state, forecast, feed, m.validate_feed(feed), "", "2026-10-19",
+                                phase_events=[preview])
+        self.assertNotIn("deliveredPhaseKeys", state)
+        m.complete_batch(state, batch)
+        self.assertIn(m.phase_event_key(preview), state["deliveredPhaseKeys"])
+        self.assertNotIn(m.phase_event_key(actual), state["deliveredPhaseKeys"])
+        actual_batch = m.prepare_batch(state, forecast, feed, m.validate_feed(feed), NEW_ID, None,
+                                       phase_events=[actual])
+        directory = self.state_file.parent / "outbox" / actual_batch["batchId"]
+        manifest = json.loads((directory / "batch.json").read_text())
+        self.assertEqual(manifest["parts"][0]["text"], "Codex已重置，速蹬！")
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        self.assertEqual([event["id"] for event in snapshot["announcements"]], [NEW_ID])
+        self.assertNotIn(m.phase_event_key(actual), state["deliveredPhaseKeys"])
+        m.complete_batch(state, actual_batch)
+        self.assertIn(m.phase_event_key(actual), state["deliveredPhaseKeys"])
+        self.assertEqual(m.select_announcements(m.validate_feed(feed), state, phase_events=[actual]), [])
+
+    def test_phase_upgrade_baseline_blocks_trigger_not_unseen_daily_content(self):
+        forecast, notify = payloads(confirmed=False)
+        event = dict(id="2094144275957350900", kind="reset_preview", preview=True,
+                     tags=["quotareset"], announced_at="2026-10-15T01:00:00Z",
+                     summary="Legacy preview", source_url="https://x.com/thsottiaux/status/2094144275957350900")
+        self.state["lastSuccessfulPushAt"] = "2026-10-15T02:00:00Z"
+        self.state_file.write_text(json.dumps(self.state))
+        feed = dict(fetched_at=m.now_utc().isoformat(), events=[event])
+        self.assertEqual(self.run_monitor([forecast, notify, feed]), 0)
+        self.batch_sender.assert_not_called()
+        state = self.read_state()
+        phase = m.classify_reset_phase(event, forecast, notify)
+        self.assertIn(m.phase_event_key(phase), state["phaseBaselineKeys"])
+        self.assertEqual(state["deliveredPhaseKeys"], [])
+        self.assertEqual(state["lastSuccessfulPushAt"], "2026-10-15T02:00:00Z")
+        self.assertEqual(m.select_announcements([event], state, [phase]), [event])
+        self.assertEqual(self.run_monitor([forecast, notify, feed], send_daily=True), 0)
+        self.assertEqual(self.batch_sender.call_count, 1)
+        state = self.read_state()
+        self.assertIn(event["id"], state["sentAnnouncementIds"])
+        self.assertIn(m.phase_event_key(phase), state["deliveredPhaseKeys"])
+        self.assertEqual(m.select_announcements([event], state, [phase]), [])
+
+    def test_seen_id_baseline_phase_suppressed_but_new_phase_remains_content(self):
+        forecast, notify = payloads()
+        event = feed_payload(forecast)["events"][0]
+        phase = m.classify_reset_phase(event, forecast, notify)
+        preview = dict(phase, phase="preview")
+        state = dict(self.state, sentAnnouncementIds=[NEW_ID],
+                     phaseBaselineKeys=[m.phase_event_key(preview)])
+        self.assertEqual(m.select_announcements([event], state, [preview]), [])
+        self.assertEqual(m.select_announcements([event], state, [phase]), [event])
+        state["deliveredPhaseKeys"] = [m.phase_event_key(phase)]
+        self.assertEqual(m.select_announcements([event], state, [phase]), [])
+
+    def test_run_once_legacy_preview_daily_then_same_id_actual_delivers_each_phase_once(self):
+        forecast, notify = payloads(confirmed=False)
+        event = dict(id=NEW_ID, kind="reset_preview", preview=True, tags=["quotareset"],
+                     announced_at=forecast["last_reset_at"], summary="Upcoming regular reset",
+                     source_url=forecast["last_reset_url"])
+        feed = dict(fetched_at=m.now_utc().isoformat(), events=[event])
+        self.assertEqual(self.run_monitor([forecast, notify, feed], send_daily=True), 0)
+        batch = self.batch_sender.call_args.args[0]
+        directory = self.state_file.parent / "outbox" / batch["batchId"]
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex会重置吗？")
+        self.assertEqual(snapshot["stageText"], "常规重置（regular）｜已预告，尚未到账")
+        self.assertEqual(self.run_monitor([forecast, notify, feed]), 0)
+        self.assertEqual(self.batch_sender.call_count, 1)
+        forecast, notify = payloads()
+        self.assertEqual(self.run_monitor([forecast, notify, feed_payload(forecast)]), 0)
+        self.assertEqual(self.batch_sender.call_count, 2)
+        batch = self.batch_sender.call_args.args[0]
+        manifest = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "batch.json").read_text())
+        self.assertEqual(manifest["parts"][0]["text"], "Codex已重置，速蹬！")
+        self.assertEqual(set(self.read_state()["deliveredPhaseKeys"]),
+                         {f"regular:preview:{NEW_ID}", f"regular:actual:{NEW_ID}"})
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.batch_sender.call_count, 2)
+
+    def test_legacy_preview_poll_triggers_once_without_confirming_arrival(self):
+        forecast, notify = payloads(confirmed=False)
+        event = dict(id="2094144275957350900", kind="reset_preview", preview=True,
+                     tags=["quotareset"], announced_at="2026-10-15T03:00:00Z",
+                     summary="Legacy preview", source_url="https://x.com/thsottiaux/status/2094144275957350900")
+        feed = dict(fetched_at=m.now_utc().isoformat(), events=[event])
+        self.assertEqual(self.run_monitor([forecast, notify, feed]), 0)
+        self.assertEqual(self.batch_sender.call_count, 1)
+        batch = self.batch_sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex已确认重置！")
+        self.assertIn("尚未到账", snapshot["stageText"])
+        self.assertIsNone(batch["resetId"])
+        self.assertEqual(self.read_state()["notified_reset_ids"], [OLD_ID])
+        self.assertEqual(self.run_monitor([forecast, notify, feed]), 0)
+        self.assertEqual(self.batch_sender.call_count, 1)
+
+    def test_real_banked_inventory_mapping_does_not_guess_distribution(self):
+        forecast, notify = payloads(confirmed=False)
+        fixtures = [
+            ("2107975486798164736", "2026-10-07T23:24:55Z", "available", "distributed",
+             "The banked reset Tibo announced landed on our monitoring accounts."),
+            ("2090947196107764189", "2026-08-21T23:40:34Z", "arriving", "upcoming",
+             "The banked reset will be there by 8pm PST. For all paid users of ChatGPT Work and Codex. Do with this information what you may."),
+            ("2095651088502591861", "2026-09-03T23:12:09Z", "announced", "announced",
+             'Users are reporting that they’ve started receiving their banked resets. Sam Altman said "they should be able to begin broad rollout to API customers and chatgpt subscribers in t…'),
+        ]
+        for event_id, stamp, banked_state, expected, summary in fixtures:
+            with self.subTest(banked_state=banked_state):
+                event = dict(id=event_id, announced_at=stamp, kind="banked", reset_kind="banked",
+                             banked_state=banked_state, preview=False, cadence=False, tags=["banked"],
+                             summary=summary, source_url=f"https://x.com/thsottiaux/status/{event_id}")
+                phase = m.classify_reset_phase(event, forecast, notify)
+                self.assertEqual((phase["resetType"], phase["phase"]), ("banked", expected))
+                for unknown in (None, "unknown", "issued", "preview"):
+                    self.assertIsNone(m.classify_reset_phase(dict(event, banked_state=unknown), forecast, notify))
+        self.assertIn("不代表个人到账", m.PHASE_DETAILS[("banked", "distributed")])
+
+    def test_phase_upgrade_never_replays_months_but_new_late_id_is_not_rolling_filtered(self):
+        forecast, notify = payloads(confirmed=False)
+        event = dict(id="2107913738791596286", kind="reset_preview", preview=True,
+                     tags=["banked", "x_post"], announced_at="2026-10-07T19:19:33Z",
+                     summary="Will be there by EOD PST.",
+                     source_url="https://x.com/thsottiaux/status/2107913738791596286")
+        state = dict(self.state, lastSuccessfulPushAt="2026-10-19T03:00:00Z")
+        old = m.classify_reset_phase(event, forecast, notify)
+        m.initialize_phase_state(state, [old])
+        self.assertEqual(m.pending_phase_events([old], state), [])
+        self.assertEqual(m.select_announcements([event], state, [old]), [])
+        late_event = dict(event, id=NEW_ID, announced_at="2026-10-16T00:00:00Z",
+                          source_url=f"https://x.com/thsottiaux/status/{NEW_ID}")
+        late = m.classify_reset_phase(late_event, forecast, notify)
+        m.initialize_phase_state(state, [old, late])
+        self.assertEqual(m.pending_phase_events([late], state), [late])
+        self.assertEqual(m.select_announcements([late_event], state, [late]), [late_event])
+
     def test_failed_delivery_does_not_acknowledge_reset(self):
         self.batch_sender.return_value = False
         self.run_monitor()
         self.assertNotIn(NEW_ID, self.read_state()["notified_reset_ids"])
+        self.assertEqual(self.read_state()["deliveredPhaseKeys"], [])
         self.run_monitor()
         self.assertEqual(self.batch_sender.call_count, 2)
         self.assertEqual(self.renderer.call_count, 1)
@@ -309,6 +487,25 @@ class MonitorTests(unittest.TestCase):
         forecast, _ = payloads()
         self.assertEqual(m.forecast_probability(forecast, 24), "40%（置信区间 30%–60%）")
 
+    def test_all_legacy_user_visible_time_labels_use_utc8_without_renaming_zone(self):
+        forecast, notify = payloads()
+        current = m.now_utc()
+        forecast["peak_label"] = "4 AM - 7 AM"
+        texts = [m.daily_summary(forecast, current), m.reset_message(notify, NEW_ID, current),
+                 m.historical_window(forecast)]
+        forecast["promise"] = dict(active=True, at=(current + timedelta(hours=1)).isoformat(), label="scheduled")
+        texts.append(m.next_reset_text(forecast, current))
+        with patch.object(m, "STATE_DIR", Path(self.tmp.name)), \
+                patch.object(m, "LOCK_FILE", Path(self.tmp.name) / "monitor.lock"), \
+                patch.object(m.sys, "argv", ["monitor.py", "--test-push"]), \
+                contextlib.redirect_stdout(io.StringIO()):
+            self.assertEqual(m.main(), 0)
+        texts.append(self.sender.call_args.args[0])
+        for text in texts:
+            self.assertIn("UTC+08:00", text)
+            self.assertNotIn("北京时间", text)
+        self.assertEqual(m.SHANGHAI.key, "Asia/Shanghai")
+
     def test_fetch_uses_ipv4_https_and_bounded_timeout(self):
         result = subprocess.CompletedProcess([], 0, '{"ok": true}', "")
         with patch.object(m.subprocess, "run", return_value=result) as run:
@@ -344,7 +541,8 @@ class MonitorTests(unittest.TestCase):
 
     def test_daily_does_not_repeat_after_legacy_date_already_successful(self):
         self.state.update(daily_summary_date=m.now_utc().astimezone(m.SHANGHAI).date().isoformat(),
-                          last_reset_id=NEW_ID, notified_reset_ids=[NEW_ID])
+                          last_reset_id=NEW_ID, notified_reset_ids=[NEW_ID],
+                          lastSuccessfulPushAt=m.now_utc().isoformat())
         self.state_file.write_text(json.dumps(self.state))
         self.run_monitor(send_daily=True)
         self.batch_sender.assert_not_called()
@@ -418,7 +616,7 @@ class MonitorTests(unittest.TestCase):
         self.run_monitor([*data, feed], send_daily=True)
         pending = self.batch_sender.call_args.args[0]
         manifest = json.loads((self.state_file.parent / "outbox" / pending["batchId"] / "batch.json").read_text())
-        self.assertEqual([p["type"] for p in manifest["parts"]], ["text", "image", "link"])
+        self.assertEqual([p["type"] for p in manifest["parts"]], ["text", "image", "link", "link"])
 
     def test_boundary_is_inclusive_timezone_aware_and_does_not_use_posts(self):
         data = list(payloads(False))
@@ -662,11 +860,12 @@ class MonitorTests(unittest.TestCase):
 
     def receipt_sender(self, batch, directory, manifest, status="complete", code=0, timeout=False):
         def send(*args, **kwargs):
-            total = len(manifest["parts"])
-            receipt = dict(version=1, batchId=batch["batchId"], ok=status == "complete", status=status,
-                           nextIndex=total if status == "complete" else 1, total=total,
-                           parts=[dict(partIndex=i, status="sent" if status == "complete" or i == 0
-                                       else "inflight" if status == "blocked" else "failed") for i in range(total)])
+            message = dict(status="sent" if status == "complete" else "inflight" if status == "blocked" else "failed")
+            if status == "complete":
+                message["receiptSha256"] = hashlib.sha256(b"mock-real-qq-message-id").hexdigest()
+            receipt = dict(version=2, batchId=batch["batchId"], delivery="single_markdown",
+                           manifestSha256=batch["manifestSha256"], ok=status == "complete", status=status,
+                           message=message)
             m.atomic_write_json(directory / "batch.receipt.json", receipt)
             if timeout:
                 raise subprocess.TimeoutExpired(args[0], kwargs["timeout"])
@@ -679,6 +878,7 @@ class MonitorTests(unittest.TestCase):
             with self.assertRaises(RuntimeError):
                 m.deliver_batch(batch)
         for status in ("partial", "blocked", "dry_run"):
+            (directory / "batch.receipt.json").unlink(missing_ok=True)
             with self.subTest(status=status), patch.object(m.subprocess, "run",
                     side_effect=self.receipt_sender(batch, directory, manifest, status=status)):
                 self.assertFalse(m.deliver_batch(batch))
@@ -702,10 +902,11 @@ class MonitorTests(unittest.TestCase):
                 self.assertEqual(state["sentAnnouncementIds"], [])
                 self.assertIsNone(state["lastSuccessfulPushAt"])
 
-    def test_receipt_wrong_id_missing_parts_and_wrong_indices_fail_closed(self):
+    def test_receipt_wrong_binding_missing_message_or_id_proof_fails_closed(self):
         batch, directory, manifest = self.make_pending()
         sender = self.receipt_sender(batch, directory, manifest)
-        for mutation in (dict(batchId="other"), dict(parts=[]), dict(nextIndex=True), dict(total=999)):
+        for mutation in (dict(batchId="other"), dict(message={}), dict(message=dict(status="sent")),
+                         dict(manifestSha256="0" * 64), dict(delivery="segmented"), dict(version=1)):
             def send(*args, **kwargs):
                 result = sender(*args, **kwargs)
                 receipt = json.loads((directory / "batch.receipt.json").read_text())
@@ -714,6 +915,82 @@ class MonitorTests(unittest.TestCase):
                 return result
             with self.subTest(mutation=mutation), patch.object(m.subprocess, "run", side_effect=send):
                 self.assertFalse(m.deliver_batch(batch))
+
+    def test_v2_manifest_keeps_layout_order_strict_image_schema_and_one_timezone_footer(self):
+        batch, directory, manifest = self.make_pending()
+        self.assertEqual(manifest["version"], 2)
+        self.assertEqual(manifest["delivery"], "single_markdown")
+        self.assertEqual(batch["manifestVersion"], 2)
+        self.assertEqual(batch["manifestSha256"], m.digest_json(manifest))
+        self.assertEqual(manifest["parts"][0], dict(type="text", text="Codex会重置吗？"))
+        footer = dict(type="link", label="UTC+08:00", url="https://time.ms/zh-cn/utc+8/")
+        self.assertEqual(manifest["parts"][-1], footer)
+        self.assertEqual(manifest["parts"].count(footer), 1)
+        for part in manifest["parts"]:
+            if part["type"] == "image":
+                self.assertEqual(set(part), {"type", "path"})
+                self.assertEqual(batch["imageHashes"][part["path"]],
+                                 hashlib.sha256((directory / part["path"]).read_bytes()).hexdigest())
+        self.assertEqual(manifest["parts"][1],
+                         dict(type="text", text="常规重置（regular）｜已到账"))
+        self.assertIn(dict(type="text", text="\n\nTibo宣布了什么"), manifest["parts"])
+
+    def test_old_v1_batches_are_never_resumed_even_with_complete_receipt(self):
+        batch, directory, manifest = self.make_pending()
+        manifest["version"] = 1
+        del manifest["delivery"]
+        m.atomic_write_json(directory / "batch.json", manifest)
+        batch["manifestSha256"] = m.digest_json(manifest)
+        for status in ("partial", "complete"):
+            receipt = dict(version=1, batchId=batch["batchId"], ok=status == "complete", status=status,
+                           parts=[dict(partIndex=0, status="sent")])
+            path = directory / "batch.receipt.json"
+            m.atomic_write_json(path, receipt)
+            original = path.read_bytes()
+            with self.subTest(status=status), patch.object(m.subprocess, "run") as sender:
+                with self.assertRaisesRegex(ValueError, "legacy segmented batch"):
+                    m.deliver_batch(batch)
+                sender.assert_not_called()
+                self.assertEqual(path.read_bytes(), original)
+
+    def test_v2_batch_rejects_v1_receipt_without_invoking_sender(self):
+        batch, directory, manifest = self.make_pending()
+        path = directory / "batch.receipt.json"
+        m.atomic_write_json(path, dict(version=1, status="partial", batchId=batch["batchId"]))
+        before = path.read_bytes()
+        with patch.object(m.subprocess, "run") as sender:
+            with self.assertRaisesRegex(ValueError, "legacy receipt"):
+                m.deliver_batch(batch)
+            sender.assert_not_called()
+        self.assertEqual(path.read_bytes(), before)
+
+    def test_v2_unknown_or_inflight_receipt_blocks_before_invoking_sender(self):
+        batch, directory, manifest = self.make_pending()
+        path = directory / "batch.receipt.json"
+        for status in ("unknown", "inflight"):
+            m.atomic_write_json(path, dict(version=2, batchId=batch["batchId"],
+                                           message=dict(status=status)))
+            before = path.read_bytes()
+            with self.subTest(status=status), patch.object(m.subprocess, "run") as sender:
+                self.assertFalse(m.deliver_batch(batch))
+                sender.assert_not_called()
+            self.assertEqual(path.read_bytes(), before)
+
+    def test_new_v2_preview_preserves_complete_v1_history_and_success_until_complete(self):
+        prior_success = "2026-10-19T03:23:54.493778Z"
+        self.state.update(lastSuccessfulPushAt=prior_success, sentAnnouncementIds=[NEW_ID])
+        self.state_file.write_text(json.dumps(self.state))
+        history = self.state_file.parent / "old-v1.receipt.json"
+        history.write_text(json.dumps(dict(version=1, ok=True, status="complete")))
+        original = history.read_bytes()
+        self.batch_sender.return_value = False
+        self.run_monitor(payloads(False), manual_preview=True)
+        state = self.read_state()
+        self.assertEqual(state["lastSuccessfulPushAt"], prior_success)
+        self.assertEqual(state["sentAnnouncementIds"], [NEW_ID])
+        self.assertEqual(state["notified_reset_ids"], [OLD_ID])
+        self.assertEqual(state["pendingBatch"]["manifestVersion"], 2)
+        self.assertEqual(history.read_bytes(), original)
 
     def test_tampered_outbox_never_calls_sender_or_rerenders(self):
         batch, directory, manifest = self.make_pending()

@@ -1,12 +1,43 @@
 # Codex 统一重置监控
 
+## 类型与阶段
+
+内部 resetType=regular/banked，五种类型/阶段组合的成功键
+分别为 type:phase:sourceId。daily 与 event 共用内容成功账本；daily 展示并成功
+确认 preview 后，实际到账的 actual 键仍未确认，即使来源复用同一 ID，也必须
+保留 actual 公告图文。只有整条 v2 消息成功才写 deliveredPhaseKeys。
+
+daily 首行为“Codex会重置吗？”。regular preview 为“Codex已确认重置！”，
+regular actual 为“Codex已重置，速蹬！”；banked upcoming 为“Codex重置卡即将发放！”，
+banked distributed 为“Codex重置卡已发放！”，banked announced 为
+“Codex已公布重置卡消息！”。正文另有类型/阶段说明；预告明确尚未到账，
+重置卡已发放仅代表来源报告发放，不代表当前管理员个人或全体用户到账。
+
+映射先识别 banked kind/reset_kind/tag，避免将重置卡预告当成常规重置。
+kind=banked 的 arriving/available/announced 分别对应 upcoming/distributed/announced；
+available 还要求 preview=false。真实 reset_preview、preview=true、banked tag
+且无明确其他 banked_state 时对应 upcoming。unknown/缺失状态不推断发卡。
+常规来源类型为 hard，或缺失类型但有 regular tag；兼容缺失 reset_kind 的
+明确 reset_preview + preview=true 旧预告（例如仅有 quotareset tag），显式未知
+类型不默认归 regular。regular actual 仍须原有跨来源 confirmed 校验。
+promise_active 或概率变化本身不触发。run_once 实际提取并传递阶段，poll/daily
+共用成功账本，不是独立未调用的辅助逻辑。
+
+升级时只用已有实际成功推送时间（或已核实迁移日志时间）建立固定
+phaseBaselineAt/phaseBaselineKeys，阻止已存在历史阶段即时补发；baseline 不是成功。
+内容去重独立使用 sentAnnouncementIds/deliveredPhaseKeys：固定 migrationLowerBound
+之后未见 ID 即使属于 trigger baseline，仍会在下一 daily/event 带出；旧已发 ID
+的 baseline 阶段不重复，同 ID 新阶段仍可投递。不会滚动过滤迟到新 ID，
+也不会重放下界外数月历史。历史排版示例保持隔离，不写这些业务成功键。
+生产当前仍保留 no-send，待独立 QA 及 QQ 单条展示验收后才能恢复正常投递。
+
 唯一来源为 [willreset.com 中文站](https://willreset.com/zh/)，使用公开的
 `/api/forecast`、`/api/notify`、`/api/feed`，不启动浏览器、不混入 feed.posts。
 feed 全取后本地校验、按 ID 去重，不依赖被忽略的分页参数，不截取前 12 条，
 也不按 cadence/scope 排除公告。只有 forecast/notify 的有效 `last_reset`
 因子、ID、时间、原始 X 链接一致，且 feed 中同一记录是非 preview 的 reset，
-才允许新 confirmed reset 触发即时推送。promise、概率变化和孤立顶层 ID
-均不触发。首次正常运行静默建立基线，不记成成功投递。
+才允许 regular actual 触发即时推送；明确来源预告及重置卡阶段按上表独立触发，
+不改变 confirmed 防线。孤立顶层 ID 不触发。首次正常运行静默建立基线，不记成成功投递。
 
 运行依赖 Python 3.9+、Pillow >= 9.2、可用中文字体、Node.js、curl 和 QQ
 发送适配器及其 sender-manifest.mjs/sender-transport.mjs。抓取仅在本进程内使用
@@ -20,29 +51,39 @@ schema 错误按抓取失败计数；`computed_at`、`live_fetched_at` 和 `fetc
 时传 None 显示不可用。来源概率与区间矛盾会记录在 snapshot.sourceWarnings
 及日志中，旧纯文本 forecast_probability 仍显示 CI 矛盾警告；JSON/schema、
 confirmed 和时效门禁不变。卡片更新时刻使用 computed_at，
-不是 live_fetched_at；全部显示时间为北京时间。公告卡严格使用 event.summary，
+不是 live_fetched_at；图片时区标注统一为 UTC+08:00，时间偏移仍为 UTC+8，
+不改变时间语义。单条消息由 Backend 在 manifest 末尾提供一处可点击的
+[UTC+08:00](https://time.ms/zh-cn/utc+8/) 时区链接，图片本身不承载可点击链接。
+公告卡严格使用 event.summary，
 保留原文，不从 body 或 posts 回退。
 
 ## 图文与投递事务
 
-每天北京时间 08:00 和 confirmed reset 使用同一格式：文本
-“Codex会重置吗？”、预测卡、Markdown 信息来源链接；有未发公告时再接空行、
+每天 UTC+08:00 08:00 和新增明确事件使用同一排版：动态首行标题、预测卡、
+Markdown 信息来源链接；daily 标题固定“Codex会重置吗？”。有未发公告时再接空行、
 “Tibo宣布了什么”，逐公告卡和原始 X 链接。无公告时省略 Tibo 空标题，
 不重发旧公告。预测卡不包含网站大标题、用量限额、关于或祈求；公告卡没有
-“在 X 查看”按钮。普通 15 分钟轮询保持静默，不因新 preview/boost/signal 发业务通知。
+“在 X 查看”按钮。15 分钟轮询无新明确阶段时保持静默，boost/signal 不单独触发通知。
 
 `state/outbox/<batchId>/` 保存冻结的 snapshot.json、PNG、batch.json 和
-batch.receipt.json。manifest 使用 camelCase、图片路径相对 manifest；
+batch.receipt.json。manifest v2 为 `{version:2,batchId,delivery:'single_markdown',parts}`，
+parts 只定义整条原生 Markdown 的排版顺序，不代表多条聊天消息；图片 part
+严格只有 type/path，相对路径由 sender 读取 PNG 尺寸和 SHA，业务 state 的
+imageHashes 校验保留。只在整条消息 footer 放一次时区链接，禁止
+退回分段发送。manifest 使用 camelCase；
 重试只读原快照，不重新渲染相对时间、不修改 manifest。业务 state 绑定快照、
 manifest 和图片摘要；文件改变则拒绝续传。两个 service 共用同一个 flock。
 
-sender 逐片原子保存 receipt，跳过 sent；failed 可以重试，inflight/unknown
-必须人工核对，不能自动重发。只有 sender 退出 0 且持久化 receipt 的完整
-parts、batchId、total、nextIndex、ok/status 全部表明 complete，才一次性
+sender v2 原子保存整消息 receipt.message；failed 可以重试，inflight/unknown
+必须人工核对，不能自动重发。只有 sender 退出 0 且持久化 v2 receipt 的
+batchId、delivery、canonical manifestSha256 一致，ok/status 为 true/complete，
+message.status 为 sent 并包含真实 QQ 消息 ID 的 receiptSha256 回执，才一次性
 更新业务的 daily_summary_date、notified_reset_ids、sentAnnouncementIds、
 lastSuccessfulPushAt 和 announcementWatermark；部分失败、非零退出、超时
 都保留 pendingBatch，不推进成功状态。发送成功但业务落盘前崩溃，下一轮
-仍复用同一个 receipt。source/feed/snapshot 任一失败均 fail closed。
+仍复用同一个 v2 receipt。旧 v1 pending/partial 不得续发或复用 receipt，必须
+人工核对；旧 v1 complete 回执与已记录的成功水位保留，不清空、不重放。
+新的单条人工 preview 必须创建 v2 新 batch。source/feed/snapshot 任一失败均 fail closed。
 
 目标由现有 OpenClaw config 中首个有效管理员解析，与 sender 的 C2C 选择
 规则相同；不在源码写真实 openid，不切换其他管理员，不 fallback 到群。
@@ -63,7 +104,7 @@ unit、匹配现配置首个 C2C 管理员的实际 daily/reset “sent”记录
 migrationLowerBound；否则采用成功日志前五分钟作为旧实现有界耗时的保守下界。
 单独记录 migrationEvidence.observedSuccessAt、来源和不确定性，初始
 lastSuccessfulPushAt/announcementWatermark 保持 null，不伪记历史卡片已发。
-本次已只读核到 2026-10-19 北京时间 08:00:12.133779 的实际 daily 成功日志，
+本次已只读核到 2026-10-19 UTC+08:00 08:00:12.133779 的实际 daily 成功日志，
 对应 run 开始约 08:00:08；部署时重新读取，不硬编码这个日期或边界。
 
 只纳入 announced_at >= migrationLowerBound 且 ID 未见的公告，不把 112 条
@@ -79,6 +120,39 @@ python3 monitors/codex-reset-monitor/monitor.py --manual-preview --dry-run
 node --test monitors/codex-reset-monitor/test_sender.mjs
 ```
 
+`prepare_layout_preview.py` 是独立维护准备脚本，不是新的聊天指令。运行后只在
+ignored state/layout-preview/<batchId>/ 生成实时预测卡、最近一条 confirmed
+与一条 preview 的历史公告卡及 v2 manifest，标题明确标记“历史排版示例
+（非今日确认）”。顶部必须是实时已预告状态，不生成历史概率或模拟已确认
+预测；历史卡最多两条，图片 part 同样严格为 type/path，时区 footer 仅一次。
+脚本不调用 sender/complete_batch，不修改正式业务 state 或公告去重，不创建
+发送 receipt。QA/PM 放行后只使用这个隔离 manifest/receipt 发送一次 corrected
+完整样例，不另外运行 current-only manual-preview。
+
+### 显式图片诊断
+
+sender 默认不启用诊断 flag，使用 `force_verify_image_resource=true`，receipt 的
+`imageVerification` 为 `strict`；旧 v2 receipt 未记录此字段时也只按 strict 处理。
+仅本次获授权的独立样例诊断可使用以下命令，将该参数设为 false：
+
+```sh
+node monitors/codex-reset-monitor/send-openclaw-qq.mjs \
+  --manifest "$DIAGNOSTIC_MANIFEST" --receipt "$DIAGNOSTIC_RECEIPT" \
+  --diagnostic-unverified-images
+```
+
+两个路径必须指向新独立 layout 目录的 manifest/receipt，不复用原 strict 失败
+receipt。诊断模式记录 `imageVerification=diagnostic_unverified`，跨模式拒绝续发；
+所有图片仍必须匿名 GET 成功且 SHA 与源文件一致。只调用一次 messages API，
+无拆段、无 fallback；拒绝、unknown 或 inflight 均停止，不自动再试。
+隔离样例不得调用 complete_batch，不改变正式业务水位或公告成功键。
+
+此 flag 仅是诊断变量，不是生产修复；生产 monitor 不会附加该 flag，也不会
+自动降级为 false。API 返回真实成功 ID 只证明接口接受，不证明图片已展示。
+即使诊断 receipt 为 complete/sent，也必须保留两个 service 的 `--no-send`，
+等待用户在 QQ 客户端验收同一消息的三图和链接，并由 PM 明确决定后续恢复。
+不能仅因 timer active 或准备/上传成功宣称正常生产推送可用。
+
 `--dry-run` 不调用发送适配器，不创建锁或改写 state；`--no-send` 保留抓取
 健康状态，但不初始化业务基线、不迁移、不创建/续传 batch、不确认任何投递。
 两者均禁止与 `--test-push` 合用。`--manual-preview` 是明确维护入口，只在
@@ -90,7 +164,7 @@ node --test monitors/codex-reset-monitor/test_sender.mjs
 实际 state 和凭据不进 Git。未初始化的 `--no-send` 不把事件加入已通知列表。
 
 线上目录为 `laptop-home:~/.openclaw/monitors/codex-reset-monitor/`，运行用户
-`PPfavorite`。定时器保持每 15 分钟轮询、每天北京时间 08:00 摘要。
+`PPfavorite`。定时器保持每 15 分钟轮询、每天 UTC+08:00 08:00 摘要。
 部署前备份代码、unit 和 state，核对线上旧文件哈希；仅原子替换代码，禁止
 覆盖运行 state 或凭据。部署范围必须包含已验收的 renderer、sender 及其
 manifest/transport helpers，并同步两个 service unit 后 systemctl --user daemon-reload。

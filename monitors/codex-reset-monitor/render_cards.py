@@ -23,7 +23,7 @@ from pathlib import Path
 from PIL import Image, ImageDraw, ImageFont, __version__ as PILLOW_VERSION
 
 
-BEIJING = timezone(timedelta(hours=8), "北京时间")
+BEIJING = timezone(timedelta(hours=8), "UTC+08:00")
 WIDTH = 1600
 INK = "#28221c"
 MUTED = "#655c50"
@@ -107,7 +107,7 @@ def parse_time(value):
 
 
 def format_beijing(value):
-    return parse_time(value).strftime("%Y年%m月%d日 %H:%M 北京时间")
+    return parse_time(value).strftime("%Y年%m月%d日 %H:%M %Z")
 
 
 def relative_time(value, now=None):
