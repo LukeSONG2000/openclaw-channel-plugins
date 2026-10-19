@@ -168,7 +168,8 @@ export async function readReceipt(file, plan, targetSha256, imageVerification = 
   if (receipt.preparedMarkdownHash !== undefined) check(hashPattern.test(receipt.preparedMarkdownHash), 'invalid_receipt');
   if (receipt.preparedStats !== undefined) {
     keys(receipt.preparedStats, ['contentBytes', 'contentCharacters', 'imageCount', 'imageUrlMaxCharacters',
-      'imageUrlMaxQueryCharacters', 'imageUrlsWithLiteralParentheses', 'imageUrlsWithAmpersands', 'imageUrlsReencoded'], 'invalid_receipt');
+      'imageUrlMaxQueryCharacters', 'imageUrlsWithLiteralParentheses', 'imageUrlsWithAmpersands', 'imageUrlsReencoded',
+      'imageUrlEarliestExpirySeconds'], 'invalid_receipt');
     check(Object.values(receipt.preparedStats).every(value => Number.isSafeInteger(value) && value >= 0), 'invalid_receipt');
   }
   if (message.status === 'sent') check(hashPattern.test(message.receiptSha256), 'invalid_receipt');

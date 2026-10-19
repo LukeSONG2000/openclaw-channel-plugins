@@ -12,6 +12,27 @@ export function imageUrl(value) {
   return url;
 }
 
+export function imageExpirySeconds(value) {
+  const url = imageUrl(value), ends = [];
+  for (const name of ['q-sign-time', 'q-key-time']) {
+    const values = url.searchParams.getAll(name);
+    if (!values.length) continue;
+    if (values.length !== 1 || !/^\d+;\d+$/.test(values[0])) throw new Error('invalid_image_expiry');
+    const [start, end] = values[0].split(';').map(Number);
+    if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start > end) throw new Error('invalid_image_expiry');
+    ends.push(end);
+  }
+  if (url.searchParams.has('q-signature') && !ends.length) throw new Error('invalid_image_expiry');
+  return ends.length ? Math.min(...ends) : null;
+}
+
+export function assertImageValidity(value, nowSeconds = Date.now() / 1000) {
+  const expiry = imageExpirySeconds(value);
+  // QQ's returned ttl can exceed the actual COS GET signature lifetime.
+  if (expiry !== null && expiry - nowSeconds <= 120) throw new Error('image_expiring');
+  return expiry;
+}
+
 export function uploadParts(prepared, fileSize) {
   const blockSize = Number(prepared?.block_size);
   if (typeof prepared?.upload_id !== 'string' || !prepared.upload_id || !Number.isSafeInteger(blockSize) || blockSize < 1
@@ -31,8 +52,12 @@ export function uploadParts(prepared, fileSize) {
   });
 }
 
-async function readBounded(response, limit) {
+async function readBounded(response, limit, contentType) {
   if (!response.ok || !response.body) throw new Error('image_get_failed');
+  if (response.status !== 200 || response.headers.get('content-type')?.split(';')[0].trim().toLowerCase() !== contentType) {
+    await response.body.cancel();
+    throw new Error('image_get_invalid_type');
+  }
   const length = Number(response.headers.get('content-length'));
   if (length > limit) { await response.body.cancel(); throw new Error('image_get_too_large'); }
   const chunks = [];
@@ -52,6 +77,7 @@ export function createImagePreparer(api, target, { fetchImpl = (...args) => glob
     const bytes = await fs.readFile(file);
     if (sha256(bytes) !== expectedHash) throw new Error('image_changed_during_read');
     imageDimensions(bytes);
+    const contentType = bytes[0] === 137 ? 'image/png' : bytes[0] === 255 ? 'image/jpeg' : 'image/webp';
     const token = await api.getAccessToken(target.appId, target.clientSecret);
     const prefix = '/v2/users/' + target.id;
     const prepared = await api.apiRequest(token, 'POST', prefix + '/upload_prepare', {
@@ -60,7 +86,9 @@ export function createImagePreparer(api, target, { fetchImpl = (...args) => glob
     });
     for (const part of uploadParts(prepared, bytes.length)) {
       const chunk = bytes.subarray(part.offset, part.offset + part.length);
-      const response = await fetchImpl(part.url, { method: 'PUT', body: chunk, redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
+      const response = await fetchImpl(part.url, { method: 'PUT', body: chunk,
+        headers: { 'Content-Type': contentType, 'Content-Disposition': 'inline' },
+        redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
       if (!response.ok) throw new Error('image_put_failed');
       await response.body?.cancel();
       await api.apiRequest(token, 'POST', prefix + '/upload_part_finish', {
@@ -72,9 +100,11 @@ export function createImagePreparer(api, target, { fetchImpl = (...args) => glob
     });
     if (!(Number(result?.ttl) > 0)) throw new Error('invalid_image_ttl');
     const rawUrl = imageUrl(result.raw_url).href;
+    assertImageValidity(rawUrl);
     const response = await fetchImpl(rawUrl, { method: 'GET', redirect: 'error', signal: AbortSignal.timeout(timeoutMs) });
-    const downloaded = await readBounded(response, bytes.length);
+    const downloaded = await readBounded(response, bytes.length, contentType);
     if (sha256(downloaded) !== expectedHash) throw new Error('image_get_mismatch');
+    assertImageValidity(rawUrl);
     return rawUrl;
   };
 }

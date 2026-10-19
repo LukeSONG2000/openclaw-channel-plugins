@@ -6,7 +6,7 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { canonicalStringify, normalizeManifest, readReceipt, runManifest, sha256, imageDimensions, providerDiagnostic } from './sender-manifest.mjs';
 import { administrator, createTransport, markdownLink } from './sender-transport.mjs';
-import { createImagePreparer, uploadParts, imageUrl } from './sender-images.mjs';
+import { createImagePreparer, uploadParts, imageUrl, imageExpirySeconds, assertImageValidity } from './sender-images.mjs';
 
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVQIHWP4z8DwHwAFgAI/ScLbtAAAAABJRU5ErkJggg==', 'base64');
 const host = 'qqbot-file-upload-1251316161.cos.accelerate.myqcloud.com';
@@ -307,7 +307,7 @@ test('upload sequence mapping supports returned 0/1 bases, reversed order and pa
   }
 });
 
-function uploadFixture({ base = 1, complete, getBytes = PNG, failPut = false, failFinish = false } = {}) {
+function uploadFixture({ base = 1, complete, getBytes = PNG, failPut = false, failFinish = false, contentType = 'image/png' } = {}) {
   const calls = [], network = [];
   const block = Math.ceil(PNG.length / 2);
   const api = {
@@ -329,7 +329,7 @@ function uploadFixture({ base = 1, complete, getBytes = PNG, failPut = false, fa
     assert.equal(options.redirect, 'error');
     if (options.method === 'PUT') return new Response('', { status: failPut ? 403 : 200 });
     assert.equal(options.method, 'GET');
-    return new Response(getBytes, { status: 200, headers: { 'content-type': 'image/png' } });
+    return new Response(getBytes, { status: 200, headers: contentType ? { 'content-type': contentType } : {} });
   };
   return { api, calls, network, fetchImpl };
 }
@@ -343,6 +343,9 @@ test('image provider uploads all returned sequence values, explicitly merges wit
     assert.deepEqual(u.calls.filter(c => c.route.endsWith('/upload_part_finish')).map(c => c.body.part_index), [base, base + 1]);
     const putBytes = u.network.filter(c => c.options.method === 'PUT').map(c => c.options.body);
     assert.deepEqual(Buffer.concat(putBytes), PNG);
+    for (const put of u.network.filter(c => c.options.method === 'PUT')) {
+      assert.deepEqual(put.options.headers, { 'Content-Type': 'image/png', 'Content-Disposition': 'inline' });
+    }
     assert.deepEqual(u.calls.find(c => c.route.endsWith('/files')).body,
       { upload_id: 'u', file_type: 1, file_name: 'card.png', srv_send_msg: false });
     assert.equal(u.calls.some(c => c.route.endsWith('/messages')), false);
@@ -362,6 +365,63 @@ test('missing raw_url, ttl=0, failed PUT/finish or mismatched GET cannot produce
     await assert.rejects(createImagePreparer(u.api, target, { fetchImpl: u.fetchImpl })(path.join(f.directory, 'card.png'), sha256(PNG)));
     assert.equal(u.calls.some(c => c.route.endsWith('/messages')), false);
   }
+});
+
+test('image MIME must match verified bytes; octet-stream is not a Markdown-ready image', async t => {
+  const f = await fixture(t);
+  for (const contentType of ['application/octet-stream', 'text/html', 'image/jpeg', null]) {
+    const u = uploadFixture({ contentType });
+    await assert.rejects(createImagePreparer(u.api, target, { fetchImpl: u.fetchImpl })(
+      path.join(f.directory, 'card.png'), sha256(PNG)), /image_get_invalid_type/);
+    assert.equal(u.calls.some(c => c.route.endsWith('/messages')), false);
+  }
+});
+
+test('COS signature expiry wins over ttl and requires more than the full 120 second send window', async t => {
+  const now = Math.floor(Date.now() / 1000);
+  const signed = end => 'https://' + host + '/raw?q-signature=private&q-sign-time=' + (now - 1) + '%3B' + end
+    + '&q-key-time=' + (now - 1) + '%3B' + (now + 3600);
+  assert.equal(imageExpirySeconds(signed(now + 121)), now + 121);
+  assert.equal(assertImageValidity(signed(now + 121), now), now + 121);
+  for (const end of [now - 1, now, now + 120]) assert.throws(() => assertImageValidity(signed(end), now), /image_expiring/);
+  for (const query of ['q-signature=private', 'q-sign-time=bad', 'q-sign-time=1;2&q-sign-time=1;3']) {
+    assert.throws(() => imageExpirySeconds('https://' + host + '/raw?' + query), /invalid_image_expiry/);
+  }
+  const f = await fixture(t);
+  const expired = uploadFixture({ complete: { raw_url: signed(now - 1), ttl: 86400 } });
+  await assert.rejects(createImagePreparer(expired.api, target, { fetchImpl: expired.fetchImpl })(
+    path.join(f.directory, 'card.png'), sha256(PNG)), /image_expiring/);
+  assert.equal(expired.network.some(c => c.options.method === 'GET'), false);
+  const valid = uploadFixture({ complete: { raw_url: signed(now + 3600), ttl: 86400 } });
+  assert.equal(await createImagePreparer(valid.api, target, { fetchImpl: valid.fetchImpl })(
+    path.join(f.directory, 'card.png'), sha256(PNG)), signed(now + 3600));
+});
+
+test('receipt saves only earliest signature expiry and strict single-message Markdown remains unchanged', async t => {
+  const f = await fixture(t), end = Math.floor(Date.now() / 1000) + 3600;
+  const raw = 'https://' + host + '/raw?q-signature=private&q-sign-time=1%3B' + end;
+  const { api, calls } = apiFixture();
+  const transport = createTransport(api, target, { prepareImage: async () => raw });
+  const result = await runManifest({ ...f, transport });
+  assert.equal(result.preparedStats.imageUrlEarliestExpirySeconds, end);
+  assert.equal((await readReceipt(f.receiptPath, f.plan, target.targetSha256)).status, 'complete');
+  const receipt = await fs.readFile(f.receiptPath, 'utf8');
+  for (const sensitive of ['q-signature', 'private', raw]) assert.equal(receipt.includes(sensitive), false);
+  const messages = calls.filter(c => c.kind === 'message');
+  assert.equal(messages.length, 1);
+  assert.equal(messages[0].body.markdown.force_verify_image_resource, true);
+  assert.equal(messages[0].body.markdown.content.includes(raw), true);
+});
+
+test('delivery rechecks expiry without a POST or replay if the send window has elapsed', async t => {
+  const f = await fixture(t), end = Math.floor(Date.now() / 1000) + 3600;
+  const raw = 'https://' + host + '/raw?q-signature=private&q-sign-time=1%3B' + end;
+  const { api, calls } = apiFixture();
+  const prepared = await createTransport(api, target, { prepareImage: async () => raw }).prepare(f.plan);
+  t.mock.method(Date, 'now', () => (end - 120) * 1000);
+  assert.throws(() => prepared.deliver(), /image_expiring/);
+  assert.equal(calls.some(c => c.kind === 'message'), false);
+  assert.throws(() => prepared.deliver(), /delivery_already_attempted/);
 });
 
 test('prepared delivery closure only allows one invocation', async t => {
@@ -500,7 +560,8 @@ test('provider diagnostics retain only whitelisted meaning and a digest, never r
 
 test('explicit diagnostic mode changes only verification flag and binds its receipt before image preparation', async t => {
   const f = await fixture(t);
-  const rawUrl = 'https://' + host + '/card.png?q-signature=private&q-url-param-list=x%2Fy&literal=a+b';
+  const rawUrl = 'https://' + host + '/card.png?q-signature=private&q-url-param-list=x%2Fy&literal=a+b'
+    + '&q-sign-time=1%3B' + (Math.floor(Date.now() / 1000) + 3600);
   const payloads = [];
   for (const forceVerifyImageResource of [true, false]) {
     const imageVerification = forceVerifyImageResource ? 'strict' : 'diagnostic_unverified';

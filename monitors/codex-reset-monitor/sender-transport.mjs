@@ -3,7 +3,7 @@ import os from 'node:os';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { sha256, canonicalStringify } from './sender-manifest.mjs';
-import { createImagePreparer, imageUrl } from './sender-images.mjs';
+import { createImagePreparer, imageUrl, assertImageValidity } from './sender-images.mjs';
 
 export function administrator(config) {
   const channel = config?.channels?.qqbot;
@@ -59,6 +59,7 @@ export function createTransport(api, target, {
         throw new Error('markdown_too_large');
       }
       const body = { msg_type: 2, markdown: { content, force_verify_image_resource: forceVerifyImageResource } };
+      const expiries = urls.map(url => assertImageValidity(url)).filter(expiry => expiry !== null);
       const preparedStats = {
         contentBytes: Buffer.byteLength(content), contentCharacters: Array.from(content).length, imageCount: urls.length,
         imageUrlMaxCharacters: Math.max(0, ...urls.map(url => url.length)),
@@ -66,12 +67,14 @@ export function createTransport(api, target, {
         imageUrlsWithLiteralParentheses: urls.filter(url => /[()]/.test(url)).length,
         imageUrlsWithAmpersands: urls.filter(url => url.includes('&')).length,
         imageUrlsReencoded: urls.filter(url => markdownUrl(url) !== url).length,
+        ...(expiries.length ? { imageUrlEarliestExpirySeconds: Math.min(...expiries) } : {}),
       };
       const credential = await accessToken();
       let used = false;
       return { preparedMarkdownHash: sha256(canonicalStringify(body)), preparedStats, deliver: () => {
         if (used) throw new Error('delivery_already_attempted');
         used = true;
+        for (const url of urls) assertImageValidity(url);
         return api.apiRequest(credential, 'POST', '/v2/users/' + target.id + '/messages', body);
       } };
     },
