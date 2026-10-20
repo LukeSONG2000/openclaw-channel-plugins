@@ -1,5 +1,6 @@
 import contextlib
 import configparser
+import copy
 import hashlib
 import importlib.util
 import io
@@ -16,10 +17,18 @@ import source_fetch
 SPEC = importlib.util.spec_from_file_location("reset_monitor", Path(__file__).with_name("monitor.py"))
 m = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(m)
+# Legacy fixtures exercise the unchanged transaction/phase contracts offline only.
+m.FORECAST_URL = "https://legacy.invalid/api/forecast"
+m.NOTIFY_URL = "https://legacy.invalid/api/notify"
+m.FEED_URL = "https://legacy.invalid/api/feed"
 OLD_ID = "2110618732666257557"
 NEW_ID = "2110618732666257558"
 HISTORICAL_ID = "2108040921044639779"
 FAKE_ADMIN = "qqbot:c2c:test-admin"
+
+
+def legacy_fixture_source():
+    return (m.fetch_json(m.FORECAST_URL), m.fetch_json(m.NOTIFY_URL), m.fetch_json(m.FEED_URL))
 
 
 def payloads(confirmed=True):
@@ -60,6 +69,9 @@ def fake_render(snapshot, directory):
 
 class MonitorTests(unittest.TestCase):
     def setUp(self):
+        legacy = patch.object(m, "fetch_source_data", side_effect=legacy_fixture_source)
+        legacy.start()
+        self.addCleanup(legacy.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.state_file = Path(self.tmp.name) / "state.json"
@@ -536,11 +548,11 @@ class MonitorTests(unittest.TestCase):
         self.assertIs(m.fetch_json, source_fetch.fetch_json)
         result = subprocess.CompletedProcess([], 0, b'{"ok": true}\nSOURCE_FETCH_HTTP:200', b"")
         with patch.object(m.subprocess, "run", return_value=result) as run:
-            self.assertEqual(m.fetch_json(m.FORECAST_URL), {"ok": True})
+            self.assertEqual(m.fetch_json(m.provider.ENDPOINT), {"ok": True})
         args, kwargs = run.call_args
         self.assertIn("--ipv4", args[0])
         self.assertIn("=https", args[0])
-        self.assertEqual(args[0][-1], m.FORECAST_URL)
+        self.assertEqual(args[0][-1], m.provider.ENDPOINT)
         self.assertEqual(kwargs["timeout"], 25)
         self.assertNotIn("shell", kwargs)
 
@@ -552,7 +564,7 @@ class MonitorTests(unittest.TestCase):
                     patch.object(m.subprocess, "run", return_value=response) as run, \
                     patch.object(source_fetch.time, "sleep"):
                 with self.assertRaises(RuntimeError) as error:
-                    m.fetch_json(m.FORECAST_URL)
+                    m.fetch_json(m.provider.ENDPOINT)
                 self.assertNotIn("proxy secret", str(error.exception))
                 self.assertEqual(run.call_count, attempts)
 
@@ -1280,6 +1292,9 @@ class MonitorTests(unittest.TestCase):
 
 class ChannelIsolationTests(unittest.TestCase):
     def setUp(self):
+        legacy = patch.object(m, "fetch_source_data", side_effect=legacy_fixture_source)
+        legacy.start()
+        self.addCleanup(legacy.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name) / "state"
@@ -1432,6 +1447,9 @@ class ChannelIsolationTests(unittest.TestCase):
 
 class GroupMonitorTests(unittest.TestCase):
     def setUp(self):
+        legacy = patch.object(m, "fetch_source_data", side_effect=legacy_fixture_source)
+        legacy.start()
+        self.addCleanup(legacy.stop)
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
@@ -1786,6 +1804,334 @@ class GroupMonitorTests(unittest.TestCase):
             m.run_once(initialize_on_success=True)
         self.assertFalse(self.dd_state.parent.exists())
         self.assert_qq_untouched()
+
+
+class SourceIntegrationTests(unittest.TestCase):
+    """Clock-complete fixtures are hypothetical, not claims about the live source."""
+
+    def setUp(self):
+        self.tmp = tempfile.TemporaryDirectory()
+        self.addCleanup(self.tmp.cleanup)
+        self.state_file = Path(self.tmp.name) / "state.json"
+        self.current = datetime(2026, 10, 20, 3, tzinfo=timezone.utc)
+        self.state = dict(version=2, initialized_at="2026-09-17T03:51:39Z",
+                          last_reset_id=OLD_ID, last_reset_at="2026-10-15T06:28:13Z",
+                          notified_reset_ids=[OLD_ID], daily_summary_date="2026-10-19",
+                          consecutive_fetch_failures=67, failure_notified=True,
+                          migrationLowerBound="2026-10-19T00:00:00Z", pendingBatch=None,
+                          sentAnnouncementIds=[OLD_ID], deliveredPhaseKeys=[f"regular:actual:{OLD_ID}"],
+                          phaseSchemaVersion=1, phaseBaselineKeys=[], lastSuccessfulPushAt="2026-10-19T00:00:12Z")
+        self.state_file.write_text(json.dumps(self.state))
+        self.raw = json.loads((Path(__file__).parent / "fixtures" /
+                               "willcodexreset-radar-20261020.json").read_text())
+        self.snapshot = m.provider.normalize_snapshot(self.raw, retrieved_at=self.current.isoformat())
+        stack = contextlib.ExitStack()
+        self.addCleanup(stack.close)
+        stack.enter_context(patch.object(m, "STATE_FILE", self.state_file))
+        stack.enter_context(patch.object(m, "now_utc", side_effect=lambda: self.current))
+        stack.enter_context(patch.object(m.provider, "fetch_snapshot", side_effect=lambda: copy.deepcopy(self.snapshot)))
+        stack.enter_context(patch.object(m, "render_snapshot", side_effect=fake_render))
+        self.sender = stack.enter_context(patch.object(m, "deliver_batch", return_value=True))
+        self.warning = stack.enter_context(patch.object(m, "push", side_effect=AssertionError("no transport")))
+
+    def clock_complete_fixture(self):
+        for key in ("source_updated_at", "signal_checked_at", "forecast_generated_at"):
+            self.snapshot[key] = self.current.isoformat()
+        self.snapshot["capabilities"]["forecast_generation_time"] = True
+        self.snapshot["forecast"]["forecast_generated_at"] = self.current.isoformat()
+
+    def run_monitor(self, **flags):
+        with contextlib.redirect_stdout(io.StringIO()), contextlib.redirect_stderr(io.StringIO()):
+            return m.run_once(**flags)
+
+    def read_state(self):
+        return json.loads(self.state_file.read_text())
+
+    def add_event(self, event_id="2119999999999999999", **changes):
+        event = dict(id="test-" + event_id, kind="reset", verified=True, resetType="usage",
+                     occurredAt=self.current.isoformat(), title="Fixture reset", detail="Explicit source record",
+                     url=f"https://x.com/thsottiaux/status/{event_id}")
+        event.update(changes)
+        raw = copy.deepcopy(self.raw)
+        raw["data"]["events"] = [event]
+        normalized = m.provider.normalize_snapshot(raw, retrieved_at=self.current.isoformat())["events"][0]
+        self.snapshot["events"].append(normalized)
+        return normalized
+
+    def test_real_source_values_and_absent_fields_remain_truthful(self):
+        forecast, notify, feed = m.fetch_source_data()
+        card = m.forecast_card_data(forecast)
+        self.assertEqual((card["probability_24h"], card["probability_48h"]), (.72, .82))
+        self.assertIsNone(card["updated_at"])
+        self.assertEqual(card["status"], "来源预测")
+        for key in ("computed_at", "live_fetched_at", "confidence", "promise", "range_24", "factors"):
+            self.assertNotIn(key, forecast)
+        self.assertNotIn("last_reset_id", notify)
+        self.assertEqual(feed["fetched_at"], self.snapshot["retrieved_at"])
+
+    def test_real_missing_generation_clock_and_stale_signal_never_send(self):
+        self.assertEqual(self.run_monitor(send_daily=True), 1)
+        state = self.read_state()
+        self.assertEqual(state["consecutive_fetch_failures"], 68)
+        for key in self.state.keys() - {"consecutive_fetch_failures"}:
+            self.assertEqual(state[key], self.state[key])
+        self.sender.assert_not_called()
+        self.warning.assert_not_called()
+        self.assertFalse((self.state_file.parent / "outbox").exists())
+
+    def test_response_or_retrieval_clock_cannot_refresh_signal_or_invent_prediction_time(self):
+        stamp = self.current.isoformat()
+        self.snapshot.update(source_updated_at=stamp, retrieved_at=stamp)
+        with self.assertRaisesRegex(ValueError, "signal_checked_at"):
+            m.validate_source_snapshot(self.snapshot)
+        self.snapshot["signal_checked_at"] = stamp
+        m.validate_source_snapshot(self.snapshot)
+        self.assertIsNone(self.snapshot["forecast_generated_at"])
+        self.assertIsNone(m.forecast_card_data(dict(self.snapshot["forecast"], sourceSnapshot=self.snapshot))["updated_at"])
+
+    def test_all_clocks_and_health_are_required_without_threshold_relaxation(self):
+        self.clock_complete_fixture()
+        for key in ("source_updated_at", "signal_checked_at"):
+            for bad in (None, "bad", (self.current - timedelta(hours=2, seconds=1)).isoformat(),
+                        (self.current + timedelta(minutes=5, seconds=1)).isoformat()):
+                with self.subTest(key=key, bad=bad):
+                    snapshot = copy.deepcopy(self.snapshot)
+                    snapshot[key] = bad
+                    with self.assertRaises(ValueError):
+                        m.validate_source_snapshot(snapshot)
+        for status in (None, "error", "unknown"):
+            with self.subTest(status=status), self.assertRaisesRegex(ValueError, "signal_status"):
+                m.validate_source_snapshot(dict(self.snapshot, signal_status=status))
+
+    def test_absent_prediction_clock_is_not_a_permanent_block_or_a_freshness_claim(self):
+        self.snapshot["source_updated_at"] = self.snapshot["signal_checked_at"] = self.current.isoformat()
+        m.validate_source_snapshot(self.snapshot)
+        self.assertFalse(self.snapshot["capabilities"]["forecast_generation_time"])
+        forecast = dict(self.snapshot["forecast"], sourceSnapshot=self.snapshot)
+        self.assertIsNone(m.source_audit(forecast)["sourceTimes"]["predictionGeneratedAt"])
+        self.assertIsNone(m.forecast_card_data(forecast)["updated_at"])
+
+    def test_present_prediction_clock_cannot_be_stale_or_future(self):
+        self.clock_complete_fixture()
+        for stamp in ("bad", (self.current - timedelta(hours=2, seconds=1)).isoformat(),
+                      (self.current + timedelta(minutes=5, seconds=1)).isoformat()):
+            with self.subTest(stamp=stamp), self.assertRaisesRegex(ValueError, "forecast_generated_at"):
+                m.validate_source_snapshot(dict(self.snapshot, forecast_generated_at=stamp))
+
+    def test_dry_run_failure_is_byte_read_only(self):
+        original = self.state_file.read_bytes()
+        self.assertEqual(self.run_monitor(dry_run=True, send_daily=True), 1)
+        self.assertEqual(self.state_file.read_bytes(), original)
+        self.sender.assert_not_called()
+
+    def test_initial_provider_observation_suppresses_all_existing_history(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        state = self.read_state()
+        self.assertEqual(state["sourceProviderId"], "willcodexreset")
+        self.assertEqual(set(state["providerBaseline"]["eventIds"]),
+                         {event["event_id"] for event in self.snapshot["events"]})
+        for key in ("last_reset_id", "last_reset_at", "notified_reset_ids", "sentAnnouncementIds",
+                    "deliveredPhaseKeys", "daily_summary_date", "lastSuccessfulPushAt", "migrationLowerBound"):
+            self.assertEqual(state[key], self.state[key])
+        self.sender.assert_not_called()
+
+    def test_qq_daily_catchup_is_one_new_forecast_not_yesterdays_history(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        state = self.read_state()
+        self.assertEqual(state["daily_summary_date"], "2026-10-20")
+        self.assertEqual(state["notified_reset_ids"], [OLD_ID])
+        self.assertEqual(state["sentAnnouncementIds"], [OLD_ID])
+        directory = next((self.state_file.parent / "outbox").iterdir())
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        manifest = json.loads((directory / "batch.json").read_text())
+        self.assertEqual(snapshot["announcements"], [])
+        self.assertEqual(snapshot["sourceProvider"]["id"], "willcodexreset")
+        self.assertEqual(snapshot["sourceTimes"]["signalCheckedAt"], self.snapshot["signal_checked_at"])
+        self.assertEqual(manifest["parts"][1]["url"], "https://willcodexreset.com/zh")
+
+    def test_missing_latest_reset_preserves_existing_reset_watermark(self):
+        self.clock_complete_fixture()
+        self.snapshot["events"] = []
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        for key in ("last_reset_id", "last_reset_at", "notified_reset_ids"):
+            self.assertEqual(self.read_state()[key], self.state[key])
+
+    def test_first_observation_no_send_does_not_consume_cutover(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(no_send=True), 0)
+        self.assertNotIn("providerBaseline", self.read_state())
+        self.assertNotIn("sourceProviderId", self.read_state())
+        self.assertEqual(self.read_state()["last_reset_id"], OLD_ID)
+
+    def test_new_explicit_reset_sends_once_with_native_and_x_identity(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        event = self.add_event()
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        directory = next((self.state_file.parent / "outbox").iterdir())
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex已重置，速蹬！")
+        self.assertEqual(snapshot["stageText"], "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账")
+        self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["source_event_id"], event["source_event_id"])
+        self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["x_status_id"], event["event_id"])
+
+    def test_late_unknown_id_before_cutover_never_replays(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.add_event(occurredAt="2026-10-18T00:00:00Z")
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        batch = self.sender.call_args.args[0]
+        self.assertEqual(batch["announcementIds"], [])
+        self.assertIsNone(batch["resetId"])
+
+    def test_old_known_id_explicit_phase_upgrade_survives_old_lower_bound(self):
+        self.clock_complete_fixture()
+        event = self.add_event(kind="tibo", verified=False, occurredAt="2026-10-18T00:00:00Z")
+        self.assertEqual(self.run_monitor(), 0)
+        self.snapshot["events"].remove(event)
+        self.add_event(occurredAt="2026-10-18T00:00:00Z")
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        self.assertEqual(self.sender.call_args.args[0]["announcementIds"], [event["event_id"]])
+
+    def test_unknown_type_candidate_and_unverified_records_do_not_trigger(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        for index, changes in enumerate((dict(resetType="unknown"), dict(kind="tibo"), dict(verified=False),
+                                         dict(kind="tibo", autoDetectedReset=True, confidence=.99))):
+            self.add_event(event_id=str(2119999999999999990 + index), **changes)
+        self.assertEqual(self.run_monitor(), 0)
+        self.sender.assert_not_called()
+
+    def test_new_non_tibo_or_missing_original_url_is_blocked(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        for url in (None, "https://x.com/another_author/status/2119999999999999999"):
+            self.snapshot["events"] = []
+            self.add_event(url=url)
+            self.assertEqual(self.run_monitor(), 1)
+            self.sender.assert_not_called()
+
+    def test_same_x_reset_and_post_make_one_card_not_two(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.add_event()
+        self.add_event(kind="tibo", verified=False)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(len(self.sender.call_args.args[0]["announcementIds"]), 1)
+
+    def test_same_x_unknown_history_and_post_keep_evidence_without_conflict(self):
+        self.snapshot["events"] = []
+        self.add_event(resetType=None, occurredAt="2026-07-28T03:10:00Z")
+        self.add_event(kind="tibo", verified=False, resetType=None, id="post-native-id",
+                       occurredAt="2026-07-28T03:09:23Z", detail="Source post with t.co link")
+        _, _, feed = m.fetch_source_data()
+        self.assertEqual(len(feed["events"]), 2)
+        self.assertEqual(len({event["sourceEvent"]["source_event_id"] for event in feed["events"]}), 2)
+
+    def test_conflicting_confirmed_duplicate_fails_closed(self):
+        self.add_event()
+        self.add_event(detail="Conflicting approved source record")
+        with self.assertRaisesRegex(ValueError, "conflicting duplicate"):
+            m.fetch_source_data()
+
+    def test_banked_verified_is_announced_not_distributed(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.add_event(resetType="banked", detail="Will be there later")
+        self.assertEqual(self.run_monitor(), 0)
+        batch = self.sender.call_args.args[0]
+        self.assertTrue(all(":announced:" in key for key in batch["deliveredPhaseKeys"]))
+        self.assertIsNone(batch["resetId"])
+
+    def test_frozen_pending_blocks_cutover_without_rewriting_files_or_ledger(self):
+        self.clock_complete_fixture()
+        self.state["pendingBatch"] = dict(batchId="codex-frozen-unknown")
+        self.state_file.write_text(json.dumps(self.state))
+        before = self.state_file.read_bytes()
+        self.sender.return_value = False
+        self.assertEqual(self.run_monitor(send_daily=True), 1)
+        self.assertEqual(self.state_file.read_bytes(), before)
+        self.assertEqual(self.sender.call_args.args[0], self.state["pendingBatch"])
+        self.assertNotIn("providerBaseline", self.read_state())
+
+    def test_new_sample_without_structured_preview_cannot_create_synthetic_history(self):
+        self.clock_complete_fixture()
+        with self.assertRaisesRegex(RuntimeError, "historical reset/preview"):
+            m.prepare_dingtalk_sample()
+        self.assertFalse((self.state_file.parent / "dingtalk").exists())
+        self.sender.assert_not_called()
+
+    def test_snapshot_source_time_and_links_are_not_old_provider(self):
+        forecast, _, _ = m.fetch_source_data()
+        audit = m.source_audit(forecast)
+        self.assertIsNone(audit["sourceTimes"]["predictionGeneratedAt"])
+        self.assertEqual(audit["sourceTimes"]["sourceUpdatedAt"], self.snapshot["source_updated_at"])
+        self.assertEqual(audit["sourceProvider"]["page"], "https://willcodexreset.com/zh")
+        self.assertFalse(audit["sourceCapabilities"]["regular_preview"])
+        self.assertIn("https://willcodexreset.com/zh", m.failure_message(ValueError("stale"), 3))
+
+    def test_absent_probability_is_not_replaced_by_zero_or_an_old_forecast(self):
+        self.snapshot["forecast"].pop("prob_24")
+        self.snapshot["capabilities"]["probability_24h"] = False
+        forecast, _, _ = m.fetch_source_data()
+        card = m.forecast_card_data(forecast)
+        self.assertIsNone(card["probability_24h"])
+        self.assertEqual(card["probability_48h"], .82)
+        self.assertNotIn("24 小时概率", m.daily_summary(forecast, self.current))
+
+    def group_config(self):
+        path = self.state_file.parent / "group.json"
+        path.write_text(json.dumps(dict(version=1, openclawRoot="/unused", imageHosting="qq_upload_only",
+                                        groupId="cidyHM8LHTEyQHtHoNc12qsUQ==")))
+        path.chmod(0o600)
+        return path
+
+    def test_new_source_stale_ingestion_leaves_dd_initialization_pending_and_qq_untouched(self):
+        original = self.state_file.read_bytes()
+        self.assertEqual(self.run_monitor(channel="dingtalk", group_config=self.group_config(),
+                                          initialize_on_success=True), 1)
+        dd_state = json.loads((self.state_file.parent / "dingtalk/group/state.json").read_text())
+        self.assertTrue(dd_state["initializationPending"])
+        self.assertIsNone(dd_state["initialized_at"])
+        self.assertIsNone(dd_state["daily_summary_date"])
+        self.assertIsNone(dd_state.get("pendingBatch"))
+        self.assertEqual(self.state_file.read_bytes(), original)
+        self.sender.assert_not_called()
+        self.warning.assert_not_called()
+
+    def test_new_source_healthy_ingestion_can_initialize_dd_once_without_faking_prediction_time(self):
+        self.snapshot["source_updated_at"] = self.snapshot["signal_checked_at"] = self.current.isoformat()
+        original = self.state_file.read_bytes()
+        config = self.group_config()
+        self.assertEqual(self.run_monitor(channel="dingtalk", group_config=config,
+                                          initialize_on_success=True), 0)
+        self.assertEqual(self.run_monitor(channel="dingtalk", group_config=config,
+                                          initialize_on_success=True), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        self.assertEqual(self.sender.call_args.args[0]["announcementIds"], [])
+        dd_root = self.state_file.parent / "dingtalk/group"
+        dd_state = json.loads((dd_root / "state.json").read_text())
+        self.assertFalse(dd_state["initializationPending"])
+        self.assertEqual(dd_state["daily_summary_date"], "2026-10-20")
+        snapshot_path = next((dd_root / "outbox").glob("*/snapshot.json"))
+        snapshot = json.loads(snapshot_path.read_text())
+        self.assertIsNone(snapshot["sourceTimes"]["predictionGeneratedAt"])
+        self.assertIsNone(snapshot["forecastCard"]["updated_at"])
+        self.assertEqual(self.state_file.read_bytes(), original)
 
 
 if __name__ == "__main__":

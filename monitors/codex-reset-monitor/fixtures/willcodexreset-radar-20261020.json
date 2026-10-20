@@ -1,0 +1,172 @@
+{
+  "code": 0,
+  "message": "ok",
+  "data": {
+    "updatedAt": "2026-10-20T02:04:22.949Z",
+    "probability24h": 72,
+    "probability48h": 82,
+    "verdict": "elevated",
+    "lastIngestion": {
+      "checkedAt": "2026-10-19T19:45:40.146Z",
+      "x": {
+        "status": "ok",
+        "events": 1
+      }
+    },
+    "events": [
+      {
+        "id": "tibo-2112034063934742720",
+        "kind": "tibo",
+        "occurredAt": "2026-10-19T04:12:15.000Z",
+        "title": "@thsottiaux",
+        "detail": "Our team worked with OpenCode to have their users who are also OpenAI API customers back in business and any credits refunded which would have been drawn in the attack.\n\nAlso, you can request Daybreak Blue access to use our cyber permissive setup for defense. Do not wait until you have to deal with an incident. We’re here to help.",
+        "url": "https://x.com/thsottiaux/status/2112034063934742720",
+        "impact": 0,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false,
+        "resetCandidateConfidence": 0.82,
+        "resetCandidateRationale": "Says affected users are back in business and credits drawn in the attack were refunded, indicating completed usage-credit restoration.",
+        "resetType": "usage"
+      },
+      {
+        "id": "manual-ca2d88b7-8103-450f-ac6e-1c5e99ee4096",
+        "kind": "reset",
+        "occurredAt": "2026-10-17T21:12:00.000Z",
+        "title": "Direct usage reset",
+        "detail": "Tibo: Done",
+        "url": "https://x.com/thsottiaux/status/2111566005684289735",
+        "impact": 0,
+        "verified": true,
+        "resetType": "usage"
+      },
+      {
+        "id": "manual-fd64e0a7-0f2d-4f7e-8e6d-02bc2ff372c4",
+        "kind": "reset",
+        "occurredAt": "2026-10-15T06:14:00.000Z",
+        "title": "Direct usage reset",
+        "detail": "Quota reset landed",
+        "impact": 0,
+        "verified": true,
+        "resetType": "usage"
+      },
+      {
+        "id": "approved-tibo-2109132167112782291",
+        "kind": "reset",
+        "occurredAt": "2026-10-11T04:01:00.000Z",
+        "title": "Reset reported by @thsottiaux",
+        "detail": "Put the reset in the bag. All propagated. https://t.co/HGxaD3Zdcj",
+        "url": "https://x.com/thsottiaux/status/2109132167112782291",
+        "impact": 0,
+        "verified": true,
+        "resetType": "usage",
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false
+      },
+      {
+        "id": "manual-5a2fce1d-a622-4b9d-a26c-6e2c81692ed5",
+        "kind": "reset",
+        "occurredAt": "2026-10-08T03:44:00.000Z",
+        "title": "Banked reset",
+        "detail": "Tibo: Confirmed landed across all accounts. How are we doing so far?\nwillcodexreset.com: Please note, over the next 25 days, Codex may reset suddenly and without warning every day. So it may be difficult for willcodexreset.com to publish advance reset predictions and reset notifications each and every time. Please manage your own usage pace accordingly, and pay attention to the probability and announcement messages on the website.",
+        "url": "https://x.com/thsottiaux/status/2108040921044639779",
+        "impact": 0,
+        "verified": true,
+        "resetType": "banked"
+      },
+      {
+        "id": "tibo-2107913674593644711",
+        "kind": "tibo",
+        "occurredAt": "2026-10-07T19:19:17.000Z",
+        "title": "@thsottiaux",
+        "detail": "Day 3/\n\nThe big one is GPT-6 in Chat, but today is also a little celebration day with a new high of 40M active users across Codex and ChatGPT Work.\n\nLoading a banked reset in everyone's paid accounts. See you again tomorrow! https://t.co/mHSI0PbWfe",
+        "url": "https://x.com/thsottiaux/status/2107913674593644711",
+        "impact": 100,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false,
+        "resetCandidateConfidence": 0.99,
+        "resetCandidateRationale": "Explicitly says a banked reset is loading in everyone's paid accounts; distribution has started and needs administrator confirmation.",
+        "resetType": "banked"
+      },
+      {
+        "id": "manual-c71c7600-489e-449b-b20e-3153dad8f992",
+        "kind": "reset",
+        "occurredAt": "2026-08-22T00:40:00.000Z",
+        "title": "Banked reset",
+        "detail": "The banked reset will be there by 8pm PST. For all paid users of ChatGPT Work and Codex. Do with this information what you may.",
+        "url": "https://x.com/thsottiaux/status/2090947196107764189",
+        "impact": 0,
+        "verified": true,
+        "resetType": "banked"
+      },
+      {
+        "id": "manual-5051f0a8-157d-4d86-97e8-0f13a65e10e2",
+        "kind": "reset",
+        "occurredAt": "2026-07-28T03:10:00.000Z",
+        "title": "Direct usage reset",
+        "detail": "Back at the laptop. The usage limits have been reset for all paid users of Codex and ChatGPT Work. Weeeeeeeee. It's a good day!",
+        "url": "https://x.com/thsottiaux/status/2081940052154933696",
+        "impact": 0,
+        "verified": true
+      }
+    ],
+    "tiboPosts": [
+      {
+        "id": "tibo-2112268918681485431",
+        "kind": "tibo",
+        "occurredAt": "2026-10-19T19:45:28.000Z",
+        "title": "@thsottiaux",
+        "detail": "Day 15/ We're cooked https://t.co/ciJpOJlmOn",
+        "url": "https://x.com/thsottiaux/status/2112268918681485431",
+        "impact": 0,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false
+      },
+      {
+        "id": "tibo-2112049026636103954",
+        "kind": "tibo",
+        "occurredAt": "2026-10-19T05:11:42.000Z",
+        "title": "@thsottiaux",
+        "detail": "@jxnlco Didn’t know Batman worked at OpenAI",
+        "url": "https://x.com/thsottiaux/status/2112049026636103954",
+        "impact": 0,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false
+      }
+    ],
+    "tiboRelevantPosts": [
+      {
+        "id": "tibo-2111918768733753664",
+        "kind": "tibo",
+        "occurredAt": "2026-10-18T20:34:06.000Z",
+        "title": "@thsottiaux",
+        "detail": "People have escaped the TL and are asking me for resets on the street now. I’ll make little cards to hand out",
+        "url": "https://x.com/thsottiaux/status/2111918768733753664",
+        "impact": 80,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false
+      },
+      {
+        "id": "tibo-2111492738025959922",
+        "kind": "tibo",
+        "occurredAt": "2026-10-17T16:21:13.000Z",
+        "title": "@thsottiaux",
+        "detail": "Landing sometime today by EOD PST",
+        "url": "https://x.com/thsottiaux/status/2111492738025959922",
+        "impact": 100,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false
+      },
+      {
+        "id": "tibo-2110595554036400151",
+        "kind": "tibo",
+        "occurredAt": "2026-10-15T04:56:07.000Z",
+        "title": "@thsottiaux",
+        "detail": "Landing within the next 2 hours",
+        "url": "https://x.com/thsottiaux/status/2110595554036400151",
+        "impact": 100,
+        "autoDetectedReset": false,
+        "autoApprovalEligible": false
+      }
+    ]
+  }
+}

@@ -6,7 +6,7 @@ from unittest.mock import patch
 import source_fetch as source
 
 
-URL = "https://willreset.com/api/forecast"
+URL = "https://willcodexreset.com/api/reset-radar"
 
 
 def response(status=200, body=b'{}', code=0):
@@ -32,10 +32,10 @@ class SourceFetchTests(unittest.TestCase):
         self.assertEqual(self.run.call_count, 1)
         self.sleep.assert_not_called()
 
-    def test_all_three_official_endpoints(self):
+    def test_authorized_endpoint(self):
         self.run.return_value = response()
         for path in source.SOURCE_PATHS:
-            self.assertEqual(source.fetch_json("https://willreset.com" + path), {})
+            self.assertEqual(source.fetch_json("https://willcodexreset.com" + path), {})
 
     def test_curl_scope_and_time_budget(self):
         self.run.return_value = response()
@@ -161,10 +161,13 @@ class SourceFetchTests(unittest.TestCase):
         self.assertEqual(self.run.call_count, 1)
 
     def test_invalid_urls_never_reach_curl_or_leak_credentials(self):
-        for url in ["http://willreset.com/api/forecast", "https://evil.test/api/forecast",
-                    "https://user:DO_NOT_LEAK@willreset.com/api/forecast",
+        for url in ["http://willcodexreset.com/api/reset-radar", "https://evil.test/api/reset-radar",
+                    "https://user:DO_NOT_LEAK@willcodexreset.com/api/reset-radar",
                     URL + "?token=DO_NOT_LEAK", URL + "#DO_NOT_LEAK",
-                    "https://willreset.com/developers", "--config=DO_NOT_LEAK", None]:
+                    "https://willcodexreset.com/developers", "--config=DO_NOT_LEAK", None,
+                    "https://willreset.com/api/forecast", "https://willreset.com/api/notify",
+                    "https://willreset.com/api/feed", "https://willcodexreset.com/api/forecast",
+                    "https://willcodexreset.com:443/api/reset-radar"]:
             with self.subTest(url=url):
                 with self.assertRaises(source.SourceFetchError) as caught:
                     source.fetch_json(url)

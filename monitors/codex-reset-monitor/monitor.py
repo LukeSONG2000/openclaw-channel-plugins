@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Monitor public Codex global reset signals from willreset.com only."""
+"""Monitor public Codex reset signals from Will Codex Reset only."""
 
 from __future__ import annotations
 
@@ -20,13 +20,11 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from source_fetch import fetch_json
+import provider_willcodexreset as provider
 
 
-SOURCE_URL = "https://willreset.com"
-FORECAST_URL = f"{SOURCE_URL}/api/forecast"
-NOTIFY_URL = f"{SOURCE_URL}/api/notify"
-FEED_URL = f"{SOURCE_URL}/api/feed"
-SOURCE_PAGE = f"{SOURCE_URL}/zh/"
+SOURCE_URL = "https://willcodexreset.com/zh"
+SOURCE_PAGE = SOURCE_URL
 TIMEZONE_URL = "https://time.ms/zh-cn/utc+8/"
 OPENCLAW_CONFIG = Path.home() / ".openclaw" / "openclaw.json"
 SHANGHAI = ZoneInfo("Asia/Shanghai")
@@ -125,6 +123,15 @@ def batch_phase_title(phases: list[ResetPhaseEvent], daily: bool = False) -> str
 
 def classify_reset_phase(event: dict[str, Any], forecast: dict[str, Any],
                          notify: dict[str, Any]) -> ResetPhaseEvent | None:
+    if "sourceSnapshot" in forecast:
+        source_event = event["sourceEvent"]
+        reset_type, phase = source_event["reset_type"], source_event["phase"]
+        if (reset_type, phase) not in PHASE_TITLES:
+            return None
+        result = dict(eventId=event["id"], resetType=reset_type, phase=phase,
+                      announcedAt=event["announced_at"])
+        phase_event_key(result)
+        return result
     kind, reset_kind = event["kind"], event.get("reset_kind")
     tags = event.get("tags") or []
     banked = kind == "banked" or reset_kind == "banked" or "banked" in tags
@@ -177,7 +184,10 @@ def pending_phase_events(phases: list[ResetPhaseEvent], state: dict[str, Any]) -
     seen = set(state.get("deliveredPhaseKeys", [])) | set(state.get("phaseBaselineKeys", []))
     pending = []
     for phase in phases:
-        known_baseline = phase["eventId"] in state.get("groupBaselineEventIds", [])
+        if provider_phase_suppressed(phase, state):
+            continue
+        known_baseline = (phase["eventId"] in state.get("groupBaselineEventIds", [])
+                          or phase["eventId"] in state.get("providerBaseline", {}).get("eventIds", []))
         if ((aware_time(phase["announcedAt"], "phase.announcedAt") < lower and not known_baseline)
                 or phase_event_key(phase) in seen):
             continue
@@ -260,6 +270,110 @@ def valid_percent(value: Any) -> bool:
             and math.isfinite(value) and 0 <= value <= 100)
 
 
+def validate_source_snapshot(snapshot: dict[str, Any]) -> None:
+    if (snapshot.get("provider_id") != provider.PROVIDER_ID
+            or snapshot.get("source_url") != SOURCE_PAGE
+            or snapshot.get("endpoint") != provider.ENDPOINT):
+        raise ValueError("source provider identity mismatch")
+    current = now_utc()
+    for field in ("source_updated_at", "signal_checked_at"):
+        stamp = aware_time(snapshot.get(field), "source." + field)
+        if current - stamp > MAX_SOURCE_AGE or stamp - current > MAX_CLOCK_SKEW:
+            raise ValueError(f"source.{field}: stale or future source timestamp")
+    if snapshot.get("signal_status") != "ok":
+        raise ValueError("source.signal_status: ingestion is not healthy")
+    # This provider has no independent prediction clock. Preserve that absence;
+    # it is not a reason to discard otherwise valid source/event observations.
+    if snapshot.get("forecast_generated_at") is not None:
+        stamp = aware_time(snapshot["forecast_generated_at"], "source.forecast_generated_at")
+        if current - stamp > MAX_SOURCE_AGE or stamp - current > MAX_CLOCK_SKEW:
+            raise ValueError("source.forecast_generated_at: stale or future prediction timestamp")
+    # Retrieval is audit evidence, never a substitute for either source clock.
+    aware_time(snapshot.get("retrieved_at"), "source.retrieved_at")
+
+
+def fetch_source_data() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]:
+    snapshot = provider.fetch_snapshot()
+    forecast = dict(snapshot["forecast"], sourceSnapshot=snapshot)
+    unique = {}
+    for event in snapshot["events"]:
+        stamp = aware_time(event["occurred_at"], "event.occurred_at")
+        if stamp > now_utc() + MAX_CLOCK_SKEW:
+            raise ValueError("event.occurred_at: future source event")
+        # Unclassified records may be a manual history row and its original post.
+        # Keep both as evidence; neither is eligible to produce an announcement.
+        key = event["event_id"], event["phase"] or event["source_event_id"]
+        previous = unique.get(key)
+        if previous and any(previous[field] != event[field] for field in (
+                "occurred_at", "reset_type", "detail", "source_url", "raw_kind")):
+            raise ValueError("source.events: conflicting duplicate event identity/phase")
+        unique[key] = event
+    events = [dict(id=event["event_id"], kind=event["raw_kind"], summary=event["detail"],
+                   announced_at=event["occurred_at"], source_url=event["source_url"], sourceEvent=event)
+              for event in unique.values()]
+    events.sort(key=lambda event: aware_time(event["announced_at"], "event.announced_at"), reverse=True)
+    # These are internal pipeline projections, not fabricated legacy API responses.
+    feed = dict(events=events, fetched_at=snapshot["retrieved_at"], sourceSnapshot=snapshot)
+    return forecast, dict(sourceSnapshot=snapshot), feed
+
+
+def load_source_data() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any], list[dict[str, Any]]]:
+    forecast, notify, feed = fetch_source_data()
+    if "sourceSnapshot" in forecast:
+        validate_source_snapshot(forecast["sourceSnapshot"])
+        events = feed["events"]
+    else:
+        validate_payloads(forecast, notify)
+        events = validate_feed(feed)
+    forecast_card_data(forecast)
+    return forecast, notify, feed, events
+
+
+def latest_source_reset(forecast: dict[str, Any]) -> dict[str, Any] | None:
+    events = [event for event in forecast["sourceSnapshot"]["events"]
+              if event["reset_type"] == "regular" and event["phase"] == "actual"]
+    return max(events, key=lambda event: aware_time(event["occurred_at"], "event.occurred_at"),
+               default=None)
+
+
+def source_audit(forecast: dict[str, Any]) -> dict[str, Any]:
+    source = forecast.get("sourceSnapshot")
+    if source is None:
+        return {}
+    return dict(sourceProvider=dict(id=source["provider_id"], name=source["source_name"],
+                                    page=source["source_url"], endpoint=source["endpoint"]),
+                sourceTimes=dict(retrievedAt=source["retrieved_at"],
+                                 sourceUpdatedAt=source["source_updated_at"],
+                                 signalCheckedAt=source["signal_checked_at"],
+                                 predictionGeneratedAt=source.get("forecast_generated_at")),
+                sourceSignalStatus=source["signal_status"], sourceCapabilities=source["capabilities"],
+                sourceForecast=source["forecast"])
+
+
+def migrate_source_state(state: dict[str, Any], forecast: dict[str, Any],
+                         events: list[dict[str, Any]], phases: list[ResetPhaseEvent]) -> None:
+    source = forecast.get("sourceSnapshot")
+    if source is None or state.get("sourceProviderId") == source["provider_id"]:
+        return
+    state["providerBaseline"] = dict(providerId=source["provider_id"], observedAt=now_utc().isoformat(),
+                                    eventIds=list(dict.fromkeys(event["id"] for event in events)),
+                                    phaseKeys=list(dict.fromkeys(phase_event_key(p) for p in phases)),
+                                    previousProviderId=state.get("sourceProviderId", "willreset"),
+                                    evidence="fresh-source-observation-not-a-delivery")
+    state["sourceProviderId"] = source["provider_id"]
+
+
+def provider_phase_suppressed(phase: ResetPhaseEvent, state: dict[str, Any]) -> bool:
+    baseline = state.get("providerBaseline")
+    if not baseline:
+        return False
+    if phase_event_key(phase) in baseline["phaseKeys"]:
+        return True
+    return (phase["eventId"] not in baseline["eventIds"]
+            and aware_time(phase["announcedAt"], "phase.announcedAt")
+            <= aware_time(baseline["observedAt"], "providerBaseline.observedAt"))
+
+
 def validate_payloads(forecast: dict[str, Any], notify: dict[str, Any]) -> None:
     current = now_utc()
     for name, payload in (("forecast", forecast), ("notify", notify)):
@@ -323,6 +437,9 @@ def validate_payloads(forecast: dict[str, Any], notify: dict[str, Any]) -> None:
 
 
 def confirmed_reset_id(forecast: dict[str, Any], notify: dict[str, Any]) -> str:
+    if "sourceSnapshot" in forecast:
+        event = latest_source_reset(forecast)
+        return event["event_id"] if event else ""
     if not any(f["code"] == "last_reset" for f in forecast["factors"]):
         return ""
     return notify["last_reset_id"].strip()
@@ -335,7 +452,8 @@ def reset_is_older_than_state(reset_id: str, reset_at: str, state: dict[str, Any
                      and re.fullmatch(r"[0-9]+", v)), default=0)
     known_at = parse_time(state.get("last_reset_at"))
     event_at = parse_time(reset_at)
-    return int(reset_id) < watermark or (known_at is not None and event_at < known_at)
+    return ((reset_id.isdigit() and int(reset_id) < watermark)
+            or (known_at is not None and event_at < known_at))
 
 
 def forecast_probability(forecast: dict[str, Any], hours: int) -> str:
@@ -439,6 +557,12 @@ def next_reset_text(forecast: dict[str, Any], current: datetime) -> str:
 
 
 def daily_summary(forecast: dict[str, Any], current: datetime) -> str:
+    if "sourceSnapshot" in forecast:
+        lines = ["Codex 统一重置今日预测"]
+        for hours in (24, 48):
+            if valid_percent(forecast.get(f"prob_{hours}")):
+                lines.append(f"{hours} 小时概率：{percent(forecast[f'prob_{hours}'])}")
+        return "\n".join(lines + ["下次重置预测：来源未提供具体时间", f"来源：{SOURCE_PAGE}"])
     return "\n".join(
         [
             "Codex 统一重置今日预测",
@@ -473,7 +597,7 @@ def failure_message(error: Exception, count: int) -> str:
             "Codex 统一重置监控异常",
             f"连续抓取失败：{count} 次",
             f"错误：{str(error)[:300]}",
-            "需要检查 OpenClaw 主机网络或 willreset.com 可用性。",
+            "需要检查 OpenClaw 主机网络或 willcodexreset.com 数据有效性。",
             f"来源：{SOURCE_URL}",
         ]
     )
@@ -536,14 +660,25 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
         phases_by_id.setdefault(phase["eventId"], set()).add(phase_event_key(phase))
     result = []
     for event in events:
+        if "sourceEvent" in event:
+            source_event = event["sourceEvent"]
+            if source_event["phase"] is None:
+                continue
+            phase = dict(eventId=event["id"], resetType=source_event["reset_type"],
+                         phase=source_event["phase"], announcedAt=event["announced_at"])
+            if provider_phase_suppressed(phase, state):
+                continue
         phase_keys = phases_by_id.get(event["id"], set())
-        baseline_upgrade = (event["id"] in state.get("groupBaselineEventIds", [])
+        baseline_upgrade = ((event["id"] in state.get("groupBaselineEventIds", [])
+                             or event["id"] in state.get("providerBaseline", {}).get("eventIds", []))
                             and bool(phase_keys.difference(seen_phase_keys)))
         if aware_time(event["announced_at"], "event time") < lower and not baseline_upgrade:
             continue
         # Trigger baselines are not content acknowledgements: unseen IDs remain deliverable.
         if event["id"] in sent and (not phase_keys or not phase_keys.difference(seen_phase_keys)):
             continue
+        if "sourceEvent" in event and event["sourceEvent"].get("source_author") != "thsottiaux":
+            raise ValueError("pending source event lacks a verified original Tibo URL")
         url = urlsplit(event.get("source_url") or "")
         if (url.scheme != "https" or url.hostname not in ("x.com", "twitter.com")
                 or url.username or url.password or url.port not in (None, 443)
@@ -653,6 +788,12 @@ def forecast_card_data(forecast: dict[str, Any]) -> dict[str, Any]:
         probability = forecast.get(f"prob_{hours}")
         probabilities[f"probability_{hours}h"] = (probability / 100
             if valid_percent(probability) else None)
+    if "sourceSnapshot" in forecast:
+        latest = latest_source_reset(forecast)
+        return dict(probabilities, status="来源预测",
+                    summary="来源未提供今日重置状态或下次重置具体时间。",
+                    updated_at=forecast.get("forecast_generated_at"),
+                    last_reset_at=latest["occurred_at"] if latest else None)
     answer = forecast["answer"]
     did_reset = forecast.get("did_reset_today")
     if did_reset is not None and type(did_reset) is not bool:
@@ -732,11 +873,15 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                     resetId=reset_id or None, dailyDate=daily_date, manualPreview=manual_preview,
                     sourceWarnings=warnings, manifestVersion=2, delivery="single_markdown",
                     title=batch_phase_title(phases, daily=bool(daily_date)), eventPhases=phases)
+    snapshot.update(source_audit(forecast))
     if GROUP_CONFIG is not None:
         snapshot.update(group_binding())
     primary = primary_phase(phases)
     if primary:
         snapshot["stageText"] = PHASE_DETAILS[(primary["resetType"], primary["phase"])]
+        if ("sourceSnapshot" in forecast
+                and (primary["resetType"], primary["phase"]) == ("regular", "actual")):
+            snapshot["stageText"] = "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账"
     if dingtalk_sample:
         snapshot.update(channel="dingtalk", purpose="private-test-current-forecast-with-history",
                         businessStateMutation=False,
@@ -772,11 +917,7 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
 
 def prepare_dingtalk_sample() -> dict[str, Any]:
     """Prepare a current forecast and clearly labelled history, without business state."""
-    forecast = fetch_json(FORECAST_URL)
-    notify = fetch_json(NOTIFY_URL)
-    validate_payloads(forecast, notify)
-    feed = fetch_json(FEED_URL)
-    events = validate_feed(feed)
+    forecast, notify, feed, events = load_source_data()
     today = now_utc().astimezone(SHANGHAI).date()
     selected = []
     for kind, preview in (("reset", False), ("reset_preview", True)):
@@ -896,13 +1037,17 @@ def establish_baseline(state: dict[str, Any], forecast: dict[str, Any], notify: 
                        phase_events: list[ResetPhaseEvent] | None = None) -> None:
     reset_id = confirmed_reset_id(forecast, notify)
     state["initialized_at"] = now_utc().isoformat()
-    state["last_reset_id"] = reset_id or None
-    if reset_id:
-        state["last_reset_at"] = notify["last_reset_at"]
-    state.update(version=2, migrationLowerBound=now_utc().replace(microsecond=0).isoformat(),
-                 migrationEvidence={"source": "fresh-baseline-not-a-delivery"},
-                 lastSuccessfulPushAt=None, announcementWatermark=None,
-                 sentAnnouncementIds=[], pendingBatch=None, baselineResetId=reset_id or None)
+    if reset_id and not state.get("last_reset_id"):
+        state["last_reset_id"] = reset_id
+        source_reset = latest_source_reset(forecast) if "sourceSnapshot" in forecast else None
+        state["last_reset_at"] = source_reset["occurred_at"] if source_reset else notify["last_reset_at"]
+    state["version"] = 2
+    for key, value in dict(migrationLowerBound=now_utc().replace(microsecond=0).isoformat(),
+                           migrationEvidence={"source": "fresh-baseline-not-a-delivery"},
+                           lastSuccessfulPushAt=None, announcementWatermark=None,
+                           sentAnnouncementIds=[], pendingBatch=None,
+                           baselineResetId=reset_id or None).items():
+        state.setdefault(key, value)
     state["consecutive_fetch_failures"] = 0
     state["failure_notified"] = False
     initialize_phase_state(state, phase_events or [], fresh=True)
@@ -965,21 +1110,16 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         return push(message)
 
     try:
-        forecast = fetch_json(FORECAST_URL)
-        notify = fetch_json(NOTIFY_URL)
-        validate_payloads(forecast, notify)
-        forecast_card_data(forecast)
-        feed = fetch_json(FEED_URL)
-        events = validate_feed(feed)
+        forecast, notify, feed, events = load_source_data()
         confirmed = confirmed_reset_id(forecast, notify)
-        if confirmed:
+        if confirmed and "sourceSnapshot" not in forecast:
             event = next((e for e in events if e["id"] == confirmed), None)
             if (event is None or event["kind"] != "reset" or event.get("preview") is not False
                     or event["announced_at"] != notify["last_reset_at"]
                     or event.get("source_url") != notify.get("last_reset_url")):
                 raise ValueError("feed/confirmed forecast disagree on reset evidence")
         phases = [phase for event in events if (phase := classify_reset_phase(event, forecast, notify)) is not None]
-        if state.get("version") == 2:
+        if state.get("version") == 2 and "sourceSnapshot" not in forecast:
             select_announcements(events, state, phase_events=phases)
     except Exception as exc:
         state["consecutive_fetch_failures"] = int(state.get("consecutive_fetch_failures") or 0) + 1
@@ -1003,6 +1143,7 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         return 0
 
     if not state.get("initialized_at"):
+        migrate_source_state(state, forecast, events, phases)
         establish_baseline(state, forecast, notify, dry_run=dry_run, no_send=no_send, phase_events=phases)
         if not initializing:
             return 0
@@ -1015,10 +1156,6 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         state["failure_notified"] = False
         if GROUP_CONFIG is None:
             migrate_delivery_state(state)
-        initialize_phase_state(state, phases)
-        # Check all eligible announcements even on quiet polls; never silently drop malformed pending data.
-        select_announcements(events, state, phase_events=phases)
-        save()
         if state.get("pendingBatch"):
             pending = state["pendingBatch"]
             if not deliver_batch(pending):
@@ -1031,15 +1168,24 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
             if manual_preview and pending.get("manualPreview"):
                 return 0
 
+        migrate_source_state(state, forecast, events, phases)
+        initialize_phase_state(state, phases)
+        # Apply the source cutover before validating send-window URLs or selecting history.
+        select_announcements(events, state, phase_events=phases)
+        save()
+
         current = now_utc()
         reset_id = confirmed_reset_id(forecast, notify)
-        if reset_id and reset_is_older_than_state(reset_id, notify["last_reset_at"], state):
+        source_reset = latest_source_reset(forecast) if "sourceSnapshot" in forecast else None
+        reset_at = source_reset["occurred_at"] if source_reset else notify.get("last_reset_at")
+        if reset_id and reset_is_older_than_state(reset_id, reset_at, state):
             print(f"older reset ignored id={reset_id}")
             reset_id = ""
         regular_actual = next((p for p in phases if p["resetType"] == "regular" and p["phase"] == "actual"), None)
-        if reset_id and regular_actual and reset_id != state.get("last_reset_id"):
+        if (reset_id and regular_actual and reset_id != state.get("last_reset_id")
+                and not provider_phase_suppressed(regular_actual, state)):
             state["last_reset_id"] = reset_id
-            state["last_reset_at"] = notify["last_reset_at"]
+            state["last_reset_at"] = reset_at
         pending_phases = pending_phase_events(phases, state)
         needs_reset = any(p["resetType"] == "regular" and p["phase"] == "actual" for p in pending_phases)
         today = current.astimezone(SHANGHAI).date().isoformat()

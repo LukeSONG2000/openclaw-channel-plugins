@@ -23,12 +23,9 @@ def main():
 
     state_file = monitor.STATE_FILE
     before = state_file.read_bytes() if state_file.exists() else None
-    forecast = monitor.fetch_json(monitor.FORECAST_URL)
-    notify = monitor.fetch_json(monitor.NOTIFY_URL)
-    monitor.validate_payloads(forecast, notify)
-    feed = monitor.fetch_json(monitor.FEED_URL)
-    events = monitor.validate_feed(feed)
-    if forecast["answer"] != "promised" or forecast.get("did_reset_today") is True:
+    forecast, notify, feed, events = monitor.load_source_data()
+    if "sourceSnapshot" not in forecast and (
+            forecast["answer"] != "promised" or forecast.get("did_reset_today") is True):
         raise RuntimeError("live forecast changed; review the requested current-promised sample first")
 
     selected = []
@@ -46,8 +43,9 @@ def main():
 
     snapshot = dict(purpose="historical-layout-example-not-today", businessStateMutation=False,
                     createdAt=monitor.now_utc().isoformat(), forecastCard=monitor.forecast_card_data(forecast),
-                    forecastComputedAt=forecast["computed_at"], feedFetchedAt=feed["fetched_at"],
+                    forecastComputedAt=forecast.get("computed_at"), feedFetchedAt=feed["fetched_at"],
                     announcements=selected, manifestVersion=2, delivery="single_markdown")
+    snapshot.update(monitor.source_audit(forecast))
     snapshot["sourceWarnings"] = [dict(code="source_probability_interval_mismatch", field=f"prob_{hours}",
                                        probability=forecast[f"prob_{hours}"], interval=forecast[f"range_{hours}"])
                                   for hours in (24, 48) if monitor.valid_percent(forecast.get(f"prob_{hours}"))

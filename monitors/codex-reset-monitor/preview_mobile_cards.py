@@ -29,11 +29,21 @@ def main():
         data = dict(summary=event["summary"], kind=event["kind"],
                     published_at=event["announced_at"])
         rendered.append(render_announcement_card(data, output / ("announcement-%d.png" % index), now=now))
+    source_card_count = len(rendered)
     rendered.append(render_forecast_card(dict(forecast, probability_24h=1, probability_48h=1),
                                          output / "forecast-100.png", now=now))
     rendered.append(render_forecast_card(dict(forecast, probability_24h=None, probability_48h=None,
                                                last_reset_at=None), output / "forecast-unavailable.png", now=now))
+    visual_tests = ["forecast-100.png", "forecast-unavailable.png"]
+    if forecast.get("probability_48h") is not None:
+        only_48h = {key: value for key, value in forecast.items() if key != "probability_24h"}
+        rendered.append(render_forecast_card(only_48h, output / "forecast-48h-only.png", now=now))
+        visual_tests.append("forecast-48h-only.png")
+        long_text = dict(only_48h, summary=(forecast["summary"] + "\n") * 6)
+        rendered.append(render_forecast_card(long_text, output / "forecast-48h-long.png", now=now))
+        visual_tests.append("forecast-48h-long.png")
     previews = {}
+    scaled_cards = {}
     for width in (320, 360):
         scaled = []
         for meta in rendered:
@@ -43,11 +53,14 @@ def main():
                                      Image.Resampling.LANCZOS)
             target = output / (path.stem + "-%d.png" % width)
             small.save(target)
+            scaled_cards.setdefault(str(width), []).append(str(target))
             scaled.append(small)
         # Stacked cards stay at exactly QQ's image width, never a wide contact sheet.
-        stack = Image.new("RGB", (width, sum(im.height for im in scaled[:3]) + 32), "#ececf0")
+        source_cards = scaled[:source_card_count]
+        stack = Image.new("RGB", (width, sum(im.height for im in source_cards)
+                                  + 16 * (source_card_count - 1)), "#ececf0")
         y = 0
-        for image in scaled[:3]:
+        for image in source_cards:
             stack.paste(image, (0, y))
             y += image.height + 16
         target = output / ("qq-stack-%d.png" % width)
@@ -56,7 +69,8 @@ def main():
     assert source.read_bytes() == snapshot_bytes, "source snapshot changed"
     report = dict(sourceSnapshot=str(source), sourceSnapshotSha256=hashlib.sha256(snapshot_bytes).hexdigest(),
                   sourceSnapshotUnchanged=True, runtimeStateAccess=False, messagesSent=0,
-                  sourcePurpose=snapshot.get("purpose"), cards=rendered, previews=previews)
+                  sourcePurpose=snapshot.get("purpose"), cards=rendered, previews=previews,
+                  visualTestCards=visual_tests, scaledCards=scaled_cards)
     (output / "preview-report.json").write_text(json.dumps(report, ensure_ascii=False, indent=2) + "\n")
     print(json.dumps(report, ensure_ascii=False, indent=2))
 

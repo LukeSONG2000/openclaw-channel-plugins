@@ -2,7 +2,8 @@
 """Render normalized API data, offline, with Pillow >= 9.2 and a CJK font.
 
 Public API: render_forecast_card / render_announcement_card -> PNG metadata.
-No requests, browser, or model calls. Probabilities are fractions in [0, 1] or None.
+No requests, browser, or model calls. Missing/None probabilities are omitted.
+Supplied probabilities are fractions in [0, 1]; updated_at may be missing/None.
 Announcement summary is required; text and body are deliberately never used.
 """
 
@@ -235,51 +236,48 @@ def render_forecast_card(data, output_path, *, now=None, font_path=None):
     status_font = load_font(font_file, 48)
     number_file = find_number_font(font_file)
     probabilities = []
-    for key in ("probability_24h", "probability_48h"):
+    for key, label, color in (("probability_24h", "未来 24 小时", YELLOW),
+                              ("probability_48h", "未来 48 小时", BLUE)):
         value = data.get(key)
         if value is None:
-            probabilities.append("不可用")
             continue
         if (isinstance(value, bool) or not isinstance(value, (int, float))
                 or not math.isfinite(value) or not 0 <= value <= 1):
             raise ValueError("{} must be a finite fraction in [0, 1]".format(key))
-        probabilities.append("{}%".format(int(value * 100 + 0.5)))
+        probabilities.append((label, "{}%".format(int(value * 100 + 0.5)), color))
     status = required_text(data, "status")
     summary = required_text(data, "summary")
-    updated = "更新于\n" + date_lines(data["updated_at"])
+    updated_at = data.get("updated_at")
+    updated = "更新于\n" + date_lines(updated_at) if updated_at is not None else None
     last = data.get("last_reset_at")
     reset = ("最近一次全局重置 · " + relative_time(last, now) + "\n" + date_lines(last)
              if last is not None else "最近一次全局重置\n暂无记录")
     x, available = 50, WIDTH - 100
-    status_y = 344
+    status_y = 344 if probabilities else 62
     summary_y = status_y + block_height(status, status_font, available) + 18
     updated_y = summary_y + block_height(summary, body, available) + 26
-    reset_y = updated_y + block_height(updated, small, available, gap=8) + 26
+    reset_y = updated_y + block_height(updated, small, available, gap=8) + 26 if updated else updated_y
     height = reset_y + block_height(reset, small, available, gap=8) + 50
     canvas, draw = card_canvas(height, dotted=True)
-    for index, (label, value, color) in enumerate(zip(
-            ("未来 24 小时", "未来 48 小时"), probabilities, (YELLOW, BLUE))):
-        panel_width = (available - 24) // 2
+    for index, (label, value, color) in enumerate(probabilities):
+        panel_width = (available - 24 * (len(probabilities) - 1)) // len(probabilities)
         px = x + index * (panel_width + 24)
         draw.text((px, 62), label, font=small, fill=MUTED, anchor="lt")
         draw.rounded_rectangle((px, 122, px + panel_width, 304), radius=16, fill=color)
-        if value == "不可用":
-            number = load_font(font_file, BODY_SIZE)
-            draw.text((px + panel_width / 2, 213), value, font=number, fill=INK, anchor="mm")
-        else:
-            # Keep the digits large even at 100%; only the unit uses a smaller face.
-            digits, unit = value[:-1], "%"
-            number = fit_font(digits, number_file, NUMBER_SIZE, panel_width - 76, 152)
-            percent = load_font(number_file, 48)
-            run_width = number.getlength(digits) + 8 + percent.getlength(unit)
-            start = px + (panel_width - run_width) / 2
-            draw.text((start, 262), digits, font=number, fill=INK, anchor="ls")
-            draw.text((start + number.getlength(digits) + 8, 262), unit,
-                      font=percent, fill=INK, anchor="ls")
+        # Keep the digits large even at 100%; only the unit uses a smaller face.
+        digits, unit = value[:-1], "%"
+        number = fit_font(digits, number_file, NUMBER_SIZE, panel_width - 76, 152)
+        percent = load_font(number_file, 48)
+        run_width = number.getlength(digits) + 8 + percent.getlength(unit)
+        start = px + (panel_width - run_width) / 2
+        draw.text((start, 262), digits, font=number, fill=INK, anchor="ls")
+        draw.text((start + number.getlength(digits) + 8, 262), unit,
+                  font=percent, fill=INK, anchor="ls")
     text_block(draw, status, status_font, (x, status_y), available, ORANGE)
     text_block(draw, summary, body, (x, summary_y), available, MUTED)
     draw.line((x, updated_y - 16, WIDTH - x, updated_y - 16), fill="#c9bda8", width=2)
-    text_block(draw, updated, small, (x, updated_y), available, MUTED, gap=8)
+    if updated:
+        text_block(draw, updated, small, (x, updated_y), available, MUTED, gap=8)
     text_block(draw, reset, small, (x, reset_y), available, MUTED, gap=8)
     return save_card(canvas, output_path)
 

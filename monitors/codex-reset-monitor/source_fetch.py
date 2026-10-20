@@ -1,4 +1,4 @@
-"""Fetch current willreset REST data without cache or alternate-source fallback.
+"""Fetch the authorized Will Codex Reset API without cache or source fallback.
 
 The caller must still validate schema, freshness and reset confirmation. This
 module never updates monitor health, delivery state, or notification watermarks.
@@ -20,8 +20,8 @@ PROCESS_TIMEOUT = 25
 RETRY_DELAYS = (2, 4)
 MAX_CALL_SECONDS = MAX_ATTEMPTS * PROCESS_TIMEOUT + sum(RETRY_DELAYS)
 RETRY_HTTP = frozenset((408, 425, 429, 500, 502, 503, 504))
-RETRY_CURL = frozenset((5, 6, 7, 18, 28, 35, 52, 55, 56, 92))
-SOURCE_PATHS = frozenset(("/api/forecast", "/api/notify", "/api/feed"))
+RETRY_CURL = frozenset((5, 6, 7, 16, 18, 28, 35, 52, 55, 56, 92))
+SOURCE_PATHS = frozenset(("/api/reset-radar",))
 HTTP_MARKER = b"\nSOURCE_FETCH_HTTP:"
 
 
@@ -48,7 +48,7 @@ class SourceFetchError(RuntimeError):
 def _endpoint(url: str) -> str:
     try:
         parsed = urlsplit(url)
-        if (parsed.scheme == "https" and parsed.netloc == "willreset.com"
+        if (parsed.scheme == "https" and parsed.netloc == "willcodexreset.com"
                 and parsed.path in SOURCE_PATHS and not parsed.query
                 and not parsed.fragment):
             return parsed.path

@@ -1,5 +1,65 @@
 # Codex 统一重置监控
 
+## 2026-10-20 来源迁移与运行策略
+
+当前代码唯一读取 [Will Codex Reset 中文站](https://willcodexreset.com/zh)
+公开页面实际使用的 `https://willcodexreset.com/api/reset-radar`，不请求旧站、
+不读旧 snapshot 作为新数据、不使用 SSR 的 0% 加载占位。代码来源已切换，
+独立 QA 305 项通过；本轮已获备份部署及限定文件 commit/push 授权。
+代码部署不等于来源时效通过、日报已发或 DD 已初始化；后文 2026-10-19 的
+部署/样例均为保留的历史记录。
+
+真实返回的 `probability24h` 和 `probability48h` 都存在（本次采集 72/82），
+是 0..100 概率原值，渲染时仅除以 100；不补零、不推算。任一期限缺失便省略
+对应面板。没有置信度、区间、promise、具体未来重置时间和结构化 preview，
+不伪造旧 API 字段。没有今日重置状态时显示“来源预测”，不声称今天已重置或未重置。
+
+严格区分本机 `retrieved_at`、源响应 `source_updated_at`、信号采集
+`signal_checked_at`、事件 `occurred_at` 和预测生成 `forecast_generated_at`。
+前两个不能给旧信号/概率保鲜。响应和采集时间仍要求不超过两小时、未来偏移不超
+五分钟，采集 status 必须为 ok；若另有真实预测生成时间，也校验该时间。
+两小时是旧监控沿用的内部保守运行策略，不是新站 schema 或网站要求；
+`lastIngestion.checkedAt` 表示来源报告的采集时间，不是概率发布时间。
+是否允许明确披露采集时间的延迟预测日报仍待用户决定，本轮不隐式放宽。
+采集超过两小时只能说明不满足当前内部策略，不能据此断言概率已经过期。
+新源目前没有公开可证的预测生成时间，provider 明确返回 None、
+`forecast_generation_time=false`，只表示无法核实概率生成时刻，不否定全部事件证据，
+也不作为单独的永久阻断。本次实测采集时间已超过两小时，因此仍 fail closed。
+不得据 HTTP200 说来源恢复、补发成功或 DD 初始化完成。
+卡片缺少真实预测时间就省略更新行，不替换为响应时间或抓取时间。
+
+所有新生产/隔离样例 manifest 的“信息来源”统一为新站 `/zh`，
+snapshot 的 `sourceProvider`、`sourceTimes`、`sourceCapabilities`、
+`sourceSignalStatus` 留存身份、独立时间及能力；公告保留原生 `source_event_id`、
+真实 `x_status_id`、来源作者与原始 URL。`feedFetchedAt` 是本次 HTTP 读取时间，
+仅为事务审计水位，不证明公告或预测新鲜。
+
+regular actual 只接受源结构 `kind=reset / verified=true / resetType=usage`；
+站方公开管理文案将其定义为已确认的全局重置事件，图表和日历也只纳入这一组合。
+不依赖标题、分数、autoDetectedReset 或正文猜测；来源确认不保证个人到账，
+新源 actual 正文明确“来源已确认直接用量重置，不代表个人到账”。verified banked 记录可能仍是
+未来措辞，只映射 banked announced，绝不映射 distributed。未知类型/阶段和普通
+tibo 帖不触发；只在有真实 `thsottiaux` 原始 X URL 时允许生成署名 Tibo 的公告卡。
+无原帖证据的新待发事件阻断，不补造链接。当前没有 regular preview、banked
+upcoming/distributed 能力；隔离历史样例若要求不存在的 reset/preview 配对也会停止。
+
+真实 X URL 的数字 tweet ID 沿用旧去重键，其他原生 ID 使用 provider 前缀。
+首次完整有效正常 run 创建独立 `providerBaseline`，记录全部已见 ID、阶段键和
+固定切换时间，仅表示观测而非成功。所有既存历史和之后迟到但早于切换时间的
+未知 ID 都不补发；已观察同 ID 后续出现明确新阶段仍保留原阶段规则。
+旧 daily、reset、notified、sentAnnouncementIds、deliveredPhaseKeys、pending
+和迁移下界均保留；新源无 last_reset 不清空旧 reset 水位。dry-run/no-send 不建立
+来源基线，不消费事件。冻结旧 outbox/receipt/图片保持原字节，未知发送不重放。
+
+QQ 与 DD 独立账本、08:00 + 15 分钟计划、首次 fresh 初始化门禁及回执去重不变。
+待 QA/PM 放行且真实数据全部门禁通过后，才可执行 QQ 今日既有日报补发
+（由 dailyDate 去重）及 DD 首次 initialize-on-success；不是额外群样例授权。
+本轮仅备份部署及提交推送审定的来源/集成/渲染文件；不改
+sender/transport/unit/插件，不回滚或重置业务账本，不改冻结 outbox/receipt。
+若来源仍不满足原门禁，仅记录真实新接口 HTTP200 与校验阻断，不实际发送，
+不回退旧 snapshot，也不等待来源恢复。若真实采集已满足全部门禁，则沿用此前
+QQ 当日既有 daily 与 DD 首次初始化授权，各按账本去重一次，不额外群发样例。
+
 ## 钉钉群运行
 
 正式群固定为“AI组内通知”，使用显式 `--group-config`，不复用私人测试配置。
@@ -13,8 +73,9 @@ python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --daily-sum
 ```
 
 上述为手动两步方式。正式 poll service 带 `--initialize-on-success`：可在独立 QA
-和部署启用授权通过后等待来源恢复，首次三个官方端点真实 200 且原 schema、
-freshness、confirmed 跨接口校验全部通过时，同次建立基线并发送唯一真实日报。
+和部署启用授权通过后等待来源恢复，首次当前 provider 的 schema、来源时钟和
+采集健康门禁全部通过时，同次建立基线并发送唯一真实日报；概率生成时刻
+未被独立核实，不能以该运行结果宣称预测已刷新。
 来源失败始终只写独立健康计数和 journal，不往群发 health/error，也不回退 QQ。
 首次日报完成前保留 `initializationPending: true`，不标 daily 成功；已有基线或
 未确认 pending 也会继续同一初始化意图。
@@ -166,7 +227,9 @@ banked distributed 为“Codex重置卡已发放！”，banked announced 为
 “Codex已公布重置卡消息！”。正文另有类型/阶段说明；预告明确尚未到账，
 重置卡已发放仅代表来源报告发放，不代表当前管理员个人或全体用户到账。
 
-映射先识别 banked kind/reset_kind/tag，避免将重置卡预告当成常规重置。
+以下 kind/reset_kind/tag 与跨接口映射为旧 provider 的历史兼容规则，
+仅保留离线回归；新 provider 按前述真实结构合约投影，不构造旧接口响应。
+旧映射先识别 banked kind/reset_kind/tag，避免将重置卡预告当成常规重置。
 kind=banked 的 arriving/available/announced 分别对应 upcoming/distributed/announced；
 available 还要求 preview=false。真实 reset_preview、preview=true、banked tag
 且无明确其他 banked_state 时对应 upcoming。unknown/缺失状态不推断发卡。
@@ -185,7 +248,7 @@ phaseBaselineAt/phaseBaselineKeys，阻止已存在历史阶段即时补发；ba
 用户已验收 QQ 客户端图片展示，2026-10-19 15:22（UTC+8）已恢复自动投递。
 这是此前验收及恢复记录，不代表本次文本规则变更已部署；本次仍待 PM 整合及 QA。
 
-唯一来源为 [willreset.com 中文站](https://willreset.com/zh/)，使用公开的
+历史来源为 willreset.com 中文站，使用公开的
 `/api/forecast`、`/api/notify`、`/api/feed`，不启动浏览器、不混入 feed.posts。
 feed 全取后本地校验、按 ID 去重，不依赖被忽略的分页参数，不截取前 12 条，
 也不按 cadence/scope 排除公告。只有 forecast/notify 的有效 `last_reset`
@@ -195,8 +258,9 @@ feed 全取后本地校验、按 ID 去重，不依赖被忽略的分页参数�
 
 运行依赖 Python 3.9+、Pillow >= 9.2、可用中文字体、Node.js、curl 和 QQ
 发送适配器及其 sender-manifest.mjs/sender-transport.mjs。抓取仅在本进程内使用
-IPv4 HTTPS，连接超时 5 秒、单次总超时 20 秒、最多两次尝试，不修改系统网络。
-schema 错误按抓取失败计数；`computed_at`、`live_fetched_at` 和 `fetched_at`
+IPv4 HTTPS，连接超时 5 秒、curl 单次总超时 20 秒、进程上限 25 秒、
+最多三次尝试，不修改系统网络。
+schema 错误按抓取失败计数；旧 provider 的 `computed_at`、`live_fetched_at` 和 `fetched_at`
 均必须存在、距当前不超过两小时，且未来偏移不超过五分钟，否则不能清零。
 连续第三次失败告警，成功抓取并通过校验后清零。确认事件使用 state 中的
 事件 ID 水位及已知事件时间防倒退，较旧已通知或未通知事件均不推进、不发送。
@@ -204,7 +268,7 @@ schema 错误按抓取失败计数；`computed_at`、`live_fetched_at` 和 `fetc
 有效概率，不修改、推算或校准数字；这不是已校准概率的声明。仅无有效概率
 时传 None 显示不可用。来源概率与区间矛盾会记录在 snapshot.sourceWarnings
 及日志中，旧纯文本 forecast_probability 仍显示 CI 矛盾警告；JSON/schema、
-confirmed 和时效门禁不变。卡片更新时刻使用 computed_at，
+confirmed 和时效门禁不变。旧 provider 卡片更新时刻使用 computed_at，
 不是 live_fetched_at；图片时区标注统一为 UTC+08:00，时间偏移仍为 UTC+8，
 不改变时间语义。新 batch 的单条消息不附加独立时区 footer 或时区链接；
 PNG 内的 UTC+08:00 标注保留，图片本身不承载可点击链接。

@@ -1,7 +1,11 @@
 import ast
 import hashlib
+import io
+import json
+import sys
 import tempfile
 import unittest
+from contextlib import redirect_stdout
 from datetime import timedelta
 from pathlib import Path
 from unittest.mock import patch
@@ -9,6 +13,7 @@ from unittest.mock import patch
 from PIL import Image, ImageDraw, ImageFont
 
 import render_cards as cards
+import preview_mobile_cards as mobile
 
 
 NOW = "2026-10-19T02:33:00Z"
@@ -108,7 +113,7 @@ class RenderCardsTests(unittest.TestCase):
             self.assertLessEqual(box[3] - box[1], 152)
         with tempfile.TemporaryDirectory() as directory:
             target = Path(directory) / "prob.png"
-            for value in (0, .71, 1, None):
+            for value in (0, .71, 1):
                 cards.render_forecast_card(dict(FORECAST, probability_24h=value), target, now=NOW)
                 with Image.open(target) as image:
                     # A clear internal moat must surround all probability text.
@@ -242,19 +247,140 @@ class RenderCardsTests(unittest.TestCase):
                                                    Path(directory) / "probabilities.png")
                 self.assert_readable_and_separate(meta, records)
                 labels = [r["text"] for r in records]
-                self.assertEqual(labels.count("不可用"), (first is None) + (second is None))
+                self.assertNotIn("不可用", labels)
+                self.assertEqual(labels.count("未来 24 小时"), int(first is not None))
+                self.assertEqual(labels.count("未来 48 小时"), int(second is not None))
                 self.assertEqual(labels.count("%"), (first is not None) + (second is not None))
                 self.assertIn("暂无记录", labels)
                 for record in records:
                     if record["text"] in ("100", "0"):
                         self.assertGreaterEqual(record["size"] * 320 / cards.WIDTH, 50)
-                    if record["text"] in ("100", "0", "%", "不可用"):
+                    if record["text"] in ("100", "0", "%"):
                         left, top, right, bottom = record["box"]
-                        panel_left = 50 if left < 400 else 412
+                        two_panels = first is not None and second is not None
+                        panel_left = 412 if two_panels and left >= 400 else 50
+                        panel_width = 338 if two_panels else 700
                         self.assertGreaterEqual(left, panel_left + 10)
-                        self.assertLessEqual(right, panel_left + 338 - 10)
+                        self.assertLessEqual(right, panel_left + panel_width - 10)
                         self.assertGreaterEqual(top, 132)
                         self.assertLessEqual(bottom, 294)
+
+    def test_absent_and_null_24h_are_identical_without_placeholder(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "optional-24h.png"
+            data = {key: value for key, value in FORECAST.items() if key != "probability_24h"}
+            absent, records = self.record_render(cards.render_forecast_card, data, target)
+            null = cards.render_forecast_card(dict(data, probability_24h=None), target, now=NOW)
+            self.assertEqual(absent["sha256"], null["sha256"])
+            self.assert_readable_and_separate(absent, records)
+            labels = [row["text"] for row in records]
+            self.assertIn("未来 48 小时", labels)
+            self.assertIn("81", labels)
+            for forbidden in ("未来 24 小时", "None", "0", "未知", "不可用"):
+                self.assertNotIn(forbidden, labels)
+            self.assertEqual(next(row["size"] for row in records if row["text"] == "81"),
+                             cards.NUMBER_SIZE)
+            with Image.open(target) as image:
+                self.assertEqual(image.getpixel((60, 160)), (163, 220, 255))
+                self.assertEqual(image.getpixel((740, 160)), (163, 220, 255))
+                self.assertNotIn((255, 220, 77), set(image.getdata()))
+
+    def test_no_probabilities_reclaims_space_without_fabricating_values(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "no-probabilities.png"
+            data = {key: value for key, value in FORECAST.items()
+                    if key not in ("probability_24h", "probability_48h")}
+            empty, records = self.record_render(cards.render_forecast_card, data, target)
+            self.assert_readable_and_separate(empty, records)
+            self.assertEqual(records[0]["box"][1], 62)
+            labels = [row["text"] for row in records]
+            for forbidden in ("未来 24 小时", "未来 48 小时", "None", "0", "%", "未知", "不可用"):
+                self.assertNotIn(forbidden, labels)
+            full = cards.render_forecast_card(FORECAST, target, now=NOW)
+            self.assertEqual(full["height"] - empty["height"], 282)
+
+    def test_present_24h_preserves_legacy_two_panel_geometry(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "legacy.png"
+            meta, records = self.record_render(cards.render_forecast_card, FORECAST, target)
+            self.assert_readable_and_separate(meta, records)
+            labels = {row["text"]: row for row in records}
+            self.assertEqual(labels["未来 24 小时"]["box"][:2], (50, 62))
+            self.assertEqual(labels["未来 48 小时"]["box"][:2], (412, 62))
+            self.assertEqual(labels[FORECAST["status"]]["box"][:2], (50, 344))
+            with Image.open(target) as image:
+                self.assertEqual(image.getpixel((56, 160)), (255, 220, 77))
+                self.assertEqual(image.getpixel((418, 160)), (163, 220, 255))
+
+    def test_single_48h_long_text_and_actual_320px_preview(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "single-48h.png"
+            for text in ("完整中文概率摘要" * 50, "UnbrokenToken" * 40,
+                         "Regular / banked phase\n\n保留段落与 UTC+08:00"):
+                data = dict(FORECAST, probability_24h=None, probability_48h=1,
+                            status="来源状态边界" * 10, summary=text)
+                meta, records = self.record_render(cards.render_forecast_card, data, target)
+                self.assert_readable_and_separate(meta, records)
+                body = [row["text"] for row in records if row["size"] == cards.BODY_SIZE]
+                self.assertEqual("".join(body), text.replace("\n", ""))
+                with Image.open(target) as image:
+                    small = image.resize((320, round(image.height * 320 / image.width)),
+                                         Image.Resampling.LANCZOS)
+                    small.save(Path(directory) / "single-48h-320.png")
+                    self.assertEqual(small.width, 320)
+                    self.assertGreater(len(small.getcolors(small.width * small.height)), 100)
+
+    def test_missing_updated_at_does_not_invent_forecast_time(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "no-forecast-time.png"
+            data = {key: value for key, value in FORECAST.items() if key != "updated_at"}
+            meta, records = self.record_render(cards.render_forecast_card, data, target)
+            null = cards.render_forecast_card(dict(data, updated_at=None), target, now=NOW)
+            self.assertEqual(meta["sha256"], null["sha256"])
+            self.assert_readable_and_separate(meta, records)
+            labels = [row["text"] for row in records]
+            self.assertNotIn("更新于", labels)
+            self.assertNotIn("2026年10月19日", labels)
+            self.assertIn("2026年10月18日", labels)
+            self.assertIn("05:12 UTC+08:00", labels)
+            full = cards.render_forecast_card(FORECAST, target, now=NOW)
+            font = cards.load_font(cards.find_font(), cards.SMALL_SIZE)
+            self.assertEqual(full["height"] - meta["height"],
+                             cards.block_height("更新于\n" + cards.date_lines(NOW), font, 700, gap=8) + 26)
+            for invalid in ("", 123, "2026-10-19T02:33:00"):
+                with self.subTest(updated_at=invalid), self.assertRaises(ValueError):
+                    cards.render_forecast_card(dict(data, updated_at=invalid), target, now=NOW)
+
+    def test_offline_mobile_preview_preserves_snapshot_and_scales_optional_24h(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            source, output = root / "source" / "snapshot.json", root / "preview"
+            source.parent.mkdir()
+            forecast = {key: value for key, value in FORECAST.items()
+                        if key not in ("probability_24h", "updated_at")}
+            snapshot = dict(createdAt=NOW, forecastCard=forecast, announcements=[],
+                            purpose="offline-render-test-not-live")
+            source.write_text(json.dumps(snapshot), encoding="utf-8")
+            before = source.read_bytes()
+            argv = ["preview_mobile_cards.py", "--snapshot", str(source), "--output-root", str(output)]
+            with patch.object(sys, "argv", argv), redirect_stdout(io.StringIO()):
+                mobile.main()
+            self.assertEqual(source.read_bytes(), before)
+            report = json.loads((output / "preview-report.json").read_text())
+            self.assertEqual(report["messagesSent"], 0)
+            self.assertFalse(report["runtimeStateAccess"])
+            self.assertEqual(report["sourceSnapshotSha256"], hashlib.sha256(before).hexdigest())
+            self.assertIn("forecast-48h-only.png", report["visualTestCards"])
+            self.assertIn("forecast-48h-long.png", report["visualTestCards"])
+            for width in (320, 360):
+                with Image.open(report["previews"][str(width)]) as stack:
+                    with Image.open(output / ("forecast-%d.png" % width)) as forecast_image:
+                        self.assertEqual(stack.size, forecast_image.size)
+                        self.assertEqual(stack.tobytes(), forecast_image.tobytes())
+                for path in report["scaledCards"][str(width)]:
+                    with Image.open(path) as image:
+                        self.assertEqual(image.width, width)
+                        self.assertGreater(len(image.getcolors(image.width * image.height)), 100)
 
     def test_real_bundled_avatar_and_missing_asset_fail_closed(self):
         self.assertEqual(hashlib.sha256(cards.AVATAR_PATH.read_bytes()).hexdigest(),
