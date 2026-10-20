@@ -104,6 +104,9 @@ helper 测试或 timer 已启用均不代表来源恢复、QQ 轮询成功或初
 动态按用户要求建立已处理基线，仅最新一条保留为当前样例。基线操作不伪记
 lastSuccessfulPushAt，不清空已发回执、已通知重置或阶段去重。原无回执的旧日推
 先备份归档并取消，不把它标成投递成功。后续只有真正的新内容进入增量批次。
+群发送器CLI入口不得顶层`await main()`：群Transport会反向导入发送器，动态导入
+与顶层等待会形成循环，导致Node退出13且没有回执。使用完成模块求值后的Promise
+回调设置退出码；回归覆盖真实CLI进程，而不只是导入后调用main的测试。
 群独立使用 `state/dingtalk/group/{state.json,monitor.lock,outbox/}`，绑定渠道及
 固定目标 hash，不迁移 QQ state/journal、私人测试成功或 pending。
 基线以前的历史不推送，但基线确实观察过的同 ID 后续新阶段仍可触发。

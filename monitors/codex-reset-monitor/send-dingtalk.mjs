@@ -408,5 +408,6 @@ export async function main(argv = process.argv.slice(2), { loadPrivateTransport 
 
 if (process.argv[1] && import.meta.url === pathToFileURL(path.resolve(process.argv[1])).href) {
   for (const method of ['log', 'info', 'warn', 'error', 'debug']) console[method] = () => {};
-  process.exitCode = await main();
+  // Group transport imports this module; finish evaluation before loading it.
+  main().then(code => { process.exitCode = code; });
 }

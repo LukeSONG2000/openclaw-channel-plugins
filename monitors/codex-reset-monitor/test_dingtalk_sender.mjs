@@ -237,6 +237,24 @@ test('CLI default cannot send and dry-run requires no runtime credentials', asyn
   assert.throws(() => execFileSync(process.execPath, [sender, '--manifest', file], { stdio: 'pipe' }));
 });
 
+test('real group CLI resolves its circular import and reaches config validation', async t => {
+  const { directory, manifest, receiptPath } = await fixture(t);
+  const file = path.join(directory, 'batch.json'), config = path.join(directory, 'group.json');
+  await fs.writeFile(file, JSON.stringify(manifest));
+  await fs.writeFile(config, JSON.stringify({ version: 0 }), { mode: 0o600 });
+  const sender = new URL('./send-dingtalk.mjs', import.meta.url).pathname;
+  let failure;
+  try {
+    execFileSync(process.execPath, [sender, '--manifest', file, '--send-group',
+      '--config', config, '--receipt', receiptPath], {
+      env: { HOME: '/nonexistent', PATH: '/nonexistent' }, encoding: 'utf8', timeout: 10000, stdio: 'pipe',
+    });
+  } catch (error) { failure = error; }
+  assert.equal(failure?.status, 4, 'must not exit 13 from an unresolved top-level await');
+  assert.equal(JSON.parse(failure.stdout).errorCode, 'invalid_group_config');
+  await assert.rejects(fs.access(receiptPath));
+});
+
 const oldHelp = '--robot-code string\n--users string\n--title string\n--text string\n--format string';
 async function loaderFixture(t, { modern = false, readback = true } = {}) {
   const value = await fixture(t), calls = [], helps = [];
