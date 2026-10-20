@@ -34,6 +34,19 @@ snapshot 的 `sourceProvider`、`sourceTimes`、`sourceCapabilities`、
 真实 `x_status_id`、来源作者与原始 URL。`feedFetchedAt` 是本次 HTTP 读取时间，
 仅为事务审计水位，不证明公告或预测新鲜。
 
+### X 动态接入
+
+`tiboPosts`（全部动态）与 `tiboRelevantPosts`（预测相关子集）一起接入
+“Tibo宣布了什么”。它们与重置审批事件分开读取，按原始 X status ID 合并去重；
+同一推文既在事件表又在动态列表时只出一张卡，卡片优先保留 X 原文，而非站方摘要。
+保留头像、UTC+08:00 时间和卡片外的“查看𝕏”原帖链接，整条仍是单条多图消息。
+没有真实 Tibo 原帖链接的待发动态拒绝发送，不补造地址。
+
+每日推送或明确重置阶段触发时，附带迁移时间边界内、该渠道尚未推送的动态；
+沿用 `sentAnnouncementIds` 和原有失败/未知回执保护。只有成功投递才消费动态，
+两个渠道独立去重。普通动态不会单独触发轮询通知，也不会因匹配旧重置 ID
+就把基线重置重新标成“已重置”；来源时效门限、定时器和已冻结 pending 均不改变。
+
 regular actual 只接受源结构 `kind=reset / verified=true / resetType=usage`；
 站方公开管理文案将其定义为已确认的全局重置事件，图表和日历也只纳入这一组合。
 不依赖标题、分数、autoDetectedReset 或正文猜测；来源确认不保证个人到账，

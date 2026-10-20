@@ -312,8 +312,25 @@ def fetch_source_data() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]
                    announced_at=event["occurred_at"], source_url=event["source_url"], sourceEvent=event)
               for event in unique.values()]
     events.sort(key=lambda event: aware_time(event["announced_at"], "event.announced_at"), reverse=True)
+    # X content is independent of reset approvals: attach it to a daily/reset
+    # delivery, but never use an ordinary post as a reset notification trigger.
+    posts = {}
+    for field, source_feed in (("posts", "tiboPosts"), ("relevant_posts", "tiboRelevantPosts")):
+        for post in snapshot[field]:
+            stamp = aware_time(post["occurred_at"], "post.occurred_at")
+            if stamp > now_utc() + MAX_CLOCK_SKEW:
+                raise ValueError("post.occurred_at: future source post")
+            key = post["event_id"]
+            previous = posts.get(key)
+            if previous and any(previous["sourceEvent"][name] != post[name]
+                                for name in ("occurred_at", "detail", "source_author")):
+                raise ValueError("source.posts: conflicting duplicate original post")
+            posts.setdefault(key, dict(id=key, kind="动态", summary=post["detail"],
+                                       announced_at=post["occurred_at"], source_url=post["source_url"],
+                                       sourceEvent=post, sourceFeed=source_feed))
     # These are internal pipeline projections, not fabricated legacy API responses.
-    feed = dict(events=events, fetched_at=snapshot["retrieved_at"], sourceSnapshot=snapshot)
+    feed = dict(events=events, sourcePosts=list(posts.values()),
+                fetched_at=snapshot["retrieved_at"], sourceSnapshot=snapshot)
     return forecast, dict(sourceSnapshot=snapshot), feed
 
 
@@ -658,9 +675,10 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
     phases_by_id: dict[str, set[str]] = {}
     for phase in phase_events or []:
         phases_by_id.setdefault(phase["eventId"], set()).add(phase_event_key(phase))
-    result = []
+    result = {}
     for event in events:
-        if "sourceEvent" in event:
+        is_post = event.get("sourceFeed") in ("tiboPosts", "tiboRelevantPosts")
+        if "sourceEvent" in event and not is_post:
             source_event = event["sourceEvent"]
             if source_event["phase"] is None:
                 continue
@@ -672,10 +690,12 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
         baseline_upgrade = ((event["id"] in state.get("groupBaselineEventIds", [])
                              or event["id"] in state.get("providerBaseline", {}).get("eventIds", []))
                             and bool(phase_keys.difference(seen_phase_keys)))
-        if aware_time(event["announced_at"], "event time") < lower and not baseline_upgrade:
+        if (aware_time(event["announced_at"], "event time") < lower
+                and not baseline_upgrade and event["id"] not in result):
             continue
         # Trigger baselines are not content acknowledgements: unseen IDs remain deliverable.
-        if event["id"] in sent and (not phase_keys or not phase_keys.difference(seen_phase_keys)):
+        if (event["id"] in sent and event["id"] not in result
+                and (not phase_keys or not phase_keys.difference(seen_phase_keys))):
             continue
         if "sourceEvent" in event and event["sourceEvent"].get("source_author") != "thsottiaux":
             raise ValueError("pending source event lacks a verified original Tibo URL")
@@ -685,8 +705,11 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
                 or not re.fullmatch(r"/[^/]+/status/[0-9]+", url.path)
                 or (event["id"].isdigit() and not url.path.endswith("/status/" + event["id"]))):
             raise ValueError("pending announcement lacks a valid original X URL")
-        result.append(event)
-    return result
+        # Prefer the original X text over a site's manual event summary.
+        if is_post or event["id"] not in result:
+            result[event["id"]] = event
+    return sorted(result.values(), key=lambda event: aware_time(event["announced_at"], "event time"),
+                  reverse=True)
 
 
 def legacy_service_start(service: str, success: datetime) -> datetime | None:
@@ -854,8 +877,10 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                   phase_events: list[ResetPhaseEvent] | None = None,
                   dingtalk_sample: bool = False) -> dict[str, Any]:
     phases = phase_events or []
-    announcements = select_announcements(events, state, phase_events=phases)
+    announcements = select_announcements(events + feed.get("sourcePosts", []), state, phase_events=phases)
     selected_ids = {event["id"] for event in announcements}
+    if "sourceSnapshot" in forecast:
+        phases = pending_phase_events(phases, state)
     phases = [phase for phase in phases if phase["eventId"] in selected_ids]
     phase_keys = list(dict.fromkeys(phase_event_key(event) for event in phases))
     warnings = []
@@ -1171,7 +1196,7 @@ def run_once(baseline_only: bool = False, send_daily: bool = False,
         migrate_source_state(state, forecast, events, phases)
         initialize_phase_state(state, phases)
         # Apply the source cutover before validating send-window URLs or selecting history.
-        select_announcements(events, state, phase_events=phases)
+        select_announcements(events + feed.get("sourcePosts", []), state, phase_events=phases)
         save()
 
         current = now_utc()

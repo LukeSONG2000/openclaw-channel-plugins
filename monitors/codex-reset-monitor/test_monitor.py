@@ -1945,11 +1945,13 @@ class SourceIntegrationTests(unittest.TestCase):
         state = self.read_state()
         self.assertEqual(state["daily_summary_date"], "2026-10-20")
         self.assertEqual(state["notified_reset_ids"], [OLD_ID])
-        self.assertEqual(state["sentAnnouncementIds"], [OLD_ID])
+        post_ids = [post["event_id"] for post in self.snapshot["posts"]]
+        self.assertEqual(state["sentAnnouncementIds"], [OLD_ID] + post_ids)
         directory = next((self.state_file.parent / "outbox").iterdir())
         snapshot = json.loads((directory / "snapshot.json").read_text())
         manifest = json.loads((directory / "batch.json").read_text())
-        self.assertEqual(snapshot["announcements"], [])
+        self.assertEqual([event["id"] for event in snapshot["announcements"]], post_ids)
+        self.assertEqual(snapshot["eventPhases"], [])
         self.assertEqual(snapshot["sourceProvider"]["id"], "willcodexreset")
         self.assertEqual(snapshot["sourceTimes"]["signalCheckedAt"], self.snapshot["signal_checked_at"])
         self.assertEqual(manifest["parts"][1]["url"], "https://willcodexreset.com/zh")
@@ -1989,7 +1991,8 @@ class SourceIntegrationTests(unittest.TestCase):
         self.add_event(occurredAt="2026-10-18T00:00:00Z")
         self.assertEqual(self.run_monitor(send_daily=True), 0)
         batch = self.sender.call_args.args[0]
-        self.assertEqual(batch["announcementIds"], [])
+        self.assertEqual(set(batch["announcementIds"]),
+                         {post["event_id"] for post in self.snapshot["posts"]})
         self.assertIsNone(batch["resetId"])
 
     def test_old_known_id_explicit_phase_upgrade_survives_old_lower_bound(self):
@@ -2001,7 +2004,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.sender.call_count, 1)
-        self.assertEqual(self.sender.call_args.args[0]["announcementIds"], [event["event_id"]])
+        self.assertIn(event["event_id"], self.sender.call_args.args[0]["announcementIds"])
 
     def test_unknown_type_candidate_and_unverified_records_do_not_trigger(self):
         self.clock_complete_fixture()
@@ -2030,7 +2033,80 @@ class SourceIntegrationTests(unittest.TestCase):
         self.add_event()
         self.add_event(kind="tibo", verified=False)
         self.assertEqual(self.run_monitor(), 0)
-        self.assertEqual(len(self.sender.call_args.args[0]["announcementIds"]), 1)
+        self.assertEqual(self.sender.call_args.args[0]["announcementIds"].count("2119999999999999999"), 1)
+
+    def test_x_feed_is_independent_of_reset_events_and_deduplicates_relevant_subset(self):
+        self.snapshot["relevant_posts"].append(copy.deepcopy(self.snapshot["posts"][0]))
+        forecast, notify, feed = m.fetch_source_data()
+        expected = {post["event_id"] for post in self.snapshot["posts"] + self.snapshot["relevant_posts"]}
+        self.assertEqual({post["id"] for post in feed["sourcePosts"]}, expected)
+        self.assertEqual(len(feed["sourcePosts"]), len(expected))
+        self.assertTrue(all(m.classify_reset_phase(post, forecast, notify) is None for post in feed["sourcePosts"]))
+        self.assertEqual(feed["sourcePosts"][0]["summary"], self.snapshot["posts"][0]["detail"])
+
+    def test_x_feed_does_not_trigger_poll_but_daily_sends_unseen_posts_once(self):
+        self.clock_complete_fixture()
+        self.snapshot["events"] = []
+        self.assertEqual(self.run_monitor(), 0)
+        self.sender.assert_not_called()
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        batch = self.sender.call_args.args[0]
+        self.assertEqual(set(batch["announcementIds"]), {post["event_id"] for post in self.snapshot["posts"]})
+        self.assertEqual(batch["deliveredPhaseKeys"], [])
+        self.assertIsNone(batch["resetId"])
+
+    def test_original_x_post_replaces_manual_summary_without_duplicate_card(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        event = self.add_event()
+        post = dict(event, source_event_id="tibo-original", raw_kind="tibo", phase=None,
+                    verified=False, detail="Original X text, not the manual reset summary")
+        self.snapshot["posts"].append(post)
+        self.snapshot["relevant_posts"].append(copy.deepcopy(post))
+        self.assertEqual(self.run_monitor(), 0)
+        batch = self.sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
+        cards = [item for item in snapshot["announcements"] if item["id"] == event["event_id"]]
+        self.assertEqual(len(cards), 1)
+        self.assertEqual(cards[0]["summary"], post["detail"])
+        self.assertEqual(snapshot["title"], "Codex已重置，速蹬！")
+
+    def test_x_post_matching_baselined_reset_does_not_reannounce_reset_stage(self):
+        self.clock_complete_fixture()
+        event = self.add_event()
+        self.assertEqual(self.run_monitor(), 0)
+        self.snapshot["posts"].append(dict(event, phase=None, raw_kind="tibo", verified=False))
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        batch = self.sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
+        self.assertIn(event["event_id"], batch["announcementIds"])
+        self.assertEqual(snapshot["eventPhases"], [])
+        self.assertNotIn("stageText", snapshot)
+
+    def test_x_post_duplicates_with_conflicting_original_text_fail_closed(self):
+        self.snapshot["relevant_posts"].append(dict(self.snapshot["posts"][0], detail="Different original"))
+        with self.assertRaisesRegex(ValueError, "conflicting duplicate original post"):
+            m.fetch_source_data()
+
+    def test_unseen_old_x_posts_are_filtered_and_sent_ids_do_not_replay(self):
+        _, _, feed = m.fetch_source_data()
+        selected = m.select_announcements(feed["sourcePosts"], self.state)
+        self.assertEqual({item["id"] for item in selected}, {post["event_id"] for post in self.snapshot["posts"]})
+        state = dict(self.state, sentAnnouncementIds=[item["id"] for item in selected])
+        self.assertEqual(m.select_announcements(feed["sourcePosts"], state), [])
+
+    def test_new_x_feed_post_cannot_claim_another_author_or_missing_original_url(self):
+        _, _, feed = m.fetch_source_data()
+        for changes in (dict(source_author="another_author"), dict(source_url=None)):
+            post = copy.deepcopy(feed["sourcePosts"][0])
+            post["sourceEvent"].update(changes)
+            if "source_url" in changes:
+                post["source_url"] = changes["source_url"]
+            with self.subTest(changes=changes), self.assertRaises(ValueError):
+                m.select_announcements([post], self.state)
 
     def test_same_x_unknown_history_and_post_keep_evidence_without_conflict(self):
         self.snapshot["events"] = []
