@@ -1880,30 +1880,34 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertNotIn("last_reset_id", notify)
         self.assertEqual(feed["fetched_at"], self.snapshot["retrieved_at"])
 
-    def test_real_missing_generation_clock_and_stale_signal_never_send(self):
-        self.assertEqual(self.run_monitor(send_daily=True), 1)
+    def test_old_ingestion_and_absent_prediction_clock_allow_daily_once(self):
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
         state = self.read_state()
-        self.assertEqual(state["consecutive_fetch_failures"], 68)
-        for key in self.state.keys() - {"consecutive_fetch_failures"}:
-            self.assertEqual(state[key], self.state[key])
-        self.sender.assert_not_called()
+        self.assertEqual(state["consecutive_fetch_failures"], 0)
+        self.assertFalse(state["failure_notified"])
+        self.assertEqual(state["daily_summary_date"], "2026-10-20")
+        self.assertEqual(self.sender.call_count, 1)
+        batch = self.sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
+        self.assertEqual(snapshot["sourceTimes"]["signalCheckedAt"], self.snapshot["signal_checked_at"])
+        self.assertIsNone(snapshot["sourceTimes"]["predictionGeneratedAt"])
+        self.assertIsNone(snapshot["forecastCard"]["updated_at"])
         self.warning.assert_not_called()
-        self.assertFalse((self.state_file.parent / "outbox").exists())
 
-    def test_response_or_retrieval_clock_cannot_refresh_signal_or_invent_prediction_time(self):
+    def test_old_ingestion_remains_audit_evidence_not_prediction_time(self):
         stamp = self.current.isoformat()
+        old_ingestion = self.snapshot["signal_checked_at"]
         self.snapshot.update(source_updated_at=stamp, retrieved_at=stamp)
-        with self.assertRaisesRegex(ValueError, "signal_checked_at"):
-            m.validate_source_snapshot(self.snapshot)
-        self.snapshot["signal_checked_at"] = stamp
         m.validate_source_snapshot(self.snapshot)
+        self.assertEqual(self.snapshot["signal_checked_at"], old_ingestion)
         self.assertIsNone(self.snapshot["forecast_generated_at"])
         self.assertIsNone(m.forecast_card_data(dict(self.snapshot["forecast"], sourceSnapshot=self.snapshot))["updated_at"])
 
-    def test_all_clocks_and_health_are_required_without_threshold_relaxation(self):
+    def test_source_clocks_and_health_are_still_required(self):
         self.clock_complete_fixture()
         for key in ("source_updated_at", "signal_checked_at"):
-            for bad in (None, "bad", (self.current - timedelta(hours=2, seconds=1)).isoformat(),
+            for bad in (None, "bad",
                         (self.current + timedelta(minutes=5, seconds=1)).isoformat()):
                 with self.subTest(key=key, bad=bad):
                     snapshot = copy.deepcopy(self.snapshot)
@@ -1913,6 +1917,18 @@ class SourceIntegrationTests(unittest.TestCase):
         for status in (None, "error", "unknown"):
             with self.subTest(status=status), self.assertRaisesRegex(ValueError, "signal_status"):
                 m.validate_source_snapshot(dict(self.snapshot, signal_status=status))
+
+    def test_only_ingestion_age_is_relaxed_not_response_age_or_future_tolerance(self):
+        self.clock_complete_fixture()
+        for age in (timedelta(hours=2, seconds=1), timedelta(days=30)):
+            with self.subTest(age=age):
+                old = (self.current - age).isoformat()
+                m.validate_source_snapshot(dict(self.snapshot, signal_checked_at=old))
+                with self.assertRaisesRegex(ValueError, "source_updated_at"):
+                    m.validate_source_snapshot(dict(self.snapshot, source_updated_at=old))
+        with self.assertRaisesRegex(ValueError, "signal_checked_at"):
+            m.validate_source_snapshot(dict(self.snapshot,
+                signal_checked_at=(self.current + timedelta(minutes=5, seconds=1)).isoformat()))
 
     def test_absent_prediction_clock_is_not_a_permanent_block_or_a_freshness_claim(self):
         self.snapshot["source_updated_at"] = self.snapshot["signal_checked_at"] = self.current.isoformat()
@@ -1930,6 +1946,7 @@ class SourceIntegrationTests(unittest.TestCase):
                 m.validate_source_snapshot(dict(self.snapshot, forecast_generated_at=stamp))
 
     def test_dry_run_failure_is_byte_read_only(self):
+        self.snapshot["source_updated_at"] = (self.current - timedelta(hours=3)).isoformat()
         original = self.state_file.read_bytes()
         self.assertEqual(self.run_monitor(dry_run=True, send_daily=True), 1)
         self.assertEqual(self.state_file.read_bytes(), original)
@@ -1995,6 +2012,18 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["stageText"], "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账")
         self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["source_event_id"], event["source_event_id"])
         self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["x_status_id"], event["event_id"])
+
+    def test_old_ingestion_still_deduplicates_resets_and_keeps_unchanged_polls_silent(self):
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.sender.assert_not_called()
+        self.current += timedelta(minutes=15)
+        self.snapshot["source_updated_at"] = self.current.isoformat()
+        self.add_event()
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        self.assertEqual(self.read_state()["consecutive_fetch_failures"], 0)
 
     def test_late_unknown_id_before_cutover_never_replays(self):
         self.clock_complete_fixture()
@@ -2202,7 +2231,8 @@ class SourceIntegrationTests(unittest.TestCase):
         path.chmod(0o600)
         return path
 
-    def test_new_source_stale_ingestion_leaves_dd_initialization_pending_and_qq_untouched(self):
+    def test_new_source_unhealthy_ingestion_leaves_dd_pending_and_qq_untouched(self):
+        self.snapshot["signal_status"] = "error"
         original = self.state_file.read_bytes()
         self.assertEqual(self.run_monitor(channel="dingtalk", group_config=self.group_config(),
                                           initialize_on_success=True), 1)
@@ -2216,7 +2246,8 @@ class SourceIntegrationTests(unittest.TestCase):
         self.warning.assert_not_called()
 
     def test_new_source_healthy_ingestion_can_initialize_dd_once_without_faking_prediction_time(self):
-        self.snapshot["source_updated_at"] = self.snapshot["signal_checked_at"] = self.current.isoformat()
+        old_ingestion = self.snapshot["signal_checked_at"]
+        self.snapshot["source_updated_at"] = self.current.isoformat()
         original = self.state_file.read_bytes()
         config = self.group_config()
         self.assertEqual(self.run_monitor(channel="dingtalk", group_config=config,
@@ -2232,6 +2263,7 @@ class SourceIntegrationTests(unittest.TestCase):
         snapshot_path = next((dd_root / "outbox").glob("*/snapshot.json"))
         snapshot = json.loads(snapshot_path.read_text())
         self.assertIsNone(snapshot["sourceTimes"]["predictionGeneratedAt"])
+        self.assertEqual(snapshot["sourceTimes"]["signalCheckedAt"], old_ingestion)
         self.assertIsNone(snapshot["forecastCard"]["updated_at"])
         self.assertEqual(self.state_file.read_bytes(), original)
 

@@ -279,7 +279,9 @@ def validate_source_snapshot(snapshot: dict[str, Any]) -> None:
     current = now_utc()
     for field in ("source_updated_at", "signal_checked_at"):
         stamp = aware_time(snapshot.get(field), "source." + field)
-        if current - stamp > MAX_SOURCE_AGE or stamp - current > MAX_CLOCK_SKEW:
+        # checkedAt is an ingestion observation, not a forecast expiry clock.
+        if ((field == "source_updated_at" and current - stamp > MAX_SOURCE_AGE)
+                or stamp - current > MAX_CLOCK_SKEW):
             raise ValueError(f"source.{field}: stale or future source timestamp")
     if snapshot.get("signal_status") != "ok":
         raise ValueError("source.signal_status: ingestion is not healthy")
