@@ -931,6 +931,17 @@ class MonitorTests(unittest.TestCase):
         self.assertIn("--manifest", run.call_args.args[0])
         self.assertIn("--receipt", run.call_args.args[0])
 
+    def test_missing_receipt_exposes_only_safe_sender_error_code(self):
+        batch, directory, manifest = self.make_pending()
+        for code, expected in (("group_unverified", "group_unverified"),
+                               ("https://secret.invalid/token", "unknown")):
+            response = subprocess.CompletedProcess([], 4, json.dumps(dict(errorCode=code)), "secret stderr")
+            with self.subTest(code=code), patch.object(m.subprocess, "run", return_value=response):
+                with self.assertRaises(RuntimeError) as caught:
+                    m.deliver_batch(batch)
+                self.assertIn("exit=4 code=" + expected, str(caught.exception))
+                self.assertNotIn("secret", str(caught.exception))
+
     def test_nonzero_or_timeout_never_commits_even_if_receipt_claims_complete(self):
         batch, directory, manifest = self.make_pending()
         for code, timeout in ((1, False), (0, True)):
@@ -1715,7 +1726,7 @@ class GroupMonitorTests(unittest.TestCase):
             command = service["Service"]["ExecStart"]
             self.assertIn("--channel dingtalk --group-config", command)
             self.assertEqual("--daily-summary" in command, flag)
-            self.assertEqual("--initialize-on-success" in command, not flag)
+            self.assertNotIn("--initialize-on-success", command)
             timer = configparser.ConfigParser(interpolation=None)
             timer.read(root / f"codex-reset-dingtalk-{kind}.timer")
             self.assertEqual(timer["Timer"]["Unit"], f"codex-reset-dingtalk-{kind}.service")

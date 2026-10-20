@@ -1012,7 +1012,17 @@ def deliver_batch(batch: dict[str, Any]) -> bool:
         result = None
     # The durable receipt, never the exit code/stdout alone, is the delivery authority.
     if not receipt_path.exists():
-        raise RuntimeError("sender has no receipt; delivery is unconfirmed")
+        code = "unknown"
+        if result is not None:
+            try:
+                diagnostic = json.loads(result.stdout.strip().splitlines()[-1])
+                candidate = diagnostic.get("errorCode")
+                if isinstance(candidate, str) and re.fullmatch(r"[a-z_]{1,64}", candidate):
+                    code = candidate
+            except (ValueError, IndexError, AttributeError):
+                pass
+        exit_code = result.returncode if result is not None else "timeout"
+        raise RuntimeError(f"sender has no receipt; delivery is unconfirmed; exit={exit_code} code={code}")
     receipt = json.loads(receipt_path.read_text(encoding="utf-8"))
     message = receipt.get("message")
     complete = (receipt.get("version") == 2 and receipt.get("batchId") == batch_id

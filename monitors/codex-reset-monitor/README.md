@@ -88,8 +88,10 @@ python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --baseline-
 python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --daily-summary
 ```
 
-上述为手动两步方式。正式 poll service 带 `--initialize-on-success`：可在独立 QA
-和部署启用授权通过后等待来源恢复，首次当前 provider 的 schema、来源时钟和
+上述为手动两步方式。正式 poll service 现在只轮询新增重置，不带
+`--initialize-on-success`，因此重新启用不会补发首次日推；日报独立在每天
+UTC+08:00 08:00触发。首次接入若确实需要立即初始化日报，可显式手动使用
+`--initialize-on-success`：首次当前 provider 的 schema、来源时钟和
 采集健康门禁全部通过时，同次建立基线并发送唯一真实日报；概率生成时刻
 未被独立核实，不能以该运行结果宣称预测已刷新。
 来源失败始终只写独立健康计数和 journal，不往群发 health/error，也不回退 QQ。
@@ -98,6 +100,10 @@ python3 monitor.py --channel dingtalk --group-config "$GROUP_CONFIG" --daily-sum
 服务端 readback 确认后才置 pending 为 false，记录 firstDailyCompletedAt 和当日
 daily；之后普通轮询无变化静默，当日 08:00 不重复。不得用旧 snapshot 初始化；
 helper 测试或 timer 已启用均不代表来源恢复、QQ 轮询成功或初始化已经发送。
+2026-10-20 用户已验收私人 reset 样例并授权把这次 reset 发到群；现有更早 X
+动态按用户要求建立已处理基线，仅最新一条保留为当前样例。基线操作不伪记
+lastSuccessfulPushAt，不清空已发回执、已通知重置或阶段去重。原无回执的旧日推
+先备份归档并取消，不把它标成投递成功。后续只有真正的新内容进入增量批次。
 群独立使用 `state/dingtalk/group/{state.json,monitor.lock,outbox/}`，绑定渠道及
 固定目标 hash，不迁移 QQ state/journal、私人测试成功或 pending。
 基线以前的历史不推送，但基线确实观察过的同 ID 后续新阶段仍可触发。
