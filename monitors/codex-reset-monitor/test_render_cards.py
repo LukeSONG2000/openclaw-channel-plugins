@@ -25,6 +25,13 @@ ANNOUNCEMENT = {"summary": "Direct usage reset", "body": "Tibo: Done",
 
 
 class RenderCardsTests(unittest.TestCase):
+    def test_announcement_png_never_contains_embedded_urls(self):
+        with tempfile.TemporaryDirectory() as directory:
+            target = Path(directory) / "without-links.png"
+            plain = cards.render_announcement_card(dict(ANNOUNCEMENT, summary="Day 15/ We're cooked"), target, now=NOW)
+            linked = cards.render_announcement_card(dict(ANNOUNCEMENT, summary="Day 15/ We're cooked https://t.co/abc"), target, now=NOW)
+            self.assertEqual(plain["sha256"], linked["sha256"])
+
     def test_beijing_and_aware_timestamp(self):
         self.assertEqual(cards.format_beijing(ANNOUNCEMENT["published_at"]), "2026年10月18日 05:12 UTC+08:00")
         self.assertEqual(cards.relative_time(ANNOUNCEMENT["published_at"], NOW), "1天前")

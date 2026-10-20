@@ -2091,6 +2091,21 @@ class SourceIntegrationTests(unittest.TestCase):
         with self.assertRaisesRegex(ValueError, "conflicting duplicate original post"):
             m.fetch_source_data()
 
+    def test_x_content_links_are_clickable_outside_the_card_and_snapshot_keeps_original(self):
+        self.clock_complete_fixture()
+        original = "Original text https://t.co/abc"
+        self.snapshot["posts"][0]["detail"] = original
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        batch = self.sender.call_args.args[0]
+        directory = self.state_file.parent / "outbox" / batch["batchId"]
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        self.assertEqual(snapshot["announcements"][0]["summary"], original)
+        parts = json.loads((directory / "batch.json").read_text())["parts"]
+        extra = next(i for i, part in enumerate(parts) if part.get("url") == "https://t.co/abc")
+        self.assertEqual(parts[extra]["type"], "link")
+        self.assertEqual(parts[extra - 1]["label"], "查看𝕏")
+        self.assertEqual(parts[extra - 2]["type"], "image")
+
     def test_unseen_old_x_posts_are_filtered_and_sent_ids_do_not_replay(self):
         _, _, feed = m.fetch_source_data()
         selected = m.select_announcements(feed["sourcePosts"], self.state)

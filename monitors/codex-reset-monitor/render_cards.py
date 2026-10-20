@@ -22,6 +22,7 @@ from functools import lru_cache
 from pathlib import Path
 
 from PIL import Image, ImageDraw, ImageFont, ImageOps, __version__ as PILLOW_VERSION
+from announcement_content import announcement_content
 
 
 BEIJING = timezone(timedelta(hours=8), "UTC+08:00")
@@ -288,7 +289,7 @@ def render_announcement_card(data, output_path, *, now=None, font_path=None):
     small = load_font(font_file, SMALL_SIZE)
     title = load_font(font_file, 48)
     # Website event summaries are authoritative, not the sometimes unrelated body.
-    text = required_text(data, "summary")
+    text, _ = announcement_content(required_text(data, "summary"))
     published = data["published_at"]
     kind = required_text(data, "kind")
     kind = {"reset_preview": "预告", "reset": "重置", "banked": "储备",

@@ -20,6 +20,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 from source_fetch import fetch_json
+from announcement_content import announcement_content
 import provider_willcodexreset as provider
 
 
@@ -930,6 +931,10 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
     for event, card in zip(announcements, cards[1:]):
         parts.extend([dict(type="image", path=Path(card["path"]).name),
                       dict(type="link", label="查看𝕏", url=event["source_url"])])
+        _, content_links = announcement_content(event["summary"])
+        for url in content_links:
+            if url != event["source_url"]:
+                parts.append(dict(type="link", label="附带链接", url=url))
     manifest = dict(version=2, batchId=batch_id, delivery="single_markdown", parts=parts)
     atomic_write_json(directory / "batch.json", manifest)
     return dict(batchId=batch_id, manifestSha256=digest_json(manifest), snapshotSha256=digest_json(snapshot),
