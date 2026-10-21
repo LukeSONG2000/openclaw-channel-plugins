@@ -26,8 +26,10 @@ export interface CustomDeployPreflightSummary {
   findings: CustomDeployPreflightFinding[];
 }
 
-const PERSONAL_PACKAGE = "@lukesong/openclaw-qqbot";
-const PERSONAL_PACKAGE_REFS = new Set(["@lukesong/openclaw-qqbot", "lukesong/openclaw-qqbot"]);
+const PERSONAL_PACKAGE = "@lukesong/luke-qqbot";
+// Accept the former npm name in existing configurations; it is not a GitHub source.
+const PERSONAL_PACKAGE_REFS = new Set(["@lukesong/luke-qqbot", "lukesong/luke-qqbot",
+  "@lukesong/openclaw-qqbot", "lukesong/openclaw-qqbot"]);
 const OFFICIAL_PACKAGE_REFS = new Set([
   "@tencent-connect/openclaw-qqbot",
   "tencent-connect/openclaw-qqbot",
@@ -168,7 +170,7 @@ function hasQQBotCredentials(qqbot: Record<string, unknown>): boolean {
 function classifyPackageRef(raw: unknown): "personal" | "official" | "path-or-custom" | "unknown" {
   const text = stringifyRef(raw);
   const normalized = normalizePackageName(text);
-  if (PERSONAL_PACKAGE_REFS.has(normalized) || /github(?:\.com)?[:/]LukeSONG2000\/openclaw-qqbot/i.test(text)) return "personal";
+  if (PERSONAL_PACKAGE_REFS.has(normalized)) return "personal";
   if (OFFICIAL_PACKAGE_REFS.has(normalized) || /tencent-connect\/openclaw-qqbot/i.test(text) || /tencent-connect\/qqbot/i.test(text)) return "official";
   if (/^(?:\.{1,2}\/|\/|file:)/.test(text) || /source["']?\s*:\s*["']?path/i.test(text)) return "path-or-custom";
   return "unknown";

@@ -1,5 +1,7 @@
 # Deployment Plan
 
+> Current maintenance entry (2026-10-21): [repository migration and installation](../../../../docs/repository-migration.md). Develop on `openclaw-channel-plugins/main` under `plugins/qqbot`. The former fork and `custom-runtime` commands below describe the original rollout, not a supported current source. The current package is `@lukesong/luke-qqbot`; it has not been verified as publicly published to npm, so use reviewed source/tarball deployment. Do not install the monorepo root or execute historical npm/branch commands unchanged.
+
 ## Strategy
 
 Deploy the custom fork as the only active QQBot channel in the OpenClaw instance.

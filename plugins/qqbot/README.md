@@ -1,3 +1,5 @@
+> Luke-QQBot is maintained in [openclaw-channel-plugins](https://github.com/LukeSONG2000/openclaw-channel-plugins/tree/main/plugins/qqbot). See [repository migration and source installation](../../docs/repository-migration.md) before using the upstream installation instructions below. Install the `plugins/qqbot` subdirectory, not the monorepo root; the personal npm package is not yet publicly available.
+
 <div align="center">
 
 
@@ -10,7 +12,7 @@
 
 **Connect your AI assistant to QQ — private chat, group chat, and rich media, all in one plugin.**
 
-### 🚀 Current Version: `v1.7.1`
+### Current Custom Version: `1.7.2-luke.1`
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)

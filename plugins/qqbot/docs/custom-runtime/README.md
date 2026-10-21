@@ -2,18 +2,19 @@
 
 This directory records the custom QQBot fork plan, evidence, and migration notes.
 
-## 当前开发入口（2026-10-12）
+## 当前开发入口（2026-10-21）
 
 - 统一主仓：`LukeSONG2000/openclaw-channel-plugins`，分支 `main`，QQ 代码位于 `plugins/qqbot`。
+- [仓库迁移与安装](../../../../docs/repository-migration.md)：旧个人 fork 已迁出，当前源码安装、升级入口与包发布状态以此为准。
 - [QQ 自由回复实现](free-reply.md)：当前自由回复链路、扩展点、测试和交付边界。
 - [QQ 与钉钉自由回复总览](../../../../docs/free-reply.md)：两渠道共性、差异与复用边界。
 - 后文 `Current Branch`、服务器快照与目标架构段落保留迁移前资料，不能作为当前仓库、分支或部署路径的自动判定依据。
 - 文档中“工作树改动”表示核查时尚未提交的代码；获取远端 `main` 不一定包含这些实现。线上部署也需单独核验。
 
-## Current Branch
+## Historical Branch (before monorepo migration)
 
-- Fork: `https://github.com/LukeSONG2000/openclaw-qqbot`
-- Branch: `custom-runtime`
+- Former fork: `LukeSONG2000/openclaw-qqbot` (retired; not an install/update source)
+- Former branch: `custom-runtime`
 - Upstream baseline: `tencent-connect/openclaw-qqbot@7ceb7f0913d15417c5a74d82442a672ef0382c64`
 - Published package baseline: `@tencent-connect/openclaw-qqbot@1.7.2`
 
@@ -67,7 +68,7 @@ Out of scope for the first custom runtime:
 
 - `node scripts/inspect-message-evidence.mjs`: read-only summary for `~/.openclaw/qqbot/data/known-users.json` and `ref-index.jsonl`.
 - `node scripts/inspect-message-evidence.mjs /path/to/data --samples`: same summary with redacted shape samples; it reports presence/shape flags instead of raw message text or openids.
-- `node scripts/inspect-upstream-updates.mjs`: fetch/read-only Markdown review of official `upstream/main` against `custom-runtime`; it never merges, installs, or deploys.
+- `node scripts/inspect-upstream-updates.mjs --upstream qqbot-upstream/main`: read-only QQ subtree comparison against the official repository; it never merges, installs, or deploys. See the repository migration guide for remote setup.
 - `node scripts/inspect-upstream-updates.mjs --no-fetch --output /tmp/qqbot-upstream-review.md`: generate the same review from existing local refs.
 - `node scripts/preflight-custom-runtime-deploy.mjs --config ~/.openclaw/openclaw.json --require-ready`: read-only deployment preflight for admin/admin-group anchors, personal update source, upgrade safety, and duplicate/legacy QQBot plugin risks.
 

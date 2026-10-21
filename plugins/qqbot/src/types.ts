@@ -141,7 +141,7 @@ export interface QQBotAccountConfig {
    * /bot-upgrade 检查和热更新时使用的 npm 包名
    * 支持 "scope/name"（自动补 @）或 "@scope/name" 格式
    * 默认: 当前安装包的 package.json name
-   * 示例: "lukesong/openclaw-qqbot"
+   * 示例: "lukesong/luke-qqbot"
    */
   upgradePkg?: string;
   /**

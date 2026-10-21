@@ -1,5 +1,7 @@
 # qqbot Plugin Upgrade Guide
 
+> Use the [monorepo migration and installation guide](../../../docs/repository-migration.md). The upstream steps below can replace the custom plugin with the official package. Current source: `openclaw-channel-plugins/main/plugins/qqbot`; do not install the monorepo root or the retired personal fork.
+
 If you previously installed qqbot but are not familiar with `openclaw plugins` commands or npm operations, use the built-in scripts first.
 
 ## Option 1: Recommended (Script-based upgrade)

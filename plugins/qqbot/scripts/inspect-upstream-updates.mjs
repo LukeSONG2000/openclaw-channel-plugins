@@ -3,7 +3,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import { pathToFileURL } from "node:url";
 
-const DEFAULT_BASE_REF = "custom-runtime";
+const DEFAULT_BASE_REF = "HEAD";
 const DEFAULT_UPSTREAM_REF = "upstream/main";
 
 export function parseRevListLeftRightCount(raw) {
@@ -47,6 +47,7 @@ export function buildUpstreamReviewMarkdown(input) {
   const mergeBase = input.mergeBase;
   const commits = input.commits ?? [];
   const files = input.changedFiles ?? [];
+  const treeComparison = input.treeComparison === true;
   const risks = files
     .map((file) => classifyUpstreamChangedFile(file.paths))
     .filter((item, index, all) => all.findIndex((other) => other.path === item.path) === index);
@@ -61,13 +62,22 @@ export function buildUpstreamReviewMarkdown(input) {
     ``,
     `## Summary`,
     ``,
-    `- Custom branch only commits: ${baseOnly}`,
-    `- Upstream-only commits: ${upstreamOnly}`,
+    ...(treeComparison ? [
+      `- Mode: monorepo QQ subtree versus official root (file-tree comparison).`,
+      `- Commit adoption cannot be inferred across imported or rewritten histories.`,
+    ] : [`- Custom branch only commits: ${baseOnly}`, `- Upstream-only commits: ${upstreamOnly}`]),
     `- Safe default: do not merge or deploy automatically.`,
     ``,
   ];
 
-  if (upstreamOnly === 0) {
+  if (treeComparison) {
+    lines.push(`## Changed Files`, ``,
+      ...files.map((file) => `- ${file.status} ${file.paths.join(" -> ")}`),
+      ...(files.length ? [] : [`- No file-tree differences detected.`]), ``,
+      `Direction: custom subtree -> official root; deletions may be custom features, not removal requests.`,
+      `Review manually; do not merge or deploy automatically.`, ``, `## Risk Hints`, ``,
+      ...risks.map((risk) => `- ${risk.path}: ${risk.risk}`), ``);
+  } else if (upstreamOnly === 0) {
     lines.push(
       `## Decision`,
       ``,
@@ -107,9 +117,11 @@ export function buildUpstreamReviewMarkdown(input) {
     ``,
     "```bash",
     `git fetch ${remoteNameFromRef(upstreamRef)} --prune`,
-    `git merge-base ${baseRef} ${upstreamRef}`,
-    `git log --oneline --decorate ${baseRef}..${upstreamRef}`,
-    `git diff --stat $(git merge-base ${baseRef} ${upstreamRef})..${upstreamRef}`,
+    ...(treeComparison ? [`git diff --stat ${baseRef}:plugins/qqbot ${upstreamRef}^{tree}`] : [
+      `git merge-base ${baseRef} ${upstreamRef}`,
+      `git log --oneline --decorate ${baseRef}..${upstreamRef}`,
+      `git diff --stat $(git merge-base ${baseRef} ${upstreamRef})..${upstreamRef}`,
+    ]),
     "```",
     ``,
   );
@@ -172,13 +184,17 @@ export function runCli(argv = process.argv.slice(2)) {
   if (args.fetch) {
     git(["fetch", remoteNameFromRef(args.upstreamRef), "--prune"]);
   }
-  const counts = parseRevListLeftRightCount(git(["rev-list", "--left-right", "--count", `${args.baseRef}...${args.upstreamRef}`]));
-  const mergeBase = git(["merge-base", args.baseRef, args.upstreamRef]);
-  const commits = git(["log", "--oneline", "--decorate", `--max-count=${args.maxCommits}`, `${args.baseRef}..${args.upstreamRef}`])
+  const qqTree = `${args.baseRef}:plugins/qqbot`;
+  let treeComparison = false;
+  try { treeComparison = git(["cat-file", "-t", qqTree]) === "tree"; } catch {}
+  const counts = treeComparison ? {} : parseRevListLeftRightCount(git(["rev-list", "--left-right", "--count", `${args.baseRef}...${args.upstreamRef}`]));
+  const mergeBase = treeComparison ? undefined : git(["merge-base", args.baseRef, args.upstreamRef]);
+  const commits = treeComparison ? [] : git(["log", "--oneline", "--decorate", `--max-count=${args.maxCommits}`, `${args.baseRef}..${args.upstreamRef}`])
     .split(/\r?\n/)
     .map((line) => line.trim())
     .filter(Boolean);
-  const changedFiles = parseNameStatus(git(["diff", "--name-status", `${mergeBase}..${args.upstreamRef}`]));
+  const changedFiles = parseNameStatus(git(["diff", "--name-status", ...(treeComparison
+    ? [qqTree, `${args.upstreamRef}^{tree}`] : [`${mergeBase}..${args.upstreamRef}`])]));
   const markdown = buildUpstreamReviewMarkdown({
     baseRef: args.baseRef,
     upstreamRef: args.upstreamRef,
@@ -188,6 +204,7 @@ export function runCli(argv = process.argv.slice(2)) {
     upstreamOnly: counts.upstreamOnly,
     commits,
     changedFiles,
+    treeComparison,
   });
   if (args.output) {
     fs.writeFileSync(args.output, markdown, "utf8");

@@ -750,7 +750,7 @@ registerCommand({
   handler: () => null,
 });
 
-const DEFAULT_UPGRADE_URL = "https://docs.qq.com/doc/DSGxOZk1oVnVKVkpq";
+const DEFAULT_UPGRADE_URL = "https://github.com/LukeSONG2000/openclaw-channel-plugins/blob/main/docs/repository-migration.md";
 
 function saveUpgradeGreetingTarget(accountId: string, appId: string, openid: string): void {
   const safeAccountId = accountId.replace(/[^a-zA-Z0-9._-]/g, "_");
@@ -1095,10 +1095,10 @@ function copyScriptToTemp(scriptPath: string): string | null {
 
 const REMOTE_UPGRADE_SCRIPT_URL =
   process.env.QQBOT_UPGRADE_SCRIPT_URL
-  || "https://raw.githubusercontent.com/LukeSONG2000/openclaw-qqbot/custom-runtime/scripts/upgrade-via-npm.sh";
+  || "https://raw.githubusercontent.com/LukeSONG2000/openclaw-channel-plugins/main/plugins/qqbot/scripts/upgrade-via-npm.sh";
 const REMOTE_UPGRADE_SCRIPT_URL_WIN =
   process.env.QQBOT_UPGRADE_SCRIPT_URL_WIN
-  || "https://raw.githubusercontent.com/LukeSONG2000/openclaw-qqbot/custom-runtime/scripts/upgrade-via-npm.ps1";
+  || "https://raw.githubusercontent.com/LukeSONG2000/openclaw-channel-plugins/main/plugins/qqbot/scripts/upgrade-via-npm.ps1";
 
 /**
  * 从远端下载升级脚本到临时目录，返回临时脚本路径，失败返回 null。
@@ -1615,7 +1615,7 @@ registerCommand({
       if (t === "--pkg") {
         const next = tokens[i + 1];
         if (!next || next.startsWith("--")) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/luke-qqbot")}`;
         }
         requestedPkg = next;
         i += 1;
@@ -1624,7 +1624,7 @@ registerCommand({
       if (t.startsWith("--pkg=")) {
         const v = t.slice("--pkg=".length).trim();
         if (!v) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/luke-qqbot")}`;
         }
         requestedPkg = v;
         continue;
@@ -1713,7 +1713,7 @@ registerCommand({
       if (t === "--pkg") {
         const next = tokens[i + 1];
         if (!next || next.startsWith("--")) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/luke-qqbot")}`;
         }
         pkgArg = next;
         i += 1;
@@ -1722,7 +1722,7 @@ registerCommand({
       if (t.startsWith("--pkg=")) {
         const v = t.slice("--pkg=".length).trim();
         if (!v) {
-          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/openclaw-qqbot")}`;
+          return `❌ 参数错误：--pkg 需要包名\n\n示例：${slashCommandInput("/bot-upgrade --pkg lukesong/luke-qqbot")}`;
         }
         pkgArg = v;
         continue;

@@ -523,7 +523,7 @@ find "${OPENCLAW_HOME:-/dev/null}" -maxdepth 1 -name ".qqbot-temp-config-*" -mmi
 #  参数解析
 # ============================================================================
 LOCAL_PKG_NAME="$(read_pkg_name "$PROJECT_DIR/package.json")"
-PKG_NAME="${LOCAL_PKG_NAME:-@tencent-connect/openclaw-qqbot}"
+PKG_NAME="${LOCAL_PKG_NAME:-@lukesong/luke-qqbot}"
 PLUGIN_ID="openclaw-qqbot"
 TARGET_VERSION=""
 APPID=""

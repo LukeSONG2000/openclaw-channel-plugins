@@ -1,3 +1,5 @@
+> Luke-QQBot 当前唯一维护入口是 [openclaw-channel-plugins/plugins/qqbot](https://github.com/LukeSONG2000/openclaw-channel-plugins/tree/main/plugins/qqbot)。先读[仓库迁移与源码安装](../../docs/repository-migration.md)。下文保留官方功能介绍，不能直接用官方安装/升级覆盖二开版本；应安装插件子目录，而非统一仓库根目录。个人 npm 包目前未公开发布。
+
 <div align="center">
 
 **简体中文 | [English](README.md)**
@@ -9,7 +11,7 @@
 
 **让你的 AI 助手接入 QQ — 私聊、群聊、富媒体，一个插件全搞定。**
 
-### 🚀 当前版本： `v1.7.1`
+### 当前二开版本：`1.7.2-luke.1`
 
 [![License](https://img.shields.io/badge/license-MIT-green)](./LICENSE)
 [![QQ Bot](https://img.shields.io/badge/QQ_Bot-API_v2-red)](https://bot.q.qq.com/wiki/)

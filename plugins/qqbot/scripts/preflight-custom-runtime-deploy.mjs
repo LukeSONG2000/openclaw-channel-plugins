@@ -11,8 +11,10 @@ import {
 } from "./apply-custom-runtime-init.mjs";
 
 const DESIRED_PLUGIN_ID = "openclaw-qqbot";
-const DESIRED_PACKAGE = "@lukesong/openclaw-qqbot";
+const DESIRED_PACKAGE = "@lukesong/luke-qqbot";
 const PERSONAL_PACKAGE_REFS = new Set([
+  "@lukesong/luke-qqbot",
+  "lukesong/luke-qqbot",
   "@lukesong/openclaw-qqbot",
   "lukesong/openclaw-qqbot",
 ]);
@@ -332,7 +334,7 @@ export function classifyPackageReference(raw) {
   if (raw === null || raw === undefined || raw === "") return "missing";
   const text = stringifyRefValue(raw);
   const normalized = normalizePackageName(text);
-  if (PERSONAL_PACKAGE_REFS.has(normalized) || /github(?:\.com)?[:/]LukeSONG2000\/openclaw-qqbot/i.test(text)) {
+  if (PERSONAL_PACKAGE_REFS.has(normalized)) {
     return "personal";
   }
   if (OFFICIAL_PACKAGE_REFS.has(normalized) || /tencent-connect\/openclaw-qqbot/i.test(text) || /tencent-connect\/qqbot/i.test(text)) {

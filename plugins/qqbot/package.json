@@ -58,10 +58,11 @@
   "peerDependencies": {
     "openclaw": "*"
   },
-  "homepage": "https://github.com/LukeSONG2000/openclaw-qqbot",
+  "homepage": "https://github.com/LukeSONG2000/openclaw-channel-plugins/tree/main/plugins/qqbot",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/LukeSONG2000/openclaw-qqbot.git"
+    "url": "git+https://github.com/LukeSONG2000/openclaw-channel-plugins.git",
+    "directory": "plugins/qqbot"
   },
   "bundleDependencies": [
     "mpg123-decoder",

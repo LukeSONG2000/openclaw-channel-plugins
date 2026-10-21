@@ -1,5 +1,7 @@
 # qqbot 插件升级指南
 
+> 请使用[统一仓库迁移与安装说明](../../../docs/repository-migration.md)。下列官方步骤可能覆盖二开插件。当前源码位于 `openclaw-channel-plugins/main/plugins/qqbot`，不要安装统一仓库根目录或已迁出的个人旧仓。
+
 如果你之前安装过 qqbot 插件，但不熟悉 `openclaw plugins` 升级命令或 `npm` 操作，建议优先使用项目内置脚本。
 
 ## 方式一：推荐（脚本升级）

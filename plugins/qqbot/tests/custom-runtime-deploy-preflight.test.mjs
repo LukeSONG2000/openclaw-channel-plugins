@@ -17,7 +17,9 @@ import {
 assert.equal(normalizePackageName("lukesong/openclaw-qqbot"), "@lukesong/openclaw-qqbot");
 assert.equal(normalizePackageName("@lukesong/openclaw-qqbot@1.7.2-luke.1"), "@lukesong/openclaw-qqbot");
 assert.equal(classifyPackageReference("@lukesong/openclaw-qqbot"), "personal");
-assert.equal(classifyPackageReference("github:LukeSONG2000/openclaw-qqbot"), "personal");
+assert.equal(classifyPackageReference("github:LukeSONG2000/openclaw-qqbot"), "unknown");
+assert.equal(classifyPackageReference("@lukesong/luke-qqbot"), "personal");
+assert.equal(classifyPackageReference("lukesong/luke-qqbot"), "personal");
 assert.equal(classifyPackageReference("@tencent-connect/openclaw-qqbot"), "official");
 assert.equal(classifyPackageReference({ source: "path", path: "/tmp/openclaw-qqbot" }), "path-or-custom");
 

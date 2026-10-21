@@ -25,6 +25,8 @@ npm run check:dingtalk
 
 ## 维护规则
 
+- 唯一主仓为 [LukeSONG2000/openclaw-channel-plugins](https://github.com/LukeSONG2000/openclaw-channel-plugins)，分支 `main`；旧个人 QQBot fork 已迁出，不再作为开发、安装或更新入口。见 [仓库迁移与安装](docs/repository-migration.md)。
+
 - 渠道实现只放在对应的 `plugins/<channel>` 目录。
 - 每个插件独立维护 `package.json`、插件清单、测试和部署说明。
 - 上游更新先审阅差异，再按渠道合并；不自动覆盖二开版本。

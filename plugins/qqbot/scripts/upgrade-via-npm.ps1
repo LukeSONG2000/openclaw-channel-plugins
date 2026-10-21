@@ -29,7 +29,7 @@ param(
 )
 
 $ErrorActionPreference = "Stop"
-$PKG_NAME = "@tencent-connect/openclaw-qqbot"
+$PKG_NAME = "@lukesong/luke-qqbot"
 $SCRIPT_DIR = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $PROJECT_DIR = Split-Path -Parent $SCRIPT_DIR
 

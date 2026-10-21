@@ -61,6 +61,14 @@ assert.equal(update.includes("src/gateway.ts: gateway/slash/config surface"), tr
 assert.equal(update.includes("package.json: package/plugin identity"), true);
 assert.equal(update.includes("do not merge or deploy automatically"), true);
 
+assert.equal(parseCliArgs([]).baseRef, "HEAD");
+const monorepo = buildUpstreamReviewMarkdown({ treeComparison: true,
+  changedFiles: [{ status: "M", paths: ["src/gateway.ts"] }] });
+assert.equal(monorepo.includes("file-tree comparison"), true);
+assert.equal(monorepo.includes("No upstream-only commits were detected"), false);
+assert.equal(monorepo.includes("HEAD:plugins/qqbot"), true);
+assert.equal(monorepo.includes("src/gateway.ts: gateway/slash/config surface"), true);
+
 assert.deepEqual(parseCliArgs([
   "--base", "custom-runtime",
   "--upstream=upstream/main",
