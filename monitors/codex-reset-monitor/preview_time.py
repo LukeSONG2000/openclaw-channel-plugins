@@ -36,9 +36,9 @@ Preserve before/after rather than claiming an exact reset instant.
 Allowed zones: UTC,PST,PDT,EST,EDT,CST-China,JST,KST,America/Los_Angeles,
 America/New_York,Asia/Shanghai,Europe/London,Europe/Paris,Asia/Tokyo,Asia/Seoul.
 Missing timezone: zone=null, relation=unknown; do not invent the author's location.
-Literal PST means fixed UTC-08, PDT means UTC-07. If PST is used with a Pacific
-window hint during daylight saving, keep zone=PST and alternative_zone=America/Los_Angeles.
-Likewise preserve literal EST versus New York local time when the source is ambiguous.
+Literal PST means fixed UTC-08, PDT means UTC-07; EST means fixed UTC-05.
+Use only the source's explicit timezone, not an alternative interpretation.
+Set alternative_zone=null. Regional timezone names follow their own timezone rules.
 For a date without a clock, relation=on and local_time=null. Otherwise local_time required.
 If the text does not reliably specify a future time, use relation=unknown and nulls.
 """
@@ -84,18 +84,13 @@ def render_semantics(semantic, source):
     elif not isinstance(clock, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", clock):
         raise ValueError("invalid_local_time")
     published = timestamp(source["publishedAt"])
-    alternatives = [semantic["zone"]]
-    if semantic["alternative_zone"] is not None:
-        alternatives.append(semantic["alternative_zone"])
-    # A literal abbreviation and the provider's regional hint can disagree in DST.
-    for literal, regional in (("PST", "America/Los_Angeles"), ("EST", "America/New_York")):
+    # Explicit abbreviations take precedence over a regional provider hint.
+    for literal in ("PST", "EST"):
         if re.search(r"\b" + literal + r"\b", source["text"]):
             if semantic["zone"] != literal:
                 raise ValueError("literal_timezone_changed")
-            if "Pacific" in source["window"] and literal == "PST" and regional not in alternatives:
-                alternatives.append(regional)
     candidates = []
-    for name in dict.fromkeys(alternatives):
+    for name in (semantic["zone"],):
         tz = zone(name)
         day = (published.astimezone(tz).date() + timedelta(days=offset)
                if offset is not None else datetime.strptime(date, "%Y-%m-%d").date())
@@ -119,9 +114,6 @@ def render_semantics(semantic, source):
     if relation == "on":
         end = timestamp(candidates[0]["utc08End"]).strftime("%m-%d %H:%M")
         display = f"预告日期对应窗口：{first} 至 {end}（UTC+08:00），未指定具体时刻。"
-    if len(candidates) > 1:
-        other = timestamp(candidates[1]["utc08"]).strftime("%m-%d %H:%M")
-        display += f"\n按原文 {candidates[0]['sourceZone']} 换算；若泛指当地夏令时，则为 {other}{suffix}（UTC+08:00）。"
     return dict(status="parsed", display=display, candidates=candidates, sourceExpression=expression)
 
 

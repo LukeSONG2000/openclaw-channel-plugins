@@ -42,12 +42,22 @@ class PreviewTimeTests(unittest.TestCase):
                 with self.assertRaisesRegex(ValueError, "incomplete_model_final"):
                     complete(SOURCE)
 
-    def test_relative_day_uses_publish_date_and_preserves_pst_daylight_ambiguity(self):
+    def test_relative_day_uses_publish_date_and_only_explicit_pst(self):
         result = p.render_semantics(SEMANTIC, SOURCE)
         self.assertEqual([c["utc08"] for c in result["candidates"]],
-                         ["2026-10-23T02:00:00+08:00", "2026-10-23T01:00:00+08:00"])
-        self.assertIn("02:00前", result["display"])
-        self.assertIn("夏令时", result["display"])
+                         ["2026-10-23T02:00:00+08:00"])
+        self.assertEqual(result["display"], "预计重置：2026-10-23 02:00前（UTC+08:00）")
+
+    def test_old_cached_alternative_does_not_add_a_second_time_or_call_model(self):
+        event = dict(detail=SOURCE["text"], occurred_at=SOURCE["publishedAt"],
+                     forecast_signal=dict(window=SOURCE["window"]), time_context=SOURCE["context"])
+        complete = Mock(return_value=dict(SEMANTIC, alternative_zone="America/Los_Angeles"))
+        with tempfile.TemporaryDirectory() as directory:
+            p.interpret_preview_time(event, directory, complete=complete)
+            result = p.interpret_preview_time(event, directory, complete=complete)
+            self.assertEqual(complete.call_count, 1)
+            self.assertEqual(len(result["candidates"]), 1)
+            self.assertEqual(result["display"], "预计重置：2026-10-23 02:00前（UTC+08:00）")
 
     def test_literal_timezone_cannot_be_silently_changed(self):
         with self.assertRaisesRegex(ValueError, "literal_timezone"):
