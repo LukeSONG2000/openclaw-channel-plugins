@@ -609,6 +609,19 @@ test('real group history fields: wrong destination/bot/type/time/content/images 
     assert.throws(() => matchGroupHistory(response, groupRoute, groupBotId, receipt), /group_readback_unavailable/);
   }
 });
+test('group history accepts the new HTTPS image projection without fetching URLs or weakening text checks', async t => {
+  const value = await groupFixture(t), receipt = await groupRun(value);
+  const valid = groupMessage(value.plan);
+  const content = valid.content.replaceAll('![image](@fixtureMediaId)',
+    '![image](https://images.example.com/card.png?signature=fixture%2Fvalue&expires=123)');
+  const result = matchGroupHistory(historyResponse({ ...valid, content }), groupRoute, groupBotId, receipt);
+  assert.equal(result.status, 'matched');
+  assert.equal(result.evidence.verifiesImageBytes, false);
+  for (const bad of [content + ' extra text', content.replace('https://', 'http://'),
+    content.replace('https://images.', 'https://user:password@images.')]) {
+    assert.equal(matchGroupHistory(historyResponse({ ...valid, content: bad }), groupRoute, groupBotId, receipt).status, 'not_found');
+  }
+});
 test('group no-image health manifest needs no QQ credentials, imports or image API', async t => {
   const value = await groupFixture(t, { images: false });
   delete value.dependencies.imageHost;

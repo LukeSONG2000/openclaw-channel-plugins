@@ -3,7 +3,8 @@
 Observed 2026-10-20: the site's routes-DD3qGqQ1.js reads this endpoint and
 api-client-CwCPP1Xb.js unwraps code=0/data. This community provider is not OpenAI.
 There is no documented forecast-generation timestamp, confidence interval,
-promise, or structured preview/distribution stage. Do not synthesize them.
+or structured distribution stage. Scheduled forecastSignal previews were
+observed on 2026-10-22; they are not completed resets.
 """
 
 from __future__ import annotations
@@ -92,6 +93,15 @@ def _event(event: Any) -> dict[str, Any]:
     if native_type is not None and not isinstance(native_type, str):
         raise SourceSchemaError("source schema: event.resetType")
     reset_type = {"usage": "regular", "banked": "banked"}.get(native_type)
+    signal = event.get("forecastSignal")
+    scheduled = None
+    if (isinstance(signal, dict) and signal.get("stage") == "scheduled"
+            and isinstance(signal.get("window"), str) and signal["window"].strip()
+            and len(signal["window"]) <= 512
+            and raw_kind == "tibo" and _x_author(source_url) == "thsottiaux"
+            and native_type in (None, "usage", "banked")):
+        scheduled = dict(stage="scheduled", window=signal["window"],
+                         scope=str(signal.get("scope") or "")[:1000])
     phase = None
     # Candidate confidence, autoDetectedReset, impact and prose are not approvals.
     if raw_kind == "reset" and verified:
@@ -101,12 +111,21 @@ def _event(event: Any) -> dict[str, Any]:
             # Verified banked records also contain future announcements. They do
             # not provide a machine-readable guarantee of completed distribution.
             phase = "announced"
+    elif scheduled:
+        # Unspecified subtype uses the regular-preview route, never an actual reset.
+        reset_type = reset_type or "regular"
+        phase = "upcoming" if reset_type == "banked" else "preview"
+    context = event.get("replyContext")
+    time_context = (context["text"][:3000] if isinstance(context, dict)
+                    and context.get("author") == "thsottiaux"
+                    and isinstance(context.get("text"), str) else "")
     return dict(event_id=status_id or (PROVIDER_ID + ":" + native_id),
                 source_event_id=native_id, x_status_id=status_id,
                 source_author=_x_author(source_url),
                 occurred_at=occurred_at, source_url=source_url, raw_kind=raw_kind,
                 reset_type=reset_type, verified=verified, title=title, detail=detail,
-                phase=phase)
+                phase=phase, forecast_signal=scheduled, time_context=time_context,
+                reset_type_explicit=native_type in ("usage", "banked"))
 
 
 def normalize_snapshot(payload: dict[str, Any], *, retrieved_at: str) -> dict[str, Any]:
@@ -165,8 +184,8 @@ def normalize_snapshot(payload: dict[str, Any], *, retrieved_at: str) -> dict[st
                         probability_48h="prob_48" in forecast,
                         x_feed="tiboPosts" in data, regular_actual=True,
                         forecast_generation_time=False,
-                        regular_preview=False, banked_distributed=False,
-                        banked_announced=True)
+                        regular_preview=True, banked_distributed=False,
+                        banked_upcoming=True, banked_announced=True)
     return dict(provider_id=PROVIDER_ID, source_name=SOURCE_NAME, source_url=SOURCE_URL,
                 endpoint=ENDPOINT, retrieved_at=retrieved_at,
                 source_updated_at=source_updated_at, signal_checked_at=signal_checked_at,

@@ -22,6 +22,7 @@ from zoneinfo import ZoneInfo
 from source_fetch import fetch_json
 from announcement_content import announcement_content
 import provider_willcodexreset as provider
+from preview_time import interpret_preview_time
 
 
 SOURCE_URL = "https://willcodexreset.com/zh"
@@ -83,7 +84,7 @@ class ResetPhaseEvent(TypedDict):
 
 
 PHASE_TITLES = {
-    ("regular", "preview"): "Codex已确认重置！",
+    ("regular", "preview"): "Codex确认重置！",
     ("regular", "actual"): "Codex已重置，速蹬！",
     ("banked", "upcoming"): "Codex重置卡即将发放！",
     ("banked", "distributed"): "Codex重置卡已发放！",
@@ -308,7 +309,7 @@ def fetch_source_data() -> tuple[dict[str, Any], dict[str, Any], dict[str, Any]]
         key = event["event_id"], event["phase"] or event["source_event_id"]
         previous = unique.get(key)
         if previous and any(previous[field] != event[field] for field in (
-                "occurred_at", "reset_type", "detail", "source_url", "raw_kind")):
+                "occurred_at", "reset_type", "detail", "source_url", "raw_kind", "forecast_signal")):
             raise ValueError("source.events: conflicting duplicate event identity/phase")
         unique[key] = event
     events = [dict(id=event["event_id"], kind=event["raw_kind"], summary=event["detail"],
@@ -907,6 +908,15 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
     primary = primary_phase(phases)
     if primary:
         snapshot["stageText"] = PHASE_DETAILS[(primary["resetType"], primary["phase"])]
+        if primary["phase"] in ("preview", "upcoming") and "sourceSnapshot" in forecast:
+            event = next(e["sourceEvent"] for e in events if e["id"] == primary["eventId"]
+                         and e["sourceEvent"].get("forecast_signal"))
+            parsed_time = interpret_preview_time(event, STATE_FILE.parent / "preview-time-cache")
+            snapshot["previewTime"] = parsed_time
+            if not event.get("reset_type_explicit"):
+                snapshot["stageText"] = "重置预告｜尚未到账；具体类型及适用范围以原公告为准"
+            snapshot["stageText"] += "\n" + parsed_time["display"]
+            snapshot["forecastCard"].update(status="已预告，尚未到账", summary=parsed_time["display"])
         if ("sourceSnapshot" in forecast
                 and (primary["resetType"], primary["phase"]) == ("regular", "actual")):
             snapshot["stageText"] = "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账"

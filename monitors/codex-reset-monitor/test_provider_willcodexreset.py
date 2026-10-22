@@ -13,6 +13,32 @@ RETRIEVED_AT = "2026-10-20T02:04:23+00:00"
 
 
 class ProviderTests(unittest.TestCase):
+    def test_scheduled_signal_from_original_tibo_is_preview_not_actual(self):
+        self.payload["data"]["events"] = [dict(id="tibo-2113162413008884099", kind="tibo",
+            occurredAt="2026-10-22T06:55:54Z", title="@thsottiaux",
+            detail="Lands tomorrow before 10am PST.", url="https://x.com/thsottiaux/status/2113162413008884099",
+            forecastSignal=dict(stage="scheduled", window="tomorrow, before 10am Pacific", scope="unspecified"))]
+        result = self.normalize()["events"][0]
+        self.assertEqual((result["reset_type"], result["phase"]), ("regular", "preview"))
+        self.assertFalse(result["reset_type_explicit"])
+        self.assertFalse(result["verified"])
+        self.assertEqual(result["forecast_signal"]["stage"], "scheduled")
+        self.assertTrue(self.normalize()["capabilities"]["regular_preview"])
+
+    def test_scheduled_signal_needs_original_author_supported_type_and_window(self):
+        event = dict(id="tibo-2113162413008884099", kind="tibo", occurredAt="2026-10-22T06:55:54Z",
+            title="Fixture", detail="Tomorrow", url="https://x.com/thsottiaux/status/2113162413008884099",
+            forecastSignal=dict(stage="scheduled", window="tomorrow"))
+        for change in (dict(url="https://x.com/other/status/2113162413008884099"),
+                       dict(resetType="unknown"), dict(forecastSignal=dict(stage="candidate", window="tomorrow")),
+                       dict(forecastSignal=dict(stage="scheduled", window=""))):
+            self.payload["data"]["events"] = [dict(event, **change)]
+            with self.subTest(change=change):
+                self.assertIsNone(self.normalize()["events"][0]["phase"])
+        self.payload["data"]["events"] = [dict(event, resetType="banked")]
+        result = self.normalize()["events"][0]
+        self.assertEqual((result["reset_type"], result["phase"]), ("banked", "upcoming"))
+
     def setUp(self):
         self.payload = json.loads(FIXTURE.read_text(encoding="utf-8"))
 

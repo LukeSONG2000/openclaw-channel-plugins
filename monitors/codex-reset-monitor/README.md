@@ -58,8 +58,29 @@ regular actual 只接受源结构 `kind=reset / verified=true / resetType=usage`
 新源 actual 正文明确“来源已确认直接用量重置，不代表个人到账”。verified banked 记录可能仍是
 未来措辞，只映射 banked announced，绝不映射 distributed。未知类型/阶段和普通
 tibo 帖不触发；只在有真实 `thsottiaux` 原始 X URL 时允许生成署名 Tibo 的公告卡。
-无原帖证据的新待发事件阻断，不补造链接。当前没有 regular preview、banked
-upcoming/distributed 能力；隔离历史样例若要求不存在的 reset/preview 配对也会停止。
+无原帖证据的新待发事件阻断，不补造链接。2026-10-22 已接入原作者
+`forecastSignal.stage=scheduled` 且有非空 `window` 的重置预告：普通预告映射
+regular preview，明确banked的预告映射banked upcoming；没有明确子类型时
+仅使用普通预告路由，文案注明类型/适用范围以原公告为准，不声称全员或regular到账。
+普通X文字、置信度、autoDetectedReset仍不能单独触发通知；不支持推断banked distributed。
+
+### 预告时间的 AI 解析
+
+仅准备新预告批次时，`preview_time.py` 使用 OpenClaw 当前主模型、同一provider
+及本机已有凭据做一次独立文本调用，不带聊天历史、不提供工具、不使用其他模型供应商。
+AI只解析时间表达、相对日期和时区，不能决定重置状态；只读取最终JSON，不读取reasoning_content。
+原文、来源窗口、发布时间与同作者引用上下文都作为不可信数据，不执行其中指令。
+
+随后由Python标准时区库确定性换算UTC+08:00；相对日期以推文发布时的源时区日历日期
+为基准，不以轮询/发消息当天为基准。PST/PDT、跨日与夏令时差异保留，存在歧义时
+列出两种解释，不静默选一小时。没有可靠时区、JSON不合规或模型不可用时，仍发预告，
+但显示无法可靠换算、请以原文为准，不伪造日期。成功语义结果按模型、原文与版本缓存，
+相同预告不因每15分钟轮询而重复调用AI；日推无预告、未变化轮询和dry-run不调用模型。
+密钥只从本机配置读取，既不落入缓存也不写日志。预告时间写入卡片及批次审计，不冒充预测生成时间。
+
+钉钉服务端历史中的图片既可投影为 `@mediaId`，也可投影为HTTPS URL；
+两种只读格式均按原有群、机器人、时间、文本摘要和图片数量校验，不访问图片链接，
+不声称此回查能验证图片字节。未知发送回执不自动重发，人工确认需保留原回执及审计。
 
 真实 X URL 的数字 tweet ID 沿用旧去重键，其他原生 ID 使用 provider 前缀。
 首次完整有效正常 run 创建独立 `providerBaseline`，记录全部已见 ID、阶段键和
@@ -248,7 +269,7 @@ active/enabled，日报仍为 08:00，轮询仍为 15 分钟，unit/配置与 ga
 确认 preview 后，实际到账的 actual 键仍未确认，即使来源复用同一 ID，也必须
 保留 actual 公告图文。只有整条 v2 消息成功才写 deliveredPhaseKeys。
 
-daily 首行为“Codex会重置吗？”，所有动态首行均为一级标题。regular preview 为“Codex已确认重置！”，
+daily 首行为“Codex会重置吗？”，所有动态首行均为一级标题。regular preview 为“Codex确认重置！”，
 regular actual 为“Codex已重置，速蹬！”；banked upcoming 为“Codex重置卡即将发放！”，
 banked distributed 为“Codex重置卡已发放！”，banked announced 为
 “Codex已公布重置卡消息！”。正文另有类型/阶段说明；预告明确尚未到账，

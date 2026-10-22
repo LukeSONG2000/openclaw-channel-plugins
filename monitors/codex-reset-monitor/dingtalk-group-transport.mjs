@@ -67,7 +67,15 @@ export function matchGroupHistory(response, target, botId, receipt) {
     const at = Date.parse(message.createTime.replace(' ', 'T') + '+08:00');
     if (!(at >= start && at <= end)) continue;
     let images = 0;
-    const text = message.content.replace(/!\[image\]\(@[A-Za-z0-9_=-]+\)/g, () => { images++; return ''; });
+    const text = message.content.replace(/!\[image\]\((@[A-Za-z0-9_=-]+|https:\/\/[^\s()]+)\)/g, (raw, reference) => {
+      if (!reference.startsWith('@')) {
+        try {
+          const url = new URL(reference);
+          if (url.protocol !== 'https:' || !url.hostname || url.username || url.password) return raw;
+        } catch { return raw; }
+      }
+      images++; return '';
+    });
     const projection = { textSha256: sha256(normalizeText(text)), imageCount: images };
     const rawExact = sha256(message.content) === receipt.preparedMarkdownHash;
     const projected = projection.textSha256 === receipt.projection.textSha256

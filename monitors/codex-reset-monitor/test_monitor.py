@@ -137,7 +137,7 @@ class MonitorTests(unittest.TestCase):
         self.assertIn(NEW_ID, self.read_state()["notified_reset_ids"])
 
     def test_typed_phase_titles_keep_regular_and_banked_meanings_separate(self):
-        titles = {("regular", "preview"): "Codex已确认重置！",
+        titles = {("regular", "preview"): "Codex确认重置！",
                   ("regular", "actual"): "Codex已重置，速蹬！",
                   ("banked", "upcoming"): "Codex重置卡即将发放！",
                   ("banked", "distributed"): "Codex重置卡已发放！",
@@ -290,7 +290,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(self.batch_sender.call_count, 1)
         batch = self.batch_sender.call_args.args[0]
         snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
-        self.assertEqual(snapshot["title"], "Codex已确认重置！")
+        self.assertEqual(snapshot["title"], "Codex确认重置！")
         self.assertIn("尚未到账", snapshot["stageText"])
         self.assertIsNone(batch["resetId"])
         self.assertEqual(self.read_state()["notified_reset_ids"], [OLD_ID])
@@ -2013,6 +2013,33 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["source_event_id"], event["source_event_id"])
         self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["x_status_id"], event["event_id"])
 
+    def test_scheduled_preview_then_actual_are_separate_deduplicated_stages(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        event = self.add_event(kind="tibo", verified=False,
+            forecastSignal=dict(stage="scheduled", window="tomorrow before 10am Pacific"))
+        parsed = dict(status="parsed", display="预计重置：2026-10-21 01:00前（UTC+08:00）", candidates=[])
+        with patch.object(m, "interpret_preview_time", return_value=parsed) as complete:
+            self.assertEqual(self.run_monitor(), 0)
+            self.assertEqual(self.run_monitor(), 0)
+            self.assertEqual(complete.call_count, 1)
+        self.assertEqual(self.sender.call_count, 1)
+        self.assertEqual(self.read_state()["last_reset_id"], OLD_ID)
+        self.assertEqual(self.read_state()["notified_reset_ids"], [OLD_ID])
+        batch = self.sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex确认重置！")
+        self.assertIn("尚未到账", snapshot["stageText"])
+        self.assertIn("UTC+08:00", snapshot["forecastCard"]["summary"])
+        self.assertEqual(snapshot["previewTime"], parsed)
+        self.snapshot["events"].remove(event)
+        self.add_event()
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 2)
+        self.assertIn("2119999999999999999", self.read_state()["notified_reset_ids"])
+
     def test_old_ingestion_still_deduplicates_resets_and_keeps_unchanged_polls_silent(self):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.run_monitor(), 0)
@@ -2212,7 +2239,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertIsNone(audit["sourceTimes"]["predictionGeneratedAt"])
         self.assertEqual(audit["sourceTimes"]["sourceUpdatedAt"], self.snapshot["source_updated_at"])
         self.assertEqual(audit["sourceProvider"]["page"], "https://willcodexreset.com/zh")
-        self.assertFalse(audit["sourceCapabilities"]["regular_preview"])
+        self.assertTrue(audit["sourceCapabilities"]["regular_preview"])
         self.assertIn("https://willcodexreset.com/zh", m.failure_message(ValueError("stale"), 3))
 
     def test_absent_probability_is_not_replaced_by_zero_or_an_old_forecast(self):
