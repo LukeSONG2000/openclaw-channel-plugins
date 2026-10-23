@@ -118,7 +118,7 @@ def primary_phase(phases: list[ResetPhaseEvent]) -> ResetPhaseEvent | None:
 
 def batch_phase_title(phases: list[ResetPhaseEvent], daily: bool = False) -> str:
     latest = primary_phase(phases)
-    if daily or latest is None:
+    if latest is None or (daily and latest["phase"] not in ("actual", "distributed")):
         return "Codex会重置吗？"
     return PHASE_TITLES[(latest["resetType"], latest["phase"])]
 

@@ -739,6 +739,7 @@ test('private/QQ/corrupt/group target mismatched receipts cannot be dispatched o
   const good = await groupRun(value);
   for (const previous of [null, {}, { ...good, scope: 'private' }, { ...good, channel: 'qq' },
     { ...good, targetSha256: sha256('other') }, { ...good, ok: true },
+    { ...good, status: 'unknown', processQueryKey: undefined },
     { ...good, status: 'readback_confirmed', ok: true, readbackObserved: true }]) {
     await fs.writeFile(value.receiptPath, JSON.stringify(previous));
     await assert.rejects(groupRun(value));

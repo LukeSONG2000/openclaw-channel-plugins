@@ -235,7 +235,7 @@ export async function runGroupManifest({ plan, receiptPath, loadTransport, now =
       check(['preparing', 'inflight', 'unknown', 'failed', 'accepted', 'readback_confirmed'].includes(receipt.status)
         && receipt.ok === (receipt.status === 'readback_confirmed')
         && receipt.readbackObserved === receipt.ok, 'invalid_receipt');
-      check(!(receipt.status === 'accepted' || (receipt.status === 'readback_confirmed' && receipt.accepted === true))
+      check(!(receipt.status === 'accepted' || receipt.accepted === true)
         || (receipt.accepted === true && nonempty(receipt.processQueryKey) && hashPattern.test(receipt.responseSha256)
           && hashPattern.test(receipt.preparedMarkdownHash)), 'invalid_receipt');
       if (receipt.status === 'readback_confirmed' && receipt.accepted !== true) {

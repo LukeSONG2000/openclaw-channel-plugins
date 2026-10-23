@@ -60,6 +60,7 @@ regular actual 只接受源结构 `kind=reset / verified=true / resetType=usage`
 tibo 帖不触发；只在有真实 `thsottiaux` 原始 X URL 时允许生成署名 Tibo 的公告卡。
 没有X链接的站内确认记录仍可独立触发 regular actual，保留原生ID、确认时间和
 `sourceResetEvents`审计，只使用本站“信息来源”，不生成署名Tibo的假公告卡。
+日推合并尚未发送的到账/发卡完成事件时，优先显示到账/发卡标题，普通日推标题不变。
 未确认记录不触发；声称来自X但缺少原作者证据的动态仍阻断，不补造链接。
 2026-10-22 已接入原作者
 `forecastSignal.stage=scheduled` 且有非空 `window` 的重置预告：普通预告映射

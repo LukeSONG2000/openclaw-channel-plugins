@@ -147,7 +147,8 @@ class MonitorTests(unittest.TestCase):
             event = dict(eventId=NEW_ID, resetType=reset_type, phase=phase,
                          announcedAt="2026-10-19T03:00:00Z")
             self.assertEqual(m.batch_phase_title([event]), title)
-            self.assertEqual(m.batch_phase_title([event], daily=True), "Codex会重置吗？")
+            self.assertEqual(m.batch_phase_title([event], daily=True),
+                             title if phase in ("actual", "distributed") else "Codex会重置吗？")
             keys.add(m.phase_event_key(event))
         self.assertEqual(len(keys), 5)
         with self.assertRaises(ValueError):
@@ -168,7 +169,8 @@ class MonitorTests(unittest.TestCase):
                     directory = self.state_file.parent / "outbox" / batch["batchId"]
                     parts = json.loads((directory / "batch.json").read_text())["parts"]
                     self.assertEqual(parts[:5], [
-                        dict(type="heading", level=1, text="Codex会重置吗？" if daily else title),
+                        dict(type="heading", level=1, text=("Codex会重置吗？"
+                             if daily and phase not in ("actual", "distributed") else title)),
                         dict(type="text", text=m.PHASE_DETAILS[(reset_type, phase)]),
                         dict(type="link", label="信息来源", url=m.SOURCE_PAGE),
                         dict(type="image", path="forecast.png"),
@@ -973,7 +975,7 @@ class MonitorTests(unittest.TestCase):
         self.assertEqual(manifest["delivery"], "single_markdown")
         self.assertEqual(batch["manifestVersion"], 2)
         self.assertEqual(batch["manifestSha256"], m.digest_json(manifest))
-        self.assertEqual(manifest["parts"][0], dict(type="heading", level=1, text="Codex会重置吗？"))
+        self.assertEqual(manifest["parts"][0], dict(type="heading", level=1, text="Codex已重置，速蹬！"))
         self.assertEqual([part for part in manifest["parts"] if part["type"] == "link"], [
             dict(type="link", label="信息来源", url=m.SOURCE_PAGE),
             dict(type="link", label="查看𝕏", url=f"https://x.com/source/status/{NEW_ID}"),
@@ -2137,6 +2139,7 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(self.sender.call_count, 2)
         directory = self.state_file.parent / "outbox" / pending["batchId"]
         parts = json.loads((directory / "batch.json").read_text())["parts"]
+        self.assertEqual(parts[0]["text"], "Codex已重置，速蹬！")
         self.assertFalse(any(p.get("text") == "Tibo宣布了什么" for p in parts))
         self.assertEqual([p["url"] for p in parts if p["type"] == "link"], [m.SOURCE_PAGE])
 
