@@ -686,6 +686,9 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
             source_event = event["sourceEvent"]
             if source_event["phase"] is None:
                 continue
+            # A verified site record can trigger a reset without being an X post.
+            if source_only_actual(event):
+                continue
             phase = dict(eventId=event["id"], resetType=source_event["reset_type"],
                          phase=source_event["phase"], announcedAt=event["announced_at"])
             if provider_phase_suppressed(phase, state):
@@ -714,6 +717,16 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
             result[event["id"]] = event
     return sorted(result.values(), key=lambda event: aware_time(event["announced_at"], "event time"),
                   reverse=True)
+
+
+def source_only_actual(event: dict[str, Any]) -> bool:
+    source = event.get("sourceEvent", {})
+    return (source.get("raw_kind") == "reset" and source.get("verified") is True
+            and source.get("reset_type") == "regular" and source.get("phase") == "actual"
+            and source.get("source_url") is None and source.get("x_status_id") is None
+            and event.get("source_url") is None
+            and event.get("id") == source.get("event_id")
+            and event.get("sourceFeed") is None)
 
 
 def legacy_service_start(service: str, success: datetime) -> datetime | None:
@@ -882,7 +895,8 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                   dingtalk_sample: bool = False) -> dict[str, Any]:
     phases = phase_events or []
     announcements = select_announcements(events + feed.get("sourcePosts", []), state, phase_events=phases)
-    selected_ids = {event["id"] for event in announcements}
+    source_records = [event for event in events if source_only_actual(event)]
+    selected_ids = {event["id"] for event in announcements + source_records}
     if "sourceSnapshot" in forecast:
         phases = pending_phase_events(phases, state)
     phases = [phase for phase in phases if phase["eventId"] in selected_ids]
@@ -902,6 +916,10 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                     resetId=reset_id or None, dailyDate=daily_date, manualPreview=manual_preview,
                     sourceWarnings=warnings, manifestVersion=2, delivery="single_markdown",
                     title=batch_phase_title(phases, daily=bool(daily_date)), eventPhases=phases)
+    if source_records:
+        phase_ids = {phase["eventId"] for phase in phases}
+        snapshot["sourceResetEvents"] = [event["sourceEvent"] for event in source_records
+                                       if event["id"] in phase_ids]
     snapshot.update(source_audit(forecast))
     if GROUP_CONFIG is not None:
         snapshot.update(group_binding())
@@ -920,6 +938,10 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
         if ("sourceSnapshot" in forecast
                 and (primary["resetType"], primary["phase"]) == ("regular", "actual")):
             snapshot["stageText"] = "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账"
+            confirmed_at = format_shanghai(primary["announcedAt"])
+            snapshot["stageText"] += f"\n确认时间：{confirmed_at}（UTC+08:00）"
+            snapshot["forecastCard"].update(status="已确认重置", summary=(
+                f"来源已确认常规用量重置。\n确认时间：{confirmed_at}（UTC+08:00）"))
     if dingtalk_sample:
         snapshot.update(channel="dingtalk", purpose="private-test-current-forecast-with-history",
                         businessStateMutation=False,

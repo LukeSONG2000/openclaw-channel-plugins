@@ -235,9 +235,16 @@ export async function runGroupManifest({ plan, receiptPath, loadTransport, now =
       check(['preparing', 'inflight', 'unknown', 'failed', 'accepted', 'readback_confirmed'].includes(receipt.status)
         && receipt.ok === (receipt.status === 'readback_confirmed')
         && receipt.readbackObserved === receipt.ok, 'invalid_receipt');
-      check(!['accepted', 'readback_confirmed'].includes(receipt.status)
+      check(!(receipt.status === 'accepted' || (receipt.status === 'readback_confirmed' && receipt.accepted === true))
         || (receipt.accepted === true && nonempty(receipt.processQueryKey) && hashPattern.test(receipt.responseSha256)
           && hashPattern.test(receipt.preparedMarkdownHash)), 'invalid_receipt');
+      if (receipt.status === 'readback_confirmed' && receipt.accepted !== true) {
+        check(receipt.accepted === false && receipt.acceptanceUnconfirmed === true
+          && ['unknown', 'inflight'].includes(receipt.recoveredFromStatus)
+          && hashPattern.test(receipt.preparedMarkdownHash)
+          && Number.isFinite(Date.parse(receipt.dispatchStartedAt))
+          && Number.isFinite(Date.parse(receipt.dispatchFinishedAt)), 'invalid_receipt');
+      }
       check(canonicalStringify(receipt.projection) === canonicalStringify(planProjection(plan)), 'invalid_receipt');
       if (receipt.ok) { check(validReadback(receipt, transport), 'invalid_receipt'); return receipt; }
       // Old private/unknown receipts are never migrated. Group retries are read-only.
@@ -246,7 +253,11 @@ export async function runGroupManifest({ plan, receiptPath, loadTransport, now =
         && !Object.hasOwn(receipt, 'dispatchFinishedAt') && !Object.hasOwn(receipt, 'processQueryKey')
         && !Object.hasOwn(receipt, 'preparedMarkdownHash');
       if (safePrepareRetry) receipt = undefined;
-      else if (receipt.accepted !== true || !nonempty(receipt.processQueryKey)) return receipt;
+      else if ((receipt.accepted !== true || !nonempty(receipt.processQueryKey))
+        && !(['unknown', 'inflight'].includes(receipt.status)
+          && hashPattern.test(receipt.preparedMarkdownHash)
+          && Number.isFinite(Date.parse(receipt.dispatchStartedAt))
+          && Number.isFinite(Date.parse(receipt.dispatchFinishedAt)))) return receipt;
     }
     if (!receipt) {
       receipt = { version: 2, channel: 'dingtalk', scope: 'group', delivery: 'single_markdown', batchId: plan.batchId,
@@ -279,10 +290,19 @@ export async function runGroupManifest({ plan, receiptPath, loadTransport, now =
       // Acceptance is durable before any history query, which can fail independently.
       await persist(receiptPath, receipt);
     }
-    if (receipt.accepted) {
+    const recoverable = ['unknown', 'inflight'].includes(receipt.status)
+      && hashPattern.test(receipt.preparedMarkdownHash)
+      && Number.isFinite(Date.parse(receipt.dispatchStartedAt))
+      && Number.isFinite(Date.parse(receipt.dispatchFinishedAt));
+    if (receipt.accepted || recoverable) {
       try {
         receipt.readback = await transport.readback(receipt);
         if (validReadback(receipt, transport)) {
+          if (!receipt.accepted) {
+            // History proves a matching message, not a missing provider acceptance key.
+            receipt.acceptanceUnconfirmed = true;
+            receipt.recoveredFromStatus = receipt.status;
+          }
           receipt.status = 'readback_confirmed'; receipt.ok = true; receipt.readbackObserved = true;
         }
       } catch { receipt.readback = { status: 'unavailable', kind: groupContract.readbackKind }; }

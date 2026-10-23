@@ -58,7 +58,10 @@ regular actual 只接受源结构 `kind=reset / verified=true / resetType=usage`
 新源 actual 正文明确“来源已确认直接用量重置，不代表个人到账”。verified banked 记录可能仍是
 未来措辞，只映射 banked announced，绝不映射 distributed。未知类型/阶段和普通
 tibo 帖不触发；只在有真实 `thsottiaux` 原始 X URL 时允许生成署名 Tibo 的公告卡。
-无原帖证据的新待发事件阻断，不补造链接。2026-10-22 已接入原作者
+没有X链接的站内确认记录仍可独立触发 regular actual，保留原生ID、确认时间和
+`sourceResetEvents`审计，只使用本站“信息来源”，不生成署名Tibo的假公告卡。
+未确认记录不触发；声称来自X但缺少原作者证据的动态仍阻断，不补造链接。
+2026-10-22 已接入原作者
 `forecastSignal.stage=scheduled` 且有非空 `window` 的重置预告：普通预告映射
 regular preview，明确banked的预告映射banked upcoming；没有明确子类型时
 仅使用普通预告路由，文案注明类型/适用范围以原公告为准，不声称全员或regular到账。
@@ -82,7 +85,10 @@ PST固定UTC-08、PDT固定UTC-07；不将PST额外解释为当地夏令时，�
 
 钉钉服务端历史中的图片既可投影为 `@mediaId`，也可投影为HTTPS URL；
 两种只读格式均按原有群、机器人、时间、文本摘要和图片数量校验，不访问图片链接，
-不声称此回查能验证图片字节。未知发送回执不自动重发，人工确认需保留原回执及审计。
+不声称此回查能验证图片字节。未知发送回执不自动重发；有完整发送时间窗和正文摘要时
+允许只读回查原群，唯一精确匹配后标记readback_confirmed。
+此时`accepted=false/acceptanceUnconfirmed=true`如实保留，不伪造processQueryKey。
+缺失、歧义、不完整或目标不一致均保持pending，人工确认需保留原回执及审计。
 
 真实 X URL 的数字 tweet ID 沿用旧去重键，其他原生 ID 使用 provider 前缀。
 首次完整有效正常 run 创建独立 `providerBaseline`，记录全部已见 ID、阶段键和

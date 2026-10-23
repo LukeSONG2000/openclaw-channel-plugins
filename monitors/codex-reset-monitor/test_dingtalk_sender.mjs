@@ -645,6 +645,46 @@ test('group readback failures preserve accepted and process key; timeout never r
     assert.ok(!JSON.stringify(first).includes('secret'));
   }
 });
+test('unknown group dispatch recovers from exact server history without resending or inventing acceptance', async t => {
+  const value = await groupFixture(t), base = value.dependencies.cli; let dispatches = 0;
+  value.dependencies.cli = async args => {
+    if (args[2] === 'send-by-bot') { dispatches++; throw Error('response lost'); }
+    return base(args);
+  };
+  const first = await groupRun(value);
+  assert.equal(first.status, 'unknown'); assert.equal(first.accepted, false);
+  assert.equal(first.readback.status, 'not_found');
+  value.setHistory(historyResponse(groupMessage(value.plan)));
+  const recovered = await groupRun(value);
+  assert.equal(recovered.status, 'readback_confirmed'); assert.equal(recovered.ok, true);
+  assert.equal(recovered.accepted, false); assert.equal(recovered.acceptanceUnconfirmed, true);
+  assert.equal(recovered.recoveredFromStatus, 'unknown'); assert.equal(recovered.readbackObserved, true);
+  assert.equal(recovered.deliveryVerified, false); assert.equal(recovered.processQueryKey, undefined);
+  assert.equal(recovered.readback.evidence.providerKeyCorrelated, false);
+  assert.deepEqual(await groupRun(value), recovered);
+  assert.equal(dispatches, 1);
+});
+test('unknown group receipt needs a complete dispatch window and exact unique history to recover', async t => {
+  const value = await groupFixture(t);
+  const accepted = await groupRun(value);
+  const unknown = { ...accepted, status: 'unknown', accepted: false };
+  delete unknown.processQueryKey;
+  const valid = groupMessage(value.plan);
+  for (const messages of [[{ ...valid, senderOpenDingTalkId: 'wrong-bot' }],
+    [{ ...valid, openConversationId: 'wrong-group' }], [{ ...valid, content: 'unrelated' }],
+    [valid, { ...valid, openMessageId: 'duplicate' }]]) {
+    await fs.writeFile(value.receiptPath, JSON.stringify(unknown));
+    value.setHistory(historyResponse(...messages));
+    assert.equal((await groupRun(value)).status, 'unknown');
+  }
+  value.setHistory(historyResponse(valid));
+  for (const missing of ['dispatchStartedAt', 'dispatchFinishedAt', 'preparedMarkdownHash']) {
+    const incomplete = { ...unknown }; delete incomplete[missing];
+    await fs.writeFile(value.receiptPath, JSON.stringify(incomplete));
+    assert.equal((await groupRun(value)).status, 'unknown');
+  }
+  assert.equal(value.sends(), 1);
+});
 test('QA: only a proven prepare-only failure can retry preparation, never an attempted dispatch', async t => {
   const value = await groupFixture(t); let uploads = 0;
   value.dependencies.imageHost.prepareImage = async () => { if (++uploads === 1) throw Error('temporary'); return url; };

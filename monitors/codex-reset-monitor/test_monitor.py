@@ -2009,7 +2009,8 @@ class SourceIntegrationTests(unittest.TestCase):
         directory = next((self.state_file.parent / "outbox").iterdir())
         snapshot = json.loads((directory / "snapshot.json").read_text())
         self.assertEqual(snapshot["title"], "Codex已重置，速蹬！")
-        self.assertEqual(snapshot["stageText"], "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账")
+        self.assertTrue(snapshot["stageText"].startswith("常规重置（regular）｜来源已确认直接用量重置，不代表个人到账"))
+        self.assertIn("确认时间：2026-10-20 11:15（UTC+08:00）", snapshot["stageText"])
         self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["source_event_id"], event["source_event_id"])
         self.assertEqual(snapshot["announcements"][0]["sourceEvent"]["x_status_id"], event["event_id"])
 
@@ -2083,15 +2084,72 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(self.run_monitor(), 0)
         self.sender.assert_not_called()
 
-    def test_new_non_tibo_or_missing_original_url_is_blocked(self):
+    def test_new_non_tibo_original_url_is_still_blocked(self):
         self.clock_complete_fixture()
         self.assertEqual(self.run_monitor(), 0)
         self.current += timedelta(minutes=15)
-        for url in (None, "https://x.com/another_author/status/2119999999999999999"):
+        for url in ("https://x.com/another_author/status/2119999999999999999",):
             self.snapshot["events"] = []
             self.add_event(url=url)
             self.assertEqual(self.run_monitor(), 1)
             self.sender.assert_not_called()
+
+    def test_verified_site_only_reset_triggers_once_without_a_fake_x_card(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        event = self.add_event(id="manual-site-confirmation", url=None)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        batch = self.sender.call_args.args[0]
+        state = self.read_state()
+        self.assertEqual(state["last_reset_id"], event["event_id"])
+        self.assertIn(event["event_id"], state["notified_reset_ids"])
+        self.assertIn("regular:actual:" + event["event_id"], state["deliveredPhaseKeys"])
+        self.assertNotIn(event["event_id"], batch["announcementIds"])
+        directory = self.state_file.parent / "outbox" / batch["batchId"]
+        snapshot = json.loads((directory / "snapshot.json").read_text())
+        manifest = json.loads((directory / "batch.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex已重置，速蹬！")
+        self.assertEqual(snapshot["sourceResetEvents"], [event])
+        self.assertEqual(snapshot["forecastCard"]["status"], "已确认重置")
+        self.assertIn("确认时间：2026-10-20 11:15（UTC+08:00）", snapshot["forecastCard"]["summary"])
+        self.assertTrue(all(e["source_url"] for e in snapshot["announcements"]))
+        self.assertTrue(all(part.get("url") for part in manifest["parts"] if part["type"] == "link"))
+
+    def test_site_only_reset_without_any_x_posts_still_sends_and_retries_same_batch(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.snapshot["posts"] = self.snapshot["relevant_posts"] = []
+        event = self.add_event(id="manual-no-x", url=None)
+        self.sender.return_value = False
+        self.assertEqual(self.run_monitor(send_daily=True), 1)
+        pending = self.read_state()["pendingBatch"]
+        self.assertEqual(pending["resetId"], event["event_id"])
+        self.assertNotIn(event["event_id"], self.read_state()["notified_reset_ids"])
+        self.sender.return_value = True
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_args.args[0]["batchId"], pending["batchId"])
+        self.assertEqual(self.read_state()["daily_summary_date"], "2026-10-20")
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 2)
+        directory = self.state_file.parent / "outbox" / pending["batchId"]
+        parts = json.loads((directory / "batch.json").read_text())["parts"]
+        self.assertFalse(any(p.get("text") == "Tibo宣布了什么" for p in parts))
+        self.assertEqual([p["url"] for p in parts if p["type"] == "link"], [m.SOURCE_PAGE])
+
+    def test_unverified_site_record_does_not_trigger_or_block_daily(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.add_event(id="manual-unverified", url=None, verified=False)
+        self.assertEqual(self.run_monitor(), 0)
+        self.sender.assert_not_called()
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        self.assertIsNone(self.sender.call_args.args[0]["resetId"])
 
     def test_same_x_reset_and_post_make_one_card_not_two(self):
         self.clock_complete_fixture()
