@@ -677,7 +677,7 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
     sent = set(state.get("sentAnnouncementIds", []))
     seen_phase_keys = set(state.get("deliveredPhaseKeys", [])) | set(state.get("phaseBaselineKeys", []))
     phases_by_id: dict[str, set[str]] = {}
-    for phase in phase_events or []:
+    for phase in pending_phase_events(phase_events or [], state):
         phases_by_id.setdefault(phase["eventId"], set()).add(phase_event_key(phase))
     result = {}
     for event in events:

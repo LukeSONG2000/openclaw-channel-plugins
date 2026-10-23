@@ -2214,6 +2214,21 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(snapshot["eventPhases"], [])
         self.assertNotIn("stageText", snapshot)
 
+    def test_old_baseline_phase_upgrade_cannot_reintroduce_an_x_post_before_content_floor(self):
+        self.clock_complete_fixture()
+        event = self.add_event(occurredAt="2026-10-18T00:00:00Z", kind="tibo", verified=False)
+        self.assertEqual(self.run_monitor(), 0)
+        self.snapshot["events"].remove(event)
+        old_reset = self.add_event(occurredAt="2026-10-18T00:00:00Z")
+        self.snapshot["posts"].append(dict(old_reset, phase=None, raw_kind="tibo", verified=False))
+        state = self.read_state()
+        state["last_reset_at"] = "2026-10-20T00:00:00Z"
+        m.atomic_write_json(self.state_file, state)
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        batch = self.sender.call_args.args[0]
+        self.assertNotIn(old_reset["event_id"], batch["announcementIds"])
+        self.assertIsNone(batch["resetId"])
+
     def test_x_post_duplicates_with_conflicting_original_text_fail_closed(self):
         self.snapshot["relevant_posts"].append(dict(self.snapshot["posts"][0], detail="Different original"))
         with self.assertRaisesRegex(ValueError, "conflicting duplicate original post"):
