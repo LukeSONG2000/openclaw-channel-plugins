@@ -2043,6 +2043,25 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertEqual(self.sender.call_count, 2)
         self.assertIn("2119999999999999999", self.read_state()["notified_reset_ids"])
 
+    def test_expired_preview_does_not_claim_a_future_deadline_or_completed_reset(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.add_event(kind="tibo", verified=False,
+            forecastSignal=dict(stage="scheduled", window="by midnight today"))
+        expired = dict(status="expired", display="预告时间窗口已过，不能据此确认已到账。", candidates=[])
+        with patch.object(m, "interpret_preview_time", return_value=expired) as parse:
+            self.assertEqual(self.run_monitor(), 0)
+            self.assertEqual(parse.call_args.kwargs["now"], self.current)
+        batch = self.sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] / "snapshot.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex重置预告窗口已过")
+        self.assertEqual(snapshot["forecastCard"]["status"], "预告窗口已过")
+        self.assertNotIn("预计重置", snapshot["forecastCard"]["summary"])
+        self.assertEqual(self.read_state()["notified_reset_ids"], [OLD_ID])
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 1)
+
     def test_old_ingestion_still_deduplicates_resets_and_keeps_unchanged_polls_silent(self):
         self.assertEqual(self.run_monitor(), 0)
         self.assertEqual(self.run_monitor(), 0)

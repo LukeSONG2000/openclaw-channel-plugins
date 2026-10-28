@@ -15,7 +15,7 @@ from urllib.parse import urlsplit
 from zoneinfo import ZoneInfo
 
 
-VERSION = 1
+VERSION = 2
 DISPLAY_ZONE = timezone(timedelta(hours=8))
 FIXED_ZONES = {"UTC": 0, "PST": -8, "PDT": -7, "EST": -5, "EDT": -4,
                "CST-China": 8, "JST": 9, "KST": 9}
@@ -33,6 +33,11 @@ For relative days, day_offset is relative to the PUBLISHED timestamp's calendar 
 in the source timezone, NEVER the current time or the reader's timezone.
 Use day_offset OR local_date, not both. tomorrow=1, today=0; no invented date.
 Preserve before/after rather than claiming an exact reset instant.
+"by midnight" / "before midnight tonight" means the END of the source's local day,
+encoded as 00:00 of the NEXT calendar day (day_offset=1), not day_offset=0.
+"by midnight tomorrow" means the end of tomorrow (day_offset=2).
+An explicit calendar date or 00:00 is not automatically moved to another day.
+Never return a future deadline earlier than the original post's published timestamp.
 Allowed zones: UTC,PST,PDT,EST,EDT,CST-China,JST,KST,America/Los_Angeles,
 America/New_York,Asia/Shanghai,Europe/London,Europe/Paris,Asia/Tokyo,Asia/Seoul.
 Missing timezone: zone=null, relation=unknown; do not invent the author's location.
@@ -84,9 +89,17 @@ def render_semantics(semantic, source):
     elif not isinstance(clock, str) or not re.fullmatch(r"(?:[01]\d|2[0-3]):[0-5]\d", clock):
         raise ValueError("invalid_local_time")
     published = timestamp(source["publishedAt"])
+    # Normalize only an unambiguous short end-of-day announcement, not an old date.
+    midnight_deadline = (relation == "before" and clock == "00:00" and date is None
+        and offset is not None and re.fullmatch(
+            r"(?:(?:lands?|arrives?|resets?)\s+)?(?:by|before|until)\s+midnight"
+            r"(?:\s+(?:today|tonight))?(?:\s+(?:PST|PDT|EST|EDT|UTC|JST|KST))?[.!]?",
+            source["text"].strip(), re.IGNORECASE) is not None)
+    if midnight_deadline:
+        offset = 1
     # Explicit abbreviations take precedence over a regional provider hint.
-    for literal in ("PST", "EST"):
-        if re.search(r"\b" + literal + r"\b", source["text"]):
+    for literal in FIXED_ZONES:
+        if re.search(r"\b" + re.escape(literal) + r"\b", source["text"]):
             if semantic["zone"] != literal:
                 raise ValueError("literal_timezone_changed")
     candidates = []
@@ -106,6 +119,10 @@ def render_semantics(semantic, source):
         candidate = dict(sourceZone=name, utc08=converted.isoformat(), relation=relation)
         if relation == "on":
             candidate["utc08End"] = datetime.combine(day + timedelta(days=1), datetime.min.time(), tzinfo=tz).astimezone(DISPLAY_ZONE).isoformat()
+        boundary = timestamp(candidate.get("utc08End", candidate["utc08"]))
+        if ((relation in ("before", "on") and boundary <= published)
+                or (relation == "at" and boundary < published)):
+            raise ValueError("deadline_before_publication")
         if not any(c["utc08"] == candidate["utc08"] for c in candidates):
             candidates.append(candidate)
     suffix = {"before": "前", "at": "左右", "after": "后", "on": "起的对应日期窗口"}[relation]
@@ -114,7 +131,23 @@ def render_semantics(semantic, source):
     if relation == "on":
         end = timestamp(candidates[0]["utc08End"]).strftime("%m-%d %H:%M")
         display = f"预告日期对应窗口：{first} 至 {end}（UTC+08:00），未指定具体时刻。"
-    return dict(status="parsed", display=display, candidates=candidates, sourceExpression=expression)
+    result = dict(status="parsed", display=display, candidates=candidates, sourceExpression=expression)
+    if midnight_deadline:
+        result["normalization"] = "end-of-source-day-midnight"
+    return result
+
+
+def apply_delivery_time(result, now):
+    """Recheck cached semantics at delivery time without shifting expired dates."""
+    if result["status"] != "parsed":
+        return result
+    if now.tzinfo is None or now.utcoffset() is None:
+        raise ValueError("naive_delivery_time")
+    candidate = result["candidates"][0]
+    if (candidate["relation"] in ("before", "at", "on")
+            and timestamp(candidate.get("utc08End", candidate["utc08"])) <= now):
+        return dict(result, status="expired", display="预告时间窗口已过，不能据此确认已到账。")
+    return result
 
 
 class NoRedirect(urllib.request.HTTPRedirectHandler):
@@ -169,7 +202,7 @@ def configured_completion(root):
     return full_name, complete
 
 
-def interpret_preview_time(event, cache_dir, *, complete=None, model=None, openclaw_root=None):
+def interpret_preview_time(event, cache_dir, *, complete=None, model=None, openclaw_root=None, now=None):
     source = dict(text=event["detail"][:4000], publishedAt=event["occurred_at"],
                   window=(event.get("forecast_signal") or {}).get("window", ""),
                   context=event.get("time_context", "")[:3000])
@@ -193,6 +226,7 @@ def interpret_preview_time(event, cache_dir, *, complete=None, model=None, openc
                 temporary.write_text(json.dumps(dict(semantic=semantic, model=model, parserVersion=VERSION)))
                 temporary.chmod(0o600)
                 os.replace(temporary, file)
+            result = apply_delivery_time(result, now if now is not None else datetime.now(timezone.utc))
             return dict(result, model=model, parserVersion=VERSION)
     except Exception:
         # Untrusted model diagnostics and credentials never enter logs or messages.

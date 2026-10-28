@@ -929,12 +929,17 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
         if primary["phase"] in ("preview", "upcoming") and "sourceSnapshot" in forecast:
             event = next(e["sourceEvent"] for e in events if e["id"] == primary["eventId"]
                          and e["sourceEvent"].get("forecast_signal"))
-            parsed_time = interpret_preview_time(event, STATE_FILE.parent / "preview-time-cache")
+            parsed_time = interpret_preview_time(event, STATE_FILE.parent / "preview-time-cache", now=now_utc())
             snapshot["previewTime"] = parsed_time
             if not event.get("reset_type_explicit"):
                 snapshot["stageText"] = "重置预告｜尚未到账；具体类型及适用范围以原公告为准"
             snapshot["stageText"] += "\n" + parsed_time["display"]
             snapshot["forecastCard"].update(status="已预告，尚未到账", summary=parsed_time["display"])
+            if parsed_time["status"] == "expired":
+                if not daily_date:
+                    snapshot["title"] = "Codex重置预告窗口已过"
+                snapshot["stageText"] = "预告窗口已过｜不能据此确认到账；具体类型及适用范围以原公告为准"
+                snapshot["forecastCard"].update(status="预告窗口已过")
         if ("sourceSnapshot" in forecast
                 and (primary["resetType"], primary["phase"]) == ("regular", "actual")):
             snapshot["stageText"] = "常规重置（regular）｜来源已确认直接用量重置，不代表个人到账"
