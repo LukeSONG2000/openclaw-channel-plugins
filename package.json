@@ -6,6 +6,7 @@
   "scripts": {
     "bootstrap": "npm ci --prefix plugins/qqbot && npm ci --prefix plugins/dingtalk",
     "check": "node scripts/check-all.mjs",
+    "check:public": "node --test scripts/public-repository-policy.test.mjs",
     "check:qqbot": "node scripts/check-all.mjs qqbot",
     "check:dingtalk": "node scripts/check-all.mjs dingtalk"
   },

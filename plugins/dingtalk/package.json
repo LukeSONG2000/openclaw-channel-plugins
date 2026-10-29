@@ -6,11 +6,12 @@
   "type": "module",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/largezhou/openclaw-dingtalk.git"
+    "url": "git+https://github.com/LukeSONG2000/openclaw-channel-plugins.git",
+    "directory": "plugins/dingtalk"
   },
-  "homepage": "https://github.com/largezhou/openclaw-dingtalk#readme",
+  "homepage": "https://github.com/LukeSONG2000/openclaw-channel-plugins/tree/main/plugins/dingtalk",
   "bugs": {
-    "url": "https://github.com/largezhou/openclaw-dingtalk/issues"
+    "url": "https://github.com/LukeSONG2000/openclaw-channel-plugins/issues"
   },
   "files": [
     "dist",

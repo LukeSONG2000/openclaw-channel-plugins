@@ -2,6 +2,9 @@
 
 Luke 的 OpenClaw 渠道插件二开仓库。各渠道共享一个代码入口，但保持独立的包、依赖、版本和部署节奏。
 
+本仓为 LukeSONG2000 个人公开仓库。设计、渠道实现说明与开发契约均随本仓提供，
+无需组织成员身份或私有仓库访问权限。官方上游及公开依赖仅作为公开参考。
+
 ## 渠道
 
 | 渠道 | 目录 | 二开包 | 上游 |
@@ -32,6 +35,9 @@ npm run check:dingtalk
 - 上游更新先审阅差异，再按渠道合并；不自动覆盖二开版本。
 - AppID、Secret、Token、Webhook、OpenClaw 配置、会话与运行数据不得提交。
 - 一个渠道的发布或部署不要求其他渠道同步升级。
+- 自有设计文档必须在本仓维护，不能将必要内容迁往组织私仓后只留跳转入口。
+- 提交前运行 `npm run check:public`，检查公开依赖边界与开发文档链接；CI 同步执行。
+- 根包的 `"private": true` 仅用于防止误发布 npm 工作区，不表示 GitHub 仓库私有；插件发布状态由各子包独立管理。
 
 ## 自由回复开发入口
 
@@ -41,7 +47,8 @@ npm run check:dingtalk
 2. [QQ 自由回复实现](plugins/qqbot/docs/custom-runtime/free-reply.md)：QQ 消息接收、权限分档、未读轮询、主题规划和回复出口。
 3. [钉钉自由回复实现](plugins/dingtalk/docs/free-reply.md)：Stream 与 DWS 消息来源、固定轮询和工作场景输出。
 
-这些文档是 2026-10-12 的代码核查快照，只聚焦自由回复。标记为“工作树改动”的功能不能仅凭远端 clone 假定存在；本地代码、Git 提交和线上部署应分别核验。禁止用官方安装或更新覆盖已部署的定制插件。
+设计与开发约束也在本仓：[通用架构](docs/free-reply-architecture.md)、[开发复用契约](docs/free-reply-development-contract.md)。
+这些文档只聚焦自由回复；源码、测试通过与线上真实验收仍应分别核验。禁止用官方安装或更新覆盖已部署的定制插件。
 
 ## 历史
 
