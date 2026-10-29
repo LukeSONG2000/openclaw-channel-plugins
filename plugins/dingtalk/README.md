@@ -6,6 +6,15 @@ OpenClaw 钉钉（DingTalk）渠道插件，使用 Stream 模式接入企业机�
 
 ## 定制自由回复开发入口
 
+### R2 默认群聊策略
+
+R2 运行配置使用 `channels.ddingtalk.groupPolicy = "open"`，现有群及以后新接入的群默认自由交流。
+未被 @ 的消息沿用每分钟未读轮询，有值得回复的内容才发言；被 @ 时立即处理当前消息。
+`workspace/AGENTS.md` 中的 `DingTalk Default Group Replies` 将该规则限定在钉钉工作群，
+不改变其他渠道、私聊、管理员身份、群工具策略或授权流程。可用
+`scripts/configure-dingtalk-free-reply.mjs --apply <openclaw-root>` 在停止网关后备份并应用配置。
+自由回复配置不授予 DWS 群成员身份或平台历史访问权限，不能代替读取权限配置。
+
 - [QQ 与钉钉自由回复总览](../../docs/free-reply.md)：两渠道的共同链路和复用边界。
 - [钉钉自由回复实现](docs/free-reply.md)：Stream 与 DWS 消息来源、未读与上下文、轮询、生成和发送的实际入口。
 - 以下官方安装与功能介绍保留上游说明；不能据此推断定制版已配置哪些自由回复权限，也不能通过官方安装覆盖已有定制部署。
