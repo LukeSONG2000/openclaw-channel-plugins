@@ -58,8 +58,10 @@ regular actual 只接受源结构 `kind=reset / verified=true / resetType=usage`
 新源 actual 正文明确“来源已确认直接用量重置，不代表个人到账”。verified banked 记录可能仍是
 未来措辞，只映射 banked announced，绝不映射 distributed。未知类型/阶段和普通
 tibo 帖不触发；只在有真实 `thsottiaux` 原始 X URL 时允许生成署名 Tibo 的公告卡。
-没有X链接的站内确认记录仍可独立触发 regular actual，保留原生ID、确认时间和
+没有X链接的站内确认记录仍可独立触发 regular actual 或 banked announced，保留原生ID、确认时间和
 `sourceResetEvents`审计，只使用本站“信息来源”，不生成署名Tibo的假公告卡。
+2026-11-06 修复无 X 链接的 verified banked 站内记录误入原帖校验、阻断整个日推及轮询批次的问题；
+两类站内记录均独立于 X 卡片处理，仍不依据正文将 banked announced 升级为 distributed。
 日推合并尚未发送的到账/发卡完成事件时，优先显示到账/发卡标题，普通日推标题不变。
 历史阶段升级仅在仍属于待通知阶段时可突破内容基线，已过期/已抑制的重置不带回旧X卡片。
 未确认记录不触发；声称来自X但缺少原作者证据的动态仍阻断，不补造链接。

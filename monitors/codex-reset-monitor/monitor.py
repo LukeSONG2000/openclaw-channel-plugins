@@ -687,7 +687,7 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
             if source_event["phase"] is None:
                 continue
             # A verified site record can trigger a reset without being an X post.
-            if source_only_actual(event):
+            if source_only_reset(event):
                 continue
             phase = dict(eventId=event["id"], resetType=source_event["reset_type"],
                          phase=source_event["phase"], announcedAt=event["announced_at"])
@@ -719,10 +719,11 @@ def select_announcements(events: list[dict[str, Any]], state: dict[str, Any],
                   reverse=True)
 
 
-def source_only_actual(event: dict[str, Any]) -> bool:
+def source_only_reset(event: dict[str, Any]) -> bool:
     source = event.get("sourceEvent", {})
     return (source.get("raw_kind") == "reset" and source.get("verified") is True
-            and source.get("reset_type") == "regular" and source.get("phase") == "actual"
+            and (source.get("reset_type"), source.get("phase")) in (
+                ("regular", "actual"), ("banked", "announced"))
             and source.get("source_url") is None and source.get("x_status_id") is None
             and event.get("source_url") is None
             and event.get("id") == source.get("event_id")
@@ -895,7 +896,7 @@ def prepare_batch(state: dict[str, Any], forecast: dict[str, Any], feed: dict[st
                   dingtalk_sample: bool = False) -> dict[str, Any]:
     phases = phase_events or []
     announcements = select_announcements(events + feed.get("sourcePosts", []), state, phase_events=phases)
-    source_records = [event for event in events if source_only_actual(event)]
+    source_records = [event for event in events if source_only_reset(event)]
     selected_ids = {event["id"] for event in announcements + source_records}
     if "sourceSnapshot" in forecast:
         phases = pending_phase_events(phases, state)

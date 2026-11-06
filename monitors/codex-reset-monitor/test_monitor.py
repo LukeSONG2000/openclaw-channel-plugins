@@ -2310,6 +2310,55 @@ class SourceIntegrationTests(unittest.TestCase):
         self.assertTrue(all(":announced:" in key for key in batch["deliveredPhaseKeys"]))
         self.assertIsNone(batch["resetId"])
 
+    def test_site_only_banked_records_send_once_without_fabricating_x_or_distribution(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        records = [self.add_event(id="banked-manual-" + str(i), url=None,
+                                 resetType="banked", detail="A reset card has been issued.")
+                   for i in range(2)]
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.run_monitor(), 0)
+        self.assertEqual(self.sender.call_count, 1)
+        batch = self.sender.call_args.args[0]
+        snapshot = json.loads((self.state_file.parent / "outbox" / batch["batchId"] /
+                               "snapshot.json").read_text())
+        self.assertEqual(snapshot["title"], "Codex已公布重置卡消息！")
+        self.assertEqual(snapshot["sourceResetEvents"], records)
+        self.assertTrue(all(":announced:" in key for key in batch["deliveredPhaseKeys"]))
+        self.assertFalse(any(e["id"] in {r["event_id"] for r in records}
+                             for e in snapshot["announcements"]))
+        self.assertIsNone(batch["resetId"])
+        self.assertEqual(self.read_state()["last_reset_id"], OLD_ID)
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_count, 2)
+        self.assertEqual(self.read_state()["daily_summary_date"], "2026-10-20")
+
+    def test_site_only_banked_retry_preserves_batch_and_does_not_ack_failed_send(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.add_event(id="banked-retry", url=None, resetType="banked")
+        self.sender.return_value = False
+        self.assertEqual(self.run_monitor(send_daily=True), 1)
+        pending = self.read_state()["pendingBatch"]
+        self.assertFalse(any("banked:announced:" in key
+                             for key in self.read_state().get("deliveredPhaseKeys", [])))
+        self.sender.return_value = True
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_args.args[0]["batchId"], pending["batchId"])
+        self.assertIsNone(self.read_state()["pendingBatch"])
+
+    def test_unverified_site_only_banked_does_not_block_daily_or_trigger_poll(self):
+        self.clock_complete_fixture()
+        self.assertEqual(self.run_monitor(), 0)
+        self.current += timedelta(minutes=15)
+        self.add_event(id="banked-unverified", url=None, resetType="banked", verified=False)
+        self.assertEqual(self.run_monitor(), 0)
+        self.sender.assert_not_called()
+        self.assertEqual(self.run_monitor(send_daily=True), 0)
+        self.assertEqual(self.sender.call_args.args[0]["deliveredPhaseKeys"], [])
+
     def test_frozen_pending_blocks_cutover_without_rewriting_files_or_ledger(self):
         self.clock_complete_fixture()
         self.state["pendingBatch"] = dict(batchId="codex-frozen-unknown")
