@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -167,6 +167,11 @@ test('registers one explicit command, not a general-purpose exec tool', () => {
   assert.deepEqual(commands[0].channels, ['qqbot', 'ddingtalk']);
   assert.deepEqual(hooks, ['reply_dispatch']);
   assert.match(commands[0].handler().text, /edit/);
+});
+
+test('gateway startup loads Imagen before the first reply dispatch', async () => {
+  const manifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.activation?.onStartup, true);
 });
 
 test('proxy refresh and health checks pin both Japan 2 candidates to the OpenAI host', () => {

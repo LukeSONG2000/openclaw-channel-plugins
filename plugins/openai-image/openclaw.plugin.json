@@ -2,6 +2,9 @@
   "id": "luke-openai-image",
   "name": "Luke OpenAI Image",
   "description": "Scope-gated OpenAI image and GIF generation",
+  "activation": {
+    "onStartup": true
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,

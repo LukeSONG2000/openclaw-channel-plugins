@@ -14,6 +14,7 @@ QQ and DingTalk direct messages can submit requests. Groups require an exact cha
 
 ## Runtime
 
+- The manifest opts into gateway startup so the reply hook is installed before the first incoming message. A standalone plugin inspection alone does not verify gateway activation.
 - Install an official OpenAI CLI build that accepts GPT Image 2.6 GIF options at `~/.openclaw/bin/openai-image-cli`.
 - Store two distinct official API keys in `~/.openclaw/openai-image-private/accounts.json` as `{ "keys": [...] }` with file mode `0600`. Requests alternate starting accounts and check access to the selected model before generating.
 - Store two HTTPS provider URLs as `{ "subscriptions": [...] }` in the same private directory. Run `proxy-config.mjs` with that file path; write the generated JSON privately to `proxy/config.json` and use the included user service to launch the existing Mihomo binary. The cache and Unix control socket stay in the private proxy directory.
