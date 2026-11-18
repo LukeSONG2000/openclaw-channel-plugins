@@ -1,0 +1,16 @@
+{
+  "id": "luke-openai-image",
+  "name": "Luke OpenAI Image",
+  "description": "Scope-gated OpenAI image and GIF generation",
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "properties": {
+      "allowedGroups": {
+        "type": "array",
+        "uniqueItems": true,
+        "items": { "type": "string" }
+      }
+    }
+  }
+}
