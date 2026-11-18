@@ -4,15 +4,16 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
-import { boundedContext, buildBriefRequest, imageMime, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
+import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
 const PROXY = 'http://127.0.0.1:17979';
 const CLI = join(ROOT, 'bin', 'openai-image-cli');
-const USAGE = '用法：/imagen [text|edit|ref] [studio] [png|gif] [low|high] [flare|sunburst] <描述>\n'
+const USAGE = '用法：/imagen [text|edit|ref] [studio] [png|gif] [low|medium|high] [flare|sunburst] <描述>\n'
   + '也可以直接说「生成一张插画」「做一张动图」，或附图说「把背景换成雪山」。';
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const MIB = 1024 * 1024;
+const ANIMATE_SOURCE = 'edit gif 把原图制作成短循环动图。加一个符合画面的自然微动作，保持原有主体、造型、配色、构图和背景不变。';
 
 export function resolveScope({ channel, channelId, from, to }) {
   const kind = channelId ?? channel;
@@ -32,7 +33,7 @@ export function resolveScope({ channel, channelId, from, to }) {
 
 function parseRequest(input, mode) {
   const format = ['png', 'gif'];
-  const quality = ['low', 'high'];
+  const quality = ['low', 'medium', 'high'];
   const variant = ['flare', 'sunburst'];
   const choices = [format, quality, variant, ['studio']];
   const options = [];
@@ -48,11 +49,13 @@ function parseRequest(input, mode) {
   if (!prompt || prompt.length > 1800 || prompt === 'help' || prompt === '?') return null;
   const studio = options[3] === 'studio';
   const premium = studio || mode === 'edit';
-  const [output_format = inferImagenFormat(prompt), imageQuality = premium ? 'high' : 'low', model = premium ? 'sunburst' : 'flare'] = options;
+  const [output_format = inferImagenFormat(prompt),
+    imageQuality = premium ? 'high' : output_format === 'gif' ? 'low' : 'medium',
+    model = imageQuality === 'low' ? 'flare' : 'sunburst'] = options;
   return { studio, prompt, body: {
     model: `gpt-image-2.6-${model}`, prompt: renderPrompt(mode, prompt),
     quality: imageQuality,
-    ...(mode === 'text' && !studio ? { complexity: 'low' } : {}),
+    complexity: imageQuality === 'low' ? 'low' : 'high',
     n: 1, output_format, size: output_format === 'gif' ? '512x512' : mode === 'edit' ? 'auto' : '1024x1024',
     ...(output_format === 'gif' ? { frame_count: 3, frame_duration_ms: 200 } : {}),
   } };
@@ -64,7 +67,7 @@ export function parseArgs(input = '', mode = 'text') {
 
 function renderPrompt(mode, request, brief) {
   const orientation = mode === 'edit'
-    ? 'Image 1 is the original to edit. Change only the requested elements. Keep the same subjects and their count, identities, colors, markings, and unrequested parts of the scene. Do not replace them with lookalikes. Other images are supporting references.'
+    ? 'Image 1 is the original to edit. Make the requested change visibly. If the request replaces or transforms a subject, change that subject to the specified target instead of keeping its original identity. Otherwise preserve the same subjects and their visible traits; do not replace them with lookalikes. Preserve scene and other attributes only where the request does not change them. Other images are supporting references.'
     : mode === 'ref' ? 'Create a new image; use the supplied images as visual references, not as originals to edit.' : '';
   return [orientation, request, brief && `Visual direction (the user's requirements above take precedence):\n${brief}`]
     .filter(Boolean).join('\n\n');
@@ -159,12 +162,21 @@ export async function planPrompt(input, startAt) {
   const key = keys[startAt];
   if (!await checkKey(key, PLANNER_MODEL)) {
     await refreshProxy();
-    if (!await checkKey(key, PLANNER_MODEL)) return;
+    if (!await checkKey(key, PLANNER_MODEL)) throw new Error('planner_unreachable');
   }
   const output = await run(CLI, ['responses', 'create', '--format', 'json', '--format-error', 'json'], {
-    env: apiEnv(key), timeout: 35_000, input: JSON.stringify(request),
+    env: apiEnv(key), timeout: 90_000, input: JSON.stringify(request),
   });
-  return readVisualBrief(JSON.parse(output), input.decideIntent);
+  const response = JSON.parse(output);
+  if (response.status === 'incomplete') throw new Error(
+    response.incomplete_details?.reason === 'max_output_tokens' ? 'planner_budget' : 'planner_incomplete',
+  );
+  if (response.output?.some((item) => item.content?.some((part) => part.type === 'refusal'))) {
+    throw new Error('planner_refusal');
+  }
+  const brief = readVisualBrief(response, input.decideIntent);
+  if (!brief) throw new Error('planner_no_brief');
+  return brief;
 }
 
 export async function generate(body, startAt, images = []) {
@@ -231,11 +243,17 @@ export function createHandler({
     if (context.intent?.kind === 'video') return { text: '目前能做静态图和短 GIF，不能生成视频文件。' };
     if (context.intent?.kind === 'needs-image') return { text: '请引用原图，或把原图和修改要求一起发过来。' };
     if (context.intent?.kind === 'format-correction') {
-      const previous = actorKey && recentTextJobs.get(actorKey);
-      if (!previous || now() - previous.at > 5 * 60_000) {
-        return { text: '可以做 GIF。请一起发想画的内容；要让某张图动起来，请同时附上原图。' };
+      const hasExplicitSource = expected > 0 || (channel === 'qqbot' &&
+        Number.isSafeInteger(context.quotedImageCount) && context.quotedImageCount > 0);
+      if (hasExplicitSource) {
+        args = ANIMATE_SOURCE;
+      } else {
+        const previous = actorKey && recentTextJobs.get(actorKey);
+        if (!previous || now() - previous.at > 5 * 60_000) {
+          return { text: '可以做 GIF。请一起发想画的内容；要让某张图动起来，请附上或引用原图。' };
+        }
+        args = `text gif ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${previous.prompt}`;
       }
-      args = `text gif ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${previous.prompt}`;
     }
     if (!Array.isArray(images) || images.length !== expected || expected > 4) {
       return { text: '图片未下载齐或超过 4 张，请在同一条消息中重新附图。' };
@@ -294,13 +312,20 @@ export function createHandler({
       const decideIntent = context.intent?.kind === 'generate' && !correctionPrompt;
       let brief;
       let planned;
+      let planFailure;
+      const planAt = Date.now();
       try {
         planned = await plan({
           prompt: request.prompt, mode, images: files, context: contextLines,
           format: request.body.output_format, decideIntent,
         }, startAt);
       }
-      catch { /* A renderer fallback still uses the exact user prompt and verified images. */ }
+      catch (error) {
+        const code = error?.message;
+        planFailure = ['timeout', 'provider', 'planner_unreachable', 'planner_incomplete', 'planner_budget', 'planner_refusal', 'planner_no_brief'].includes(code)
+          ? code : 'unexpected';
+        logger?.warn(`[imagen] visual brief failed reason=${planFailure} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
+      }
       if (decideIntent) {
         if (!planned) return { text: '暂时没能完成生图请求解析，请稍后再试。' };
         if (planned.intent === 'ignore') return;
@@ -319,10 +344,15 @@ export function createHandler({
       }
       const { body, prompt, studio } = request;
       logger?.info(`[imagen] accepted channel=${channel} mode=${mode} format=${body.output_format} trigger=${context.intent ? 'natural' : 'command'} attachments=${files.length} source=${source}`);
-      logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length}`);
+      logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length} model=${PLANNER_MODEL} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
       if (!brief && useContext) return { text: '这次没能整理出本群主题。请稍后再试，或直接告诉我想画什么。' };
+      if (!brief && files.length) {
+        return { text: planFailure === 'planner_no_brief'
+          ? '我没能确认原图应该改成什么样。请补充目标外观，或一起附上目标参考图。'
+          : '这次没能完成看图和改图规划，没有继续生成。请稍后再试。' };
+      }
       if (brief) body.prompt = renderPrompt(mode, prompt, brief);
-      if (useContext) delete body.complexity;
+      logger?.info(`[imagen] render settings model=${body.model} quality=${body.quality} complexity=${body.complexity}`);
       const mediaUrl = await render(body, startAt, files);
       if (actorKey) {
         recentTextJobs.delete(actorKey);

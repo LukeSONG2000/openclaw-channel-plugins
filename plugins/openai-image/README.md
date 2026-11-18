@@ -2,16 +2,16 @@
 
 OpenClaw chat command backed by the [official OpenAI CLI](https://developers.openai.com/api/docs/libraries/openai-cli). It sends structured input to `images generate` or `images edit`, then delivers one image to the originating channel. No shell evaluation or chat-model intent inference is involved.
 
-- `/imagen <prompt>`: Flare, low quality, 1024x1024 PNG.
+- `/imagen <prompt>`: Sunburst, medium quality and high planning complexity, 1024x1024 PNG. Use `low` for a fast Flare draft.
 - `/imagen gif <prompt>`: Flare, low quality, 512x512, 3 frames at 200 ms.
 - `/imagen png high sunburst <prompt>`: opt in to high quality and Sunburst.
 - `/imagen studio <prompt>`: compose a visual brief before rendering, with high quality and Sunburst by default.
 - `/imagen edit <changes>` with the original attached: edit the supplied image, defaulting to high quality and Sunburst.
-- `/imagen ref <prompt>` with reference images attached: compose a new image, defaulting to low quality and Flare. Omitting `ref` when attaching images uses the same mode.
+- `/imagen ref <prompt>` with reference images attached: compose a new image, defaulting to medium quality and Sunburst for stills. With no explicit mode, edits preserve only attributes the user did not ask to change.
 
 Attach PNG, JPEG or WebP in the same message, or explicitly quote an image on QQ. QQ can also use the most recent user-supplied image bundle in the same conversation (ten minutes) when the request points to it. A correction can reuse the same sender's recent edit source only. Current attachments take precedence, then the explicit quote. Limit: 4 images, 10 MB each and 20 MB total. Unrelated history and paths in text are not inputs. QQ can use the command after a native bot mention. DingTalk delivers results as file attachments to preserve the original bytes.
 
-Before rendering, a single tool-free OpenAI Responses call rewrites the request as a short visual brief using the Codex image skill's prompt structure. It inspects actual pixels, distinguishes source and supporting images, and never forwards reasoning output. When explicitly asked to draw from the current group, the planner uses up to ten bounded recent text excerpts from that group, with obvious identifiers removed; no history is used otherwise, and only the image brief is included in the renderer request. If planning is unavailable, editing still uses the verified original and constrained edit prompt; a group-context request instead asks for a topic or retry.
+Before rendering, a single tool-free OpenAI Responses call uses high reasoning effort to rewrite the request as a short visual brief. This is separate from the image model's `complexity` and render `quality`. The planner inspects actual pixels and never forwards reasoning output. Group-context requests use up to ten bounded, redacted recent text excerpts. If planning fails, image-based jobs stop without charging for an unplanned render.
 
 QQ and DingTalk direct messages can submit requests. Groups require an exact channel-qualified ID in `allowedGroups` by default. Set `allowAllDingTalkGroups: true` to admit all DingTalk groups without changing the QQ allowlist. Channel admission and mention requirements still apply. Unknown routes fail closed. A single job can run at a time, with at least ten seconds between starts. No replay is initiated by the plugin when an image request has an unknown outcome.
 
