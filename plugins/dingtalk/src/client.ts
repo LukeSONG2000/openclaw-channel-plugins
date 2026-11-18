@@ -310,6 +310,29 @@ export async function sendImageMessage(
   return result;
 }
 
+/** Display an uploaded image inline without exposing a token-bearing download URL. */
+export async function sendImagenMedia(
+  to: string,
+  bytes: Buffer,
+  format: "png" | "gif",
+  options: SendMessageOptions
+): Promise<SendMessageResult> {
+  const animated = format === "gif";
+  const fileName = `imagen.${format}`;
+  const { mediaId } = await uploadMedia(bytes, fileName, options.account, {
+    type: animated ? "file" : "image",
+    mimeType: `image/${format}`,
+  });
+  if (animated) return sendFileMessage(to, mediaId, fileName, format, options);
+  if (!/^@?[\w+=/-]{1,512}$/.test(mediaId)) throw new Error("Invalid uploaded image media ID");
+  const result = await sendMessage(to, "sampleMarkdown", {
+    title: "生成图片",
+    text: `![生成图片](${mediaId})`,
+  }, options);
+  logger.log("[主动发送] Imagen 内联图片消息发送成功");
+  return result;
+}
+
 /**
  * 发送语音消息（自动路由群聊/单聊）
  * @param mediaId - 语音文件的 mediaId（通过 uploadMedia 获取）

@@ -6,7 +6,7 @@ import { readFile, realpath, stat } from "node:fs/promises";
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import type { DingTalkMessageData, ResolvedDingTalkAccount, DingTalkGroupConfig, AudioContent, VideoContent, FileContent, PictureContent, RichTextContent, RichTextElement, RichTextPictureElement } from "./types.js";
-import { replyViaWebhook, getFileDownloadUrl, downloadFromUrl, sendTextMessage, sendFileMessage, uploadMedia } from "./client.js";
+import { replyViaWebhook, getFileDownloadUrl, downloadFromUrl, sendTextMessage, sendImagenMedia } from "./client.js";
 import { resolveDingTalkAccount } from "./accounts.js";
 import { getDingTalkRuntime } from "./runtime.js";
 import { logger } from "./logger.js";
@@ -946,17 +946,14 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         const dir = join(homedir(), ".openclaw", "media", "outbound", "openai-image");
         const fileName = basename(payload.mediaUrl);
         const fileType = /^[a-f0-9-]{36}\.(png|gif)$/.exec(fileName)?.[1];
-        if (!fileType || dirname(payload.mediaUrl) !== dir || await realpath(payload.mediaUrl) !== payload.mediaUrl) {
+        if ((fileType !== "png" && fileType !== "gif") ||
+            dirname(payload.mediaUrl) !== dir || await realpath(payload.mediaUrl) !== payload.mediaUrl) {
           throw new Error("Invalid Imagen delivery file");
         }
         const { size } = await stat(payload.mediaUrl);
         if (size > 20 * 1024 * 1024) throw new Error("Imagen delivery file too large");
         const to = isGroup ? `chat:${data.openConversationId ?? data.conversationId}` : data.senderStaffId;
-        const { mediaId } = await uploadMedia(await readFile(payload.mediaUrl), fileName, account, {
-          type: "file",
-          mimeType: `image/${fileType}`,
-        });
-        await sendFileMessage(to, mediaId, `imagen.${fileType}`, fileType, { account });
+        await sendImagenMedia(to, await readFile(payload.mediaUrl), fileType, { account });
         recordChannelRuntimeState({ channel: PLUGIN_ID, accountId, state: { lastOutboundAt: Date.now() } });
         options?.onDelivered?.();
         return { visibleReplySent: true };

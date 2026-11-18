@@ -12,8 +12,8 @@ import {
   DingTalkChatRuntime,
   historyFailureRetryDelayMs,
 } from "../src/chat-runtime.js";
-import type { DingTalkMessageData } from "../src/types.js";
-import { buildWebhookReplyBody } from "../src/client.js";
+import type { DingTalkMessageData, ResolvedDingTalkAccount } from "../src/types.js";
+import { buildWebhookReplyBody, sendImagenMedia } from "../src/client.js";
 import { extractDwsImageMediaIds, parseDwsHistoryResponse } from "../src/dws-history.js";
 import {
   sanitizeDingTalkReplyText,
@@ -239,5 +239,62 @@ assert.equal(persisted.groups["cid-group-1"].dueAt, now + CHAT_MENTION_UNREAD_RE
 runtime.dispose();
 assert.equal(fs.existsSync(path.join(stateDir, "chat-default.json")), true);
 fs.rmSync(stateDir, { recursive: true, force: true });
+
+const originalFetch = globalThis.fetch;
+const uploads: Array<{ type: string; mime: string; bytes: Buffer }> = [];
+const sends: Array<{ endpoint: string; body: Record<string, unknown> }> = [];
+let uploadedId = "@test-media_id-1";
+const testAccount: ResolvedDingTalkAccount = {
+  accountId: "imagen-test", enabled: true, clientId: "test-app", clientSecret: "test-secret",
+  tokenSource: "config", allowFrom: [], groupPolicy: "open", groupAllowFrom: [],
+  groups: {}, adminUserId: "",
+};
+globalThis.fetch = async (input, options) => {
+  const url = new URL(String(input));
+  if (url.pathname === "/v1.0/oauth2/accessToken") {
+    return Response.json({ accessToken: "fixture-access-token", expireIn: 7200 });
+  }
+  if (url.pathname === "/media/upload") {
+    assert.ok(options?.body instanceof FormData);
+    const media = options.body.get("media");
+    assert.ok(media instanceof Blob);
+    uploads.push({
+      type: String(options.body.get("type")),
+      mime: media.type,
+      bytes: Buffer.from(await media.arrayBuffer()),
+    });
+    return Response.json({ errcode: 0, media_id: uploadedId });
+  }
+  assert.ok(url.pathname.endsWith("/send") || url.pathname.endsWith("/batchSend"));
+  sends.push({ endpoint: url.pathname, body: JSON.parse(String(options?.body)) });
+  return Response.json({ processQueryKey: "fixture-receipt" });
+};
+try {
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const gif = Buffer.from("GIF89a");
+  for (const target of ["test-user", "chat:cid-fixture"]) {
+    await sendImagenMedia(target, png, "png", { account: testAccount });
+    const send = sends.at(-1)!;
+    assert.equal(send.body.msgKey, "sampleMarkdown");
+    assert.equal(JSON.parse(String(send.body.msgParam)).text, "![生成图片](@test-media_id-1)");
+    assert.doesNotMatch(String(send.body.msgParam), /https?:|fixture-access-token/);
+    assert.deepEqual(uploads.at(-1), { type: "image", mime: "image/png", bytes: png });
+  }
+  assert.deepEqual(sends[0].body.userIds, ["test-user"]);
+  assert.equal(sends[1].body.openConversationId, "cid-fixture");
+
+  await sendImagenMedia("test-user", gif, "gif", { account: testAccount });
+  assert.equal(sends[2].body.msgKey, "sampleFile");
+  assert.deepEqual(JSON.parse(String(sends[2].body.msgParam)), {
+    mediaId: "@test-media_id-1", fileName: "imagen.gif", fileType: "gif",
+  });
+  assert.deepEqual(uploads[2], { type: "file", mime: "image/gif", bytes: gif });
+
+  uploadedId = "https://example.org/image?access_token=secret";
+  await assert.rejects(sendImagenMedia("test-user", png, "png", { account: testAccount }), /Invalid uploaded image media ID/);
+  assert.equal(sends.length, 3);
+} finally {
+  globalThis.fetch = originalFetch;
+}
 
 console.log("custom runtime tests passed");
