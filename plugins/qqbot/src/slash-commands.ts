@@ -487,6 +487,7 @@ registerCommand({
   access: "无",
   usage: [
     "/imagen <描述>",
+    "也可直接对机器人说「生成一张插画」「做一张动图」；群聊请 @ 机器人。",
     "/imagen studio <描述>（视觉策划、高画质）",
     "/imagen gif <描述>",
     "/imagen edit <修改要求>（随同发送原图）",

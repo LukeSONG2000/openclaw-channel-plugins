@@ -3,13 +3,14 @@ import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
 import { boundedContext, buildBriefRequest, imageMime, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
 const PROXY = 'http://127.0.0.1:17979';
 const CLI = join(ROOT, 'bin', 'openai-image-cli');
 const USAGE = '用法：/imagen [text|edit|ref] [studio] [png|gif] [low|high] [flare|sunburst] <描述>\n'
-  + '带图默认参考图，用 edit 精修；studio 开启高画质创作。';
+  + '也可以直接说「生成一张插画」「做一张动图」，或附图说「把背景换成雪山」。';
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const MIB = 1024 * 1024;
 
@@ -47,12 +48,12 @@ function parseRequest(input, mode) {
   if (!prompt || prompt.length > 1800 || prompt === 'help' || prompt === '?') return null;
   const studio = options[3] === 'studio';
   const premium = studio || mode === 'edit';
-  const [output_format = 'png', imageQuality = premium ? 'high' : 'low', model = premium ? 'sunburst' : 'flare'] = options;
+  const [output_format = inferImagenFormat(prompt), imageQuality = premium ? 'high' : 'low', model = premium ? 'sunburst' : 'flare'] = options;
   return { studio, prompt, body: {
     model: `gpt-image-2.6-${model}`, prompt: renderPrompt(mode, prompt),
     quality: imageQuality,
     ...(mode === 'text' && !studio ? { complexity: 'low' } : {}),
-    n: 1, output_format, size: output_format === 'gif' ? '512x512' : '1024x1024',
+    n: 1, output_format, size: output_format === 'gif' ? '512x512' : mode === 'edit' ? 'auto' : '1024x1024',
     ...(output_format === 'gif' ? { frame_count: 3, frame_duration_ms: 200 } : {}),
   } };
 }
@@ -63,7 +64,7 @@ export function parseArgs(input = '', mode = 'text') {
 
 function renderPrompt(mode, request, brief) {
   const orientation = mode === 'edit'
-    ? 'Image 1 is the original to edit. Preserve everything not requested to change; other images are supporting references.'
+    ? 'Image 1 is the original to edit. Change only the requested elements. Keep the same subjects and their count, identities, colors, markings, and unrequested parts of the scene. Do not replace them with lookalikes. Other images are supporting references.'
     : mode === 'ref' ? 'Create a new image; use the supplied images as visual references, not as originals to edit.' : '';
   return [orientation, request, brief && `Visual direction (the user's requirements above take precedence):\n${brief}`]
     .filter(Boolean).join('\n\n');
@@ -161,9 +162,9 @@ export async function planPrompt(input, startAt) {
     if (!await checkKey(key, PLANNER_MODEL)) return;
   }
   const output = await run(CLI, ['responses', 'create', '--format', 'json', '--format-error', 'json'], {
-    env: apiEnv(key), timeout: 25_000, input: JSON.stringify(request),
+    env: apiEnv(key), timeout: 35_000, input: JSON.stringify(request),
   });
-  return readVisualBrief(JSON.parse(output));
+  return readVisualBrief(JSON.parse(output), input.decideIntent);
 }
 
 export async function generate(body, startAt, images = []) {
@@ -211,23 +212,64 @@ export function createHandler({
   let active = false;
   let nextKey = 0;
   let lastStart = -Infinity;
+  const recentTextJobs = new Map();
+  const recentEdits = new Map();
   return async (context) => {
     const scope = resolveScope(context);
     if (!scope || (scope.group && !groups.has(scope.address) &&
         !(allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) {
       return { text: '当前会话未开放生图。' };
     }
-    const args = typeof context.args === 'string' ? context.args.trim() : '';
-    const images = context.images ?? [];
+    let args = typeof context.args === 'string' ? context.args.trim() : '';
+    let images = context.images ?? [];
     const expected = context.expectedImages ?? 0;
+    const channel = context.channelId ?? context.channel;
+    const actor = typeof context.senderId === 'string' ? context.senderId.trim() : '';
+    const actorKey = actor && actor.length <= 256 ? JSON.stringify([
+      context.channelId ?? context.channel, context.accountId ?? '', scope.address ?? context.to, actor,
+    ]) : undefined;
+    if (context.intent?.kind === 'video') return { text: '目前能做静态图和短 GIF，不能生成视频文件。' };
+    if (context.intent?.kind === 'needs-image') return { text: '请引用原图，或把原图和修改要求一起发过来。' };
+    if (context.intent?.kind === 'format-correction') {
+      const previous = actorKey && recentTextJobs.get(actorKey);
+      if (!previous || now() - previous.at > 5 * 60_000) {
+        return { text: '可以做 GIF。请一起发想画的内容；要让某张图动起来，请同时附上原图。' };
+      }
+      args = `text gif ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${previous.prompt}`;
+    }
     if (!Array.isArray(images) || images.length !== expected || expected > 4) {
       return { text: '图片未下载齐或超过 4 张，请在同一条消息中重新附图。' };
     }
     const modifier = /^(text|edit|ref)(?:\s+|$)/i.exec(args);
-    const mode = modifier?.[1].toLowerCase() ?? (images.length ? 'ref' : 'text');
-    if (mode !== 'text' && !images.length) return { text: '请在同一条消息中上传原图或参考图。' };
+    const explicitMode = modifier?.[1].toLowerCase();
+    const quoteCount = expected === 0 && explicitMode !== 'text' && Number.isSafeInteger(context.quotedImageCount)
+      ? Math.max(0, context.quotedImageCount) : 0;
+    if (quoteCount > 4) return { text: '一次最多使用 4 张图，请只引用需要修改的原图。' };
+    let source = images.length ? 'attachment' : quoteCount ? 'quote' : 'none';
+    let correctionPrompt;
+    if (source === 'none' && channel === 'qqbot' && explicitMode !== 'text') {
+      if (isImagenEditCorrection(args)) {
+        const previous = actorKey && recentEdits.get(actorKey);
+        if (previous && now() - previous.at <= 10 * 60_000) {
+          images = previous.paths;
+          correctionPrompt = `此前的编辑目标：${previous.prompt}\n本次纠正：${args}`.slice(0, 1800);
+          source = 'previous-edit';
+        }
+      } else if (wantsRecentImagenSource(args) && Array.isArray(context.recentImages) &&
+                 context.recentImages.length > 0 && context.recentImages.length <= 4) {
+        images = context.recentImages;
+        source = 'recent';
+      }
+    }
+    const hasSource = source !== 'none';
+    let mode = explicitMode ?? inferImagenMode(args, hasSource);
+    if (correctionPrompt) mode = 'edit';
+    if (!hasSource && (mode !== 'text' || (!explicitMode && (requiresImagenSource(args) || wantsRecentImagenSource(args))))) {
+      return { text: '请在同一条消息中上传或引用原图，不会用文字重新画一个替代。' };
+    }
     if (mode === 'text' && images.length) return { text: '文生图不接收附件；请去掉图片或使用 edit / ref。' };
-    const request = parseRequest(args.slice(modifier?.[0].length ?? 0), mode);
+    const requestArgs = correctionPrompt ?? args.slice(modifier?.[0].length ?? 0);
+    let request = parseRequest(requestArgs, mode);
     if (!request) return { text: USAGE };
     const useContext = scope.group && wantsGroupContext(request.prompt);
     const contextLines = useContext ? boundedContext(context.recentChat) : [];
@@ -238,25 +280,66 @@ export function createHandler({
     const startAt = nextKey;
     nextKey = 1 - nextKey;
     try {
-      const channel = context.channelId ?? context.channel;
+      if (quoteCount > 0) {
+        try { images = await context.loadQuotedImages?.(); }
+        catch { images = []; }
+        if (!Array.isArray(images) || images.length !== quoteCount) {
+          return { text: '没能下载到引用里的原图，请把原图重新附在同一条消息中。' };
+        }
+      }
       const root = channel === 'qqbot' ? join(ROOT, 'media', 'qqbot', 'downloads') : join(ROOT, 'media', 'inbound');
       let files;
       try { files = images.length ? await verify(images, root) : []; }
       catch { return { text: '图片无法使用，请上传 PNG、JPEG 或 WebP（每张不超过 10 MB，总计不超过 20 MB）。' }; }
-      logger?.info(`[imagen] accepted channel=${channel} mode=${mode} attachments=${files.length}`);
-      const { body, prompt, studio } = request;
-      if (files.length || useContext || studio) {
-        let brief;
-        try {
-          brief = await plan({ prompt, mode, images: files, context: contextLines, format: body.output_format }, startAt);
-        } catch { /* The image model can read current attachments directly if planning is unavailable. */ }
-        logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length}`);
-        if (!brief && useContext) return { text: '这次没能整理出本群主题。请稍后再试，或直接告诉我想画什么。' };
-        if (brief) body.prompt = renderPrompt(mode, prompt, brief);
-        delete body.complexity;
+      const decideIntent = context.intent?.kind === 'generate' && !correctionPrompt;
+      let brief;
+      let planned;
+      try {
+        planned = await plan({
+          prompt: request.prompt, mode, images: files, context: contextLines,
+          format: request.body.output_format, decideIntent,
+        }, startAt);
       }
+      catch { /* A renderer fallback still uses the exact user prompt and verified images. */ }
+      if (decideIntent) {
+        if (!planned) return { text: '暂时没能完成生图请求解析，请稍后再试。' };
+        if (planned.intent === 'ignore') return;
+        if (planned.intent === 'video') return { text: '目前能做静态图和短 GIF，不能生成视频文件。' };
+        if (planned.intent === 'needs_image' || (['edit', 'ref'].includes(planned.intent) && !files.length)) {
+          return { text: '请引用原图，或把原图和修改要求一起发过来。' };
+        }
+        if (!['text', 'ref', 'edit'].includes(planned.intent) || !['png', 'gif'].includes(planned.format) || !planned.brief) return;
+        mode = planned.intent === 'text' && files.length ? mode : planned.intent;
+        const format = inferImagenFormat(request.prompt) === 'gif' ? 'gif' : planned.format;
+        request = parseRequest(`${format} ${requestArgs}`, mode);
+        if (!request) return;
+        brief = planned.brief;
+      } else {
+        brief = planned;
+      }
+      const { body, prompt, studio } = request;
+      logger?.info(`[imagen] accepted channel=${channel} mode=${mode} format=${body.output_format} trigger=${context.intent ? 'natural' : 'command'} attachments=${files.length} source=${source}`);
+      logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length}`);
+      if (!brief && useContext) return { text: '这次没能整理出本群主题。请稍后再试，或直接告诉我想画什么。' };
+      if (brief) body.prompt = renderPrompt(mode, prompt, brief);
+      if (useContext) delete body.complexity;
       const mediaUrl = await render(body, startAt, files);
-      logger?.info(`[imagen] rendered channel=${channel} mode=${mode}`);
+      if (actorKey) {
+        recentTextJobs.delete(actorKey);
+        if (mode === 'text' && !useContext && body.output_format === 'png') {
+          if (recentTextJobs.size >= 128) recentTextJobs.delete(recentTextJobs.keys().next().value);
+          recentTextJobs.set(actorKey, { at: now(), prompt, studio, quality: body.quality, variant: body.model.split('-').at(-1) });
+        }
+        if (mode === 'edit' && channel === 'qqbot' && files.length) {
+          const originalPrompt = correctionPrompt ? recentEdits.get(actorKey)?.prompt ?? prompt : prompt;
+          recentEdits.delete(actorKey);
+          if (recentEdits.size >= 128) recentEdits.delete(recentEdits.keys().next().value);
+          recentEdits.set(actorKey, { at: now(), paths: files, prompt: originalPrompt });
+        } else {
+          recentEdits.delete(actorKey);
+        }
+      }
+      logger?.info(`[imagen] rendered channel=${channel} mode=${mode} format=${body.output_format}`);
       return { mediaUrl, channelData: { imagen: true } };
     } catch (error) {
       const code = error?.message === 'no_provider' ? 'unavailable' : 'failed';
@@ -273,14 +356,24 @@ export function createDispatchHook(handler) {
     const input = ctx?.ImagenInput;
     const channel = ctx?.Provider;
     if (!input || !['qqbot', 'ddingtalk'].includes(channel) || ctx.OriginatingChannel !== channel) return;
+    const hasPotentialSource = input.expectedImages > 0 || input.quotedImageCount > 0 ||
+      (channel === 'qqbot' && (isImagenEditCorrection(input.naturalText ?? '') ||
+        (input.recentImages?.length > 0 && wantsRecentImagenSource(input.naturalText ?? ''))));
+    const intent = typeof input.args === 'string' ? undefined : recognizeImagenIntent(input.naturalText, hasPotentialSource);
+    if (typeof input.args !== 'string' && !intent) return;
     const { dispatcher } = dispatch;
     let queuedFinal = false;
     if (event.sendPolicy !== 'deny' && !event.suppressUserDelivery && !event.isTailDispatch &&
         ctx.OriginatingTo === ctx.To) {
       const reply = await handler({
         channel, from: ctx.From, to: ctx.To,
-        args: input.args, images: input.images, expectedImages: input.expectedImages, recentChat: input.recentChat,
+        args: input.args ?? intent?.args, intent, images: input.images, expectedImages: input.expectedImages,
+        recentChat: input.recentChat, senderId: ctx.SenderId, accountId: ctx.AccountId,
+        quotedImageCount: channel === 'qqbot' ? input.quotedImageCount : undefined,
+        loadQuotedImages: channel === 'qqbot' ? input.loadQuotedImages : undefined,
+        recentImages: channel === 'qqbot' ? input.recentImages : undefined,
       });
+      if (!reply) return;
       if (channel === 'ddingtalk' && reply.text) reply.text = `<dingtalk_final>${reply.text}</dingtalk_final>`;
       queuedFinal = dispatcher.sendFinalReply(reply);
     }

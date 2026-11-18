@@ -18,7 +18,7 @@ import type { CustomUnreadRuntime } from "./unread-runtime.js";
 import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
-import { buildQQImagenInput } from "./imagen-input.js";
+import { buildQQImagenInput, getQQImagenQuotedImages, getRecentQQImagenImages, rememberQQImagenImages } from "./imagen-input.js";
 
 const CUSTOM_MENTION_HISTORY_IMAGE_LIMIT = 1;
 const CUSTOM_AUTONOMOUS_HISTORY_IMAGE_LIMIT = 4;
@@ -134,6 +134,10 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
   }
 
   const commandAuthorized = resolveCustomCommandAuthorized(params.cfg, account.config?.allowFrom, event);
+  const imageConversation = JSON.stringify([account.accountId, account.appId, messageRoute.fromAddress]);
+  const imagenInput = buildQQImagenInput(event, inboundPrepared.inboundMedia.localMediaPaths);
+  const imagenRecentImages = imagenInput ? getRecentQQImagenImages(imageConversation) : [];
+  rememberQQImagenImages(imageConversation, event, inboundPrepared.inboundMedia.localMediaPaths);
   const groupDispatch = applyCustomGroupDispatchGateway({
     cfg: params.cfg,
     accountId: account.accountId,
@@ -163,7 +167,13 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     };
   }
 
-  const imagenInput = buildQQImagenInput(event, inboundPrepared.inboundMedia.localMediaPaths);
+  const imagenQuote = imagenInput && imagenInput.expectedImages === 0 ? getQQImagenQuotedImages(event) : [];
+  const loadImagenQuote = imagenQuote.length > 0 ? async () => {
+    const processed = await params.processAttachments(imagenQuote, {
+      appId: account.appId, peerId: messageRoute.peerId, cfg: params.cfg,
+    });
+    return processed.attachmentLocalPaths.filter((path): path is string => Boolean(path));
+  } : undefined;
   const imagenRecentChat = imagenInput && event.groupOpenid
     ? (groupDispatch.customUnreadHistoryForEvent?.length
       ? groupDispatch.customUnreadHistoryForEvent
@@ -171,7 +181,7 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
       .filter((entry) => entry.messageId !== event.messageId)
       .slice(-10).map((entry) => entry.body.slice(0, 800))
     : undefined;
-  const historyImageMedia = imagenInput ? undefined : await prepareCustomUnreadHistoryImageMedia({
+  const historyImageMedia = imagenInput?.args !== undefined ? undefined : await prepareCustomUnreadHistoryImageMedia({
     cfg: params.cfg,
     account: { accountId: account.accountId, appId: account.appId },
     peerId: messageRoute.peerId,
@@ -204,7 +214,11 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     formatMergedEnvelope: params.formatMergedEnvelope,
     formatHistoryEnvelope: params.formatHistoryEnvelope,
     finalizeInboundContext: (payload) => params.finalizeInboundContext(imagenInput
-      ? { ...payload, ImagenInput: { ...imagenInput, recentChat: imagenRecentChat } }
+      ? { ...payload, ImagenInput: {
+        ...imagenInput, recentChat: imagenRecentChat,
+        recentImages: imagenRecentImages,
+        quotedImageCount: imagenQuote.length, loadQuotedImages: loadImagenQuote,
+      } }
       : payload),
     fromAddress: messageRoute.fromAddress,
     toAddress: messageRoute.toAddress,

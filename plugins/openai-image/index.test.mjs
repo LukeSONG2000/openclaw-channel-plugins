@@ -5,17 +5,19 @@ import { join } from 'node:path';
 import test from 'node:test';
 import plugin, { createDispatchHook, createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
 import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-brief.mjs';
+import { inferImagenMode, recognizeImagenIntent } from './intent.mjs';
 import { proxyConfig } from './proxy-config.mjs';
 
 const user = 'qqbot:c2c:' + 'A'.repeat(32);
 const group = 'qqbot:group:' + 'B'.repeat(32);
 const other = 'qqbot:group:' + 'C'.repeat(32);
 const call = (address, args) => ({ channelId: 'qqbot', from: address, to: address, args });
+const noPlan = async () => undefined;
 
 test('private and allowed groups use trusted addresses; unauthorized requests never render', async () => {
   const calls = [];
   let time = 0;
-  const run = createHandler({ allowedGroups: [group], now: () => time += 11_000,
+  const run = createHandler({ allowedGroups: [group], now: () => time += 11_000, plan: noPlan,
     render: async (body, key) => { calls.push([body, key]); return '/fake/test.png'; } });
   const disallowed = [call(other, 'paint'), { ...call(other, 'paint'), args: `${group} paint` },
     { ...call(other, 'paint'), to: user }, { ...call(user, 'paint'), channelId: 'webchat' },
@@ -41,7 +43,7 @@ test('DingTalk-wide opt-in accepts arbitrary admitted groups without opening QQ 
   const dd = { channel: 'ddingtalk', from: 'ddingtalk:sender_01', to: 'ddingtalk:chat:cidNewGroup==', args: 'paint' };
   let calls = 0;
   let time = 0;
-  const options = { allowedGroups: [group], now: () => time += 11_000,
+  const options = { allowedGroups: [group], now: () => time += 11_000, plan: noPlan,
     render: async () => { calls++; return '/fake/test.png'; } };
   assert.match((await createHandler(options)(dd)).text, /未开放/);
   const run = createHandler({ ...options, allowAllDingTalkGroups: true });
@@ -64,6 +66,113 @@ test('arguments stay data, not flags or shell instructions', () => {
   assert.equal(parseArgs('paint').output_format, 'png');
   assert.equal(parseArgs('png gif paint'), null);
   assert.equal(parseArgs('help'), null);
+  assert.equal(parseArgs('做一个香菇用合肥车技开超跑的动态图').output_format, 'gif');
+  assert.equal(parseArgs('png 做一张有动图质感的图').output_format, 'png');
+  assert.equal(parseArgs('做静态海报，不要动图').output_format, 'png');
+});
+
+test('natural requests distinguish drawing, editing and references from discussion', () => {
+  for (const [ask, hasImages] of [
+    ['帮我做个飞船穿过云海的动态表情', false],
+    ['根据你对这个群的了解生成一张图片', false],
+    ['请画一只小狗', false],
+    ['把背景换成雪山', true],
+    ['参考这张的配色重新做一张海报', true],
+    ['让这张图动起来', true],
+    ['把这两只猫放大一百倍', true],
+  ]) assert.equal(recognizeImagenIntent(ask, hasImages)?.kind, 'generate', ask);
+  for (const message of [
+    '这个动图有点好笑', '怎么生成 GIF？', '不要生成图片', '有没有动图教程',
+    '做一个图片识别工具', '这是什么图片', '找一张巴黎的照片', '分析一下这张图片',
+  ]) assert.equal(recognizeImagenIntent(message, true), undefined, message);
+  assert.equal(recognizeImagenIntent('把这张图换个背景', false)?.kind, 'needs-image');
+  assert.equal(recognizeImagenIntent('做一个飞船的视频', false)?.kind, 'video');
+  assert.equal(recognizeImagenIntent('我要的是动态图', false)?.kind, 'format-correction');
+  assert.equal(inferImagenMode('将图中的日语替换成翻译后的中文', true), 'edit');
+  assert.equal(inferImagenMode('参考这张的配色换成人物海报', true), 'ref');
+});
+
+test('a format correction can reuse only the same sender and conversation text prompt', async () => {
+  const used = [];
+  let time = 12_000;
+  const run = createHandler({ allowedGroups: [group, other], now: () => time, plan: noPlan,
+    render: async (body) => { used.push(body); return '/fake/media'; },
+  });
+  const request = { ...call(group, '画一张开超跑的插画'), senderId: 'sender', accountId: 'default' };
+  await run(request);
+  const correction = { ...request, args: undefined, intent: { kind: 'format-correction' } };
+  time += 11_000;
+  for (const ctx of [{ ...correction, senderId: 'someone-else' }, { ...correction, accountId: 'other' },
+    { ...correction, from: other, to: other }]) {
+    assert.match((await run(ctx)).text, /想画的内容/);
+  }
+  assert.equal((await run(correction)).mediaUrl, '/fake/media');
+  assert.equal(used[1].output_format, 'gif');
+  assert.equal(used[1].prompt, used[0].prompt);
+  assert.match((await run(correction)).text, /想画的内容/);
+});
+
+test('natural candidates require a semantic decision and use the returned brief', async () => {
+  const output = [];
+  let time = 0;
+  let decision = { intent: 'ignore', format: 'png', brief: '' };
+  const run = createHandler({ now: () => time += 11_000,
+    plan: async ({ decideIntent }) => { assert.equal(decideIntent, true); return decision; },
+    render: async (body) => { output.push(body); return '/fake/media.gif'; },
+  });
+  const ctx = { ...call(user, '做一张飞船穿过云海的动态图'), intent: { kind: 'generate' } };
+  assert.equal(await run(ctx), undefined);
+  assert.equal(output.length, 0);
+  decision = { intent: 'text', format: 'gif', brief: 'A spaceship moves smoothly through cloud layers.' };
+  assert.equal((await run(ctx)).mediaUrl, '/fake/media.gif');
+  assert.equal(output[0].output_format, 'gif');
+  assert.match(output[0].prompt, /moves smoothly/);
+});
+
+test('explicit QQ quote edits use the quoted pixels and cannot silently become text-to-image', async () => {
+  let loaded = 0;
+  let time = 0;
+  const inputs = [];
+  const render = [];
+  const run = createHandler({ allowedGroups: [group], now: () => time += 11_000,
+    verify: async (paths) => paths,
+    plan: async (request) => { inputs.push(request); return 'Preserve the pale left cat and gray tabby on the right.'; },
+    render: async (body, _key, files) => { render.push({ body, files }); return '/fake/cats.png'; },
+  });
+  const request = { ...call(group, '把这两只猫放大一百倍'), expectedImages: 0, quotedImageCount: 1,
+    loadQuotedImages: async () => { loaded++; return ['/current/original.png']; },
+  };
+  assert.match((await run({ ...request, from: other, to: other })).text, /未开放/);
+  assert.equal(loaded, 0);
+  assert.equal((await run(request)).mediaUrl, '/fake/cats.png');
+  assert.equal(loaded, 1);
+  assert.equal(inputs[0].mode, 'edit');
+  assert.deepEqual(render[0].files, ['/current/original.png']);
+  assert.match(render[0].body.prompt, /Do not replace them with lookalikes/);
+  assert.match(render[0].body.prompt, /pale left cat and gray tabby/);
+  assert.match((await run({ ...request, loadQuotedImages: async () => [] })).text, /没能下载到引用里的原图/);
+  assert.match((await run(call(group, '毛色不对，猫品种都变了'))).text, /上传或引用原图/);
+  assert.equal(render.length, 1);
+});
+
+test('QQ recent images are used only for referenced requests; a correction stays on the original', async () => {
+  let time = 0;
+  const renders = [];
+  const run = createHandler({ allowedGroups: [group, other], now: () => time += 11_000,
+    plan: noPlan, verify: async (paths) => paths,
+    render: async (body, _key, images) => { renders.push({ body, images }); return '/fake/result.png'; },
+  });
+  const context = { ...call(group, '画一张蓝色飞船的图'), senderId: 'sender', recentImages: ['/same-chat/recent.png'] };
+  await run(context);
+  assert.deepEqual(renders[0].images, []);
+  await run({ ...context, args: '把刚才那张图放大一倍' });
+  assert.deepEqual(renders[1].images, ['/same-chat/recent.png']);
+  const correction = { ...context, args: '毛色不对', recentImages: ['/same-chat/unrelated.png'] };
+  assert.match((await run({ ...correction, senderId: 'different' })).text, /上传或引用原图/);
+  assert.match((await run({ ...correction, from: other, to: other })).text, /上传或引用原图/);
+  await run(correction);
+  assert.deepEqual(renders[2].images, renders[1].images);
+  assert.match(renders[2].body.prompt, /把刚才那张图放大一倍/);
 });
 
 test('edit and reference paths require all current attachments and have distinct defaults', async () => {
@@ -111,17 +220,17 @@ test('group context is opt-in and is not copied into the rendering request', asy
   });
   const recentChat = ['周末聊星空，邮箱 luke@example.org', 'https://example.org/private', '/reset', '这张卡的密码是 secret'];
   await run({ ...call(group, '画棵树'), recentChat });
-  assert.equal(planned.length, 0);
+  assert.deepEqual(planned[0].context, []);
   assert.equal(rendered[0].complexity, 'low');
   await run({ ...call(group, '根据你对这个群的了解生成一张图片'), recentChat });
-  assert.deepEqual(planned[0].context, ['周末聊星空，邮箱']);
+  assert.deepEqual(planned[1].context, ['周末聊星空，邮箱']);
   assert.doesNotMatch(rendered[1].prompt, /邮箱|private|\/reset/);
   assert.match(rendered[1].prompt, /An illustrated discussion/);
   assert.equal(rendered[1].complexity, undefined);
   assert.match((await run(call(group, '根据这个群画图'))).text, /没有足够/);
   assert.equal(rendered.length, 2);
   await run({ ...call(user, 'studio paint'), recentChat });
-  assert.deepEqual(planned[1].context, []);
+  assert.deepEqual(planned[2].context, []);
   assert.equal(rendered[2].quality, 'high');
   assert.equal(rendered[2].model, 'gpt-image-2.6-sunburst');
 });
@@ -186,6 +295,7 @@ test('reply hook skips synthetic input and never renders for suppressed or misma
     From: 'ddingtalk:sender_01', To: to, ImagenInput: { args: 'edit paint', images: [], expectedImages: 0 },
   };
   assert.equal(await hook({ ctx: { ...ctx, ImagenInput: undefined } }, dispatch), undefined);
+  assert.equal(await hook({ ctx: { ...ctx, ImagenInput: { naturalText: '你会看图片吗' } } }, dispatch), undefined);
   for (const event of [
     { ctx, sendPolicy: 'deny' }, { ctx, suppressUserDelivery: true }, { ctx, isTailDispatch: true },
     { ctx: { ...ctx, OriginatingTo: user } },
@@ -197,8 +307,11 @@ test('reply hook skips synthetic input and never renders for suppressed or misma
 
 test('blocked and in-flight requests cannot start a second paid job', async () => {
   let finish;
-  const run = createHandler({ render: () => new Promise((resolve) => { finish = resolve; }) });
+  let started;
+  const ready = new Promise((resolve) => { started = resolve; });
+  const run = createHandler({ plan: noPlan, render: () => new Promise((resolve) => { finish = resolve; started(); }) });
   const running = run(call(user, 'first image'));
+  await ready;
   assert.match((await run(call(user, 'second image'))).text, /繁忙/);
   finish('/fake/image.png');
   assert.equal((await running).mediaUrl, '/fake/image.png');
@@ -218,6 +331,9 @@ test('registers one explicit command, not a general-purpose exec tool', () => {
 test('gateway startup loads Imagen before the first reply dispatch', async () => {
   const manifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
   assert.equal(manifest.activation?.onStartup, true);
+  assert.deepEqual(manifest.skills, ['./skills']);
+  const skill = await readFile(new URL('./skills/imagen/SKILL.md', import.meta.url), 'utf8');
+  assert.match(skill, /description:.*动图.*精修/);
 });
 
 test('proxy refresh and health checks pin both Japan 2 candidates to the OpenAI host', () => {
