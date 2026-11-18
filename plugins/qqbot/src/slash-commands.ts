@@ -480,6 +480,21 @@ registerCommand({
 });
 
 registerCommand({
+  name: "imagen",
+  category: "互动",
+  description: "文生图、动图、精修或参考图生成",
+  scope: "私聊和已开放生图的群",
+  access: "无",
+  usage: [
+    "/imagen <描述>",
+    "/imagen gif <描述>",
+    "/imagen edit <修改要求>（随同发送原图）",
+    "/imagen ref <新图描述>（随同发送参考图）",
+  ].join("\n"),
+  handler: () => null,
+});
+
+registerCommand({
   name: "goh",
   category: "互动",
   description: "查询 SWGOH 资料",

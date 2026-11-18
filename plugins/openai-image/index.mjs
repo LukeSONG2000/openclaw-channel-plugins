@@ -1,13 +1,16 @@
 import { execFile } from 'node:child_process';
-import { mkdir, readFile, stat, writeFile } from 'node:fs/promises';
+import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promises';
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { isAbsolute, join, relative, sep } from 'node:path';
 
 const ROOT = join(homedir(), '.openclaw');
 const PROXY = 'http://127.0.0.1:17979';
 const CLI = join(ROOT, 'bin', 'openai-image-cli');
-const USAGE = '/imagen [png|gif] [low|high] [flare|sunburst] <描述>';
+const USAGE = '用法：/imagen [text|edit|ref] [png|gif] [low|high] [flare|sunburst] <描述>\n'
+  + '无图默认文生图；带图默认参考图；带图用 edit 精修。';
+const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+const MIB = 1024 * 1024;
 
 export function resolveScope({ channel, channelId, from, to }) {
   const kind = channelId ?? channel;
@@ -25,13 +28,13 @@ export function resolveScope({ channel, channelId, from, to }) {
   return null;
 }
 
-export function parseArgs(input = '') {
+export function parseArgs(input = '', mode = 'text') {
   const format = ['png', 'gif'];
   const quality = ['low', 'high'];
   const variant = ['flare', 'sunburst'];
   const choices = [format, quality, variant];
   const selected = [false, false, false];
-  const options = ['png', 'low', 'flare'];
+  const options = mode === 'edit' ? ['png', 'high', 'sunburst'] : ['png', 'low', 'flare'];
   let prompt = input.trim();
   for (let i = 0; i < choices.length; i++) {
     const [token] = prompt.split(/\s/u, 1);
@@ -45,11 +48,37 @@ export function parseArgs(input = '') {
   if (!prompt || prompt.length > 1800 || prompt === 'help' || prompt === '?') return null;
   const [output_format, imageQuality, model] = options;
   return {
-    model: `gpt-image-2.6-${model}`, prompt, quality: imageQuality,
+    model: `gpt-image-2.6-${model}`, prompt: mode === 'ref'
+      ? `Use the supplied images as visual references to create a new image.\n${prompt}` : prompt,
+    quality: imageQuality,
     complexity: 'low',
     n: 1, output_format, size: output_format === 'gif' ? '512x512' : '1024x1024',
     ...(output_format === 'gif' ? { frame_count: 3, frame_duration_ms: 200 } : {}),
   };
+}
+
+export async function validateImages(paths, root) {
+  let total = 0;
+  const files = [];
+  for (const path of paths) {
+    if (typeof path !== 'string' || !isAbsolute(path)) throw new Error('invalid_input');
+    const file = await realpath(path);
+    const sub = relative(root, file);
+    if (!sub || sub === '..' || sub.startsWith(`..${sep}`) || isAbsolute(sub)) throw new Error('invalid_input');
+    const info = await stat(file);
+    total += info.size;
+    if (!info.isFile() || info.size > 10 * MIB || total > 20 * MIB) throw new Error('invalid_input');
+    const fd = await open(file, 'r');
+    const head = Buffer.alloc(12);
+    try { await fd.read(head, 0, head.length, 0); }
+    finally { await fd.close(); }
+    if (!head.subarray(0, 8).equals(PNG) && !head.subarray(0, 3).equals(Buffer.from([255, 216, 255])) &&
+        !(head.subarray(0, 4).toString() === 'RIFF' && head.subarray(8, 12).toString() === 'WEBP')) {
+      throw new Error('invalid_input');
+    }
+    files.push(file);
+  }
+  return files;
 }
 
 async function loadKeys() {
@@ -103,14 +132,31 @@ async function checkKey(key, model) {
   } catch { return false; }
 }
 
-async function generate(body, startAt) {
+async function refreshProxy() {
+  try {
+    await run('/usr/bin/curl', ['-q', '--silent', '--fail', '--max-time', '8', '--unix-socket',
+      join(ROOT, 'openai-image-private', 'proxy', 'control.sock'),
+      'http://localhost/group/OPENAI-IMAGE/delay?url=https%3A%2F%2Fapi.openai.com%2Fv1%2Fmodels&timeout=6500&expected=401'],
+    { timeout: 10_000, env: {} });
+  } catch { /* A failed refresh must not trigger a paid request. */ }
+}
+
+export async function generate(body, startAt, images = []) {
   const keys = await loadKeys();
+  let refreshed = false;
   for (const key of [keys[startAt], keys[1 - startAt]]) {
-    if (!await checkKey(key, body.model)) continue;
+    let ready = await checkKey(key, body.model);
+    if (!ready && !refreshed) {
+      refreshed = true;
+      await refreshProxy();
+      ready = await checkKey(key, body.model);
+    }
+    if (!ready) continue;
     let output;
     try {
-      output = await run(CLI, ['images', 'generate', '--format', 'json', '--format-error', 'json'], {
-        env: apiEnv(key), timeout: 180_000, input: JSON.stringify(body),
+      output = await run(CLI, ['images', images.length ? 'edit' : 'generate', '--format', 'json', '--format-error', 'json'], {
+        env: apiEnv(key), timeout: 180_000,
+        input: JSON.stringify(images.length ? { ...body, image: images } : body),
       });
     } catch (error) {
       // A request with an uncertain outcome must not generate or charge again.
@@ -121,8 +167,8 @@ async function generate(body, startAt) {
     const bytes = typeof encoded === 'string' ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
     const gif = body.output_format === 'gif';
     const valid = gif ? /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString('ascii'))
-      : bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]));
-    if (!valid || bytes.length > 20 * 1024 * 1024) throw new Error('invalid_media');
+      : bytes.subarray(0, 8).equals(PNG);
+    if (!valid || bytes.length > 20 * MIB) throw new Error('invalid_media');
     const dir = join(ROOT, 'media', 'outbound', 'openai-image');
     await mkdir(dir, { recursive: true, mode: 0o700 });
     const file = join(dir, `${randomUUID()}.${body.output_format}`);
@@ -132,7 +178,10 @@ async function generate(body, startAt) {
   throw new Error('no_provider');
 }
 
-export function createHandler({ allowedGroups = [], allowAllDingTalkGroups = false, render = generate, now = Date.now } = {}) {
+export function createHandler({
+  allowedGroups = [], allowAllDingTalkGroups = false, render = generate,
+  verify = validateImages, now = Date.now, logger,
+} = {}) {
   const groups = new Set(allowedGroups.map((value) => value.startsWith('qqbot:') ? value.toLowerCase() : value));
   let active = false;
   let nextKey = 0;
@@ -143,28 +192,78 @@ export function createHandler({ allowedGroups = [], allowAllDingTalkGroups = fal
         !(allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) {
       return { text: '当前会话未开放生图。' };
     }
-    const body = parseArgs(context.args);
-    if (!body) return { text: `用法：${USAGE}\n默认 PNG、低画质、Flare；GIF 默认 3 帧。` };
+    const args = typeof context.args === 'string' ? context.args.trim() : '';
+    const images = context.images ?? [];
+    const expected = context.expectedImages ?? 0;
+    if (!Array.isArray(images) || images.length !== expected || expected > 4) {
+      return { text: '图片未下载齐或超过 4 张，请在同一条消息中重新附图。' };
+    }
+    const modifier = /^(text|edit|ref)(?:\s+|$)/i.exec(args);
+    const mode = modifier?.[1].toLowerCase() ?? (images.length ? 'ref' : 'text');
+    if (mode !== 'text' && !images.length) return { text: '请在同一条消息中上传原图或参考图。' };
+    if (mode === 'text' && images.length) return { text: '文生图不接收附件；请去掉图片或使用 edit / ref。' };
+    const body = parseArgs(args.slice(modifier?.[0].length ?? 0), mode);
+    if (!body) return { text: USAGE };
     if (active || now() - lastStart < 10_000) return { text: '生图繁忙，请稍后再试。' };
     active = true;
     lastStart = now();
     const startAt = nextKey;
     nextKey = 1 - nextKey;
-    try { return { mediaUrl: await render(body, startAt) }; }
-    catch { return { text: '生图暂时失败，请稍后再试。' }; }
+    try {
+      const channel = context.channelId ?? context.channel;
+      const root = channel === 'qqbot' ? join(ROOT, 'media', 'qqbot', 'downloads') : join(ROOT, 'media', 'inbound');
+      let files;
+      try { files = images.length ? await verify(images, root) : []; }
+      catch { return { text: '图片无法使用，请上传 PNG、JPEG 或 WebP（每张不超过 10 MB，总计不超过 20 MB）。' }; }
+      logger?.info(`[imagen] accepted channel=${channel} mode=${mode} attachments=${files.length}`);
+      const mediaUrl = await render(body, startAt, files);
+      logger?.info(`[imagen] rendered channel=${channel} mode=${mode}`);
+      return { mediaUrl, channelData: { imagen: true } };
+    } catch (error) {
+      const code = error?.message === 'no_provider' ? 'unavailable' : 'failed';
+      logger?.warn(`[imagen] generation ${code}`);
+      return { text: code === 'unavailable' ? '生图服务暂时连不上，请稍后再试。' : '生图暂时失败，请稍后再试。' };
+    }
     finally { active = false; }
+  };
+}
+
+export function createDispatchHook(handler) {
+  return async (event, dispatch) => {
+    const ctx = event.ctx;
+    const input = ctx?.ImagenInput;
+    const channel = ctx?.Provider;
+    if (!input || !['qqbot', 'ddingtalk'].includes(channel) || ctx.OriginatingChannel !== channel) return;
+    const { dispatcher } = dispatch;
+    let queuedFinal = false;
+    if (event.sendPolicy !== 'deny' && !event.suppressUserDelivery && !event.isTailDispatch &&
+        ctx.OriginatingTo === ctx.To) {
+      const reply = await handler({
+        channel, from: ctx.From, to: ctx.To,
+        args: input.args, images: input.images, expectedImages: input.expectedImages,
+      });
+      if (channel === 'ddingtalk' && reply.text) reply.text = `<dingtalk_final>${reply.text}</dingtalk_final>`;
+      queuedFinal = dispatcher.sendFinalReply(reply);
+    }
+    dispatch.recordProcessed('completed', { reason: 'imagen_handled' });
+    dispatch.markIdle('message_completed');
+    return { handled: true, queuedFinal, counts: dispatcher.getQueuedCounts() };
   };
 }
 
 export default {
   id: 'luke-openai-image',
   register(api) {
+    api.on('reply_dispatch', createDispatchHook(createHandler({
+      allowedGroups: api.pluginConfig?.allowedGroups ?? [],
+      allowAllDingTalkGroups: api.pluginConfig?.allowAllDingTalkGroups === true,
+      logger: api.logger,
+    })));
     api.registerCommand({
-      name: 'imagen', description: '在已开放的会话中生成图片或 GIF',
+      name: 'imagen', description: '文生图、精修和参考图生成',
       channels: ['qqbot', 'ddingtalk'], acceptsArgs: true, requireAuth: false,
-      handler: createHandler({
-        allowedGroups: api.pluginConfig?.allowedGroups ?? [],
-        allowAllDingTalkGroups: api.pluginConfig?.allowAllDingTalkGroups === true,
+      handler: (ctx) => ({
+        text: (ctx?.channelId ?? ctx?.channel) === 'ddingtalk' ? `<dingtalk_final>${USAGE}</dingtalk_final>` : USAGE,
       }),
     });
   },

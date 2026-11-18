@@ -1,6 +1,9 @@
 import assert from 'node:assert/strict';
+import { mkdtemp, realpath, rm, symlink, writeFile } from 'node:fs/promises';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import test from 'node:test';
-import plugin, { createHandler, parseArgs, resolveScope } from './index.mjs';
+import plugin, { createDispatchHook, createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
 import { proxyConfig } from './proxy-config.mjs';
 
 const user = 'qqbot:c2c:' + 'A'.repeat(32);
@@ -62,6 +65,90 @@ test('arguments stay data, not flags or shell instructions', () => {
   assert.equal(parseArgs('help'), null);
 });
 
+test('edit and reference paths require all current attachments and have distinct defaults', async () => {
+  let time = 0;
+  const calls = [];
+  const run = createHandler({
+    now: () => time += 11_000,
+    verify: async (paths, root) => {
+      assert.match(root, /\/media\/qqbot\/downloads$/);
+      return paths;
+    },
+    render: async (body, _key, files) => {
+      calls.push({ body, files });
+      return '/fake/image.png';
+    },
+  });
+  const images = ['/current/photo.png'];
+  const attach = (args, expectedImages = 1) => ({ ...call(user, args), images, expectedImages });
+  assert.match((await run(call(user, 'edit /private/file.png'))).text, /上传/);
+  assert.match((await run(attach('ref paint', 2))).text, /未下载齐/);
+  assert.match((await run(attach('text paint'))).text, /不接收附件/);
+  assert.equal(calls.length, 0);
+  await run(attach('edit replace only the sky'));
+  await run(attach('portrait with the same color palette'));
+  await run(attach('ref gif use this as inspiration'));
+  assert.equal(calls[0].body.model, 'gpt-image-2.6-sunburst');
+  assert.equal(calls[0].body.quality, 'high');
+  assert.equal(calls[0].body.prompt, 'replace only the sky');
+  assert.equal(calls[1].body.model, 'gpt-image-2.6-flare');
+  assert.match(calls[1].body.prompt, /^Use the supplied images as visual references/);
+  assert.equal(calls[2].body.output_format, 'gif');
+  assert.deepEqual(calls.map((x) => x.files), [images, images, images]);
+});
+
+test('attachment validation uses real paths and image bytes', async () => {
+  const root = await mkdtemp(join(await realpath(tmpdir()), 'imagen-'));
+  const otherRoot = await mkdtemp(join(tmpdir(), 'imagen-outside-'));
+  try {
+    const png = join(root, 'image.png');
+    const outside = join(otherRoot, 'image.png');
+    const invalid = join(root, 'not-image.png');
+    const link = join(root, 'link.png');
+    const bytes = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+    await writeFile(png, bytes);
+    await writeFile(outside, bytes);
+    await writeFile(invalid, 'not PNG');
+    await symlink(outside, link);
+    assert.deepEqual(await validateImages([png], root), [png]);
+    for (const path of [outside, invalid, link, 'relative.png']) {
+      await assert.rejects(validateImages([path], root), /invalid_input/);
+    }
+  } finally {
+    await Promise.all([rm(root, { recursive: true, force: true }), rm(otherRoot, { recursive: true, force: true })]);
+  }
+});
+
+test('reply hook skips synthetic input and never renders for suppressed or mismatched routes', async () => {
+  const replies = [];
+  const calls = [];
+  const hook = createDispatchHook(async (input) => {
+    calls.push(input);
+    return { text: '请附图' };
+  });
+  const dispatch = {
+    dispatcher: {
+      sendFinalReply: (reply) => Boolean(replies.push(reply)),
+      getQueuedCounts: () => ({ final: replies.length }),
+    },
+    recordProcessed: () => {},
+    markIdle: () => {},
+  };
+  const to = 'ddingtalk:chat:cidNewGroup==';
+  const ctx = {
+    Provider: 'ddingtalk', OriginatingChannel: 'ddingtalk', OriginatingTo: to,
+    From: 'ddingtalk:sender_01', To: to, ImagenInput: { args: 'edit paint', images: [], expectedImages: 0 },
+  };
+  assert.equal(await hook({ ctx: { ...ctx, ImagenInput: undefined } }, dispatch), undefined);
+  for (const event of [
+    { ctx, sendPolicy: 'deny' }, { ctx, suppressUserDelivery: true }, { ctx, isTailDispatch: true },
+    { ctx: { ...ctx, OriginatingTo: user } },
+  ]) assert.equal((await hook(event, dispatch)).queuedFinal, false);
+  assert.equal(calls.length, 0);
+  assert.equal((await hook({ ctx }, dispatch)).queuedFinal, true);
+  assert.deepEqual(replies, [{ text: '<dingtalk_final>请附图</dingtalk_final>' }]);
+});
+
 test('blocked and in-flight requests cannot start a second paid job', async () => {
   let finish;
   const run = createHandler({ render: () => new Promise((resolve) => { finish = resolve; }) });
@@ -73,10 +160,13 @@ test('blocked and in-flight requests cannot start a second paid job', async () =
 
 test('registers one explicit command, not a general-purpose exec tool', () => {
   const commands = [];
-  plugin.register({ registerCommand: (command) => commands.push(command) });
+  const hooks = [];
+  plugin.register({ registerCommand: (command) => commands.push(command), on: (event) => hooks.push(event) });
   assert.equal(commands.length, 1);
   assert.equal(commands[0].name, 'imagen');
   assert.deepEqual(commands[0].channels, ['qqbot', 'ddingtalk']);
+  assert.deepEqual(hooks, ['reply_dispatch']);
+  assert.match(commands[0].handler().text, /edit/);
 });
 
 test('proxy refresh and health checks pin both Japan 2 candidates to the OpenAI host', () => {

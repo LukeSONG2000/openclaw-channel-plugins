@@ -18,6 +18,7 @@ import type { CustomUnreadRuntime } from "./unread-runtime.js";
 import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
+import { buildQQImagenInput } from "./imagen-input.js";
 
 const CUSTOM_MENTION_HISTORY_IMAGE_LIMIT = 1;
 const CUSTOM_AUTONOMOUS_HISTORY_IMAGE_LIMIT = 4;
@@ -162,7 +163,8 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     };
   }
 
-  const historyImageMedia = await prepareCustomUnreadHistoryImageMedia({
+  const imagenInput = buildQQImagenInput(event, inboundPrepared.inboundMedia.localMediaPaths);
+  const historyImageMedia = imagenInput ? undefined : await prepareCustomUnreadHistoryImageMedia({
     cfg: params.cfg,
     account: { accountId: account.accountId, appId: account.appId },
     peerId: messageRoute.peerId,
@@ -194,7 +196,9 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     formatSubMessageContent: params.formatSubMessageContent,
     formatMergedEnvelope: params.formatMergedEnvelope,
     formatHistoryEnvelope: params.formatHistoryEnvelope,
-    finalizeInboundContext: params.finalizeInboundContext,
+    finalizeInboundContext: (payload) => params.finalizeInboundContext(imagenInput
+      ? { ...payload, ImagenInput: imagenInput }
+      : payload),
     fromAddress: messageRoute.fromAddress,
     toAddress: messageRoute.toAddress,
     sessionKey: ingress.route.sessionKey,

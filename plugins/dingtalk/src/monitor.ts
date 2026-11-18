@@ -2,8 +2,11 @@ import { DWClient, TOPIC_ROBOT, type DWClientDownStream } from "dingtalk-stream"
 import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
+import { readFile, realpath, stat } from "node:fs/promises";
+import { homedir } from "node:os";
+import { basename, dirname, join } from "node:path";
 import type { DingTalkMessageData, ResolvedDingTalkAccount, DingTalkGroupConfig, AudioContent, VideoContent, FileContent, PictureContent, RichTextContent, RichTextElement, RichTextPictureElement } from "./types.js";
-import { replyViaWebhook, getFileDownloadUrl, downloadFromUrl, sendTextMessage } from "./client.js";
+import { replyViaWebhook, getFileDownloadUrl, downloadFromUrl, sendTextMessage, sendFileMessage, uploadMedia } from "./client.js";
 import { resolveDingTalkAccount } from "./accounts.js";
 import { getDingTalkRuntime } from "./runtime.js";
 import { logger } from "./logger.js";
@@ -52,6 +55,21 @@ export interface InboundMediaContext {
   items: MediaItem[];
   /** 主媒体（第一个媒体项，兼容旧逻辑） */
   primary?: MediaItem;
+}
+
+function getImagenCommand(data: DingTalkMessageData) {
+  return /^\/imagen(?:\s+([\s\S]*))?$/i.exec(data.text?.content?.trim() ?? "");
+}
+
+function buildImagenInput(data: DingTalkMessageData, media?: InboundMediaContext) {
+  const command = getImagenCommand(data);
+  if (!command) return;
+  const images = (media?.items ?? []).filter((item) => item.kind === "picture").map((item) => item.path);
+  const content = data.content as RichTextContent | undefined;
+  const expectedImages = data.msgtype === "richText"
+    ? content?.richText?.filter(isRichTextPicture).length ?? 0
+    : data.msgtype === "picture" ? 1 : 0;
+  return { args: command[1] ?? "", images, expectedImages };
 }
 
 /** 生成媒体占位符文本 */
@@ -825,6 +843,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     media?: InboundMediaContext,
     commandAuthorizedOverride?: boolean,
     groupSystemPrompt?: string,
+    imagenInput?: ReturnType<typeof buildImagenInput>,
   ) => {
     const isGroup = sender.isGroup;
     const chatType = isGroup ? "group" : "direct";
@@ -890,6 +909,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     const ctxPayload = pluginRuntime.channel.reply.finalizeInboundContext({
       ...baseContext,
       ...mediaFields,
+      ...(imagenInput ? { ImagenInput: imagenInput } : {}),
     });
 
     return { ctxPayload, route };
@@ -908,12 +928,33 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
       isStatusNotice?: boolean;
       isFallbackNotice?: boolean;
       isCompactionNotice?: boolean;
+      mediaUrl?: string;
+      channelData?: Record<string, unknown>;
     }, info: { kind: "tool" | "block" | "final" }) => {
       if (!shouldDeliverDingTalkReply(payload, info.kind)) {
         logger.log(`reply suppressed | kind: ${info.kind}`);
         return { visibleReplySent: false };
       }
       const isGroup = data.conversationType === "2";
+      if (info.kind === "final" && payload.channelData?.imagen === true && payload.mediaUrl && !options?.proactive) {
+        const dir = join(homedir(), ".openclaw", "media", "outbound", "openai-image");
+        const fileName = basename(payload.mediaUrl);
+        const fileType = /^[a-f0-9-]{36}\.(png|gif)$/.exec(fileName)?.[1];
+        if (!fileType || dirname(payload.mediaUrl) !== dir || await realpath(payload.mediaUrl) !== payload.mediaUrl) {
+          throw new Error("Invalid Imagen delivery file");
+        }
+        const { size } = await stat(payload.mediaUrl);
+        if (size > 20 * 1024 * 1024) throw new Error("Imagen delivery file too large");
+        const to = isGroup ? `chat:${data.openConversationId ?? data.conversationId}` : data.senderStaffId;
+        const { mediaId } = await uploadMedia(await readFile(payload.mediaUrl), fileName, account, {
+          type: "file",
+          mimeType: `image/${fileType}`,
+        });
+        await sendFileMessage(to, mediaId, `imagen.${fileType}`, fileType, { account });
+        recordChannelRuntimeState({ channel: PLUGIN_ID, accountId, state: { lastOutboundAt: Date.now() } });
+        options?.onDelivered?.();
+        return { visibleReplySent: true };
+      }
       const replyText = sanitizeDingTalkReplyText(payload.text ?? "", {
         requireTaggedFinal: isGroup,
       });
@@ -1014,6 +1055,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         media,
         options?.commandAuthorizedOverride,
         groupSystemPrompt,
+        options?.proactive ? undefined : buildImagenInput(data, media),
       );
 
       // 4. 持久化 session 元数据 + 更新回复路由（参照 Discord/Telegram）
@@ -1239,7 +1281,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           if (result.skipProcessing) {
             return;
           }
-          if (isGroup && !checkBotMentioned(data) && !commandText.startsWith("/")) {
+          if (isGroup && !checkBotMentioned(data) && !commandText.startsWith("/") && !getImagenCommand(data)) {
             const body = buildMessageBody(data, result.media).rawBody;
             const pending = chatRuntime.record(groupId, {
               conversationId: data.conversationId,
