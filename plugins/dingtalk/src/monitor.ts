@@ -61,7 +61,7 @@ function getImagenCommand(data: DingTalkMessageData) {
   return /^\/imagen(?:\s+([\s\S]*))?$/i.exec(data.text?.content?.trim() ?? "");
 }
 
-function buildImagenInput(data: DingTalkMessageData, media?: InboundMediaContext) {
+function buildImagenInput(data: DingTalkMessageData, media?: InboundMediaContext, recentChat?: string[]) {
   const command = getImagenCommand(data);
   if (!command) return;
   const images = (media?.items ?? []).filter((item) => item.kind === "picture").map((item) => item.path);
@@ -69,7 +69,7 @@ function buildImagenInput(data: DingTalkMessageData, media?: InboundMediaContext
   const expectedImages = data.msgtype === "richText"
     ? content?.richText?.filter(isRichTextPicture).length ?? 0
     : data.msgtype === "picture" ? 1 : 0;
-  return { args: command[1] ?? "", images, expectedImages };
+  return { args: command[1] ?? "", images, expectedImages, recentChat };
 }
 
 /** 生成媒体占位符文本 */
@@ -1026,6 +1026,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     media?: InboundMediaContext,
     options?: {
       rawBodyOverride?: string;
+      imagenRecentChat?: string[];
       proactive?: boolean;
       commandAuthorizedOverride?: boolean;
       onDelivered?: () => void;
@@ -1055,7 +1056,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         media,
         options?.commandAuthorizedOverride,
         groupSystemPrompt,
-        options?.proactive ? undefined : buildImagenInput(data, media),
+        options?.proactive ? undefined : buildImagenInput(data, media, options?.imagenRecentChat),
       );
 
       // 4. 持久化 session 元数据 + 更新回复路由（参照 Discord/Telegram）
@@ -1125,6 +1126,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
     media?: InboundMediaContext,
     options?: {
       rawBodyOverride?: string;
+      imagenRecentChat?: string[];
       proactive?: boolean;
       commandAuthorizedOverride?: boolean;
       onDelivered?: () => void;
@@ -1301,8 +1303,10 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           }
 
           let rawBodyOverride: string | undefined;
+          let imagenRecentChat: string[] | undefined;
           if (isGroup && checkBotMentioned(data)) {
             const history = chatRuntime.prepareMentionReply(groupId);
+            if (getImagenCommand(data)) imagenRecentChat = history.slice(-10).map((entry) => entry.body.slice(0, 800));
             if (history.length > 0) {
               const current = buildMessageBody(data, result.media).rawBody;
               rawBodyOverride = `${buildDingTalkMentionContext(history)}\n\n当前@消息（本轮只回复这一条）：${data.senderNick}: ${current}`;
@@ -1310,6 +1314,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           }
           return processMessageQueued(data, result.media, {
             rawBodyOverride,
+            imagenRecentChat,
             onDelivered: isGroup && checkBotMentioned(data)
               ? () => chatRuntime.markMentionReplyComplete(groupId, {
                   conversationId: data.conversationId,

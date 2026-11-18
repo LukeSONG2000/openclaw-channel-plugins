@@ -164,6 +164,13 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
   }
 
   const imagenInput = buildQQImagenInput(event, inboundPrepared.inboundMedia.localMediaPaths);
+  const imagenRecentChat = imagenInput && event.groupOpenid
+    ? (groupDispatch.customUnreadHistoryForEvent?.length
+      ? groupDispatch.customUnreadHistoryForEvent
+      : params.groupHistories.get(event.groupOpenid) ?? [])
+      .filter((entry) => entry.messageId !== event.messageId)
+      .slice(-10).map((entry) => entry.body.slice(0, 800))
+    : undefined;
   const historyImageMedia = imagenInput ? undefined : await prepareCustomUnreadHistoryImageMedia({
     cfg: params.cfg,
     account: { accountId: account.accountId, appId: account.appId },
@@ -197,7 +204,7 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     formatMergedEnvelope: params.formatMergedEnvelope,
     formatHistoryEnvelope: params.formatHistoryEnvelope,
     finalizeInboundContext: (payload) => params.finalizeInboundContext(imagenInput
-      ? { ...payload, ImagenInput: imagenInput }
+      ? { ...payload, ImagenInput: { ...imagenInput, recentChat: imagenRecentChat } }
       : payload),
     fromAddress: messageRoute.fromAddress,
     toAddress: messageRoute.toAddress,

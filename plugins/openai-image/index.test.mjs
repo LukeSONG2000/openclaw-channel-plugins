@@ -4,6 +4,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
 import plugin, { createDispatchHook, createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
+import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-brief.mjs';
 import { proxyConfig } from './proxy-config.mjs';
 
 const user = 'qqbot:c2c:' + 'A'.repeat(32);
@@ -74,6 +75,7 @@ test('edit and reference paths require all current attachments and have distinct
       assert.match(root, /\/media\/qqbot\/downloads$/);
       return paths;
     },
+    plan: async ({ mode }) => `Brief for ${mode}`,
     render: async (body, _key, files) => {
       calls.push({ body, files });
       return '/fake/image.png';
@@ -90,11 +92,55 @@ test('edit and reference paths require all current attachments and have distinct
   await run(attach('ref gif use this as inspiration'));
   assert.equal(calls[0].body.model, 'gpt-image-2.6-sunburst');
   assert.equal(calls[0].body.quality, 'high');
-  assert.equal(calls[0].body.prompt, 'replace only the sky');
+  assert.match(calls[0].body.prompt, /Image 1 is the original.*\n\nreplace only the sky/);
+  assert.match(calls[0].body.prompt, /Brief for edit/);
   assert.equal(calls[1].body.model, 'gpt-image-2.6-flare');
-  assert.match(calls[1].body.prompt, /^Use the supplied images as visual references/);
+  assert.match(calls[1].body.prompt, /^Create a new image; use the supplied images as visual references/);
+  assert.match(calls[1].body.prompt, /Brief for ref/);
   assert.equal(calls[2].body.output_format, 'gif');
   assert.deepEqual(calls.map((x) => x.files), [images, images, images]);
+});
+
+test('group context is opt-in and is not copied into the rendering request', async () => {
+  let time = 0;
+  const planned = [];
+  const rendered = [];
+  const run = createHandler({ allowedGroups: [group], now: () => time += 11_000,
+    plan: async (request) => { planned.push(request); return 'An illustrated discussion under a night sky.'; },
+    render: async (body) => { rendered.push(body); return '/fake/render.png'; },
+  });
+  const recentChat = ['周末聊星空，邮箱 luke@example.org', 'https://example.org/private', '/reset', '这张卡的密码是 secret'];
+  await run({ ...call(group, '画棵树'), recentChat });
+  assert.equal(planned.length, 0);
+  assert.equal(rendered[0].complexity, 'low');
+  await run({ ...call(group, '根据你对这个群的了解生成一张图片'), recentChat });
+  assert.deepEqual(planned[0].context, ['周末聊星空，邮箱']);
+  assert.doesNotMatch(rendered[1].prompt, /邮箱|private|\/reset/);
+  assert.match(rendered[1].prompt, /An illustrated discussion/);
+  assert.equal(rendered[1].complexity, undefined);
+  assert.match((await run(call(group, '根据这个群画图'))).text, /没有足够/);
+  assert.equal(rendered.length, 2);
+  await run({ ...call(user, 'studio paint'), recentChat });
+  assert.deepEqual(planned[1].context, []);
+  assert.equal(rendered[2].quality, 'high');
+  assert.equal(rendered[2].model, 'gpt-image-2.6-sunburst');
+});
+
+test('VLM receives actual image bytes, no tools and no retention flag, then returns only a brief', async () => {
+  const png = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
+  const request = await buildBriefRequest({ prompt: 'borrow the palette', mode: 'ref',
+    format: 'png', context: [], images: ['/current/image.png'] }, async () => png);
+  assert.equal(request.store, false);
+  assert.equal(request.tools, undefined);
+  assert.match(request.input[0].content[1].image_url, /^data:image\/png;base64,/);
+  assert.doesNotMatch(JSON.stringify(request), /\/current\/image/);
+  const response = { status: 'completed', output: [
+    { type: 'reasoning', content: [{ type: 'output_text', text: 'reasoning must not be included' }] },
+    { type: 'message', content: [{ type: 'output_text', text: '{"brief":"Muted blue and green."}' }] },
+  ] };
+  assert.equal(readVisualBrief(response), 'Muted blue and green.');
+  assert.equal(readVisualBrief({ ...response, status: 'incomplete' }), undefined);
+  assert.deepEqual(boundedContext(['<@some-id> 12345678 星球大战']), ['星球大战']);
 });
 
 test('attachment validation uses real paths and image bytes', async () => {

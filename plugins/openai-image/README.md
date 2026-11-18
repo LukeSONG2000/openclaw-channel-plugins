@@ -5,10 +5,13 @@ OpenClaw chat command backed by the [official OpenAI CLI](https://developers.ope
 - `/imagen <prompt>`: Flare, low quality, 1024x1024 PNG.
 - `/imagen gif <prompt>`: Flare, low quality, 512x512, 3 frames at 200 ms.
 - `/imagen png high sunburst <prompt>`: opt in to high quality and Sunburst.
+- `/imagen studio <prompt>`: compose a visual brief before rendering, with high quality and Sunburst by default.
 - `/imagen edit <changes>` with the original attached: edit the supplied image, defaulting to high quality and Sunburst.
 - `/imagen ref <prompt>` with reference images attached: compose a new image, defaulting to low quality and Flare. Omitting `ref` when attaching images uses the same mode.
 
 Attach PNG, JPEG or WebP in the same message as the command, up to 4 images, 10 MB each and 20 MB total. Quoted or historical media and paths in prompts are not inputs. QQ can use the command after a native bot mention. DingTalk delivers the output as a file attachment to preserve the original bytes.
+
+For edits, references and studio requests, a single tool-free OpenAI Responses call produces a short visual brief. It inspects actual attached pixels, distinguishes source and supporting images, and never forwards reasoning output. When explicitly asked to draw from the current group, the planner uses up to ten bounded recent text excerpts from that group, with obvious identifiers removed; no history is used otherwise, and only the image brief is included in the renderer request. If planning is unavailable, image modes can still use the original attachments directly; a group-context request instead asks for a topic or retry.
 
 QQ and DingTalk direct messages can submit requests. Groups require an exact channel-qualified ID in `allowedGroups` by default. Set `allowAllDingTalkGroups: true` to admit all DingTalk groups without changing the QQ allowlist. Channel admission and mention requirements still apply. Unknown routes fail closed. A single job can run at a time, with at least ten seconds between starts. No replay is initiated by the plugin when an image request has an unknown outcome.
 

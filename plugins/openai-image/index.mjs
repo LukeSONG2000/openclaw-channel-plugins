@@ -3,12 +3,13 @@ import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
+import { boundedContext, buildBriefRequest, imageMime, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
 const PROXY = 'http://127.0.0.1:17979';
 const CLI = join(ROOT, 'bin', 'openai-image-cli');
-const USAGE = '用法：/imagen [text|edit|ref] [png|gif] [low|high] [flare|sunburst] <描述>\n'
-  + '无图默认文生图；带图默认参考图；带图用 edit 精修。';
+const USAGE = '用法：/imagen [text|edit|ref] [studio] [png|gif] [low|high] [flare|sunburst] <描述>\n'
+  + '带图默认参考图，用 edit 精修；studio 开启高画质创作。';
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const MIB = 1024 * 1024;
 
@@ -28,33 +29,44 @@ export function resolveScope({ channel, channelId, from, to }) {
   return null;
 }
 
-export function parseArgs(input = '', mode = 'text') {
+function parseRequest(input, mode) {
   const format = ['png', 'gif'];
   const quality = ['low', 'high'];
   const variant = ['flare', 'sunburst'];
-  const choices = [format, quality, variant];
-  const selected = [false, false, false];
-  const options = mode === 'edit' ? ['png', 'high', 'sunburst'] : ['png', 'low', 'flare'];
+  const choices = [format, quality, variant, ['studio']];
+  const options = [];
   let prompt = input.trim();
   for (let i = 0; i < choices.length; i++) {
     const [token] = prompt.split(/\s/u, 1);
     const found = choices.findIndex((set) => set.includes(token?.toLowerCase()));
     if (found < 0) break;
-    if (selected[found]) return null;
-    selected[found] = true;
+    if (options[found]) return null;
     options[found] = token.toLowerCase();
     prompt = prompt.slice(token.length).trimStart();
   }
   if (!prompt || prompt.length > 1800 || prompt === 'help' || prompt === '?') return null;
-  const [output_format, imageQuality, model] = options;
-  return {
-    model: `gpt-image-2.6-${model}`, prompt: mode === 'ref'
-      ? `Use the supplied images as visual references to create a new image.\n${prompt}` : prompt,
+  const studio = options[3] === 'studio';
+  const premium = studio || mode === 'edit';
+  const [output_format = 'png', imageQuality = premium ? 'high' : 'low', model = premium ? 'sunburst' : 'flare'] = options;
+  return { studio, prompt, body: {
+    model: `gpt-image-2.6-${model}`, prompt: renderPrompt(mode, prompt),
     quality: imageQuality,
-    complexity: 'low',
+    ...(mode === 'text' && !studio ? { complexity: 'low' } : {}),
     n: 1, output_format, size: output_format === 'gif' ? '512x512' : '1024x1024',
     ...(output_format === 'gif' ? { frame_count: 3, frame_duration_ms: 200 } : {}),
-  };
+  } };
+}
+
+export function parseArgs(input = '', mode = 'text') {
+  return parseRequest(input, mode)?.body ?? null;
+}
+
+function renderPrompt(mode, request, brief) {
+  const orientation = mode === 'edit'
+    ? 'Image 1 is the original to edit. Preserve everything not requested to change; other images are supporting references.'
+    : mode === 'ref' ? 'Create a new image; use the supplied images as visual references, not as originals to edit.' : '';
+  return [orientation, request, brief && `Visual direction (the user's requirements above take precedence):\n${brief}`]
+    .filter(Boolean).join('\n\n');
 }
 
 export async function validateImages(paths, root) {
@@ -72,8 +84,7 @@ export async function validateImages(paths, root) {
     const head = Buffer.alloc(12);
     try { await fd.read(head, 0, head.length, 0); }
     finally { await fd.close(); }
-    if (!head.subarray(0, 8).equals(PNG) && !head.subarray(0, 3).equals(Buffer.from([255, 216, 255])) &&
-        !(head.subarray(0, 4).toString() === 'RIFF' && head.subarray(8, 12).toString() === 'WEBP')) {
+    if (!imageMime(head)) {
       throw new Error('invalid_input');
     }
     files.push(file);
@@ -141,6 +152,20 @@ async function refreshProxy() {
   } catch { /* A failed refresh must not trigger a paid request. */ }
 }
 
+export async function planPrompt(input, startAt) {
+  const keys = await loadKeys();
+  const request = await buildBriefRequest(input);
+  const key = keys[startAt];
+  if (!await checkKey(key, PLANNER_MODEL)) {
+    await refreshProxy();
+    if (!await checkKey(key, PLANNER_MODEL)) return;
+  }
+  const output = await run(CLI, ['responses', 'create', '--format', 'json', '--format-error', 'json'], {
+    env: apiEnv(key), timeout: 25_000, input: JSON.stringify(request),
+  });
+  return readVisualBrief(JSON.parse(output));
+}
+
 export async function generate(body, startAt, images = []) {
   const keys = await loadKeys();
   let refreshed = false;
@@ -180,7 +205,7 @@ export async function generate(body, startAt, images = []) {
 
 export function createHandler({
   allowedGroups = [], allowAllDingTalkGroups = false, render = generate,
-  verify = validateImages, now = Date.now, logger,
+  verify = validateImages, plan = planPrompt, now = Date.now, logger,
 } = {}) {
   const groups = new Set(allowedGroups.map((value) => value.startsWith('qqbot:') ? value.toLowerCase() : value));
   let active = false;
@@ -202,8 +227,11 @@ export function createHandler({
     const mode = modifier?.[1].toLowerCase() ?? (images.length ? 'ref' : 'text');
     if (mode !== 'text' && !images.length) return { text: '请在同一条消息中上传原图或参考图。' };
     if (mode === 'text' && images.length) return { text: '文生图不接收附件；请去掉图片或使用 edit / ref。' };
-    const body = parseArgs(args.slice(modifier?.[0].length ?? 0), mode);
-    if (!body) return { text: USAGE };
+    const request = parseRequest(args.slice(modifier?.[0].length ?? 0), mode);
+    if (!request) return { text: USAGE };
+    const useContext = scope.group && wantsGroupContext(request.prompt);
+    const contextLines = useContext ? boundedContext(context.recentChat) : [];
+    if (useContext && !contextLines.length) return { text: '我现在没有足够的本群近期消息来构图。发我想画的主题或一个群梗吧。' };
     if (active || now() - lastStart < 10_000) return { text: '生图繁忙，请稍后再试。' };
     active = true;
     lastStart = now();
@@ -216,6 +244,17 @@ export function createHandler({
       try { files = images.length ? await verify(images, root) : []; }
       catch { return { text: '图片无法使用，请上传 PNG、JPEG 或 WebP（每张不超过 10 MB，总计不超过 20 MB）。' }; }
       logger?.info(`[imagen] accepted channel=${channel} mode=${mode} attachments=${files.length}`);
+      const { body, prompt, studio } = request;
+      if (files.length || useContext || studio) {
+        let brief;
+        try {
+          brief = await plan({ prompt, mode, images: files, context: contextLines, format: body.output_format }, startAt);
+        } catch { /* The image model can read current attachments directly if planning is unavailable. */ }
+        logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length}`);
+        if (!brief && useContext) return { text: '这次没能整理出本群主题。请稍后再试，或直接告诉我想画什么。' };
+        if (brief) body.prompt = renderPrompt(mode, prompt, brief);
+        delete body.complexity;
+      }
       const mediaUrl = await render(body, startAt, files);
       logger?.info(`[imagen] rendered channel=${channel} mode=${mode}`);
       return { mediaUrl, channelData: { imagen: true } };
@@ -240,7 +279,7 @@ export function createDispatchHook(handler) {
         ctx.OriginatingTo === ctx.To) {
       const reply = await handler({
         channel, from: ctx.From, to: ctx.To,
-        args: input.args, images: input.images, expectedImages: input.expectedImages,
+        args: input.args, images: input.images, expectedImages: input.expectedImages, recentChat: input.recentChat,
       });
       if (channel === 'ddingtalk' && reply.text) reply.text = `<dingtalk_final>${reply.text}</dingtalk_final>`;
       queuedFinal = dispatcher.sendFinalReply(reply);

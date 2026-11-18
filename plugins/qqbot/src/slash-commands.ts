@@ -487,6 +487,7 @@ registerCommand({
   access: "无",
   usage: [
     "/imagen <描述>",
+    "/imagen studio <描述>（视觉策划、高画质）",
     "/imagen gif <描述>",
     "/imagen edit <修改要求>（随同发送原图）",
     "/imagen ref <新图描述>（随同发送参考图）",
