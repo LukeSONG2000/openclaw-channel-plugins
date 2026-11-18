@@ -16,7 +16,7 @@ test('private and allowed groups use trusted addresses; unauthorized requests ne
   const disallowed = [call(other, 'paint'), { ...call(other, 'paint'), args: `${group} paint` },
     { ...call(other, 'paint'), to: user }, { ...call(user, 'paint'), channelId: 'webchat' },
     { ...call(user, 'paint'), from: '' }];
-  for (const context of disallowed) assert.match((await run(context)).text, /仅在/);
+  for (const context of disallowed) assert.match((await run(context)).text, /未开放/);
   assert.equal(calls.length, 0);
   assert.equal((await run(call(user, 'paint'))).mediaUrl, '/fake/test.png');
   assert.equal((await run(call(group.toLowerCase(), 'paint'))).mediaUrl, '/fake/test.png');
@@ -31,6 +31,24 @@ test('DingTalk direct and group routes are distinct, exact and fail closed', () 
   assert.deepEqual(resolveScope({ channel, from, to: 'ddingtalk:chat:cidQq+2==' }),
     { group: true, address: 'ddingtalk:chat:cidQq+2==' });
   assert.equal(resolveScope({ channel, from: 'ddingtalk:sender:forged', to: 'ddingtalk:user:sender:forged' }), null);
+});
+
+test('DingTalk-wide opt-in accepts arbitrary admitted groups without opening QQ or untrusted routes', async () => {
+  const dd = { channel: 'ddingtalk', from: 'ddingtalk:sender_01', to: 'ddingtalk:chat:cidNewGroup==', args: 'paint' };
+  let calls = 0;
+  let time = 0;
+  const options = { allowedGroups: [group], now: () => time += 11_000,
+    render: async () => { calls++; return '/fake/test.png'; } };
+  assert.match((await createHandler(options)(dd)).text, /未开放/);
+  const run = createHandler({ ...options, allowAllDingTalkGroups: true });
+  assert.match((await run(call(other, 'paint'))).text, /未开放/);
+  assert.match((await run({ ...dd, channel: 'webchat' })).text, /未开放/);
+  assert.match((await run({ ...dd, to: 'ddingtalk:chat:unknown' })).text, /未开放/);
+  assert.equal(calls, 0);
+  assert.equal((await run(dd)).mediaUrl, '/fake/test.png');
+  assert.equal((await run({ ...dd, to: 'ddingtalk:chat:cidAnotherGroup==' })).mediaUrl, '/fake/test.png');
+  assert.equal((await run(call(group, 'paint'))).mediaUrl, '/fake/test.png');
+  assert.equal(calls, 3);
 });
 
 test('arguments stay data, not flags or shell instructions', () => {

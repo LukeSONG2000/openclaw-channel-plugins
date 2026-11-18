@@ -132,14 +132,17 @@ async function generate(body, startAt) {
   throw new Error('no_provider');
 }
 
-export function createHandler({ allowedGroups = [], render = generate, now = Date.now } = {}) {
+export function createHandler({ allowedGroups = [], allowAllDingTalkGroups = false, render = generate, now = Date.now } = {}) {
   const groups = new Set(allowedGroups.map((value) => value.startsWith('qqbot:') ? value.toLowerCase() : value));
   let active = false;
   let nextKey = 0;
   let lastStart = -Infinity;
   return async (context) => {
     const scope = resolveScope(context);
-    if (!scope || (scope.group && !groups.has(scope.address))) return { text: '生图仅在私聊和指定群开放。' };
+    if (!scope || (scope.group && !groups.has(scope.address) &&
+        !(allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) {
+      return { text: '当前会话未开放生图。' };
+    }
     const body = parseArgs(context.args);
     if (!body) return { text: `用法：${USAGE}\n默认 PNG、低画质、Flare；GIF 默认 3 帧。` };
     if (active || now() - lastStart < 10_000) return { text: '生图繁忙，请稍后再试。' };
@@ -157,9 +160,12 @@ export default {
   id: 'luke-openai-image',
   register(api) {
     api.registerCommand({
-      name: 'imagen', description: '生成图片或 GIF（仅私聊和指定群）',
+      name: 'imagen', description: '在已开放的会话中生成图片或 GIF',
       channels: ['qqbot', 'ddingtalk'], acceptsArgs: true, requireAuth: false,
-      handler: createHandler({ allowedGroups: api.pluginConfig?.allowedGroups ?? [] }),
+      handler: createHandler({
+        allowedGroups: api.pluginConfig?.allowedGroups ?? [],
+        allowAllDingTalkGroups: api.pluginConfig?.allowAllDingTalkGroups === true,
+      }),
     });
   },
 };

@@ -6,7 +6,7 @@ OpenClaw chat command backed by the [official OpenAI CLI](https://developers.ope
 - `/imagen gif <prompt>`: Flare, low quality, 512x512, 3 frames at 200 ms.
 - `/imagen png high sunburst <prompt>`: opt in to high quality and Sunburst.
 
-Only QQ and DingTalk direct messages, or exact channel-qualified group IDs in the plugin `allowedGroups` configuration, can submit a request. Channel admission and mention requirements still apply. Unknown routes fail closed. A single job can run at a time, with at least ten seconds between starts. No replay is initiated by the plugin when an image request has an unknown outcome.
+QQ and DingTalk direct messages can submit requests. Groups require an exact channel-qualified ID in `allowedGroups` by default. Set `allowAllDingTalkGroups: true` to admit all DingTalk groups without changing the QQ allowlist. Channel admission and mention requirements still apply. Unknown routes fail closed. A single job can run at a time, with at least ten seconds between starts. No replay is initiated by the plugin when an image request has an unknown outcome.
 
 ## Runtime
 
