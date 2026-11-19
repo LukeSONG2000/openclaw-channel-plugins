@@ -1,0 +1,12 @@
+model:
+  default: qq-test-model
+  provider: custom
+  base_url: http://fixture:8000/v1
+  api_mode: chat_completions
+  api_key: fixture-only
+  context_length: 65536
+toolsets:
+  - hermes-api-server
+memory:
+  memory_enabled: false
+  user_profile_enabled: false

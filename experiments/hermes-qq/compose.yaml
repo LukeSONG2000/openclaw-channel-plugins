@@ -1,0 +1,33 @@
+services:
+  gateway:
+    image: nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e3d6210444d3c1aeb7c130f0915150065fb2851459
+    command: ["gateway", "run"]
+    environment:
+      API_SERVER_ENABLED: "true"
+      API_SERVER_HOST: "127.0.0.1"
+      API_SERVER_KEY: "hermes-qq-fixture-only"
+    volumes:
+      - state:/opt/data
+      - ./fixture-config.yaml:/opt/data/config.yaml:ro
+      - ./pilot.mjs:/pilot/hermes-qq/pilot.mjs:ro
+      - ./pilot.test.mjs:/pilot/hermes-qq/pilot.test.mjs:ro
+      - ./inbox-view.mjs:/pilot/hermes-qq/inbox-view.mjs:ro
+      - ../aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro
+      - ../aoa-async/qq-receive-only.mjs:/pilot/aoa-async/qq-receive-only.mjs:ro
+    networks:
+      - laboratory
+    depends_on:
+      - fixture
+  fixture:
+    image: nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e3d6210444d3c1aeb7c130f0915150065fb2851459
+    entrypoint: ["python", "/pilot/fixture.py"]
+    command: []
+    volumes:
+      - ./fixture.py:/pilot/fixture.py:ro
+    networks:
+      - laboratory
+networks:
+  laboratory:
+    internal: true
+volumes:
+  state:
