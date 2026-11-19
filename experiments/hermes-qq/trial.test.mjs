@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
-import { makeTrial, trialInput } from './trial.mjs';
+import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
 
 const groupId = 'test-group';
 const senderId = 'test-author';
@@ -34,6 +34,40 @@ test('trial input preserves natural chat and strips only transport mentions and 
   assert.equal(trialInput('@Luke [Hermes] hi'), 'hi');
   assert.equal(trialInput('quote [Hermes] hi'), 'quote [Hermes] hi');
   assert.equal(trialInput('@Luke hello'), 'hello');
+});
+
+class TestApiError extends Error {
+  constructor(code, httpStatus = 403) {
+    super('platform rejected the request');
+    this.bizCode = code;
+    this.httpStatus = httpStatus;
+    this.path = '/v2/groups/' + groupId + '/messages';
+  }
+}
+
+test('an explicit mention uses the QQ Markdown interaction element; a confirmed denial falls back without raw IDs', async () => {
+  const calls = [];
+  const event = { groupId, senderId, messageId: 'trigger' };
+  const bot = { async send(body) {
+    calls.push(body);
+    if (calls.length === 1) throw new TestApiError(40034127);
+    return { id: 'ok' };
+  } };
+  assert.deepEqual(await sendMentionReply(bot, event, 'here', TestApiError), { id: 'ok' });
+  const target = { scope: 'group', targetId: groupId, msgId: 'trigger' };
+  assert.deepEqual(calls, [
+    { target, msgType: 2, markdown: { content: '<qqbot-at-user id="test-author" /> here' }, extra: { msg_seq: 1 } },
+    { target, msgType: 0, content: 'here', extra: { msg_seq: 1 } },
+  ]);
+});
+
+test('the mention sender never falls back on a timeout, a server error, or deduplication', async () => {
+  let calls = 0;
+  const event = { groupId, senderId, messageId: 'trigger' };
+  for (const error of [new Error('timeout'), new TestApiError(304036, 500), new TestApiError(40054005, 400)]) {
+    await assert.rejects(sendMentionReply({ async send() { calls++; throw error; } }, event, 'here', TestApiError), error);
+  }
+  assert.equal(calls, 3);
 });
 
 test('a later mention replies before a separate work run settles, with no replay after restart', async t => {

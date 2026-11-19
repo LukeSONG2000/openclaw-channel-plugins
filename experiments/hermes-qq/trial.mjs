@@ -15,6 +15,24 @@ export function trialInput(body) {
     .trim().replace(/^\[Hermes\]\s*/u, '').slice(0, 1600);
 }
 
+export async function sendMentionReply(bot, event, content, ApiError, onDowngrade = () => {}) {
+  if (!/^[a-z0-9_-]{1,128}$/i.test(event.senderId)) throw new Error('invalid QQ mention target');
+  const target = { scope: 'group', targetId: event.groupId, msgId: event.messageId };
+  const extra = { msg_seq: 1 };
+  try {
+    return await bot.send({
+      target, msgType: 2, markdown: { content: '<qqbot-at-user id="' + event.senderId + '" /> ' + content }, extra,
+    });
+  } catch (error) {
+    // Only a definite permission rejection allows a second request.
+    if (!(error instanceof ApiError) || error.httpStatus >= 500 ||
+      error.path !== '/v2/groups/' + event.groupId + '/messages' ||
+      ![304036, 40034127].includes(Number(error.bizCode))) throw error;
+    onDowngrade();
+    return bot.send({ target, msgType: 0, content, extra });
+  }
+}
+
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
   now = Date.now, windowMs = 60_000, plan, finish, send, planWindow, sendWindow, log = () => {},
@@ -145,7 +163,7 @@ async function main() {
   if (!groupId || senders.length !== 1) throw new Error('no verified QQ trial sender');
   const senderId = senders[0].sender_id;
   if (!/^[a-z0-9_-]{1,128}$/i.test(senderId)) throw new Error('invalid QQ sender ID');
-  const { QQBot } = await import(pathToFileURL(sdk));
+  const { QQBot, ApiError } = await import(pathToFileURL(sdk));
   const appSecret = execFileSync('/usr/bin/security', ['find-generic-password', '-a', account,
     '-s', keychainService, '-w'], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   if (!appSecret) throw new Error('no QQ test credential');
@@ -164,10 +182,8 @@ async function main() {
       target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId } : {}) },
       msgType: 0, content: action.text, extra: { msg_seq: 1 },
     }),
-    send: (event, content) => bot.send({
-      target: { scope: 'group', targetId: event.groupId, msgId: event.messageId },
-      msgType: 0, content: '<@' + event.senderId + '> ' + content, extra: { msg_seq: 1 },
-    }),
+    send: (event, content) => sendMentionReply(bot, event, content, ApiError,
+      () => console.log('qq_trial_mention_plain_fallback')),
     log: status => console.log('qq_trial_' + status),
   });
   process.once('SIGTERM', () => stop.abort());
