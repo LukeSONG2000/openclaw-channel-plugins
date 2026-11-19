@@ -11,12 +11,23 @@ const maxAge = 180_000;
 const mentionMarkdownBudget = 280;
 const plainTextBudget = 1800;
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
+const rawMention = /<@!?([a-z0-9_-]{1,128})>/gi;
+const nativeMention = /(<qqbot-at-user id="[a-z0-9_-]{1,128}" \/>)/gi;
+const mentionTag = id => '<qqbot-at-user id="' + id + '" />';
+const memberLabel = '\u90a3\u4f4d\u7fa4\u53cb';
 const sameSource = (event, source) => ['channel', 'account', 'groupId', 'messageId', 'senderId']
   .every(key => event[key] === source?.[key]);
 
 export function trialInput(body) {
-  return body.replace(/^(?:\s*<@!?[\w-]+>\s*|\s*@Luke\s+)*/iu, '')
+  return body.replace(/^\s*(?:<@!?[\w-]+>|@Luke(?=\s|$))\s*/iu, '')
     .trim().replace(/^\[Hermes\]\s*/u, '').slice(0, 1600);
+}
+
+function* textUnits(content) {
+  for (const [index, part] of content.split(nativeMention).entries()) {
+    if (index % 2) yield { segment: part, mention: true };
+    else yield* graphemes.segment(part);
+  }
 }
 
 function takeText(content, budget) {
@@ -25,10 +36,11 @@ function takeText(content, budget) {
   let end = 0;
   let sentenceEnd = 0;
   let softEnd = 0;
-  for (const { segment, index } of graphemes.segment(content)) {
+  for (const { segment, mention } of textUnits(content)) {
     bytes += Buffer.byteLength(segment);
     if (bytes > budget) break;
-    end = index + segment.length;
+    end += segment.length;
+    if (mention) continue;
     if (/[。！？.!?；;\n]/u.test(segment)) sentenceEnd = end;
     if (/[，、：,:\s]/u.test(segment)) softEnd = end;
   }
@@ -40,29 +52,35 @@ function takeText(content, budget) {
 export async function sendMentionReply(bot, event, content, ApiError, onDowngrade = () => {}) {
   if (!/^[a-z0-9_-]{1,128}$/i.test(event.senderId)) throw new Error('invalid QQ mention target');
   const target = { scope: 'group', targetId: event.groupId, msgId: event.messageId };
-  const mention = '<qqbot-at-user id="' + event.senderId + '" /> ';
-  const [first, rest] = takeText(content, mentionMarkdownBudget - Buffer.byteLength(mention));
+  const targets = new Map(Array.from((event.text ?? '').matchAll(rawMention), ([, id]) => [id.toLowerCase(), id]));
+  let remaining = content.replace(rawMention, (_, id) => {
+    const targetId = targets.get(id.toLowerCase());
+    return targetId ? mentionTag(targetId) : memberLabel;
+  });
   let receipt;
-  let remaining = rest;
   let seq = 1;
-  try {
-    receipt = await bot.send({
-      target, msgType: 2, markdown: { content: mention + first }, extra: { msg_seq: seq++ },
-    });
-    if (!receipt?.id) return receipt;
-  } catch (error) {
-    // Only a definite permission rejection allows a second request.
-    if (!(error instanceof ApiError) || error.httpStatus >= 500 ||
-      error.path !== '/v2/groups/' + event.groupId + '/messages' ||
-      ![304036, 40034127].includes(Number(error.bizCode))) throw error;
-    onDowngrade();
-    seq = 1;
-    remaining = content;
-  }
+  let markdownEnabled = true;
   while (remaining.trim()) {
-    const [part, tail] = takeText(remaining, plainTextBudget);
-    receipt = await bot.send({ target, msgType: 0, content: part, extra: { msg_seq: seq++ } });
+    const prefix = markdownEnabled && seq === 1 ? mentionTag(event.senderId) + ' ' : '';
+    const markdown = markdownEnabled && (prefix !== '' || remaining.includes('<qqbot-at-user id="'));
+    const [part, tail] = takeText(remaining, markdown ? mentionMarkdownBudget - Buffer.byteLength(prefix) : plainTextBudget);
+    const extra = { msg_seq: seq };
+    try {
+      receipt = await bot.send(markdown
+        ? { target, msgType: 2, markdown: { content: prefix + part }, extra }
+        : { target, msgType: 0, content: part, extra });
+    } catch (error) {
+      // A definite permission rejection is the only case where a send can be repeated.
+      if (!markdown || !(error instanceof ApiError) || error.httpStatus >= 500 ||
+        error.path !== '/v2/groups/' + event.groupId + '/messages' ||
+        ![304036, 40034127].includes(Number(error.bizCode))) throw error;
+      onDowngrade();
+      markdownEnabled = false;
+      remaining = remaining.replace(nativeMention, memberLabel);
+      continue;
+    }
     if (!receipt?.id) return receipt;
+    seq++;
     remaining = tail;
   }
   return receipt;
@@ -102,9 +120,8 @@ export function makeTrial({
   }
   async function deliver(event, result) {
     if (!sameSource(event, result?.source) || typeof result?.text !== 'string') return record(event, 'withheld');
-    // Only the transport may render a native mention, using the verified source sender.
-    const text = result.text.replace(/<@!?[a-z0-9_-]{1,128}>/gi, '\u90a3\u4f4d\u7fa4\u53cb').trim();
-    if (!text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text) ||
+    const text = result.text.trim();
+    if (!text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text.replace(rawMention, '')) ||
       !isLive() || now() - event.at > maxAge) return record(event, 'withheld');
     record(event, 'sending');
     try { record(event, (await send(event, text))?.id ? 'accepted' : 'uncertain'); }

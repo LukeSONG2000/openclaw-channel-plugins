@@ -34,6 +34,7 @@ test('trial input preserves natural chat and strips only transport mentions and 
   assert.equal(trialInput('@Luke [Hermes] hi'), 'hi');
   assert.equal(trialInput('quote [Hermes] hi'), 'quote [Hermes] hi');
   assert.equal(trialInput('@Luke hello'), 'hello');
+  assert.equal(trialInput('<@LukeBot> <@!other-person> 你是谁'), '<@!other-person> 你是谁');
 });
 
 class TestApiError extends Error {
@@ -117,17 +118,17 @@ test('an unconfirmed continuation is not retried or followed by further parts', 
   assert.deepEqual(calls, [1, 2]);
 });
 
-test('a reply that echoes a third-party mention is delivered without exposing or pinging that ID', async t => {
+test('a verified mention stays native in a continuation without pinging an invented ID', async t => {
   const sent = [];
   const first = '文'.repeat(75) + '。';
   const data = setup(t, {
     plan: async event => ({ kind: 'chat', source: event, text: event.text === 'unsafe'
-      ? '<qqbot-at-user id="other-person" />' : first + '我不认识<@!other-person>。' }),
+      ? '<qqbot-at-user id="other-person" />' : first + '我不认识<@!other-person>和<@invented>。' }),
     send: (event, text) => sendMentionReply({
       async send(body) { sent.push(body); return { id: 'accepted' }; },
     }, event, text, TestApiError),
   });
-  data.put('report', '你问问 <@!other-person> 是谁');
+  data.put('report', '<@LukeBot> 你问问 <@!Other-Person> 是谁');
   data.put('unsafe', 'unsafe');
   const trial = data.trial();
   trial.tick();
@@ -135,8 +136,17 @@ test('a reply that echoes a third-party mention is delivered without exposing or
   assert.deepEqual(data.status(), ['accepted', 'withheld']);
   assert.deepEqual(sent.map(body => body.markdown?.content ?? body.content), [
     '<qqbot-at-user id="test-author" /> ' + first,
-    '我不认识那位群友。',
+    '我不认识<qqbot-at-user id="Other-Person" />和那位群友。',
   ]);
+});
+
+test('known recipients can be mentioned in the same bubble as the sender', async () => {
+  const event = { groupId, senderId, messageId: 'trigger', text: 'ask <@person>' };
+  const calls = [];
+  await sendMentionReply({ async send(body) { calls.push(body); return { id: 'ok' }; } }, event,
+    'Hey <@person>, who are you?', TestApiError);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].markdown.content, '<qqbot-at-user id="test-author" /> Hey <qqbot-at-user id="person" />, who are you?');
 });
 
 test('a later mention replies before a separate work run settles, with no replay after restart', async t => {
