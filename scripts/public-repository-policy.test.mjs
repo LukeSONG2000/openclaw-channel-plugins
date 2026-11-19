@@ -11,6 +11,9 @@ const publicRepos = new Set([
   "tencent-connect/openclaw-qqbot",
   "largezhou/openclaw-dingtalk",
   "tencent-connect/bot-docs",
+  "nousresearch/hermes-agent",
+  "plastic-labs/openclaw-honcho",
+  "dingtalk-real-ai/dingtalk-workspace-cli",
   "whiskeysockets/libsignal-node",
   "actions/checkout",
   "actions/setup-node",
@@ -58,7 +61,7 @@ test("package manifests and locks require neither private GitHub registries nor 
 
 test("public free-reply documentation is self-contained and its local links exist", () => {
   const docs = ["README.md", "docs/free-reply.md", "docs/free-reply-architecture.md",
-    "docs/free-reply-development-contract.md", "plugins/qqbot/docs/custom-runtime/free-reply.md",
+    "docs/free-reply-development-contract.md", "docs/aoa-agent-evaluation.md", "plugins/qqbot/docs/custom-runtime/free-reply.md",
     "plugins/dingtalk/docs/free-reply.md"];
   for (const file of docs) {
     const text = fs.readFileSync(path.join(root, file), "utf8");

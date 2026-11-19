@@ -50,6 +50,8 @@ npm run check:dingtalk
 设计与开发约束也在本仓：[通用架构](docs/free-reply-architecture.md)、[开发复用契约](docs/free-reply-development-contract.md)。
 这些文档只聚焦自由回复；源码、测试通过与线上真实验收仍应分别核验。禁止用官方安装或更新覆盖已部署的定制插件。
 
+新常驻 Agent 的框架比较、能力复用与验收标准，见[常驻 Agent 基座选型](docs/aoa-agent-evaluation.md)。
+
 ## 历史
 
 两个插件均以保留提交历史的方式导入。源仓库中的 QQBot 迁移前基线为 `eb966de`，DingTalk 的首个二开基线为 `b12c905`；导入时清除了 IDE 对话记录、临时规划目录和历史打包产物。
