@@ -88,7 +88,7 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
 
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
-  now = Date.now, windowMs = 60_000, plan, finish, send, planWindow, sendWindow, log = () => {},
+  now = Date.now, windowMs = 60_000, plan, startWork, finish, send, planWindow, sendWindow, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -132,9 +132,14 @@ export function makeTrial({
       const decision = await plan(event, prior(event.at, event.messageId));
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
       if (decision.kind === 'chat') await deliver(event, decision);
-      else if (decision.kind === 'work') {
+      else if (decision.kind === 'work-request' || decision.kind === 'work') {
         record(event, 'working');
-        track(Promise.resolve().then(() => finish(decision)).then(result => deliver(event, result))
+        track(Promise.resolve().then(async () => {
+          if (!isLive()) return record(event, 'withheld');
+          const job = decision.kind === 'work-request' ? await startWork(decision) : decision;
+          if (!sameSource(event, job?.source) || job.kind !== 'work') return record(event, 'withheld');
+          return deliver(event, await finish(job));
+        })
           .catch(() => record(event, 'failed')));
       } else record(event, 'withheld');
     } catch { record(event, 'failed'); }
@@ -194,7 +199,7 @@ export function makeTrial({
 function callRuntime(container, mode, payload) {
   return new Promise((resolve, reject) => {
     const child = execFile('/usr/local/bin/docker', ['exec', '-i', '-u', 'hermes', container,
-      'node', '/pilot/hermes-qq/shadow.mjs', mode], { timeout: 100_000, maxBuffer: 48_000 }, (error, stdout) => {
+      'node', '/pilot/hermes-qq/shadow.mjs', mode], { timeout: 155_000, maxBuffer: 48_000 }, (error, stdout) => {
       if (error) return reject(new Error('Hermes trial call failed'));
       try { resolve(JSON.parse(stdout)); } catch { reject(new Error('invalid Hermes response')); }
     });
@@ -204,9 +209,11 @@ function callRuntime(container, mode, payload) {
 }
 
 async function main() {
-  const [root, sdk, account, keychainService, container, bindPhrase] = process.argv.slice(2);
+  const [root, sdk, account, keychainService, container, bindPhrase, worker] = process.argv.slice(2);
+  const containerName = /^[a-z0-9][a-z0-9-]{1,80}$/i;
   if (!root || !sdk || !/^\d+$/.test(account ?? '') || !keychainService
-    || !/^[a-z0-9][a-z0-9-]{1,80}$/.test(container ?? '') || !/^AOA-[A-Z0-9]{8,32}$/.test(bindPhrase ?? '')) {
+    || !containerName.test(container ?? '') || !containerName.test(worker ?? '') || container === worker
+    || !/^AOA-[A-Z0-9]{8,32}$/.test(bindPhrase ?? '')) {
     throw new Error('invalid QQ trial configuration');
   }
   process.umask(0o077);
@@ -234,8 +241,9 @@ async function main() {
   const stop = new AbortController();
   const trial = makeTrial({
     inbox, ledger, account, groupId, senderId, start, until, signal: stop.signal,
-    plan: (event, context) => callRuntime(container, 'trial-mention', { events: [event], context }),
-    finish: job => callRuntime(container, 'trial-settle', { job }),
+    plan: (event, context) => callRuntime(container, 'trial-plan', { events: [event], context }),
+    startWork: decision => callRuntime(worker, 'trial-start', { decision }),
+    finish: job => callRuntime(worker, 'trial-settle', { job }),
     planWindow: (events, context) => callRuntime(container, 'trial-window', { events, context }),
     sendWindow: (to, action) => bot.send({
       target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId } : {}) },

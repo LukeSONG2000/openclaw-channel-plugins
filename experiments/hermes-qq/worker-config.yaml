@@ -1,0 +1,13 @@
+model:
+  default: glm-5.3-flash
+  provider: zai
+  base_url: https://open.bigmodel.cn/api/coding/paas/v4
+  context_length: 204800
+agent:
+  reasoning_effort: medium
+  max_turns: 8
+platform_toolsets:
+  api_server: [todo]
+memory:
+  memory_enabled: false
+  user_profile_enabled: false

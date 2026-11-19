@@ -42,6 +42,28 @@ test('the API client only accepts the local gateway', () => {
   }
 });
 
+test('a request can cross independent runner processes only with its original work session', async () => {
+  const calls = [];
+  const classifier = hermesPilot({ fast: {
+    async start() { calls.push('chat'); return 'route'; },
+    async wait() { return '{"route":"work","text":"organize this discussion"}'; },
+  } });
+  const worker = hermesPilot({ fast: {
+    async start(request) { calls.push(request.sessionId); return 'job'; },
+    async wait() { return 'organized'; },
+  } });
+  const source = event('task', '整理一下群内的话题', { mentioned: true });
+  const request = JSON.parse(JSON.stringify(await classifier.planMention(source)));
+  assert.deepEqual(calls, ['chat']);
+  await assert.rejects(worker.startWork({ ...request, source: { ...request.source, groupId: 'elsewhere' } }), /mismatch/);
+  await assert.rejects(worker.startWork({ ...request, request: { ...request.request, requestKey: 'other' } }), /mismatch/);
+  const job = await worker.startWork(request);
+  const result = await worker.settle(job);
+  assert.deepEqual(calls, ['chat', job.sessionId]);
+  assert.equal(result.source.messageId, source.messageId);
+  assert.equal(result.text, 'organized');
+});
+
 test('a failed or malformed inference is not reported as a deliberate silent decision', async () => {
   const input = [event('ordinary', 'A')];
   const withAnswer = wait => hermesPilot({ fast: { start: async () => 'fast', wait } });

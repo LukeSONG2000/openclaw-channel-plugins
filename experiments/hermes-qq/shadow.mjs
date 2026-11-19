@@ -2,19 +2,26 @@ import { randomUUID } from 'node:crypto';
 import { hermesPilot, hermesRuns } from './pilot.mjs';
 
 const runs = hermesRuns({
-  origin: 'http://127.0.0.1:8642', token: process.env.API_SERVER_KEY, timeoutMs: 90_000, pollMs: 750,
+  origin: 'http://127.0.0.1:8642', token: process.env.API_SERVER_KEY, timeoutMs: 145_000, pollMs: 750,
 });
+const lane = process.env.HERMES_QQ_LANE ?? 'chat';
 
-async function assertNoTools() {
+async function assertTools() {
   const response = await fetch('http://127.0.0.1:8642/v1/toolsets', {
     headers: { authorization: 'Bearer ' + process.env.API_SERVER_KEY },
     redirect: 'error', signal: AbortSignal.timeout(5_000),
   });
   if (!response.ok) throw new Error('unable to verify the shadow tool policy');
   const { data } = await response.json();
-  if (!Array.isArray(data) || !data.length || data.some(row => row.enabled !== false)) {
-    throw new Error('shadow execution requires a tool-free API profile');
+  if (!Array.isArray(data) || !data.length || data.some(row => typeof row.enabled !== 'boolean')) {
+    throw new Error('invalid Hermes tool inventory');
   }
+  const enabled = data.filter(row => row.enabled).map(row => row.name).sort();
+  const expected = lane === 'work' ? ['todo'] : [];
+  if (enabled.length !== expected.length || enabled.some((name, index) => name !== expected[index])) {
+    throw new Error('unexpected tools in Hermes profile');
+  }
+  return enabled;
 }
 
 async function readSample() {
@@ -29,6 +36,8 @@ async function readSample() {
 }
 
 async function main(mode) {
+  if (!['chat', 'work'].includes(lane)) throw new Error('invalid Hermes lane');
+  const enabledTools = await assertTools();
   if (mode === 'probe') {
     const id = randomUUID();
     const sessionId = 'pilot-probe-' + id;
@@ -38,15 +47,19 @@ async function main(mode) {
     const { provider, model } = runtime ?? {};
     const valid = value => typeof value === 'string' && /^[a-z0-9./_-]{1,100}$/i.test(value);
     console.log(JSON.stringify({
-      status: 'completed', provider: valid(provider) ? provider : null,
+      status: 'completed', lane, enabledTools, provider: valid(provider) ? provider : null,
       model: valid(model) ? model : null, totalTokens: Number.isFinite(usage?.total_tokens) ? usage.total_tokens : null,
     }));
     return;
   }
-  if (!['window', 'mention', 'trial-mention', 'trial-window', 'trial-settle'].includes(mode)) throw new Error('invalid shadow mode');
+  const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window'];
+  if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
   const sample = await readSample();
-  await assertNoTools();
   const pilot = hermesPilot({ fast: runs });
+  if (mode === 'trial-start') {
+    console.log(JSON.stringify(await pilot.startWork(sample.decision)));
+    return;
+  }
   if (mode === 'trial-settle') {
     console.log(JSON.stringify(await pilot.settle(sample.job)));
     return;
@@ -59,17 +72,9 @@ async function main(mode) {
     return;
   }
   if (sample.events.length !== 1) throw new Error('expected one source event');
-  const started = await pilot.mention(sample.events[0], Array.isArray(sample.context) ? sample.context : []);
-  if (mode === 'trial-mention') {
-    console.log(JSON.stringify(started));
-    return;
-  }
-  if (started.kind === 'chat') {
-    console.log(JSON.stringify({ status: 'completed', route: 'chat' }));
-  } else {
-    const result = await pilot.settle(started);
-    console.log(JSON.stringify({ status: 'completed', route: 'work', sourceMatched: result.source.messageId === sample.events[0].messageId }));
-  }
+  const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : []);
+  console.log(JSON.stringify(mode === 'trial-plan' ? decision
+    : { status: 'completed', route: decision.kind === 'work-request' ? 'work' : 'chat' }));
 }
 
 main(process.argv[2]).catch(error => {

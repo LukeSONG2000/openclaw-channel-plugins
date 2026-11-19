@@ -1,0 +1,23 @@
+services:
+  worker:
+    image: nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e3d6210444d3c1aeb7c130f0915150065fb2851459
+    command: ["gateway", "run"]
+    cpus: 2
+    mem_limit: 2g
+    pids_limit: 160
+    security_opt: ["no-new-privileges:true"]
+    environment:
+      - HERMES_QQ_LANE=work
+      - API_SERVER_ENABLED=true
+      - API_SERVER_HOST=127.0.0.1
+      - API_SERVER_KEY
+      - ZAI_API_KEY
+      - GLM_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4
+    volumes:
+      - state:/opt/data
+      - ./worker-config.yaml:/opt/data/config.yaml:ro
+      - ./shadow.mjs:/pilot/hermes-qq/shadow.mjs:ro
+      - ./pilot.mjs:/pilot/hermes-qq/pilot.mjs:ro
+      - ../aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro
+volumes:
+  state:

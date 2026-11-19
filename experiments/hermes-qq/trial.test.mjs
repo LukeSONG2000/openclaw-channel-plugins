@@ -154,7 +154,8 @@ test('a later mention replies before a separate work run settles, with no replay
   let finishWork;
   const pending = new Promise(resolve => { finishWork = resolve; });
   const data = setup(t, {
-    plan: async event => ({ kind: event.text === 'task' ? 'work' : 'chat', source: event, text: 'answer' }),
+    plan: async event => ({ kind: event.text === 'task' ? 'work-request' : 'chat', source: event, text: 'answer' }),
+    startWork: async request => ({ kind: 'work', source: request.source }),
     finish: async job => { await pending; return { source: job.source, text: 'report' }; },
     send: async event => { sent.push(event.messageId); return { id: 'ok' }; },
   });
