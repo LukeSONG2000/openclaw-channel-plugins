@@ -207,6 +207,55 @@ test('a slow intent decision does not block a later natural mention', async t =>
   assert.deepEqual(sent, ['quick', 'slow']);
 });
 
+test('group recap reaches beyond quick context and uses only retained text from the source group', async t => {
+  let started;
+  const replies = [];
+  const data = setup(t, {
+    start: 3_600_000,
+    until: 3_700_000,
+    plan: async (event, context) => {
+      assert.equal(context.length, 8);
+      assert.equal(context.some(row => row.text === 'earlier discussion'), false);
+      return { kind: 'group-history', source: event, hours: 1 };
+    },
+    startWork: async request => { started = request; return { kind: 'work', source: request.source }; },
+    finish: async job => ({ source: job.source, text: 'report' }),
+    send: async (event, text) => { replies.push({ id: event.messageId, text }); return { id: 'ok' }; },
+  });
+  data.put('early', 'earlier discussion', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('cross-group', 'private other-group topic', { groupOpenid: 'other' });
+  data.advance(3_595_001);
+  for (let i = 0; i < 12; i++) data.put('recent-' + i, 'new topic ' + i, { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('credential', 'API Key: synthetic-secret', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('summary', 'request phrase');
+  data.put('same-time-later', 'posted after the request', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  assert.ok(started);
+  assert.match(started.request.input, /earlier discussion/);
+  assert.doesNotMatch(started.request.input, /private other-group|synthetic-secret|request phrase|posted after|test-author/);
+  assert.equal(replies[0].id, 'summary');
+  assert.match(replies[0].text, /13 .*7 /);
+});
+
+test('empty retained history replies honestly without starting a worker', async t => {
+  let called = 0;
+  const replies = [];
+  const data = setup(t, {
+    plan: async event => ({ kind: 'group-history', source: event, hours: 24 }),
+    startWork: async () => { called++; },
+    send: async (_, text) => { replies.push(text); return { id: 'ok' }; },
+  });
+  data.put('summary', 'summarize');
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  assert.equal(called, 0);
+  assert.equal(replies.length, 1);
+  assert.match(replies[0], /24 .*没有收到/);
+});
+
 test('plain chat opens one same-group window, with natural and source-targeted delivery', async t => {
   const sent = [];
   const data = setup(t, {

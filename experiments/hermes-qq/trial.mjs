@@ -4,6 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
+import { prepareGroupHistory } from './group-history.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
 
 const maxAge = 180_000;
@@ -129,8 +130,16 @@ export function makeTrial({
   }
   async function route(event) {
     try {
-      const decision = await plan(event, prior(event.at, event.messageId));
+      let decision = await plan(event, prior(event.at, event.messageId));
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
+      let notice;
+      if (decision.kind === 'group-history') {
+        if (!isLive() || now() - event.at > maxAge) { record(event, 'withheld'); return; }
+        const history = prepareGroupHistory(inbox, event, decision.hours);
+        if (!history.decision) { await deliver(event, { source: event, text: history.notice }); return; }
+        decision = history.decision;
+        notice = history.notice;
+      }
       if (decision.kind === 'chat') await deliver(event, decision);
       else if (decision.kind === 'work-request' || decision.kind === 'work') {
         record(event, 'working');
@@ -138,7 +147,9 @@ export function makeTrial({
           if (!isLive()) return record(event, 'withheld');
           const job = decision.kind === 'work-request' ? await startWork(decision) : decision;
           if (!sameSource(event, job?.source) || job.kind !== 'work') return record(event, 'withheld');
-          return deliver(event, await finish(job));
+          const result = await finish(job);
+          return deliver(event, notice && typeof result?.text === 'string'
+            ? { ...result, text: result.text + '\n\n' + notice } : result);
         })
           .catch(() => record(event, 'failed')));
       } else record(event, 'withheld');

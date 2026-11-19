@@ -64,6 +64,15 @@ test('a request can cross independent runner processes only with its original wo
   assert.equal(result.text, 'organized');
 });
 
+test('a group-history intent asks the host for a bounded lookback, not a group or file path', async () => {
+  const source = event('recap', '总结一下近24h群里的聊天内容', { mentioned: true });
+  const withAnswer = answer => hermesPilot({ fast: { start: async () => 'route', wait: async () => answer } });
+  assert.equal((await withAnswer('{"route":"group-history","hours":24}').planMention(source)).hours, 24);
+  for (const answer of ['{"route":"group-history","hours":25}', '{"route":"group-history","hours":6,"groupId":"other"}']) {
+    await assert.rejects(withAnswer(answer).planMention(source), /invalid mention route/);
+  }
+});
+
 test('a failed or malformed inference is not reported as a deliberate silent decision', async () => {
   const input = [event('ordinary', 'A')];
   const withAnswer = wait => hermesPilot({ fast: { start: async () => 'fast', wait } });
