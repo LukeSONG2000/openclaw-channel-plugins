@@ -3,15 +3,17 @@ import { join } from 'node:path';
 import { collectAttachments } from './input.mjs';
 import { acceptedSource, historyRow, identifyTask, policyVersion, routeKey, sourceRoute } from './routing.mjs';
 import { openStore, testRoot } from './store.mjs';
+import { createWindowRuntime } from './window-runtime.mjs';
 
 const ID = 'luke-aoa-async';
 const REJECT_INPUT = '这次没有拿到可整理的本地附件。请在同一条消息里附上文本、表格（CSV/TSV）或可复制文字的 PDF。';
 
-export function createBridge({ store, mediaRoot, current, send, now = Date.now, log = () => {} }) {
+export function createBridge({ store, mediaRoot, current, send, generateWindow, now = Date.now, log = () => {} }) {
   let active = true;
   let lastPrune = -Infinity;
   let sending;
   const grants = new Set(store.routes());
+  const windows = generateWindow && createWindowRuntime({ store, current, send, generate: generateWindow, now, log });
 
   function livePolicy(route) {
     const { cfg, routes } = current();
@@ -22,9 +24,11 @@ export function createBridge({ store, mediaRoot, current, send, now = Date.now, 
     const source = acceptedSource(event);
     if (!active || !source) return;
     const ctx = event.ctx;
+    windows?.onMention(source, ctx);
     const kind = identifyTask(source.text, source.group, Boolean(ctx.MediaPath || ctx.MediaPaths?.length ||
       ctx.media?.length || ctx.MediaUrl || ctx.mediaStagingPending));
-    if (!kind) return;
+    const captureWindow = !kind && windows?.admit(source, ctx);
+    if (!kind && !captureWindow) return;
     const policy = livePolicy(source);
     if (!policy) return;
     const route = routeKey(source);
@@ -38,6 +42,12 @@ export function createBridge({ store, mediaRoot, current, send, now = Date.now, 
     dispatch.turnAdoption?.assertCurrent();
     if (!active || dispatch.abortSignal?.aborted) return finish();
     if (livePolicy(source) !== policy) return finish();
+    if (captureWindow) {
+      try {
+        if (captureWindow()) return finish();
+      } catch { log('window_admission_error'); }
+      return;
+    }
     let response;
     try {
       if (store.known(route, source.message)) return finish();
@@ -114,17 +124,20 @@ export function createBridge({ store, mediaRoot, current, send, now = Date.now, 
   }
 
   function tick() {
+    try { windows?.pump(); } catch { log('window_cycle_error'); }
     if (!sending) sending = cycle().finally(() => { sending = undefined; });
     return sending;
   }
   async function stop() {
     active = false;
+    const windowStop = windows?.stop();
     for (const route of grants) {
       const [channel, account, to] = JSON.parse(route);
       const policy = livePolicy({ channel, account, to });
       store.grant(route, policy ?? 'revoked', 0);
     }
     if (sending) await sending.catch(() => {});
+    await windowStop;
   }
   return { reply, observe, tick, stop };
 }
@@ -150,6 +163,11 @@ export default {
         };
         bridge = createBridge({
           store, mediaRoot: join(stateDir, 'media'), current,
+          generateWindow: typeof api.runtime.subagent?.complete === 'function'
+            ? async ({ agentId, prompt, signal }) => (await api.runtime.subagent.complete({
+              agentId, message: prompt, signal, timeoutMs: 15_000,
+            })).text
+            : undefined,
           log: (event, details = {}) => api.logger.info(`[aoa-async] ${JSON.stringify({ event, ...details })}`),
           async send({ channel, account, to, replyToId, text, assertCurrent }) {
             const adapter = await api.runtime.channel.outbound.loadAdapter(channel);

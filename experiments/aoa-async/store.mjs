@@ -25,6 +25,14 @@ export function openStore(root) {
     );
     CREATE INDEX IF NOT EXISTS history_route_at ON history(route, at);
     CREATE INDEX IF NOT EXISTS history_at ON history(at);
+    CREATE TABLE IF NOT EXISTS window_messages (
+      seq INTEGER PRIMARY KEY,
+      route TEXT NOT NULL, message TEXT NOT NULL, sender TEXT NOT NULL,
+      text TEXT NOT NULL, at INTEGER NOT NULL, policy TEXT NOT NULL, consumed INTEGER NOT NULL DEFAULT 0,
+      UNIQUE (route, message)
+    );
+    CREATE INDEX IF NOT EXISTS window_pending ON window_messages(route, policy, consumed, at);
+    CREATE INDEX IF NOT EXISTS window_at ON window_messages(at);
     CREATE TABLE IF NOT EXISTS grants (
       route TEXT PRIMARY KEY, policy TEXT NOT NULL, valid_until INTEGER NOT NULL
     );
@@ -54,6 +62,32 @@ export function openStore(root) {
     remember: ({ key, message, sender, text, at }) => db.prepare(
       'INSERT OR IGNORE INTO history(route, message, sender, text, at) VALUES(?,?,?,?,?)',
     ).run(key, message, sender, text, at),
+    rememberWindow({ route, policy, message, sender, text, at }) {
+      db.prepare('INSERT OR IGNORE INTO window_messages(route, policy, message, sender, text, at) VALUES(?,?,?,?,?,?)')
+        .run(route, policy, message, sender, text, at);
+    },
+    claimWindow(route, policy, now, windowMs) {
+      // Atomically close only the elapsed window; later arrivals start their own window.
+      const batch = db.prepare(`
+        WITH first AS MATERIALIZED (
+          SELECT at FROM window_messages
+          WHERE route=? AND policy=? AND consumed=0 AND at>=? ORDER BY at,seq LIMIT 1
+        )
+        UPDATE window_messages SET consumed=1
+        WHERE route=? AND policy=? AND consumed=0
+        AND at>=(SELECT at FROM first) AND at<(SELECT at+? FROM first)
+        AND (SELECT at+? FROM first)<=?
+        RETURNING seq, message AS id, sender AS speaker, text, at
+      `).all(route, policy, now - 600_000, route, policy, windowMs, windowMs, now);
+      if (!batch.length) return;
+      batch.sort((a, b) => a.at - b.at || a.seq - b.seq);
+      const context = db.prepare(`
+        SELECT message AS id, sender AS speaker, text FROM window_messages
+        WHERE route=? AND policy=? AND consumed=1 AND at>=? AND at<?
+        ORDER BY at DESC,seq DESC LIMIT 8
+      `).all(route, policy, now - 600_000, batch[0].at).reverse();
+      return { unread: batch, context };
+    },
     history(route, message, now) {
       const result = db.prepare(`
         WITH candidates AS (
@@ -72,6 +106,7 @@ export function openStore(root) {
     },
     prune(now) {
       db.prepare('DELETE FROM history WHERE at<?').run(now - DAY);
+      db.prepare('DELETE FROM window_messages WHERE at<?').run(now - DAY);
       db.prepare(`UPDATE jobs SET input=NULL, result=NULL
         WHERE updated<? AND state NOT IN ('queued','running','ready','sending')`).run(now - DAY);
     },

@@ -18,7 +18,16 @@
           "properties": {
             "channel": { "enum": ["qqbot", "ddingtalk"] },
             "account": { "type": "string" },
-            "to": { "type": "string" }
+            "to": { "type": "string" },
+            "windowReply": {
+              "type": "object",
+              "required": ["agentId"],
+              "additionalProperties": false,
+              "properties": {
+                "agentId": { "type": "string", "pattern": "^[a-zA-Z0-9_-]{1,80}$" },
+                "seconds": { "type": "integer", "minimum": 10, "maximum": 120 }
+              }
+            }
           }
         }
       }

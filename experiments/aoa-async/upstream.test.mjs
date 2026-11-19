@@ -28,7 +28,10 @@ async function lab(t) {
 test('stock OpenClaw discovers the isolated bridge and both unmodified channel modules', { skip: !executable || !qq || !ding, timeout: 90_000 }, async (t) => {
   const { root, env } = await lab(t);
   const config = join(root, 'gateway.json');
-  const routes = [{ channel: 'qqbot', account: 'default', to: `qqbot:group:${'A'.repeat(32)}` }];
+  const routes = [{
+    channel: 'qqbot', account: 'default', to: `qqbot:group:${'A'.repeat(32)}`,
+    windowReply: { agentId: 'main', seconds: 60 },
+  }];
   await writeFile(config, JSON.stringify({
     gateway: { mode: 'local', bind: 'loopback' },
     channels: { qqbot: { enabled: false, allowFrom: ['A'.repeat(32)] }, ddingtalk: { enabled: false } },

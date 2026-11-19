@@ -1,0 +1,27 @@
+diff --git a/src/dispatch/ctx-builder.ts b/src/dispatch/ctx-builder.ts
+--- a/src/dispatch/ctx-builder.ts
++++ b/src/dispatch/ctx-builder.ts
+@@ -32,3 +32,4 @@ export function buildCtxPayload(params: CtxPayloadParams): any {
++  const mention = ctx.state.mention as { wasMentioned?: boolean; implicit?: boolean } | undefined;
+   const processed = ctx.state.processedAttachments as any;
+   const voicePaths = processed?.localMediaPaths?.filter((_: string, i: number) =>
+     processed.localMediaTypes?.[i]?.startsWith('audio/')) ?? [];
+@@ -91,6 +92,18 @@ export function buildCtxPayload(params: CtxPayloadParams): any {
+     extra: {
+       ...(isSlashCommand ? { CommandSource: 'text' } : {}),
+       ...(groupId ? { QQGroupOpenid: groupId } : {}),
++      // Export transport facts only; the independent OpenClaw bridge owns policy.
++      ...(groupId && mention?.wasMentioned === true ? { WasMentioned: true } : {}),
++      ...(groupId &&
++          msg.kind === 'group' &&
++          msg.rawEventType === 'GROUP_MESSAGE_CREATE' &&
++          !ctx.state.mergedMessages &&
++          msg.senderIsBot !== true &&
++          !msg.attachments?.length &&
++          mention?.wasMentioned === false &&
++          mention.implicit === false
++        ? { WasMentioned: false, QQBotWindowIngress: 'qq-group-single-v1' }
++        : {}),
+       ...(processed?.localMediaPaths?.length
+         ? {
+             MediaPaths: processed.localMediaPaths,

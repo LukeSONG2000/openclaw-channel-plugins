@@ -30,7 +30,7 @@ function dispatcher() {
   };
 }
 
-async function fixture(t, sender = async ({ channel }) => ({ channel, messageId: 'fixture-receipt' })) {
+async function fixture(t, sender = async ({ channel }) => ({ channel, messageId: 'fixture-receipt' }), generateWindow) {
   const parent = await mkdtemp(join(tmpdir(), 'aoa-async-'));
   t.after(() => rm(parent, { recursive: true, force: true }));
   const root = join(parent, '.lab');
@@ -49,7 +49,7 @@ async function fixture(t, sender = async ({ channel }) => ({ channel, messageId:
   ];
   const sent = [];
   const current = () => ({ cfg: config, routes });
-  const bridge = createBridge({ store, mediaRoot, now, current, send: async (p) => {
+  const bridge = createBridge({ store, mediaRoot, now, current, generateWindow, send: async (p) => {
     assert.equal(p.assertCurrent(), true);
     sent.push(p);
     return sender(p);
@@ -210,4 +210,111 @@ test('the child model process receives only stdin, and publishes only a final re
     '});',
   ].join('\n'), { mode: 0o700 });
   assert.equal(await runOpenClaw({ executable, config: '/unused', env: {}, cwd: f.root, prompt: 'private fixture' }), '最终结果');
+});
+
+const plainWindow = { WasMentioned: false, QQBotWindowIngress: 'qq-group-single-v1' };
+
+test('opt-in QQ window waits once and sends a plain line then a same-group anchored reply', async (t) => {
+  let evaluations = 0;
+  const f = await fixture(t, undefined, async ({ agentId, prompt }) => {
+    assert.equal(agentId, 'pilot');
+    evaluations++;
+    const { unread } = JSON.parse(prompt.split('\n').at(-1));
+    assert.deepEqual(unread.map(({ text }) => text), ['周六吃火锅', '表格导出缺列']);
+    return '{"natural":"鸳鸯锅走起。","reply":{"target":"m2","text":"看一下 CSV 的原始列名。"}}';
+  });
+  f.routes[0].windowReply = { agentId: 'pilot' };
+  for (const [id, body] of [['a', '周六吃火锅'], ['b', '表格导出缺列'], ['a', '周六吃火锅']]) {
+    const ack = dispatcher();
+    const outcome = await f.bridge.reply(message({ id, body, extra: plainWindow }), ack);
+    assert.equal(outcome.handled, true);
+    assert.deepEqual(ack.finals, []);
+  }
+  f.clock.value += 59_999;
+  await f.bridge.tick();
+  assert.equal(evaluations, 0);
+  f.clock.value++;
+  await f.bridge.tick();
+  await new Promise(setImmediate);
+  await f.bridge.tick();
+  assert.equal(evaluations, 1);
+  assert.deepEqual(f.sent.map(({ to, replyToId, text }) => [to, replyToId, text]), [
+    [group, undefined, '鸳鸯锅走起。'], [group, 'b', '看一下 CSV 的原始列名。'],
+  ]);
+});
+
+test('opt-in window never claims @, unknown, merged, files, or channels outside its group', async (t) => {
+  const f = await fixture(t, undefined, assert.fail);
+  f.routes[0].windowReply = { agentId: 'pilot' };
+  for (const event of [
+    message({ body: '打个招呼', extra: { WasMentioned: true } }),
+    message({ body: '打个招呼' }),
+    message({ body: '打个招呼', extra: { WasMentioned: false } }),
+    message({ body: '打个招呼', extra: { ...plainWindow, MediaPath: '/never-open' } }),
+    message({ body: '打个招呼', extra: { ...plainWindow, SenderIsBot: true } }),
+    message({ body: '打个招呼', extra: { ...plainWindow, ReplyToIsQuote: true } }),
+    message({ to: other, body: '打个招呼', extra: plainWindow }),
+    message({ to: direct, body: '打个招呼', extra: plainWindow }),
+    message({ to: ding, channel: 'ddingtalk', body: '打个招呼', extra: plainWindow }),
+  ]) assert.equal(await f.bridge.reply(event, dispatcher()), undefined);
+  f.clock.value += 60_000;
+  await f.bridge.tick();
+  assert.equal(f.sent.length, 0);
+});
+
+test('a newer @ or revocation makes an in-flight window silent without replay', async (t) => {
+  let release;
+  const f = await fixture(t, undefined, () => new Promise((resolve) => { release = resolve; }));
+  f.routes[0].windowReply = { agentId: 'pilot', seconds: 10 };
+  await f.bridge.reply(message({ id: 'queued', body: '周六吃火锅', extra: plainWindow }), dispatcher());
+  f.clock.value += 10_000;
+  await f.bridge.tick();
+  assert.equal(typeof release, 'function');
+  assert.equal(await f.bridge.reply(message({ id: 'mention', body: '周六几点？', extra: { WasMentioned: true } }), dispatcher()), undefined);
+  release('{"natural":"走起。","reply":null}');
+  await new Promise(setImmediate);
+  await f.bridge.tick();
+  assert.equal(f.sent.length, 0);
+
+  await f.bridge.reply(message({ id: 'new-window', body: '那换别的吧', extra: plainWindow }), dispatcher());
+  f.clock.value += 10_000;
+  await f.bridge.tick();
+  delete f.routes[0].windowReply;
+  release('{"natural":"走起。","reply":null}');
+  await new Promise(setImmediate);
+  await f.bridge.tick();
+  assert.equal(f.sent.length, 0);
+});
+
+test('windows close atomically across store connections; arrivals after cutoff are not consumed early', async (t) => {
+  const f = await fixture(t);
+  const reopened = openStore(f.root);
+  t.after(() => reopened.close());
+  const route = routeKey({ channel: 'qqbot', account: 'sandbox', to: group });
+  const save = (message, offset) => f.store.rememberWindow({
+    route, policy: 'scope', message, sender: 'person', text: message, at: f.now() + offset,
+  });
+  save('before', 0);
+  save('boundary', 10_000);
+  assert.deepEqual(f.store.claimWindow(route, 'scope', f.now() + 10_000, 10_000).unread.map(({ id }) => id), ['before']);
+  assert.equal(reopened.claimWindow(route, 'scope', f.now() + 10_000, 10_000), undefined);
+  const second = reopened.claimWindow(route, 'scope', f.now() + 20_000, 10_000);
+  assert.deepEqual(second.unread.map(({ id }) => id), ['boundary']);
+  assert.deepEqual(second.context.map(({ id }) => id), ['before']);
+});
+
+test('uncertain window send never retries or sends the second action', async (t) => {
+  const f = await fixture(t, async () => ({ channel: 'qqbot', messageId: '' }), async () =>
+    '{"natural":"鸳鸯锅走起。","reply":{"target":"m2","text":"CSV 试过了吗？"}}');
+  f.routes[0].windowReply = { agentId: 'pilot', seconds: 10 };
+  await f.bridge.reply(message({ id: 'a', body: '周六吃火锅', extra: plainWindow }), dispatcher());
+  await f.bridge.reply(message({ id: 'b', body: '表格导出缺列', extra: plainWindow }), dispatcher());
+  f.clock.value += 10_000;
+  await f.bridge.tick();
+  await new Promise(setImmediate);
+  await f.bridge.tick();
+  f.clock.value += 10_000;
+  await f.bridge.tick();
+  assert.equal(f.sent.length, 1);
+  assert.equal(f.sent[0].replyToId, undefined);
 });

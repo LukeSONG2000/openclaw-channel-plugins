@@ -5,7 +5,7 @@ Independent OpenClaw bridge and worker for two narrow natural-language requests:
 - Group: `总结一下24h内群里的聊天内容`
 - Group/DM with a local attachment: `帮我整理这份附件`
 
-The bridge observes accepted group messages, queues recognized requests before the ordinary agent turn, and returns immediately. An independent worker runs `openclaw agent exec` once per job. The bridge sends only the final text with the original account and destination; it passes the original message ID as a reply anchor when the adapter supports it. No Codex, edits to upstream plugins, web backend, or production deployment.
+The bridge observes accepted group messages, queues recognized requests before the ordinary agent turn, and returns immediately. An independent worker runs `openclaw agent exec` once per job. The bridge sends only the final text with the original account and destination; it passes the original message ID as a reply anchor when the adapter supports it. No Codex, OpenClaw framework modifications, web backend, or production deployment.
 
 ## Coverage and boundaries
 
@@ -23,7 +23,13 @@ The [official channel](https://docs.openclaw.ai/channels/qqbot) uses `always` (e
 
 Our [custom free-reply runtime](../../plugins/qqbot/docs/custom-runtime/free-reply.md) instead records unread events, schedules adaptive checks, separates read context from consumed topics, and can suppress sending after topic selection. Its `default/free/admin` roles are not the stock activation modes or a platform permission. An async-task hook does not port that runtime. Test full-event access, request/receipt idempotency, and reply cadence separately before considering migration.
 
-The offline `window-reply.mjs` contract evaluates one unread window in one call: at most one unanchored conversational line and one anchored reply on a separate topic; either can be absent. Older messages are context only and are never reply targets. In the fixture `AA BB A CC AA`, the bot joins A naturally, replies to one B message, and leaves the two members in C alone. This contract is not enabled in the live dispatch hook: native quote display and one-to-one ingress identity still need test-bot verification.
+### Two-mode window for the QQ pilot
+
+The opt-in bridge evaluates one unread window in one tool-free OpenClaw completion: at most one unanchored conversational line and one reply anchored to a message from a different discussion. Older messages are only context. In the fixture `AA BB A CC AA`, it joins A naturally, replies to one B message, and leaves C alone. An empty window does not call the model; malformed output never reaches the group.
+
+1. Stock QQBot 2.0.4 keeps mention status internally but does not carry reliable single-event facts through the dispatch context. Apply `qqbot-2.0.4-window-ingress.patch` to a **separate, fresh** copy of the 2.0.4 npm source and rebuild it there with `npm run build`. The patch exports transport facts only. Do not patch the existing deployment or load both copies of the same channel plugin.
+2. In the isolated Gateway, load that rebuilt copy and enable `always` only in the authorized test group. Add `"windowReply": { "agentId": "main", "seconds": 60 }` to that group's bridge route. Use a configured agent with tool-free completion support. Omit `windowReply` to keep the pilot in its original async-task-only mode. The pilot window defaults to 60 seconds (10–120 configurable); it does not modify production adaptive polling.
+3. Only verified single, unmentioned plain messages wait for the window. @, ambiguous or merged input, quoted requests, and media retain their normal path. A new @ suppresses a window result still being generated without delaying the @ turn. A claimed window is never replayed after an ambiguous send or restart. Each chosen reply target resolves from a window-local alias to an original message ID; QQ's platform acceptance and native quote rendering still need client verification.
 
 ## Run offline
 
@@ -36,7 +42,7 @@ export AOA_STOCK_DING_PACKAGE=/absolute/tools/node_modules/@largezhou/ddingtalk
 npm test
 ```
 
-The stock checks use a fresh temporary home. They inspect runtime plugin registration and exercise the real OpenClaw worker against a loopback model fixture. They do not authenticate with the messaging platforms.
+The stock checks use a fresh temporary home. They inspect runtime plugin registration, verify the metadata-only patch against the original npm package, and exercise the real OpenClaw worker against a loopback model fixture. They do not authenticate with the messaging platforms.
 
 ## Prepare an isolated QQ pilot
 
