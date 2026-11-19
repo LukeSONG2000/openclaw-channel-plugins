@@ -10,6 +10,12 @@
     "type": "object",
     "additionalProperties": false,
     "properties": {
+      "maxConcurrentJobs": {
+        "type": "integer",
+        "minimum": 1,
+        "maximum": 8,
+        "default": 4
+      },
       "allowedGroups": {
         "type": "array",
         "uniqueItems": true,

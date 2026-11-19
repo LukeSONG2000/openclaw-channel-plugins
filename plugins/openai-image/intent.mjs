@@ -65,3 +65,13 @@ export function recognizeImagenIntent(raw, hasImages) {
   if (!hasImages && IMAGE_TARGET.test(request) && (wantsEdit || wantsAnimate || wantsReference)) return { kind: 'needs-image' };
   return { kind: 'generate', args: text };
 }
+
+// This only selects turns worth semantic planning; it never authorizes rendering.
+export function mayInvokeImagen(raw, hasMaterial) {
+  if (typeof raw !== 'string') return false;
+  const text = raw.trim();
+  if (!text || text.length > 1800 || text.startsWith('/') || NO_ACTION.test(text) ||
+      REDRAW_NEGATED.test(text) || VISUAL_AS_INPUT.test(text)) return false;
+  return /(?:配(?:一|张|个)?图|四格|条漫|迷因图|meme|能.{0,18}(?:画|插画|海报|漫画)|(?:来|整|弄|来点).{0,10}(?:封面|壁纸|表情|漫画))/iu.test(text) ||
+    (hasMaterial && /(?:画|绘|可视化|做成|弄成|变成|来[张个幅]|render|illustrate|visualize)/iu.test(text));
+}

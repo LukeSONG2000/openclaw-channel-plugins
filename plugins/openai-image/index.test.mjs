@@ -6,6 +6,7 @@ import test from 'node:test';
 import plugin, { createDispatchHook, createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
 import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-brief.mjs';
 import { inferImagenMode, recognizeImagenIntent } from './intent.mjs';
+import { createJobPool } from './jobs.mjs';
 import { proxyConfig } from './proxy-config.mjs';
 import { rankImageProxyRoutes, selectImageProxyRoute } from './proxy-route.mjs';
 
@@ -223,6 +224,43 @@ test('natural candidates require a semantic decision and use the returned brief'
   assert.match(output[0].prompt, /moves smoothly/);
 });
 
+test('the QQ reply envelope supplies the same quoted text to commands and natural skill requests', async () => {
+  const planned = [];
+  const rendered = [];
+  const replies = [];
+  const hook = createDispatchHook(createHandler({ allowedGroups: [group],
+    plan: async (input) => {
+      planned.push(input);
+      const brief = 'A tired person unwinds at home with a glass of apple juice.';
+      return input.decideIntent ? { intent: 'text', format: 'png', brief } : brief;
+    },
+    render: async (body) => { rendered.push(body); return '/fake/juice.png'; },
+  }));
+  const ctx = {
+    Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group, OriginatingTo: group, ReplyToIsQuote: true,
+    ReplyToBody: '累了一天想放松，只能喝苹果汁，联系私下用 noecho@example.org',
+  };
+  const dispatch = { dispatcher: {
+    sendFinalReply: (reply) => Boolean(replies.push(reply)), getQueuedCounts: () => ({ final: replies.length }),
+  }, recordProcessed() {}, markIdle() {} };
+  const input = { expectedImages: 0, images: [] };
+  await hook({ ctx: { ...ctx, ImagenInput: { ...input, args: '基于这个生成一张图' } } }, dispatch);
+  await hook({ ctx: { ...ctx, ImagenInput: { ...input, naturalText: '这段做成四格吧' } } }, dispatch);
+  assert.equal(planned.length, 2);
+  assert.equal(planned[0].decideIntent, false);
+  assert.equal(planned[1].decideIntent, true);
+  for (const request of planned) {
+    assert.match(request.quotedText, /累了一天.*苹果汁/);
+    assert.doesNotMatch(request.quotedText, /noecho/);
+  }
+  assert.equal(rendered.length, 2);
+  for (const output of rendered) assert.match(output.prompt, /apple juice/);
+  await hook({ ctx: { ...ctx, ReplyToBody: undefined,
+    ImagenInput: { ...input, args: '基于这个生成一张图', recentChat: ['无关话题'] } } }, dispatch);
+  assert.equal(rendered.length, 2);
+  assert.match(replies.at(-1).text, /没有足够的上下文/);
+});
+
 test('explicit QQ quote edits use the quoted pixels and cannot silently become text-to-image', async () => {
   let loaded = 0;
   let time = 0;
@@ -417,16 +455,21 @@ test('reply hook skips synthetic input and never renders for suppressed or misma
   assert.deepEqual(replies, [{ text: '<dingtalk_final>请附图</dingtalk_final>' }]);
 });
 
-test('blocked and in-flight requests cannot start a second paid job', async () => {
-  let finish;
-  let started;
-  const ready = new Promise((resolve) => { started = resolve; });
-  const run = createHandler({ plan: noPlan, render: () => new Promise((resolve) => { finish = resolve; started(); }) });
-  const running = run(call(user, 'first image'));
-  await ready;
-  assert.match((await run(call(user, 'second image'))).text, /繁忙/);
-  finish('/fake/image.png');
-  assert.equal((await running).mediaUrl, '/fake/image.png');
+test('four jobs render concurrently; queued work starts FIFO and key rotation is preserved', async () => {
+  const started = [];
+  const finish = [];
+  const run = createHandler({ plan: noPlan, jobs: createJobPool({ concurrency: 4, queueLimit: 2 }),
+    render: (body, key) => new Promise(resolve => { started.push([body.prompt, key]); finish.push(resolve); }),
+  });
+  const running = Array.from({ length: 6 }, (_, index) => run(call(user, 'image ' + index)));
+  assert.match((await run(call(user, 'over capacity'))).text, /繁忙/);
+  assert.deepEqual(started, [['image 0', 0], ['image 1', 1], ['image 2', 0], ['image 3', 1]]);
+  finish[1]('/fake/image.png');
+  finish[2]('/fake/image.png');
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(started.slice(4), [['image 4', 0], ['image 5', 1]]);
+  for (const resolve of finish) resolve('/fake/image.png');
+  for (const result of await Promise.all(running)) assert.equal(result.mediaUrl, '/fake/image.png');
 });
 
 test('registers one explicit command, not a general-purpose exec tool', () => {

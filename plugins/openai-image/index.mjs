@@ -3,8 +3,9 @@ import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
-import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
+import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, mayInvokeImagen, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
+import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsConversationContext, wantsGroupContext } from './visual-brief.mjs';
+import { createJobPool } from './jobs.mjs';
 import { OPENAI_PROBE, selectImageProxyRoute } from './proxy-route.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
@@ -250,12 +251,11 @@ export async function generate(body, startAt, images = []) {
 
 export function createHandler({
   allowedGroups = [], allowAllDingTalkGroups = false, render = generate,
-  verify = validateImages, plan = planPrompt, now = Date.now, logger,
+  verify = validateImages, plan = planPrompt, now = Date.now, logger, jobs = createJobPool(),
 } = {}) {
   const groups = new Set(allowedGroups.map((value) => value.startsWith('qqbot:') ? value.toLowerCase() : value));
-  let active = false;
   let nextKey = 0;
-  let lastStart = -Infinity;
+  let sequence = 0;
   const recentJobs = new Map();
   function allowedScope(context) {
     const scope = resolveScope(context);
@@ -264,7 +264,7 @@ export function createHandler({
   }
   const handle = async (context) => {
     const scope = allowedScope(context);
-    if (!scope) return { text: '当前会话未开放生图。' };
+    if (!scope) return context.intent?.tentative ? undefined : { text: '当前会话未开放生图。' };
     let args = typeof context.args === 'string' ? context.args.trim() : '';
     let images = context.images ?? [];
     const expected = context.expectedImages ?? 0;
@@ -329,12 +329,18 @@ export function createHandler({
       : correctionPrompt ?? args.slice(modifier?.[0].length ?? 0);
     let request = parseRequest(requestArgs, mode);
     if (!request) return { text: USAGE };
-    const useContext = scope.group && wantsGroupContext(request.prompt);
-    const contextLines = useContext ? boundedContext(context.recentChat) : [];
-    if (useContext && !contextLines.length) return { text: '我现在没有足够的本群近期消息来构图。发我想画的主题或一个群梗吧。' };
-    if (active || now() - lastStart < 10_000) return { text: '生图繁忙，请稍后再试。' };
-    active = true;
-    lastStart = now();
+    const [quotedText] = boundedContext([context.quotedText]);
+    const contextRequested = wantsConversationContext(request.prompt);
+    const contextLines = contextRequested || context.intent?.tentative ? boundedContext(context.recentChat) : [];
+    const useContext = Boolean(quotedText || contextRequested);
+    const missingContext = wantsGroupContext(request.prompt) ? !contextLines.length
+      : !quotedText && !hasSource && (context.hasQuote || !contextLines.length);
+    if (contextRequested && missingContext) {
+      return context.intent?.tentative ? undefined : { text: '我现在没有足够的上下文来构图。请引用原文或原图，或把主题说一下。' };
+    }
+    const requestSequence = ++sequence;
+    const release = await jobs.acquire();
+    if (!release) return context.intent?.tentative ? undefined : { text: '生图队列繁忙，请稍后再试。' };
     const startAt = nextKey;
     nextKey = 1 - nextKey;
     try {
@@ -356,7 +362,7 @@ export function createHandler({
       const planAt = Date.now();
       try {
         planned = await plan({
-          prompt: request.prompt, mode, images: files, context: contextLines,
+          prompt: request.prompt, mode, images: files, context: contextLines, quotedText,
           format: request.body.output_format, decideIntent,
         }, startAt);
       }
@@ -366,15 +372,18 @@ export function createHandler({
           ? code : 'unexpected';
         logger?.warn(`[imagen] visual brief failed reason=${planFailure} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
       }
-      if (planFailure === 'planner_unreachable') return { text: '暂时连不上生图服务，这次没有出图。请稍后再试。' };
+      if (planFailure === 'planner_unreachable') {
+        return context.intent?.tentative ? undefined : { text: '暂时连不上生图服务，这次没有出图。请稍后再试。' };
+      }
       if (decideIntent) {
-        if (!planned) return { text: '暂时没能完成生图请求解析，请稍后再试。' };
+        if (!planned) return context.intent?.tentative ? undefined : { text: '暂时没能完成生图请求解析，请稍后再试。' };
         if (planned.intent === 'ignore') return;
         if (planned.intent === 'video') return { text: '目前能做静态图和短 GIF，不能生成视频文件。' };
         if (planned.intent === 'needs_image' || (['edit', 'ref'].includes(planned.intent) && !files.length)) {
           return { text: '请引用原图，或把原图和修改要求一起发过来。' };
         }
-        if (!['text', 'ref', 'edit'].includes(planned.intent) || !['png', 'gif'].includes(planned.format) || !planned.brief) return;
+        if (!['text', 'ref', 'edit'].includes(planned.intent) || !['png', 'gif'].includes(planned.format)) return;
+        if (!planned.brief) return { text: '我还不能确定你想画什么。把需要参考的原文或原图发给我吧。' };
         mode = planned.intent === 'text' && files.length ? mode : planned.intent;
         const format = inferImagenFormat(request.prompt) === 'gif' ? 'gif' : planned.format;
         request = parseRequest(`${format} ${requestArgs}`, mode);
@@ -386,7 +395,7 @@ export function createHandler({
       const { body, prompt, studio } = request;
       logger?.info(`[imagen] accepted channel=${channel} mode=${mode} format=${body.output_format} trigger=${redraw ? 'redraw' : context.intent ? 'natural' : 'command'} attachments=${files.length} source=${source}`);
       logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length} model=${PLANNER_MODEL} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
-      if (!brief && useContext) return { text: '这次没能整理出本群主题。请稍后再试，或直接告诉我想画什么。' };
+      if (!brief && useContext && !files.length) return { text: '这次没能确认所指的素材，没有继续出图。请补一下原文、原图或目标。' };
       if (!brief && (files.length || redraw)) {
         return { text: planFailure === 'planner_no_brief'
           ? '我没能确认原图应该改成什么样。请补充目标外观，或一起附上目标参考图。'
@@ -395,11 +404,11 @@ export function createHandler({
       if (brief) body.prompt = renderPrompt(mode, prompt, brief);
       logger?.info(`[imagen] render settings model=${body.model} quality=${body.quality} complexity=${body.complexity}`);
       const mediaUrl = await render(body, startAt, files);
-      if (actorKey) {
+      if (actorKey && (recentJobs.get(actorKey)?.sequence ?? 0) < requestSequence) {
         recentJobs.delete(actorKey);
         if (recentJobs.size >= 128) recentJobs.delete(recentJobs.keys().next().value);
         recentJobs.set(actorKey, {
-          at: now(), mode, paths: files, format: body.output_format, useContext,
+          at: now(), sequence: requestSequence, mode, paths: files, format: body.output_format, useContext,
           prompt: correctionPrompt ? previous.prompt : prompt,
           studio, quality: body.quality, variant: body.model.split('-').at(-1),
         });
@@ -411,7 +420,7 @@ export function createHandler({
       logger?.warn(`[imagen] generation ${code}`);
       return { text: code === 'unavailable' ? '生图服务暂时连不上，请稍后再试。' : '生图暂时失败，请稍后再试。' };
     }
-    finally { active = false; }
+    finally { release(); }
   };
   handle.observe = (context, text) => {
     const scope = allowedScope(context);
@@ -438,7 +447,12 @@ export function createDispatchHook(handler) {
     const hasPotentialSource = input.expectedImages > 0 || input.quotedImageCount > 0 ||
       (channel === 'qqbot' && (isImagenEditCorrection(input.naturalText ?? '') ||
         (input.recentImages?.length > 0 && wantsRecentImagenSource(input.naturalText ?? ''))));
-    const intent = typeof input.args === 'string' ? undefined : recognizeImagenIntent(input.naturalText, hasPotentialSource);
+    const quotedText = ctx.ReplyToBody;
+    const hasQuote = Boolean(ctx.ReplyToIsQuote || ctx.ReplyToId || quotedText);
+    const intent = typeof input.args === 'string' ? undefined
+      : recognizeImagenIntent(input.naturalText, hasPotentialSource) ??
+        (mayInvokeImagen(input.naturalText, hasQuote || hasPotentialSource || input.recentChat?.length)
+          ? { kind: 'generate', args: input.naturalText, tentative: true } : undefined);
     if (typeof input.args !== 'string' && !intent) {
       if (deliverable && typeof input.naturalText === 'string') handler.observe?.(scopeContext, input.naturalText);
       return;
@@ -449,7 +463,7 @@ export function createDispatchHook(handler) {
       const reply = await handler({
         ...scopeContext,
         args: input.args ?? intent?.args, intent, images: input.images, expectedImages: input.expectedImages,
-        recentChat: input.recentChat,
+        recentChat: input.recentChat, quotedText, hasQuote,
         quotedImageCount: channel === 'qqbot' ? input.quotedImageCount : undefined,
         loadQuotedImages: channel === 'qqbot' ? input.loadQuotedImages : undefined,
         recentImages: channel === 'qqbot' ? input.recentImages : undefined,
@@ -470,6 +484,7 @@ export default {
     api.on('reply_dispatch', createDispatchHook(createHandler({
       allowedGroups: api.pluginConfig?.allowedGroups ?? [],
       allowAllDingTalkGroups: api.pluginConfig?.allowAllDingTalkGroups === true,
+      jobs: createJobPool({ concurrency: api.pluginConfig?.maxConcurrentJobs ?? 4 }),
       logger: api.logger,
     })));
     api.registerCommand({

@@ -1,6 +1,6 @@
 # Imagen
 
-OpenClaw chat command backed by the [official OpenAI CLI](https://developers.openai.com/api/docs/libraries/openai-cli). It sends structured input to `images generate` or `images edit`, then delivers one image to the originating channel. No shell evaluation or chat-model intent inference is involved.
+OpenClaw chat skill backed by the [official OpenAI CLI](https://developers.openai.com/api/docs/libraries/openai-cli). Natural requests and the optional slash command use the same planner and renderer. It sends structured input to `images generate` or `images edit`, then delivers one image to the originating channel.
 
 - `/imagen <prompt>`: Sunburst, medium quality and high planning complexity, 1024x1024 PNG. Use `low` for a fast Flare draft.
 - `/imagen gif <prompt>`: Flare, low quality, 512x512, 3 frames at 200 ms.
@@ -11,9 +11,9 @@ OpenClaw chat command backed by the [official OpenAI CLI](https://developers.ope
 
 Attach PNG, JPEG or WebP in the same message, or explicitly quote an image on QQ. QQ can also use the most recent user-supplied image bundle in the same conversation (ten minutes) when the request points to it. A correction can reuse the same sender's recent edit source only. Current attachments take precedence, then the explicit quote. Limit: 4 images, 10 MB each and 20 MB total. Unrelated history and paths in text are not inputs. QQ can use the command after a native bot mention. DingTalk displays PNGs inline using its uploaded image media ID, and sends GIFs as files to preserve animation.
 
-Before rendering, a single tool-free OpenAI Responses call uses high reasoning effort to rewrite the request as a short visual brief. This is separate from the image model's `complexity` and render `quality`. The planner inspects actual pixels and never forwards reasoning output. Group-context requests use up to ten bounded, redacted recent text excerpts. If planning fails, image-based jobs stop without charging for an unplanned render.
+Before rendering, a single tool-free OpenAI Responses call follows the packaged skill instructions to interpret natural requests and rewrite them as a short visual brief. High reasoning effort is separate from the image model's `complexity` and render `quality`. The planner inspects actual pixels and treats reply text and up to ten redacted same-conversation excerpts as source material rather than instructions. Context-dependent and image-based jobs do not render when required material or the brief is unavailable.
 
-QQ and DingTalk direct messages can submit requests. Groups require an exact channel-qualified ID in `allowedGroups` by default. Set `allowAllDingTalkGroups: true` to admit all DingTalk groups without changing the QQ allowlist. Channel admission and mention requirements still apply. Unknown routes fail closed. A single job can run at a time, with at least ten seconds between starts. No replay is initiated by the plugin when an image request has an unknown outcome.
+QQ and DingTalk direct messages can submit requests. Groups require an exact channel-qualified ID in `allowedGroups` by default. Set `allowAllDingTalkGroups: true` to admit all DingTalk groups without changing the QQ allowlist. Channel admission and mention requirements still apply. Unknown routes fail closed. Four jobs can run at once by default (`maxConcurrentJobs`, 1-8), with up to eight waiting in a bounded FIFO for 35 seconds. No replay is initiated by the plugin when an image request has an unknown outcome.
 
 Clearly addressed natural-language requests work without mentioning the skill name or using a slash command. In groups, use a native bot mention. “做一张动图” chooses GIF even with `/imagen` and no explicit format flag. A short correction such as “我要的是动态图” reuses only the sender's recent successful static text-to-image prompt in that same conversation, within five minutes, and does not reuse attachments. See [skill scenarios](skills/imagen/SKILL.md).
 
