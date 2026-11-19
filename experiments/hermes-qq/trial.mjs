@@ -7,6 +7,10 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { readGroupWindow } from './inbox-view.mjs';
 
 const maxAge = 180_000;
+// The QQ client clipped a 308-byte native-mention payload despite accepting the send.
+const mentionMarkdownBudget = 280;
+const plainTextBudget = 1800;
+const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const sameSource = (event, source) => ['channel', 'account', 'groupId', 'messageId', 'senderId']
   .every(key => event[key] === source?.[key]);
 
@@ -15,22 +19,53 @@ export function trialInput(body) {
     .trim().replace(/^\[Hermes\]\s*/u, '').slice(0, 1600);
 }
 
+function takeText(content, budget) {
+  if (Buffer.byteLength(content) <= budget) return [content, ''];
+  let bytes = 0;
+  let end = 0;
+  let sentenceEnd = 0;
+  let softEnd = 0;
+  for (const { segment, index } of graphemes.segment(content)) {
+    bytes += Buffer.byteLength(segment);
+    if (bytes > budget) break;
+    end = index + segment.length;
+    if (/[。！？.!?；;\n]/u.test(segment)) sentenceEnd = end;
+    if (/[，、：,:\s]/u.test(segment)) softEnd = end;
+  }
+  const cut = [sentenceEnd, softEnd, end].find(offset => offset && content.slice(0, offset).trim());
+  if (!cut) throw new Error('no QQ-safe reply boundary');
+  return [content.slice(0, cut), content.slice(cut)];
+}
+
 export async function sendMentionReply(bot, event, content, ApiError, onDowngrade = () => {}) {
   if (!/^[a-z0-9_-]{1,128}$/i.test(event.senderId)) throw new Error('invalid QQ mention target');
   const target = { scope: 'group', targetId: event.groupId, msgId: event.messageId };
-  const extra = { msg_seq: 1 };
+  const mention = '<qqbot-at-user id="' + event.senderId + '" /> ';
+  const [first, rest] = takeText(content, mentionMarkdownBudget - Buffer.byteLength(mention));
+  let receipt;
+  let remaining = rest;
+  let seq = 1;
   try {
-    return await bot.send({
-      target, msgType: 2, markdown: { content: '<qqbot-at-user id="' + event.senderId + '" /> ' + content }, extra,
+    receipt = await bot.send({
+      target, msgType: 2, markdown: { content: mention + first }, extra: { msg_seq: seq++ },
     });
+    if (!receipt?.id) return receipt;
   } catch (error) {
     // Only a definite permission rejection allows a second request.
     if (!(error instanceof ApiError) || error.httpStatus >= 500 ||
       error.path !== '/v2/groups/' + event.groupId + '/messages' ||
       ![304036, 40034127].includes(Number(error.bizCode))) throw error;
     onDowngrade();
-    return bot.send({ target, msgType: 0, content, extra });
+    seq = 1;
+    remaining = content;
   }
+  while (remaining.trim()) {
+    const [part, tail] = takeText(remaining, plainTextBudget);
+    receipt = await bot.send({ target, msgType: 0, content: part, extra: { msg_seq: seq++ } });
+    if (!receipt?.id) return receipt;
+    remaining = tail;
+  }
+  return receipt;
 }
 
 export function makeTrial({
