@@ -43,18 +43,26 @@ async function main(mode) {
     }));
     return;
   }
-  if (mode !== 'window' && mode !== 'mention') throw new Error('invalid shadow mode');
+  if (!['window', 'mention', 'trial-mention', 'trial-settle'].includes(mode)) throw new Error('invalid shadow mode');
   const sample = await readSample();
-  if (!Array.isArray(sample?.events) || sample.events.length > 24) throw new Error('invalid shadow sample');
   await assertNoTools();
   const pilot = hermesPilot({ fast: runs });
+  if (mode === 'trial-settle') {
+    console.log(JSON.stringify(await pilot.settle(sample.job)));
+    return;
+  }
+  if (!Array.isArray(sample?.events) || sample.events.length > 24) throw new Error('invalid shadow sample');
   if (mode === 'window') {
     const actions = await pilot.window(sample.events);
     console.log(JSON.stringify({ status: 'completed', count: actions.length, modes: actions.map(x => x.mode) }));
     return;
   }
   if (sample.events.length !== 1) throw new Error('expected one source event');
-  const started = await pilot.mention(sample.events[0]);
+  const started = await pilot.mention(sample.events[0], Array.isArray(sample.context) ? sample.context : []);
+  if (mode === 'trial-mention') {
+    console.log(JSON.stringify(started));
+    return;
+  }
   if (started.kind === 'chat') {
     console.log(JSON.stringify({ status: 'completed', route: 'chat' }));
   } else {

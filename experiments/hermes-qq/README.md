@@ -24,4 +24,10 @@ This test checks the adapter's source mapping, final-only output, Hermes concurr
 
 Run `node /pilot/hermes-qq/shadow.mjs probe` inside the gateway to verify the serving model. To test a batch, pipe a JSON envelope from `node experiments/hermes-qq/bound-sample.mjs <private-inbox.sqlite> <test-account>` to `node /pilot/hermes-qq/shadow.mjs window` via `docker compose exec -T -u hermes gateway`. This only selects up to eight recent plain messages in the previously verified test group and reports counts, not public replies. Do not print the JSON sample in between. The raw inbox is not mounted and the bridge does not continuously consume model quota.
 
+## Explicit live group trial
+
+On macOS, run `node trial.mjs <private-inbox-dir> <absolute-sdk-esm-entry> <test-app-id> <keychain-service> <local-hermes-container> <original-binding-token>` separately from the existing QQ receiver. This does not open a second WebSocket. Only new messages that actually mention the test bot, start with `[Hermes]`, and are from the author who bound the verification group are admitted. The trial expires in 30 minutes and admits at most six messages. This is an operator test gate, not the final group permission model.
+
+The same inbox supplies up to eight recent same-group context messages. Hermes starts work under a separate run and reports the final answer back to the original source message; fast chat does not await that work. Sending uses only a passive QQ reply with the original message ID and a fixed sequence. The private receipt table is claimed before dispatch and never replays an uncertain send. A QQ API receipt does not establish native quote rendering on the client. Ordinary group messages, other groups, late results and pre-trial messages never send.
+
 For the next pilot, use separate isolated Hermes profiles for fast chat and tool-capable work, validate the actual group participant attribution before enabling Honcho, and use native Kanban for durable work instead of creating a new task database. Do not send a live message until an explicit test destination is selected and delivery replay/uncertainty has been tested.
