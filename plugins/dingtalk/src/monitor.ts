@@ -942,6 +942,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         return { visibleReplySent: false };
       }
       const isGroup = data.conversationType === "2";
+      let imagenDelivered = false;
       if (info.kind === "final" && payload.channelData?.imagen === true && payload.mediaUrl && !options?.proactive) {
         const dir = join(homedir(), ".openclaw", "media", "outbound", "openai-image");
         const fileName = basename(payload.mediaUrl);
@@ -956,12 +957,12 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         await sendImagenMedia(to, await readFile(payload.mediaUrl), fileType, { account });
         recordChannelRuntimeState({ channel: PLUGIN_ID, accountId, state: { lastOutboundAt: Date.now() } });
         options?.onDelivered?.();
-        return { visibleReplySent: true };
+        imagenDelivered = true;
       }
       const replyText = sanitizeDingTalkReplyText(payload.text ?? "", {
         requireTaggedFinal: isGroup,
       });
-      if (!replyText) return { visibleReplySent: false };
+      if (!replyText) return { visibleReplySent: imagenDelivered };
 
       const groupId = data.openConversationId ?? data.conversationId;
       const mentionUserIds = new Set<string>();
@@ -1097,6 +1098,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           },
         }),
         replyOptions: {
+          runId: data.msgId,
           disableBlockStreaming: true,
           suppressDefaultToolProgressMessages: true,
           suppressToolErrorWarnings: true,

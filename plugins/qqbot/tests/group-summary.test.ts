@@ -1,9 +1,38 @@
 import assert from "node:assert/strict";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, utimes, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadGroupSummaryPrompt, parseGroupSummaryHours } from "../src/custom/group-summary.js";
+import { groupContextStart, loadGroupTextContext } from "../src/custom/group-text-context.js";
+
+test("today is the current UTC+08:00 calendar day, not a rolling 24-hour window", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "qq-context-"));
+  try {
+    const now = Date.parse("2026-11-19T16:03:00Z");
+    const since = groupContextStart("today", now);
+    assert.equal(since, Date.parse("2026-11-19T16:00:00Z"));
+    assert.equal(groupContextStart("last24h", now), now - 86_400_000);
+    const line = (id: string, at: number, text: string, group = "local") => JSON.stringify({
+      time: new Date(at).toISOString(),
+      "1": `[qqbot:default] Dispatch event: t=GROUP_MESSAGE_CREATE, d=${JSON.stringify({ id, group_openid: group, content: text })}`,
+    });
+    const path = join(dir, "openclaw-2026-11-19.log");
+    await writeFile(path, [
+      line("prior", since - 1, "prior day"),
+      line("today", since, "first minute"),
+      line("other", since, "other group", "other"),
+      line("source", now - 1, "the request"),
+      line("later", now, "after or at request"),
+    ].join("\n"));
+    await utimes(path, new Date(now), new Date(now));
+    const result = await loadGroupTextContext({ accountId: "default", groupOpenid: "local",
+      requestMessageId: "source", since, through: now, logDir: dir });
+    assert.deepEqual(result, { messages: [{ at: "00:00", text: "first minute" }], count: 1, limited: false });
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
 
 test("group history summary recognizes an explicit, bounded current-group window", () => {
   assert.equal(parseGroupSummaryHours("总结一下 24h 内群里的聊天内容"), 24);

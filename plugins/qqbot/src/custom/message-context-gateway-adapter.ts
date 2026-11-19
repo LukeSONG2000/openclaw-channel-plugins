@@ -19,6 +19,7 @@ import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
 import { buildQQImagenInput, getQQImagenQuotedImages, getRecentQQImagenImages, rememberQQImagenImages } from "./imagen-input.js";
+import { groupContextStart, loadGroupTextContext, type GroupContextRange } from "./group-text-context.js";
 
 const CUSTOM_MENTION_HISTORY_IMAGE_LIMIT = 1;
 const CUSTOM_AUTONOMOUS_HISTORY_IMAGE_LIMIT = 4;
@@ -199,6 +200,13 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
   const historyLimitForAgentBody = event.type === "group" && event.groupOpenid
     ? params.resolveHistoryLimit(event.groupOpenid, account.accountId)
     : 0;
+  const groupOpenid = event.groupOpenid;
+  const loadConversationContext = event.type === "group" && groupOpenid ? (range: GroupContextRange) => {
+    if (range !== "today" && range !== "last24h") return;
+    const through = Math.min(Date.now(), new Date(event.timestamp).getTime());
+    return loadGroupTextContext({ accountId: account.accountId, groupOpenid, requestMessageId: event.messageId,
+      since: groupContextStart(range, through), through });
+  } : undefined;
   const agentContext = applyCustomAgentContextGateway({
     accountId: account.accountId,
     event,
@@ -213,13 +221,15 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     formatSubMessageContent: params.formatSubMessageContent,
     formatMergedEnvelope: params.formatMergedEnvelope,
     formatHistoryEnvelope: params.formatHistoryEnvelope,
-    finalizeInboundContext: (payload) => params.finalizeInboundContext(imagenInput
-      ? { ...payload, ImagenInput: {
+    finalizeInboundContext: (payload) => params.finalizeInboundContext({
+      ...payload,
+      ...(loadConversationContext ? { ConversationContextLoader: loadConversationContext } : {}),
+      ...(imagenInput ? { ImagenInput: {
         ...imagenInput, recentChat: imagenRecentChat,
         recentImages: imagenRecentImages,
         quotedImageCount: imagenQuote.length, loadQuotedImages: loadImagenQuote,
-      } }
-      : payload),
+      } } : {}),
+    }),
     fromAddress: messageRoute.fromAddress,
     toAddress: messageRoute.toAddress,
     sessionKey: ingress.route.sessionKey,

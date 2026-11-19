@@ -5,7 +5,6 @@ export const PLANNER_EFFORT = 'high';
 const promptGuide = readFile(new URL('./skills/imagen/references/prompting.md', import.meta.url), 'utf8')
   .then((guide) => guide.slice(guide.indexOf('## Structure\n'), guide.indexOf('## Transparent images\n')).trim())
   .catch(() => '');
-const skillGuide = readFile(new URL('./skills/imagen/SKILL.md', import.meta.url), 'utf8').catch(() => '');
 const CONTEXT_REQUEST = /(?:根据|基于|结合|参考|用|按|体现|画出).{0,18}(?:群聊|本群|这[个個]群|群里|群内|我們群|我们群)|(?:based on|capture|reflect).{0,50}(?:this|our|the) group(?: chat)?/iu;
 const CONTEXT_REFERENCE = /(?:根据|基于|结合|参考|按|照着|把|用|就).{0,10}(?:这个|这段|这句|这条|这些|刚才|上面|前面|上一条|引用|聊天)|(?:based on|from|use|turn).{0,16}(?:this|that|the above|earlier|the quoted)/iu;
 
@@ -17,9 +16,9 @@ export function wantsConversationContext(text) {
   return wantsGroupContext(text) || CONTEXT_REFERENCE.test(text);
 }
 
-export function boundedContext(entries) {
+export function boundedContext(entries, limit = 10) {
   if (!Array.isArray(entries)) return [];
-  return entries.slice(-10)
+  return entries.slice(-limit)
     .filter((text) => typeof text === 'string' && text.length <= 800 && !/^\s*\//.test(text) &&
       !/(?:密钥|密码|验证码|访问令牌|access[_ -]?token|api[_ -]?key|password|\bsk-[\w-]{10,})/iu.test(text))
     .map((text) => text.replace(/<@!?[^>]+>|(?:https?:\/\/|www\.)[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]+|\b\d{5,}\b|\b[\da-f]{24,}\b/giu, '')
@@ -33,9 +32,10 @@ export function imageMime(bytes) {
   if (bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
 }
 
-export async function buildBriefRequest({ prompt, mode, images, context, quotedText, format, decideIntent = false }, read = readFile) {
+export async function buildBriefRequest({ prompt, mode, images, context, contextCoverage, quotedText, format, decideIntent = false }, read = readFile) {
   const content = [{ type: 'input_text', text: JSON.stringify({
     request: prompt, mode, output: format, quoted_message: quotedText, recent_chat_excerpts: context,
+    context_coverage: contextCoverage,
     images: images.length,
   }) }];
   for (const image of images) {
@@ -66,7 +66,6 @@ export async function buildBriefRequest({ prompt, mode, images, context, quotedT
         'First decide intent. Only choose text, edit, or ref if the current user is clearly asking the bot to create an image now. Return ignore for chat, capability questions, tutorials, searching for existing images, image interpretation, negation, indirect quotations, or requests to build software rather than return an image.',
         'The mode in the input is only a hint. Choose edit when the user wants a particular image changed in place; ref when making a new image using attached visual guidance; text for new images with no source. Choose needs_image if a necessary original is unavailable. Use video only when explicitly requested as video, a short film, MP4 or WebM. Chinese 动态图, 动图, 动态表情 and GIF mean animated images, not video. For a clear output=gif request, preserve GIF and plan a short looping action.',
       ] : []),
-      await skillGuide,
       await promptGuide,
     ].filter(Boolean).join('\n'),
     input: [{ role: 'user', content }],

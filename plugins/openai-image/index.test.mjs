@@ -3,7 +3,8 @@ import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import plugin, { createDispatchHook, createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
+import plugin, { createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
+import { registerImagenTool } from './agent-tool.mjs';
 import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-brief.mjs';
 import { inferImagenMode, recognizeImagenIntent } from './intent.mjs';
 import { createJobPool } from './jobs.mjs';
@@ -15,6 +16,27 @@ const group = 'qqbot:group:' + 'B'.repeat(32);
 const other = 'qqbot:group:' + 'C'.repeat(32);
 const call = (address, args) => ({ channelId: 'qqbot', from: address, to: address, args });
 const noPlan = async () => undefined;
+function toolHarness(handler) {
+  const hooks = {};
+  let factory;
+  let n = 0;
+  registerImagenTool({ on: (name, hook) => { hooks[name] = hook; }, registerTool: create => { factory = create; } }, handler);
+  return (ctx, options = {}) => {
+    const runId = 'run-' + ++n;
+    const sessionKey = ctx.SessionKey ?? 'session';
+    const tool = factory({ sessionKey, messageChannel: ctx.Provider, requesterSenderId: ctx.SenderId });
+    const dispatch = hooks.reply_dispatch({ runId, sessionKey, ctx, ...options }, {});
+    const invoke = async (params, override = {}) => {
+      const toolCallId = 'call-' + ++n;
+      const block = hooks.before_tool_call({ runId, toolCallId, toolName: tool.name, ...override }, { sessionKey });
+      return block ?? (await tool.execute(toolCallId, params)).content[0].text;
+    };
+    const final = (payload, overrides = {}) => hooks.reply_payload_sending({
+      kind: 'final', channel: ctx.Provider, runId, sessionKey, payload, ...overrides,
+    });
+    return { dispatch, invoke, final };
+  };
+}
 
 test('private and allowed groups use trusted addresses; unauthorized requests never render', async () => {
   const calls = [];
@@ -103,46 +125,19 @@ test('natural requests distinguish drawing, editing and references from discussi
   assert.equal(inferImagenMode('参考这张的配色换成人物海报', true), 'ref');
 });
 
-test('DingTalk redraw uses the latest correction and only the same conversation and sender', async () => {
-  let time = 0;
-  const rendered = [];
-  const decisions = [];
-  const handler = createHandler({ allowAllDingTalkGroups: true, now: () => time += 11_000,
-    plan: async (input) => { decisions.push(input); return 'Follow the current request; keep the white background.'; },
-    render: async (body, _key, files) => { rendered.push({ body, files }); return '/fake/test.png'; },
-  });
-  const hook = createDispatchHook(handler);
-  const sent = [];
-  const dispatch = {
-    dispatcher: { sendFinalReply: (reply) => Boolean(sent.push(reply)), getQueuedCounts: () => ({ final: sent.length }) },
-    recordProcessed() {}, markIdle() {},
-  };
+test('DingTalk native tool preserves caption and same-turn media', async () => {
   const to = 'ddingtalk:chat:cidRoom==';
   const ctx = { Provider: 'ddingtalk', OriginatingChannel: 'ddingtalk', From: 'ddingtalk:sender',
-    To: to, OriginatingTo: to, AccountId: 'account-a', SenderId: 'sender' };
-  await hook({ ctx: { ...ctx, ImagenInput: { args: 'low 画一张白底红色方形的图片', images: [], expectedImages: 0 } } }, dispatch);
-  time += 47 * 60_000;
-  const feedback = { naturalText: '主体是蓝色的，不是红色', images: [], expectedImages: 0 };
-  assert.equal(await hook({ ctx: { ...ctx, ImagenInput: feedback } }, dispatch), undefined);
-  assert.equal(await hook({ ctx: { ...ctx, SenderId: 'other', From: 'ddingtalk:other',
-    ImagenInput: { ...feedback, naturalText: '换成橙色' } } }, dispatch), undefined);
-  const input = { naturalText: '现在重新画', images: [], expectedImages: 0 };
-  for (const patch of [{ SenderId: 'other', From: 'ddingtalk:other' }, { AccountId: 'account-b' },
-    { To: 'ddingtalk:chat:cidDifferent==', OriginatingTo: 'ddingtalk:chat:cidDifferent==' }]) {
-    await hook({ ctx: { ...ctx, ...patch, ImagenInput: input } }, dispatch);
-    assert.match(sent.at(-1).text, /没有找到/);
-  }
-  await hook({ ctx: { ...ctx, ImagenInput: input } }, dispatch);
-  assert.equal(rendered.length, 2);
-  assert.equal(decisions[1].decideIntent, false);
-  assert.match(decisions[1].prompt, /^本次要求（优先）：现在重新画\n此后用户补充（只采用与该图有关的内容）：主体是蓝色的，不是红色\n上一张的出图要求：画一张白底红色方形的图片$/);
-  assert.deepEqual(decisions[1].images, []);
-  assert.equal(rendered[1].body.quality, 'low');
-  assert.equal(sent.at(-1).mediaUrl, '/fake/test.png');
-  time += 2 * 60 * 60_000;
-  await hook({ ctx: { ...ctx, ImagenInput: input } }, dispatch);
-  assert.match(sent.at(-1).text, /没有找到/);
-  assert.equal(rendered.length, 2);
+    To: to, OriginatingTo: to, AccountId: 'account-a', SenderId: 'sender',
+    ImagenInput: { args: '画一张红色方块', images: [], expectedImages: 0 } };
+  const bind = toolHarness(createHandler({ allowAllDingTalkGroups: true, plan: noPlan,
+    render: async () => '/fake/test.png' }));
+  const turn = bind(ctx);
+  assert.equal(turn.dispatch, undefined);
+  assert.match(ctx.BodyForAgent, /显式指定/);
+  assert.match(await turn.invoke({ prompt: '画一张红色方块' }), /已生成/);
+  assert.equal(turn.final({ text: '<dingtalk_final>画好了。</dingtalk_final>' }).payload.text,
+    '<dingtalk_final>画好了。</dingtalk_final>');
 });
 
 test('a format correction can reuse only the same sender and conversation text prompt', async () => {
@@ -165,46 +160,32 @@ test('a format correction can reuse only the same sender and conversation text p
   assert.match((await run(correction)).text, /想画的内容/);
 });
 
-test('“改成gif” uses the supplied image instead of a past text prompt', async () => {
-  let time = 0;
+test('the tool edits quoted GIF source pixels on demand with current attachments taking precedence', async () => {
   let loads = 0;
   const rendered = [];
-  const handler = createHandler({ allowedGroups: [group], now: () => time += 11_000,
-    plan: async () => 'A small looping motion while keeping the source unchanged.', verify: async (files) => files,
+  const bind = toolHarness(createHandler({ allowedGroups: [group],
+    plan: async () => 'A small looping motion while keeping the source unchanged.',
+    verify: async paths => paths,
     render: async (body, _key, files) => { rendered.push({ body, files }); return '/fake/result.gif'; },
-  });
-  await handler({ ...call(group, '一艘蓝色飞船'), senderId: 'tester' });
-  const hook = createDispatchHook(handler);
-  const replies = [];
-  const dispatch = {
-    dispatcher: {
-      sendFinalReply: (reply) => Boolean(replies.push(reply)),
-      getQueuedCounts: () => ({ final: replies.length }),
-    },
-    recordProcessed: () => {},
-    markIdle: () => {},
-  };
+  }));
   const ctx = { Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group, OriginatingTo: group, SenderId: 'tester' };
   const original = '/current/quoted.png';
   const quoted = { naturalText: '改成gif', images: [], expectedImages: 0, quotedImageCount: 1,
-    loadQuotedImages: async () => { loads++; return [original]; },
-  };
-  assert.equal((await hook({ ctx: { ...ctx, ImagenInput: quoted } }, dispatch)).queuedFinal, true);
+    loadQuotedImages: async () => { loads++; return [original]; } };
+  const first = bind({ ...ctx, ImagenInput: quoted });
+  assert.equal(loads, 0);
+  const animate = { prompt: '让原图动起来', mode: 'edit', format: 'gif' };
+  await first.invoke(animate);
   assert.equal(loads, 1);
-  assert.deepEqual(rendered[1].files, [original]);
-  assert.equal(rendered[1].body.output_format, 'gif');
-  assert.match(rendered[1].body.prompt, /Image 1 is the original to edit/);
-  assert.doesNotMatch(rendered[1].body.prompt, /蓝色飞船/);
-
-  const upload = { ...quoted, expectedImages: 1, images: ['/current/attached.png'] };
-  await hook({ ctx: { ...ctx, ImagenInput: upload } }, dispatch);
+  assert.deepEqual(rendered[0].files, [original]);
+  assert.equal(rendered[0].body.output_format, 'gif');
+  assert.match(rendered[0].body.prompt, /Image 1 is the original to edit/);
+  await bind({ ...ctx, ImagenInput: { ...quoted, expectedImages: 1, images: ['/current/attached.png'] } }).invoke(animate);
   assert.equal(loads, 1);
-  assert.deepEqual(rendered[2].files, upload.images);
-  assert.equal(rendered[2].body.output_format, 'gif');
-
-  await hook({ ctx: { ...ctx, ImagenInput: { ...quoted, loadQuotedImages: async () => [] } } }, dispatch);
-  assert.match(replies.at(-1).text, /没能下载到引用里的原图/);
-  assert.equal(rendered.length, 3);
+  assert.deepEqual(rendered[1].files, ['/current/attached.png']);
+  assert.match(await bind({ ...ctx, ImagenInput: { ...quoted, loadQuotedImages: async () => [] } }).invoke(animate),
+    /没能下载到引用里的原图/);
+  assert.equal(rendered.length, 2);
 });
 
 test('natural candidates require a semantic decision and use the returned brief', async () => {
@@ -224,41 +205,47 @@ test('natural candidates require a semantic decision and use the returned brief'
   assert.match(output[0].prompt, /moves smoothly/);
 });
 
-test('the QQ reply envelope supplies the same quoted text to commands and natural skill requests', async () => {
+test('slash and natural-language turns use the same on-demand conversation scope', async () => {
   const planned = [];
-  const rendered = [];
-  const replies = [];
-  const hook = createDispatchHook(createHandler({ allowedGroups: [group],
-    plan: async (input) => {
-      planned.push(input);
-      const brief = 'A tired person unwinds at home with a glass of apple juice.';
-      return input.decideIntent ? { intent: 'text', format: 'png', brief } : brief;
-    },
-    render: async (body) => { rendered.push(body); return '/fake/juice.png'; },
+  let loads = 0;
+  const bind = toolHarness(createHandler({ allowedGroups: [group],
+    plan: async input => { planned.push(input); return 'A mural of the two stories discussed today.'; },
+    render: async () => '/fake/today.png',
   }));
   const ctx = {
-    Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group, OriginatingTo: group, ReplyToIsQuote: true,
-    ReplyToBody: '累了一天想放松，只能喝苹果汁，联系私下用 noecho@example.org',
+    Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group, OriginatingTo: group, SenderId: 'tester',
+    ReplyToBody: '累了一天想放松，喝苹果汁，联系私下用 noecho@example.org',
+    ConversationContextLoader: async range => {
+      assert.equal(range, 'today');
+      loads++;
+      return { messages: Array.from({ length: 12 }, (_, i) => ({ at: '08:00', text: 'group story ' + i })), count: 54 };
+    },
   };
-  const dispatch = { dispatcher: {
-    sendFinalReply: (reply) => Boolean(replies.push(reply)), getQueuedCounts: () => ({ final: replies.length }),
-  }, recordProcessed() {}, markIdle() {} };
-  const input = { expectedImages: 0, images: [] };
-  await hook({ ctx: { ...ctx, ImagenInput: { ...input, args: '基于这个生成一张图' } } }, dispatch);
-  await hook({ ctx: { ...ctx, ImagenInput: { ...input, naturalText: '这段做成四格吧' } } }, dispatch);
-  assert.equal(planned.length, 2);
-  assert.equal(planned[0].decideIntent, false);
-  assert.equal(planned[1].decideIntent, true);
-  for (const request of planned) {
-    assert.match(request.quotedText, /累了一天.*苹果汁/);
-    assert.doesNotMatch(request.quotedText, /noecho/);
+  const input = { expectedImages: 0, images: [], recentChat: ['unrelated short-context'] };
+  const slashCtx = { ...ctx, ImagenInput: { ...input, args: '看看群里今天的对话，生成一张图' } };
+  const slash = bind(slashCtx);
+  const natural = bind({ ...ctx, ImagenInput: { ...input, naturalText: '看看群里今天的对话，生成一张图片' } });
+  assert.equal(slash.dispatch, undefined);
+  assert.equal(natural.dispatch, undefined);
+  assert.match(slashCtx.CommandBody, /^请使用 Imagen/);
+  assert.equal(loads, 0);
+  for (const t of [slash, natural]) {
+    const args = { prompt: '把今天的话题画成一幅插画', contextRange: 'today' };
+    assert.match(await t.invoke(args), /已生成/);
+    assert.match(await t.invoke(args), /已生成/);
+    assert.equal(t.final({ text: '画好了。' }, { kind: 'block' }), undefined);
+    assert.equal(t.final({ text: '画好了。' }).payload.mediaUrl, '/fake/today.png');
+    assert.equal(t.final({ text: '画好了。' }), undefined);
   }
-  assert.equal(rendered.length, 2);
-  for (const output of rendered) assert.match(output.prompt, /apple juice/);
-  await hook({ ctx: { ...ctx, ReplyToBody: undefined,
-    ImagenInput: { ...input, args: '基于这个生成一张图', recentChat: ['无关话题'] } } }, dispatch);
-  assert.equal(rendered.length, 2);
-  assert.match(replies.at(-1).text, /没有足够的上下文/);
+  assert.equal(loads, 2);
+  assert.equal(planned.length, 2);
+  assert.deepEqual(planned[0].contextCoverage, { available: 54, sampled: 12, partial: undefined });
+  assert.equal(planned[0].context.length, 12);
+  assert.match(planned[0].quotedText, /苹果汁/);
+  assert.doesNotMatch(planned[0].quotedText, /noecho/);
+  assert.match(await bind({ ...ctx, ConversationContextLoader: undefined, ImagenInput: input })
+    .invoke({ prompt: '画一下今天的群聊', contextRange: 'today' }), /不能把最近几条/);
+  assert.equal(planned.length, 2);
 });
 
 test('explicit QQ quote edits use the quoted pixels and cannot silently become text-to-image', async () => {
@@ -424,35 +411,22 @@ test('attachment validation uses real paths and image bytes', async () => {
   }
 });
 
-test('reply hook skips synthetic input and never renders for suppressed or mismatched routes', async () => {
-  const replies = [];
-  const calls = [];
-  const hook = createDispatchHook(async (input) => {
-    calls.push(input);
-    return { text: '请附图' };
-  });
-  const dispatch = {
-    dispatcher: {
-      sendFinalReply: (reply) => Boolean(replies.push(reply)),
-      getQueuedCounts: () => ({ final: replies.length }),
-    },
-    recordProcessed: () => {},
-    markIdle: () => {},
-  };
-  const to = 'ddingtalk:chat:cidNewGroup==';
-  const ctx = {
-    Provider: 'ddingtalk', OriginatingChannel: 'ddingtalk', OriginatingTo: to,
-    From: 'ddingtalk:sender_01', To: to, ImagenInput: { args: 'edit paint', images: [], expectedImages: 0 },
-  };
-  assert.equal(await hook({ ctx: { ...ctx, ImagenInput: undefined } }, dispatch), undefined);
-  assert.equal(await hook({ ctx: { ...ctx, ImagenInput: { naturalText: '你会看图片吗' } } }, dispatch), undefined);
-  for (const event of [
-    { ctx, sendPolicy: 'deny' }, { ctx, suppressUserDelivery: true }, { ctx, isTailDispatch: true },
-    { ctx: { ...ctx, OriginatingTo: user } },
-  ]) assert.equal((await hook(event, dispatch)).queuedFinal, false);
-  assert.equal(calls.length, 0);
-  assert.equal((await hook({ ctx }, dispatch)).queuedFinal, true);
-  assert.deepEqual(replies, [{ text: '<dingtalk_final>请附图</dingtalk_final>' }]);
+test('native tool execution is rejected for suppressed, unbound and wrong-run turns', async () => {
+  let calls = 0;
+  const run = async () => { calls++; return { text: 'ok' }; };
+  run.allowed = () => true;
+  const bind = toolHarness(run);
+  const ctx = { Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group, OriginatingTo: group, SenderId: 'a',
+    ImagenInput: { naturalText: '做个插画', images: [], expectedImages: 0 } };
+  const args = { prompt: '画插画' };
+  for (const options of [{ sendPolicy: 'deny' }, { suppressUserDelivery: true }, { isTailDispatch: true }]) {
+    assert.equal((await bind(ctx, options).invoke(args)).block, true);
+  }
+  assert.equal((await bind({ ...ctx, OriginatingTo: other }).invoke(args)).block, true);
+  assert.equal((await bind(ctx).invoke(args, { runId: 'wrong-run' })).block, true);
+  assert.equal(calls, 0);
+  assert.equal(await bind(ctx).invoke(args), 'ok');
+  assert.equal(calls, 1);
 });
 
 test('four jobs render concurrently; queued work starts FIFO and key rotation is preserved', async () => {
@@ -472,15 +446,12 @@ test('four jobs render concurrently; queued work starts FIFO and key rotation is
   for (const result of await Promise.all(running)) assert.equal(result.mediaUrl, '/fake/image.png');
 });
 
-test('registers one explicit command, not a general-purpose exec tool', () => {
-  const commands = [];
+test('registers one native skill tool and no standalone slash responder', () => {
+  const tools = [];
   const hooks = [];
-  plugin.register({ registerCommand: (command) => commands.push(command), on: (event) => hooks.push(event) });
-  assert.equal(commands.length, 1);
-  assert.equal(commands[0].name, 'imagen');
-  assert.deepEqual(commands[0].channels, ['qqbot', 'ddingtalk']);
-  assert.deepEqual(hooks, ['reply_dispatch']);
-  assert.match(commands[0].handler().text, /edit/);
+  plugin.register({ registerTool: (_factory, options) => tools.push(options.name), on: event => hooks.push(event) });
+  assert.deepEqual(tools, ['luke_imagen']);
+  assert.deepEqual(hooks, ['reply_dispatch', 'before_tool_call', 'reply_payload_sending']);
 });
 
 test('gateway startup loads Imagen before the first reply dispatch', async () => {

@@ -3,9 +3,10 @@ import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, mayInvokeImagen, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
+import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
 import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsConversationContext, wantsGroupContext } from './visual-brief.mjs';
 import { createJobPool } from './jobs.mjs';
+import { registerImagenTool } from './agent-tool.mjs';
 import { OPENAI_PROBE, selectImageProxyRoute } from './proxy-route.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
@@ -262,7 +263,7 @@ export function createHandler({
     if (scope && (!scope.group || groups.has(scope.address) ||
         (allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) return scope;
   }
-  const handle = async (context) => {
+  const handle = async (context, signal) => {
     const scope = allowedScope(context);
     if (!scope) return context.intent?.tentative ? undefined : { text: '当前会话未开放生图。' };
     let args = typeof context.args === 'string' ? context.args.trim() : '';
@@ -330,8 +331,10 @@ export function createHandler({
     let request = parseRequest(requestArgs, mode);
     if (!request) return { text: USAGE };
     const [quotedText] = boundedContext([context.quotedText]);
-    const contextRequested = wantsConversationContext(request.prompt);
-    const contextLines = contextRequested || context.intent?.tentative ? boundedContext(context.recentChat) : [];
+    const snapshot = context.contextSnapshot;
+    const contextRequested = Boolean(snapshot) || context.useRecentChat === true || wantsConversationContext(request.prompt);
+    const contextLines = snapshot ? boundedContext(snapshot.messages.map(({ at, text }) => `${at} ${text}`), 72)
+      : contextRequested ? boundedContext(context.recentChat) : [];
     const useContext = Boolean(quotedText || contextRequested);
     const missingContext = wantsGroupContext(request.prompt) ? !contextLines.length
       : !quotedText && !hasSource && (context.hasQuote || !contextLines.length);
@@ -339,11 +342,13 @@ export function createHandler({
       return context.intent?.tentative ? undefined : { text: '我现在没有足够的上下文来构图。请引用原文或原图，或把主题说一下。' };
     }
     const requestSequence = ++sequence;
+    if (signal?.aborted) return;
     const release = await jobs.acquire();
     if (!release) return context.intent?.tentative ? undefined : { text: '生图队列繁忙，请稍后再试。' };
     const startAt = nextKey;
     nextKey = 1 - nextKey;
     try {
+      if (signal?.aborted) return;
       if (quoteCount > 0) {
         try { images = await context.loadQuotedImages?.(); }
         catch { images = []; }
@@ -363,6 +368,7 @@ export function createHandler({
       try {
         planned = await plan({
           prompt: request.prompt, mode, images: files, context: contextLines, quotedText,
+          contextCoverage: snapshot && { available: snapshot.count, sampled: contextLines.length, partial: snapshot.limited },
           format: request.body.output_format, decideIntent,
         }, startAt);
       }
@@ -402,6 +408,7 @@ export function createHandler({
           : '这次没能完成看图和改图规划，没有继续生成。请稍后再试。' };
       }
       if (brief) body.prompt = renderPrompt(mode, prompt, brief);
+      if (signal?.aborted) return;
       logger?.info(`[imagen] render settings model=${body.model} quality=${body.quality} complexity=${body.complexity}`);
       const mediaUrl = await render(body, startAt, files);
       if (actorKey && (recentJobs.get(actorKey)?.sequence ?? 0) < requestSequence) {
@@ -422,6 +429,7 @@ export function createHandler({
     }
     finally { release(); }
   };
+  handle.allowed = context => Boolean(allowedScope(context));
   handle.observe = (context, text) => {
     const scope = allowedScope(context);
     if (!scope) return;
@@ -433,66 +441,14 @@ export function createHandler({
   return handle;
 }
 
-export function createDispatchHook(handler) {
-  return async (event, dispatch) => {
-    const ctx = event.ctx;
-    const input = ctx?.ImagenInput;
-    const channel = ctx?.Provider;
-    if (!input || !['qqbot', 'ddingtalk'].includes(channel) || ctx.OriginatingChannel !== channel) return;
-    const scopeContext = {
-      channel, from: ctx.From, to: ctx.To, senderId: ctx.SenderId, accountId: ctx.AccountId,
-    };
-    const deliverable = event.sendPolicy !== 'deny' && !event.suppressUserDelivery && !event.isTailDispatch &&
-      ctx.OriginatingTo === ctx.To;
-    const hasPotentialSource = input.expectedImages > 0 || input.quotedImageCount > 0 ||
-      (channel === 'qqbot' && (isImagenEditCorrection(input.naturalText ?? '') ||
-        (input.recentImages?.length > 0 && wantsRecentImagenSource(input.naturalText ?? ''))));
-    const quotedText = ctx.ReplyToBody;
-    const hasQuote = Boolean(ctx.ReplyToIsQuote || ctx.ReplyToId || quotedText);
-    const intent = typeof input.args === 'string' ? undefined
-      : recognizeImagenIntent(input.naturalText, hasPotentialSource) ??
-        (mayInvokeImagen(input.naturalText, hasQuote || hasPotentialSource || input.recentChat?.length)
-          ? { kind: 'generate', args: input.naturalText, tentative: true } : undefined);
-    if (typeof input.args !== 'string' && !intent) {
-      if (deliverable && typeof input.naturalText === 'string') handler.observe?.(scopeContext, input.naturalText);
-      return;
-    }
-    const { dispatcher } = dispatch;
-    let queuedFinal = false;
-    if (deliverable) {
-      const reply = await handler({
-        ...scopeContext,
-        args: input.args ?? intent?.args, intent, images: input.images, expectedImages: input.expectedImages,
-        recentChat: input.recentChat, quotedText, hasQuote,
-        quotedImageCount: channel === 'qqbot' ? input.quotedImageCount : undefined,
-        loadQuotedImages: channel === 'qqbot' ? input.loadQuotedImages : undefined,
-        recentImages: channel === 'qqbot' ? input.recentImages : undefined,
-      });
-      if (!reply) return;
-      if (channel === 'ddingtalk' && reply.text) reply.text = `<dingtalk_final>${reply.text}</dingtalk_final>`;
-      queuedFinal = dispatcher.sendFinalReply(reply);
-    }
-    dispatch.recordProcessed('completed', { reason: 'imagen_handled' });
-    dispatch.markIdle('message_completed');
-    return { handled: true, queuedFinal, counts: dispatcher.getQueuedCounts() };
-  };
-}
-
 export default {
   id: 'luke-openai-image',
   register(api) {
-    api.on('reply_dispatch', createDispatchHook(createHandler({
+    registerImagenTool(api, createHandler({
       allowedGroups: api.pluginConfig?.allowedGroups ?? [],
       allowAllDingTalkGroups: api.pluginConfig?.allowAllDingTalkGroups === true,
       jobs: createJobPool({ concurrency: api.pluginConfig?.maxConcurrentJobs ?? 4 }),
       logger: api.logger,
-    })));
-    api.registerCommand({
-      name: 'imagen', description: '文生图、精修和参考图生成',
-      channels: ['qqbot', 'ddingtalk'], acceptsArgs: true, requireAuth: false,
-      handler: (ctx) => ({
-        text: (ctx?.channelId ?? ctx?.channel) === 'ddingtalk' ? `<dingtalk_final>${USAGE}</dingtalk_final>` : USAGE,
-      }),
-    });
+    }));
   },
 };

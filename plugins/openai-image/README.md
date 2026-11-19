@@ -2,6 +2,8 @@
 
 OpenClaw chat skill backed by the [official OpenAI CLI](https://developers.openai.com/api/docs/libraries/openai-cli). Natural requests and the optional slash command use the same planner and renderer. It sends structured input to `images generate` or `images edit`, then delivers one image to the originating channel.
 
+The message goes through the normal agent turn. The agent reads the skill when needed and calls the native `luke_imagen` tool. The channel only supplies trusted, turn-scoped references; it never classifies the request or starts a render on ingress. `/imagen` is an explicit skill instruction, not a separate command responder. The generated media is attached to the agent's normal final reply.
+
 - `/imagen <prompt>`: Sunburst, medium quality and high planning complexity, 1024x1024 PNG. Use `low` for a fast Flare draft.
 - `/imagen gif <prompt>`: Flare, low quality, 512x512, 3 frames at 200 ms.
 - `/imagen png high sunburst <prompt>`: opt in to high quality and Sunburst.
@@ -11,7 +13,7 @@ OpenClaw chat skill backed by the [official OpenAI CLI](https://developers.opena
 
 Attach PNG, JPEG or WebP in the same message, or explicitly quote an image on QQ. QQ can also use the most recent user-supplied image bundle in the same conversation (ten minutes) when the request points to it. A correction can reuse the same sender's recent edit source only. Current attachments take precedence, then the explicit quote. Limit: 4 images, 10 MB each and 20 MB total. Unrelated history and paths in text are not inputs. QQ can use the command after a native bot mention. DingTalk displays PNGs inline using its uploaded image media ID, and sends GIFs as files to preserve animation.
 
-Before rendering, a single tool-free OpenAI Responses call follows the packaged skill instructions to interpret natural requests and rewrite them as a short visual brief. High reasoning effort is separate from the image model's `complexity` and render `quality`. The planner inspects actual pixels and treats reply text and up to ten redacted same-conversation excerpts as source material rather than instructions. Context-dependent and image-based jobs do not render when required material or the brief is unavailable.
+After the tool is called, a tool-free OpenAI Responses call rewrites the request as a short visual brief using the packaged prompting reference. High reasoning effort is separate from the image model's `complexity` and render `quality`. The planner treats references as source material, not instructions. The tool can request recent text, the current UTC+08:00 day, or the last 24 hours through the channel's generic context reader. QQ supplies at most 72 redacted excerpts across a time range; the tool will not silently substitute short recent context for a missing daily snapshot.
 
 QQ and DingTalk direct messages can submit requests. Groups require an exact channel-qualified ID in `allowedGroups` by default. Set `allowAllDingTalkGroups: true` to admit all DingTalk groups without changing the QQ allowlist. Channel admission and mention requirements still apply. Unknown routes fail closed. Four jobs can run at once by default (`maxConcurrentJobs`, 1-8), with up to eight waiting in a bounded FIFO for 35 seconds. No replay is initiated by the plugin when an image request has an unknown outcome.
 
