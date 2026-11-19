@@ -46,3 +46,36 @@ test('the rolling inbox expires content without forgetting the bound group', () 
     assert.equal(receiver.record(sample()), true);
   } finally { db.close(); }
 });
+
+test('all-groups needs no handshake and keeps the same platform ID separate across groups', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const receiver = inbox(db, { mode: 'all-groups' });
+    assert.equal(receiver.record(sample()), true);
+    assert.equal(receiver.record(sample({ groupOpenid: 'second-group' })), true);
+    assert.equal(receiver.record(sample({ kind: 'c2c', messageId: 'dm' })), false);
+    assert.equal(receiver.record(sample({ senderIsBot: true, messageId: 'bot' })), false);
+    assert.equal(receiver.record(sample({ rawEventType: 'GROUP_ADD_ROBOT', messageId: 'lifecycle' })), false);
+    assert.equal(receiver.record(sample()), false);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM events').get().n, 2);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM group_binding').get().n, 0);
+  } finally { db.close(); }
+});
+
+test('migration preserves earlier messages and assigns them to their original bound group', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    db.exec(`
+      CREATE TABLE group_binding (singleton INTEGER PRIMARY KEY, group_id TEXT NOT NULL);
+      INSERT INTO group_binding VALUES (1, 'original-group');
+      CREATE TABLE events (message_id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, received_at INTEGER NOT NULL,
+        event_type TEXT NOT NULL, mentioned INTEGER NOT NULL, body TEXT NOT NULL, attachment_count INTEGER NOT NULL);
+      CREATE INDEX events_received_at ON events(received_at);
+      INSERT INTO events VALUES ('existing', 'tester', 100, 'GROUP_MESSAGE_CREATE', 0, 'previous', 0);
+    `);
+    const receiver = inbox(db, { mode: 'all-groups', now: () => 101 });
+    assert.equal(db.prepare('SELECT group_id FROM events WHERE body = ?').get('previous').group_id, 'original-group');
+    assert.equal(receiver.record(sample()), true);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM events').get().n, 2);
+  } finally { db.close(); }
+});

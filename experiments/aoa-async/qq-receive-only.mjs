@@ -7,25 +7,57 @@ import { pathToFileURL } from 'node:url';
 const day = 86_400_000;
 const groupEvents = new Set(['GROUP_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE']);
 
-export function inbox(db, { challenge, now = Date.now }) {
+const eventsSchema = `
+  CREATE TABLE IF NOT EXISTS events (
+    group_id TEXT NOT NULL, message_id TEXT NOT NULL, sender_id TEXT NOT NULL,
+    received_at INTEGER NOT NULL, event_type TEXT NOT NULL, mentioned INTEGER NOT NULL,
+    body TEXT NOT NULL, attachment_count INTEGER NOT NULL,
+    PRIMARY KEY (group_id, message_id)
+  );
+`;
+
+function migrate(db) {
   db.exec(`
     PRAGMA secure_delete = ON;
     CREATE TABLE IF NOT EXISTS group_binding (
       singleton INTEGER PRIMARY KEY CHECK (singleton = 1), group_id TEXT NOT NULL
     );
-    CREATE TABLE IF NOT EXISTS events (
-      message_id TEXT PRIMARY KEY, sender_id TEXT NOT NULL, received_at INTEGER NOT NULL,
-      event_type TEXT NOT NULL, mentioned INTEGER NOT NULL, body TEXT NOT NULL,
-      attachment_count INTEGER NOT NULL
-    );
-    CREATE INDEX IF NOT EXISTS events_received_at ON events(received_at);
   `);
+  const columns = db.prepare('PRAGMA table_info(events)').all();
+  if (columns.length && !columns.some(column => column.name === 'group_id')) {
+    db.exec('BEGIN IMMEDIATE');
+    try {
+      db.exec(`
+        ALTER TABLE events RENAME TO events_bound;
+        ${eventsSchema}
+        INSERT INTO events
+          SELECT (SELECT group_id FROM group_binding WHERE singleton = 1), events_bound.*
+          FROM events_bound;
+        DROP TABLE events_bound;
+        COMMIT;
+      `);
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+  } else db.exec(eventsSchema);
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS events_received_at ON events(received_at);
+    CREATE INDEX IF NOT EXISTS events_by_group ON events(group_id, received_at);
+  `);
+}
+
+export function inbox(db, { mode = 'bound-group', challenge, now = Date.now }) {
+  if (mode !== 'bound-group' && mode !== 'all-groups') throw new Error('invalid receive mode');
+  migrate(db);
   const binding = db.prepare('SELECT group_id FROM group_binding WHERE singleton = 1');
   const bind = db.prepare('INSERT OR IGNORE INTO group_binding VALUES (1, ?)');
-  const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?)');
+  const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   const expire = db.prepare('DELETE FROM events WHERE received_at < ?');
-  const trim = db.prepare('DELETE FROM events WHERE rowid IN (SELECT rowid FROM events ORDER BY received_at DESC, rowid DESC LIMIT -1 OFFSET 2000)');
-  const prune = () => { expire.run(now() - day); trim.run(); };
+  const trim = db.prepare(`DELETE FROM events WHERE rowid IN (
+    SELECT rowid FROM events WHERE group_id = ? ORDER BY received_at DESC, rowid DESC LIMIT -1 OFFSET 2000
+  )`);
+  const prune = () => expire.run(now() - day);
   prune();
   return {
     prune,
@@ -34,21 +66,25 @@ export function inbox(db, { challenge, now = Date.now }) {
         || !msg.groupOpenid || !msg.senderId || !msg.messageId) return false;
       const mentioned = msg.rawEventType === 'GROUP_AT_MESSAGE_CREATE' || msg.mentions?.some(m => m.is_you === true);
       const body = typeof msg.content === 'string' ? msg.content : '';
-      // A private setup phrase binds one group, not every group the bot receives.
-      if (!binding.get() && mentioned && challenge
-        && body.replace(/<@!?[^>]+>/g, ' ').split(/\s+/).includes(challenge)) bind.run(msg.groupOpenid);
-      if (binding.get()?.group_id !== msg.groupOpenid) return false;
-      const result = insert.run(msg.messageId, msg.senderId, now(), msg.rawEventType, mentioned ? 1 : 0,
+      if (mode === 'bound-group') {
+        if (!binding.get() && mentioned && challenge
+          && body.replace(/<@!?[^>]+>/g, ' ').split(/\s+/).includes(challenge)) bind.run(msg.groupOpenid);
+        if (binding.get()?.group_id !== msg.groupOpenid) return false;
+      }
+      const result = insert.run(msg.groupOpenid, msg.messageId, msg.senderId, now(), msg.rawEventType, mentioned ? 1 : 0,
         body.slice(0, 4096), Array.isArray(msg.attachments) ? msg.attachments.length : 0);
       prune();
+      trim.run(msg.groupOpenid);
       return result.changes === 1;
     },
   };
 }
 
 async function main() {
-  const [rootArg, sdkPath, appId, keychainService, challenge] = process.argv.slice(2);
-  if (!rootArg || !sdkPath || !/^\d+$/.test(appId ?? '') || !keychainService || !/^AOA-[A-Z0-9]{8,32}$/.test(challenge ?? '')) {
+  const [rootArg, sdkPath, appId, keychainService, scope] = process.argv.slice(2);
+  const mode = scope === 'all-groups' ? 'all-groups' : 'bound-group';
+  if (!rootArg || !sdkPath || !/^\d+$/.test(appId ?? '') || !keychainService
+    || (mode === 'bound-group' && !/^AOA-[A-Z0-9]{8,32}$/.test(scope ?? ''))) {
     throw new Error('invalid pilot configuration');
   }
   process.umask(0o077);
@@ -62,12 +98,12 @@ async function main() {
   ], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
   if (!appSecret) throw new Error('empty keychain credential');
   const db = new DatabaseSync(join(root, 'inbox.sqlite'));
-  const receiver = inbox(db, { challenge });
+  const receiver = inbox(db, { mode, challenge: scope });
   const stop = new AbortController();
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId, appSecret, transport: 'websocket', logger });
-  bot.on('ready', () => console.log('qq_receive_ready'));
+  bot.on('ready', () => console.log('qq_receive_ready mode=' + mode));
   bot.on('error', () => console.error('qq_receive_error'));
   bot.on('message', (_ctx, msg) => {
     try { receiver.record(msg); } catch { console.error('qq_receive_store_error'); }

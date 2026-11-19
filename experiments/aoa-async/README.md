@@ -54,6 +54,8 @@ The stock checks use a fresh temporary home. They inspect runtime plugin registr
 
 ### Receive-only evidence on macOS
 
-Run `node qq-receive-only.mjs <private-state-dir> <absolute-sdk-esm-entry> <test-app-id> <keychain-service> <one-time-AOA-token>` with the SDK used by the pinned QQ adapter. The process reads the secret only from the specified local Keychain item, and never sends a message. Supervise it independently of OpenClaw (for example with a dedicated LaunchAgent). Do not start another gateway using the same test account while it runs.
+Run `node qq-receive-only.mjs <private-state-dir> <absolute-sdk-esm-entry> <test-app-id> <keychain-service> <scope>` with the SDK used by the pinned QQ adapter. The process reads the secret only from the specified local Keychain item, and never sends a message. Supervise it independently of OpenClaw (for example with a dedicated LaunchAgent). Do not start another gateway using the same test account while it runs.
 
-To bind, mention the test bot with a unique token matching `AOA-[A-Z0-9]{8,32}` in the intended group. For full-message verification, send a second message without a mention. The private `inbox.sqlite` keeps only the bound group's latest 24 hours, capped at 2,000 messages. It excludes raw payloads and attachment URLs. This verifies QQ event delivery, not the bridge's reply routing or native quote rendering.
+Select `all-groups` to record group messages delivered to the test account without a local group allowlist. This does not grant or request any additional QQ permissions. To restrict collection to one group, use a unique scope token matching `AOA-[A-Z0-9]{8,32}` and mention the test bot with that token in the intended group. For full-message verification, send a second message without a mention.
+
+The private `inbox.sqlite` keeps the latest 24 hours, capped at 2,000 messages per group. It excludes direct messages, raw payloads, and attachment URLs. Switching from one group to all groups preserves existing records with their original group ID. This verifies QQ event delivery, not the bridge's reply routing or native quote rendering.
