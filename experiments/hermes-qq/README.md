@@ -18,4 +18,10 @@ The published image is pinned to Hermes v0.23.2. The Compose network has no exte
 
 This test checks the adapter's source mapping, final-only output, Hermes concurrency, and idempotency. A deterministic provider does not validate real model intent accuracy, memory learning, QQ native quotes, or delivery. It deliberately does not replace the existing read-only test bot.
 
+## Real-model shadow
+
+`shadow-compose.yaml` starts a separate Hermes instance using the R2 model settings snapshot in `shadow-config.yaml`. Inject `ZAI_API_KEY` and a separate local `API_SERVER_KEY` through the launch environment, not the repository. The Compose environment pins `GLM_BASE_URL` as well: the provider's environment credentials can otherwise resolve the international alias despite the model URL in YAML. The API is inside the container on loopback, the provider requires outbound network, and this profile has no agent tools, memory learning, channel tokens, or private host mounts. It does not change the production model or service.
+
+Run `node /pilot/hermes-qq/shadow.mjs probe` inside the gateway to verify the serving model. To test a batch, pipe a JSON envelope from `node experiments/hermes-qq/bound-sample.mjs <private-inbox.sqlite> <test-account>` to `node /pilot/hermes-qq/shadow.mjs window` via `docker compose exec -T -u hermes gateway`. This only selects up to eight recent plain messages in the previously verified test group and reports counts, not public replies. Do not print the JSON sample in between. The raw inbox is not mounted and the bridge does not continuously consume model quota.
+
 For the next pilot, use separate isolated Hermes profiles for fast chat and tool-capable work, validate the actual group participant attribution before enabling Honcho, and use native Kanban for durable work instead of creating a new task database. Do not send a live message until an explicit test destination is selected and delivery replay/uncertainty has been tested.

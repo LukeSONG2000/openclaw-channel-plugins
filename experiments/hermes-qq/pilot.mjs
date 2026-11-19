@@ -117,7 +117,24 @@ export function hermesPilot({ fast, work = fast }) {
         return { id: row.messageId, speaker: row.senderId, text: event.text };
       });
       const batch = digest(unread.map(row => row.id));
-      return planWindowReplies({ unread, context, generate: input => complete(fast, spec(source, 'window', '[QQ_AMBIENT_WINDOW]\n' + input, batch)) });
+      let inferenceError;
+      const actions = await planWindowReplies({
+        unread, context,
+        async generate(input) {
+          try {
+            const raw = await complete(fast, spec(source, 'window', '[QQ_AMBIENT_WINDOW]\n' + input, batch));
+            const decision = JSON.parse(raw);
+            if (!decision || Array.isArray(decision) || Object.keys(decision).length !== 2 ||
+              !Object.hasOwn(decision, 'natural') || !Object.hasOwn(decision, 'reply')) {
+              throw new Error('invalid Hermes window decision');
+            }
+            return raw;
+          }
+          catch (error) { inferenceError = error; throw error; }
+        },
+      });
+      if (inferenceError) throw inferenceError;
+      return actions;
     },
     async settle(job) {
       if (job?.kind !== 'work') throw new Error('expected a background run');

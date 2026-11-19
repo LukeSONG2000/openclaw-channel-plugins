@@ -12,6 +12,7 @@ services:
       - ./pilot.mjs:/pilot/hermes-qq/pilot.mjs:ro
       - ./pilot.test.mjs:/pilot/hermes-qq/pilot.test.mjs:ro
       - ./inbox-view.mjs:/pilot/hermes-qq/inbox-view.mjs:ro
+      - ./bound-sample.mjs:/pilot/hermes-qq/bound-sample.mjs:ro
       - ../aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro
       - ../aoa-async/qq-receive-only.mjs:/pilot/aoa-async/qq-receive-only.mjs:ro
     networks:

@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
+import { boundSample } from './bound-sample.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
 import { hermesPilot, hermesRuns } from './pilot.mjs';
 
@@ -38,6 +39,14 @@ test('the API client only accepts the local gateway', () => {
   }
 });
 
+test('a failed or malformed inference is not reported as a deliberate silent decision', async () => {
+  const input = [event('ordinary', 'A')];
+  const withAnswer = wait => hermesPilot({ fast: { start: async () => 'fast', wait } });
+  await assert.rejects(withAnswer(async () => { throw new Error('provider failed'); }).window(input), /provider failed/);
+  await assert.rejects(withAnswer(async () => '{"unrelated":1}').window(input), /invalid Hermes window decision/);
+  assert.deepEqual(await withAnswer(async () => '{"natural":null,"reply":null}').window(input), []);
+});
+
 function recordedWindow(rows) {
   const db = new DatabaseSync(':memory:');
   try {
@@ -56,6 +65,26 @@ test('read-only input reuses the QQ receipt schema but scopes the selected group
   const mention = event('mention', '@Luke', { mentioned: true, senderId: 'speaker-two' });
   const other = event('different', 'not in this group', { groupId: 'group-two' });
   assert.deepEqual(recordedWindow([plain, other, mention]), [plain, mention]);
+});
+
+test('live samples require a previously verified group and omit old or mentioned inputs', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    let now = 1;
+    const receiver = inbox(db, { challenge: 'AOA-TEST1234', now: () => now });
+    assert.throws(() => boundSample(db, 'test-bot', now), /verified test group/);
+    const put = (messageId, content, rawEventType) => receiver.record({
+      kind: 'group', groupOpenid: 'group-one', senderId: 'speaker-one',
+      messageId, content, rawEventType,
+    });
+    put('bind', 'AOA-TEST1234', 'GROUP_AT_MESSAGE_CREATE');
+    put('old', 'old', 'GROUP_MESSAGE_CREATE');
+    now = 120_002;
+    put('new', 'new', 'GROUP_MESSAGE_CREATE');
+    put('direct', '@bot', 'GROUP_AT_MESSAGE_CREATE');
+    assert.deepEqual(boundSample(db, 'test-bot', now).events.map(e => e.messageId), ['new']);
+    assert.deepEqual(boundSample(db, 'test-bot', now + 86_400_001), { events: [] });
+  } finally { db.close(); }
 });
 
 test('real Hermes: a QQ window chooses two replies and another @ completes before the job', {
