@@ -9,7 +9,8 @@ import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-bri
 import { inferImagenMode, recognizeImagenIntent } from './intent.mjs';
 import { createJobPool } from './jobs.mjs';
 import { proxyConfig } from './proxy-config.mjs';
-import { rankImageProxyRoutes, selectImageProxyRoute } from './proxy-route.mjs';
+import { rankImageProxyRoutes } from './proxy-route.mjs';
+import { runProviderJob } from './provider-failover.mjs';
 
 const user = 'qqbot:c2c:' + 'A'.repeat(32);
 const group = 'qqbot:group:' + 'B'.repeat(32);
@@ -569,23 +570,64 @@ test('proxy ranking subtracts upload and download, skips expired and exhausted s
   assert.deepEqual(rank({ proxies: [] }, subscription(10)), [['image-2', 80]]);
 });
 
-test('unreachable high-quota proxy falls back; health refresh never probes an exhausted route', async () => {
-  const calls = [];
-  let result = await selectImageProxyRoute({
-    providers: { 'image-1': subscription(50), 'image-2': subscription(10) }, now: 100_000,
-    probe: async ({ provider }) => (calls.push(provider), provider === 'image-1'),
-    refresh: async () => assert.fail('unnecessary refresh'),
-  });
-  assert.equal(result.provider, 'image-1');
-  assert.deepEqual(calls, ['image-2', 'image-1']);
+const high = { provider: 'preferred' }, low = { provider: 'backup' };
+const providerCase = {
+  keys: ['a', 'b'], startAt: 0, routes: [high, low], check: async () => true,
+  refresh: async () => assert.fail('unexpected health refresh'),
+};
 
-  calls.length = 0;
-  let refreshed = false;
-  result = await selectImageProxyRoute({
-    providers: { 'image-1': subscription(90), 'image-2': subscription(10) }, now: 100_000,
-    probe: async ({ provider }) => (calls.push(provider), refreshed),
-    refresh: async ({ provider }) => { calls.push(`refresh:${provider}`); refreshed = true; },
+test('a failed authenticated health check switches to the next proxy before starting a render', async () => {
+  const checked = [], renders = [];
+  const result = await runProviderJob({ ...providerCase, phase: 'render',
+    check: async (key, route) => (checked.push([key, route.provider]), route === low),
+    attempt: async (key, route) => (renders.push([key, route.provider]), 'png'),
   });
-  assert.equal(result.provider, 'image-2');
-  assert.deepEqual(calls, ['image-2', 'refresh:image-2', 'image-2']);
+  assert.equal(result, 'png');
+  assert.deepEqual(checked, [['a', 'preferred'], ['b', 'preferred'], ['a', 'backup']]);
+  assert.deepEqual(renders, [['a', 'backup']]);
+});
+
+test('planning retries once on another proxy after a transient provider error', async () => {
+  const calls = [];
+  const result = await runProviderJob({ ...providerCase, phase: 'plan',
+    attempt: async (key, route) => {
+      calls.push([key, route.provider]);
+      if (route === high) throw new Error('upstream');
+      return 'brief';
+    },
+  });
+  assert.equal(result, 'brief');
+  assert.deepEqual(calls, [['a', 'preferred'], ['b', 'backup']]);
+});
+
+test('a definite render rejection can switch accounts but an uncertain result cannot retry', async () => {
+  const calls = [];
+  const result = await runProviderJob({ ...providerCase, phase: 'render',
+    attempt: async (key, route) => {
+      calls.push([key, route.provider]);
+      if (key === 'a') throw new Error('rate_limit');
+      return 'png';
+    },
+  });
+  assert.equal(result, 'png');
+  assert.deepEqual(calls, [['a', 'preferred'], ['b', 'preferred']]);
+  for (const reason of ['timeout', 'upstream', 'provider', 'policy', 'invalid_request']) {
+    let attempts = 0;
+    await assert.rejects(runProviderJob({ ...providerCase, phase: 'render',
+      attempt: async () => { attempts++; throw new Error(reason); },
+    }), { message: reason });
+    assert.equal(attempts, 1);
+  }
+});
+
+test('failed preflight refreshes healthy subscription groups once and preserves the render budget', async () => {
+  const ranked = rankImageProxyRoutes({ 'image-1': subscription(90), 'image-2': subscription(10) }, 100_000);
+  let refreshed = false, attempts = 0;
+  const result = await runProviderJob({ ...providerCase, phase: 'render', routes: ranked,
+    check: async () => refreshed,
+    refresh: async routes => { assert.deepEqual(routes.map(route => route.provider), ['image-2']); refreshed = true; },
+    attempt: async (_key, _route, budget) => { attempts++; assert.ok(budget <= 180_000); return 'png'; },
+  });
+  assert.equal(result, 'png');
+  assert.equal(attempts, 1);
 });

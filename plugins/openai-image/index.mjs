@@ -7,7 +7,8 @@ import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRed
 import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsConversationContext } from './visual-brief.mjs';
 import { createJobPool } from './jobs.mjs';
 import { registerImagenTool } from './agent-tool.mjs';
-import { OPENAI_PROBE, selectImageProxyRoute } from './proxy-route.mjs';
+import { OPENAI_PROBE, rankImageProxyRoutes } from './proxy-route.mjs';
+import { runProviderJob } from './provider-failover.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
 const PROXY_SOCKET = join(ROOT, 'openai-image-private', 'proxy', 'control.sock');
@@ -134,6 +135,9 @@ export function readProviderFailure({ killed, stderr, stdout } = {}) {
       const err = root.error ?? root;
       const code = err.code ?? root.code;
       const status = Number(err.status_code ?? err.http_status ?? err.status ?? root.status_code ?? root.status);
+      if (err.request_sent === false && ['connect', 'proxy_connect', 'tls_handshake'].includes(err.phase)) {
+        return { reason: 'connection_before_send' };
+      }
       if (code === 'insufficient_quota') return { reason: 'quota' };
       if (code === 'rate_limit_exceeded' || status === 429) return { reason: 'rate_limit' };
       if (['content_policy_violation', 'moderation_blocked', 'safety_violations'].includes(code)) return { reason: 'policy' };
@@ -145,9 +149,9 @@ export function readProviderFailure({ killed, stderr, stdout } = {}) {
   return { reason: 'provider' };
 }
 
-function run(file, args, { input, env, timeout }) {
+function run(file, args, { input, env, timeout, signal }) {
   return new Promise((resolve, reject) => {
-    const child = execFile(file, args, { env, timeout, maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
+    const child = execFile(file, args, { env, timeout, signal, maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
       const failure = new Error(readProviderFailure({ killed: error.killed, stderr, stdout }).reason);
       reject(failure);
@@ -169,11 +173,11 @@ function apiEnv(key, route) {
   };
 }
 
-async function checkKey(key, model, route) {
+async function checkKey(key, model, route, budget, signal) {
   try {
-    const output = await run('/usr/bin/curl', ['-q', '--silent', '--fail', '--max-time', '8',
+    const output = await run('/usr/bin/curl', ['-q', '--silent', '--fail', '--max-time', String(budget / 1000),
       '--proto', '=https', '--proxy', proxyAddress(route), '--noproxy', '', '--config', '-'], {
-      env: apiEnv(key, route), timeout: 10_000,
+      env: apiEnv(key, route), timeout: budget, signal,
       input: `url = "https://api.openai.com/v1/models/${model}"\nheader = "Authorization: Bearer ${key}"\n`,
     });
     return JSON.parse(output).id === model;
@@ -185,38 +189,45 @@ async function proxyControl(path, seconds) {
     '--unix-socket', PROXY_SOCKET, `http://localhost${path}`], { timeout: (seconds + 1) * 1000, env: {} });
 }
 
-async function probeProxy(route) {
-  try {
-    const status = await run('/usr/bin/curl', ['-q', '--silent', '--max-time', '5', '--proto', '=https',
-      '--proxy', proxyAddress(route), '--noproxy', '', '--output', '/dev/null', '--write-out', '%{http_code}',
-      OPENAI_PROBE], { timeout: 6000, env: {} });
-    return status === '401';
-  } catch { return false; }
+let refreshInFlight;
+function refreshImageRoutes(routes) {
+  refreshInFlight ??= Promise.all(routes.map(async ({ group }) => {
+    const query = `url=${encodeURIComponent(OPENAI_PROBE)}&timeout=5000&expected=401`;
+    const check = name => proxyControl(`/group/${name}/delay?${query}`, 7).catch(() => null);
+    await Promise.all([check(`${group}-JAPAN-2`), check(`${group}-ALTERNATE`)]);
+    await check(group);
+  })).finally(() => { refreshInFlight = undefined; });
+  return refreshInFlight;
 }
 
-export async function resolveImageProxy() {
-  try {
-    const { providers } = JSON.parse(await proxyControl('/providers/proxies', 3));
-    return await selectImageProxyRoute({
-      providers, probe: probeProxy,
-      refresh: async ({ group }) => {
-        const query = `url=${encodeURIComponent(OPENAI_PROBE)}&timeout=5000&expected=401`;
-        const check = (name) => proxyControl(`/group/${name}/delay?${query}`, 7).catch(() => null);
-        await Promise.all([check(`${group}-JAPAN-2`), check(`${group}-ALTERNATE`)]);
-        await check(group);
-      },
-    });
-  } catch { return null; }
-}
-
-export async function planPrompt(input, startAt) {
+async function callProvider({ phase, model, args, payload, startAt, signal, deadline, logger }) {
+  signal?.throwIfAborted();
   const keys = await loadKeys();
+  const readProviders = () => proxyControl('/providers/proxies', 3).then(JSON.parse);
+  const { providers } = await readProviders().catch(() => {
+    signal?.throwIfAborted();
+    return readProviders().catch(() => ({}));
+  });
+  return runProviderJob({
+    phase, keys, startAt, signal, deadline, routes: rankImageProxyRoutes(providers),
+    check: (key, route, budget) => checkKey(key, model, route, budget, signal), refresh: refreshImageRoutes,
+    attempt: (key, route, timeout) => run(CLI, args, {
+      env: apiEnv(key, route), timeout, signal, input: JSON.stringify(payload),
+    }),
+    onRetry: ({ phase, route, account, reason }) => {
+      logger?.warn?.(`[imagen] provider failover phase=${phase} route=${route} account=${account} reason=${reason}`);
+    },
+  });
+}
+
+export async function planPrompt(input, startAt, { signal, deadline, logger } = {}) {
   const request = await buildBriefRequest(input);
-  const key = keys[startAt];
-  const route = await resolveImageProxy();
-  if (!route || !await checkKey(key, PLANNER_MODEL, route)) throw new Error('planner_unreachable');
-  const output = await run(CLI, ['responses', 'create', '--format', 'json', '--format-error', 'json'], {
-    env: apiEnv(key, route), timeout: 90_000, input: JSON.stringify(request),
+  const output = await callProvider({
+    phase: 'plan', model: PLANNER_MODEL, startAt, signal, deadline, logger,
+    args: ['responses', 'create', '--format', 'json', '--format-error', 'json'], payload: request,
+  }).catch(error => {
+    if (error?.message === 'no_provider') throw new Error('planner_unreachable');
+    throw error;
   });
   const response = JSON.parse(output);
   if (response.status === 'incomplete') throw new Error(
@@ -230,37 +241,23 @@ export async function planPrompt(input, startAt) {
   return brief;
 }
 
-export async function generate(body, startAt, images = []) {
-  const keys = await loadKeys();
-  const route = await resolveImageProxy();
-  if (!route) throw new Error('no_provider');
-  let rejected;
-  for (const key of [keys[startAt], keys[1 - startAt]]) {
-    if (!await checkKey(key, body.model, route)) continue;
-    let output;
-    try {
-      output = await run(CLI, ['images', images.length ? 'edit' : 'generate', '--format', 'json', '--format-error', 'json'], {
-        env: apiEnv(key, route), timeout: 180_000,
-        input: JSON.stringify(images.length ? { ...body, image: images } : body),
-      });
-    } catch (error) {
-      // A request with an uncertain outcome must not generate or charge again.
-      if (['quota', 'rate_limit'].includes(error?.message)) { rejected = error; continue; }
-      throw error;
-    }
-    const encoded = JSON.parse(output).data?.[0]?.b64_json;
-    const bytes = typeof encoded === 'string' ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
-    const gif = body.output_format === 'gif';
-    const valid = gif ? /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString('ascii'))
-      : bytes.subarray(0, 8).equals(PNG);
-    if (!valid || bytes.length > 20 * MIB) throw new Error('invalid_media');
-    const dir = join(ROOT, 'media', 'outbound', 'openai-image');
-    await mkdir(dir, { recursive: true, mode: 0o700 });
-    const file = join(dir, `${randomUUID()}.${body.output_format}`);
-    await writeFile(file, bytes, { flag: 'wx', mode: 0o600 });
-    return file;
-  }
-  throw rejected ?? new Error('no_provider');
+export async function generate(body, startAt, images = [], { signal, deadline, logger } = {}) {
+  const output = await callProvider({
+    phase: 'render', model: body.model, startAt, signal, deadline, logger,
+    args: ['images', images.length ? 'edit' : 'generate', '--format', 'json', '--format-error', 'json'],
+    payload: images.length ? { ...body, image: images } : body,
+  });
+  const encoded = JSON.parse(output).data?.[0]?.b64_json;
+  const bytes = typeof encoded === 'string' ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
+  const gif = body.output_format === 'gif';
+  const valid = gif ? /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString('ascii'))
+    : bytes.subarray(0, 8).equals(PNG);
+  if (!valid || bytes.length > 20 * MIB) throw new Error('invalid_media');
+  const dir = join(ROOT, 'media', 'outbound', 'openai-image');
+  await mkdir(dir, { recursive: true, mode: 0o700 });
+  const file = join(dir, `${randomUUID()}.${body.output_format}`);
+  await writeFile(file, bytes, { flag: 'wx', mode: 0o600 });
+  return file;
 }
 
 export function createHandler({
@@ -349,6 +346,7 @@ export function createHandler({
       return { text: '我没有拿到引用内容。请引用原文或原图，或把主题说一下。' };
     }
     const requestSequence = ++sequence;
+    const deadline = Date.now() + 210_000;
     if (signal?.aborted) return;
     const release = await jobs.acquire();
     if (!release) return context.intent?.tentative ? undefined : { text: '生图队列繁忙，请稍后再试。' };
@@ -376,11 +374,11 @@ export function createHandler({
         planned = await plan({
           prompt: request.prompt, mode, images: files, quotedText,
           format: request.body.output_format, decideIntent,
-        }, startAt);
+        }, startAt, { signal, deadline, logger });
       }
       catch (error) {
         const code = error?.message;
-        planFailure = ['timeout', 'provider', 'quota', 'rate_limit', 'policy', 'auth', 'invalid_request', 'upstream',
+        planFailure = ['timeout', 'provider', 'quota', 'rate_limit', 'policy', 'auth', 'invalid_request', 'upstream', 'connection_before_send',
           'planner_unreachable', 'planner_incomplete', 'planner_budget', 'planner_refusal', 'planner_no_brief'].includes(code)
           ? code : 'unexpected';
         logger?.warn(`[imagen] visual brief failed reason=${planFailure} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
@@ -417,7 +415,7 @@ export function createHandler({
       if (brief) body.prompt = renderPrompt(mode, prompt, brief);
       if (signal?.aborted) return;
       logger?.info(`[imagen] render settings model=${body.model} quality=${body.quality} complexity=${body.complexity}`);
-      const mediaUrl = await render(body, startAt, files);
+      const mediaUrl = await render(body, startAt, files, { signal, deadline, logger });
       if (actorKey && (recentJobs.get(actorKey)?.sequence ?? 0) < requestSequence) {
         recentJobs.delete(actorKey);
         if (recentJobs.size >= 128) recentJobs.delete(recentJobs.keys().next().value);
@@ -432,6 +430,7 @@ export function createHandler({
     } catch (error) {
       const messages = {
         no_provider: '暂时没有可用的生图线路，本次未出图。',
+        connection_before_send: '没能连上生图接口，本次没有发起渲染。',
         timeout: '生图接口超时，未收到成品，不能确认服务端是否已完成。',
         quota: '生图账号额度不足，本次未出图。',
         rate_limit: '生图接口限流，本次未出图。',
@@ -444,7 +443,7 @@ export function createHandler({
       const reason = typeof error?.message === 'string' && Object.hasOwn(messages, error.message) ? error.message : 'provider';
       logger?.warn(`[imagen] generation failed reason=${reason}`);
       return { text: messages[reason] ?? '没收到生图成品，暂时无法确定失败原因。',
-        details: { status: reason === 'no_provider' ? 'not_started' : 'failed', reason } };
+        details: { status: ['no_provider', 'connection_before_send'].includes(reason) ? 'not_started' : 'failed', reason } };
     }
     finally { release(); }
   };

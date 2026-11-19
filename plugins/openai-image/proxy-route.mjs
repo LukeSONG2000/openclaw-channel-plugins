@@ -21,16 +21,3 @@ export function rankImageProxyRoutes(providers, now = Date.now()) {
   });
   return eligible.sort((a, b) => b.remaining - a.remaining);
 }
-
-export async function selectImageProxyRoute({ providers, probe, refresh, now }) {
-  const routes = rankImageProxyRoutes(providers, now);
-  for (const route of routes) {
-    if (await probe(route)) return route;
-  }
-  // Refresh only after both current routes fail, and never retry a paid request.
-  await Promise.all(routes.map(refresh));
-  for (const route of routes) {
-    if (await probe(route)) return route;
-  }
-  return null;
-}
