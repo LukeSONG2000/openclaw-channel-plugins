@@ -117,6 +117,28 @@ test('an unconfirmed continuation is not retried or followed by further parts', 
   assert.deepEqual(calls, [1, 2]);
 });
 
+test('a reply that echoes a third-party mention is delivered without exposing or pinging that ID', async t => {
+  const sent = [];
+  const first = '文'.repeat(75) + '。';
+  const data = setup(t, {
+    plan: async event => ({ kind: 'chat', source: event, text: event.text === 'unsafe'
+      ? '<qqbot-at-user id="other-person" />' : first + '我不认识<@!other-person>。' }),
+    send: (event, text) => sendMentionReply({
+      async send(body) { sent.push(body); return { id: 'accepted' }; },
+    }, event, text, TestApiError),
+  });
+  data.put('report', '你问问 <@!other-person> 是谁');
+  data.put('unsafe', 'unsafe');
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(data.status(), ['accepted', 'withheld']);
+  assert.deepEqual(sent.map(body => body.markdown?.content ?? body.content), [
+    '<qqbot-at-user id="test-author" /> ' + first,
+    '我不认识那位群友。',
+  ]);
+});
+
 test('a later mention replies before a separate work run settles, with no replay after restart', async t => {
   const sent = [];
   let finishWork;

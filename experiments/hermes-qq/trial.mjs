@@ -101,11 +101,13 @@ export function makeTrial({
       .map(item => ({ speaker: item.senderId, text: item.text }));
   }
   async function deliver(event, result) {
-    if (!sameSource(event, result?.source) || typeof result?.text !== 'string' || !result.text.trim() ||
-      result.text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(result.text) ||
+    if (!sameSource(event, result?.source) || typeof result?.text !== 'string') return record(event, 'withheld');
+    // Only the transport may render a native mention, using the verified source sender.
+    const text = result.text.replace(/<@!?[a-z0-9_-]{1,128}>/gi, '\u90a3\u4f4d\u7fa4\u53cb').trim();
+    if (!text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text) ||
       !isLive() || now() - event.at > maxAge) return record(event, 'withheld');
     record(event, 'sending');
-    try { record(event, (await send(event, result.text))?.id ? 'accepted' : 'uncertain'); }
+    try { record(event, (await send(event, text))?.id ? 'accepted' : 'uncertain'); }
     catch { record(event, 'uncertain'); }
   }
   async function route(event) {
