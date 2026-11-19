@@ -1,7 +1,7 @@
 import { readFile } from 'node:fs/promises';
 import { pathToFileURL } from 'node:url';
+import { IMAGE_PROXY_ROUTES, OPENAI_PROBE } from './proxy-route.mjs';
 
-const URL = 'https://api.openai.com/v1/models';
 const FILTER = '日本[ _#-]*0?2([^0-9]|$)';
 
 export function proxyConfig(subscriptions) {
@@ -13,21 +13,27 @@ export function proxyConfig(subscriptions) {
     type: 'http', url, path: `./image-${index + 1}.yaml`, interval: 1800, filter: '日本',
     'exclude-filter': '下载专用', proxy: 'DIRECT',
     header: { 'User-Agent': ['Clash'] },
-    'health-check': { enable: true, url: URL, interval: 180, timeout: 5000, lazy: false, 'expected-status': 401 },
+    'health-check': { enable: true, url: OPENAI_PROBE, interval: 180, timeout: 5000, lazy: false, 'expected-status': 401 },
     override: { 'additional-prefix': `[${index + 1}] ` },
   }]));
-  const health = { type: 'fallback', url: URL, interval: 180, lazy: false, 'expected-status': 401 };
+  const health = { type: 'fallback', url: OPENAI_PROBE, interval: 180, lazy: false, 'expected-status': 401 };
   return {
-    'mixed-port': 17979, 'allow-lan': false, 'bind-address': '127.0.0.1',
+    'allow-lan': false, 'bind-address': '127.0.0.1',
     mode: 'rule', 'log-level': 'silent',
     'external-controller-unix': 'control.sock',
+    listeners: IMAGE_PROXY_ROUTES.map(({ provider, port }) => ({
+      name: provider, type: 'mixed', listen: '127.0.0.1', port,
+    })),
     'proxy-providers': providers,
-    'proxy-groups': [
-      { ...health, name: 'OPENAI-IMAGE', proxies: ['JAPAN-2', 'JAPAN-ALTERNATE', 'REJECT'] },
-      { ...health, name: 'JAPAN-2', proxies: ['REJECT'], use: Object.keys(providers), filter: FILTER },
-      { ...health, name: 'JAPAN-ALTERNATE', proxies: ['REJECT'], use: Object.keys(providers), 'exclude-filter': FILTER },
+    'proxy-groups': IMAGE_PROXY_ROUTES.flatMap(({ provider, group }) => [
+      { ...health, name: group, proxies: [`${group}-JAPAN-2`, `${group}-ALTERNATE`, 'REJECT'] },
+      { ...health, name: `${group}-JAPAN-2`, proxies: ['REJECT'], use: [provider], filter: FILTER },
+      { ...health, name: `${group}-ALTERNATE`, proxies: ['REJECT'], use: [provider], 'exclude-filter': FILTER },
+    ]),
+    rules: [
+      ...IMAGE_PROXY_ROUTES.map(({ provider, group }) => `AND,((IN-NAME,${provider}),(DOMAIN,api.openai.com)),${group}`),
+      'MATCH,REJECT',
     ],
-    rules: ['DOMAIN,api.openai.com,OPENAI-IMAGE', 'MATCH,REJECT'],
   };
 }
 

@@ -1097,6 +1097,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           },
         }),
         replyOptions: {
+          disableBlockStreaming: true,
           suppressDefaultToolProgressMessages: true,
           suppressToolErrorWarnings: true,
         },

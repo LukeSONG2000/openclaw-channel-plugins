@@ -5,15 +5,17 @@ import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
 import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
+import { OPENAI_PROBE, selectImageProxyRoute } from './proxy-route.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
-const PROXY = 'http://127.0.0.1:17979';
+const PROXY_SOCKET = join(ROOT, 'openai-image-private', 'proxy', 'control.sock');
 const CLI = join(ROOT, 'bin', 'openai-image-cli');
 const USAGE = '用法：/imagen [text|edit|ref] [studio] [png|gif] [low|medium|high] [flare|sunburst] <描述>\n'
   + '也可以直接说「生成一张插画」「做一张动图」，或附图说「把背景换成雪山」。';
 const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const MIB = 1024 * 1024;
 const ANIMATE_SOURCE = 'edit gif 把原图制作成短循环动图。加一个符合画面的自然微动作，保持原有主体、造型、配色、构图和背景不变。';
+const REDRAW_WINDOW_MS = 2 * 60 * 60_000;
 
 export function resolveScope({ channel, channelId, from, to }) {
   const kind = channelId ?? channel;
@@ -73,11 +75,18 @@ function renderPrompt(mode, request, brief) {
     .filter(Boolean).join('\n\n');
 }
 
-function combineRevision(previous, next) {
-  const change = `本次要求（优先）：${next}`.slice(0, 1800);
+function combineRevision(previous, next, feedback) {
+  const context = feedback?.length ? `\n此后用户补充（只采用与该图有关的内容）：${feedback.join('；')}` : '';
+  const change = `本次要求（优先）：${next}${context}`.slice(0, 1800);
   const label = '\n上一张的出图要求：';
   const available = 1800 - change.length - label.length;
   return available > 0 ? change + label + previous.slice(0, available) : change;
+}
+
+function imagenActorKey(context, scope) {
+  const actor = typeof context.senderId === 'string' ? context.senderId.trim() : '';
+  if (!actor || actor.length > 256) return;
+  return JSON.stringify([context.channelId ?? context.channel, context.accountId ?? '', scope.address ?? context.to, actor]);
 }
 
 export async function validateImages(paths, root) {
@@ -134,45 +143,66 @@ function run(file, args, { input, env, timeout }) {
   });
 }
 
-function apiEnv(key) {
+const proxyAddress = (route) => `http://127.0.0.1:${route.port}`;
+
+function apiEnv(key, route) {
+  const proxy = proxyAddress(route);
   return {
     PATH: '/usr/bin:/bin', HOME: homedir(), LANG: 'C.UTF-8',
     OPENAI_API_KEY: key, OPENAI_BASE_URL: 'https://api.openai.com/v1',
-    HTTPS_PROXY: PROXY, HTTP_PROXY: PROXY, ALL_PROXY: PROXY,
+    HTTPS_PROXY: proxy, HTTP_PROXY: proxy, ALL_PROXY: proxy,
     OPENAI_NO_AUTO_UPDATE: '1',
   };
 }
 
-async function checkKey(key, model) {
+async function checkKey(key, model, route) {
   try {
     const output = await run('/usr/bin/curl', ['-q', '--silent', '--fail', '--max-time', '8',
-      '--proto', '=https', '--proxy', PROXY, '--noproxy', '', '--config', '-'], {
-      env: apiEnv(key), timeout: 10_000,
+      '--proto', '=https', '--proxy', proxyAddress(route), '--noproxy', '', '--config', '-'], {
+      env: apiEnv(key, route), timeout: 10_000,
       input: `url = "https://api.openai.com/v1/models/${model}"\nheader = "Authorization: Bearer ${key}"\n`,
     });
     return JSON.parse(output).id === model;
   } catch { return false; }
 }
 
-async function refreshProxy() {
+async function proxyControl(path, seconds) {
+  return run('/usr/bin/curl', ['-q', '--silent', '--fail', '--max-time', String(seconds),
+    '--unix-socket', PROXY_SOCKET, `http://localhost${path}`], { timeout: (seconds + 1) * 1000, env: {} });
+}
+
+async function probeProxy(route) {
   try {
-    await run('/usr/bin/curl', ['-q', '--silent', '--fail', '--max-time', '8', '--unix-socket',
-      join(ROOT, 'openai-image-private', 'proxy', 'control.sock'),
-      'http://localhost/group/OPENAI-IMAGE/delay?url=https%3A%2F%2Fapi.openai.com%2Fv1%2Fmodels&timeout=6500&expected=401'],
-    { timeout: 10_000, env: {} });
-  } catch { /* A failed refresh must not trigger a paid request. */ }
+    const status = await run('/usr/bin/curl', ['-q', '--silent', '--max-time', '5', '--proto', '=https',
+      '--proxy', proxyAddress(route), '--noproxy', '', '--output', '/dev/null', '--write-out', '%{http_code}',
+      OPENAI_PROBE], { timeout: 6000, env: {} });
+    return status === '401';
+  } catch { return false; }
+}
+
+export async function resolveImageProxy() {
+  try {
+    const { providers } = JSON.parse(await proxyControl('/providers/proxies', 3));
+    return await selectImageProxyRoute({
+      providers, probe: probeProxy,
+      refresh: async ({ group }) => {
+        const query = `url=${encodeURIComponent(OPENAI_PROBE)}&timeout=5000&expected=401`;
+        const check = (name) => proxyControl(`/group/${name}/delay?${query}`, 7).catch(() => null);
+        await Promise.all([check(`${group}-JAPAN-2`), check(`${group}-ALTERNATE`)]);
+        await check(group);
+      },
+    });
+  } catch { return null; }
 }
 
 export async function planPrompt(input, startAt) {
   const keys = await loadKeys();
   const request = await buildBriefRequest(input);
   const key = keys[startAt];
-  if (!await checkKey(key, PLANNER_MODEL)) {
-    await refreshProxy();
-    if (!await checkKey(key, PLANNER_MODEL)) throw new Error('planner_unreachable');
-  }
+  const route = await resolveImageProxy();
+  if (!route || !await checkKey(key, PLANNER_MODEL, route)) throw new Error('planner_unreachable');
   const output = await run(CLI, ['responses', 'create', '--format', 'json', '--format-error', 'json'], {
-    env: apiEnv(key), timeout: 90_000, input: JSON.stringify(request),
+    env: apiEnv(key, route), timeout: 90_000, input: JSON.stringify(request),
   });
   const response = JSON.parse(output);
   if (response.status === 'incomplete') throw new Error(
@@ -188,19 +218,14 @@ export async function planPrompt(input, startAt) {
 
 export async function generate(body, startAt, images = []) {
   const keys = await loadKeys();
-  let refreshed = false;
+  const route = await resolveImageProxy();
+  if (!route) throw new Error('no_provider');
   for (const key of [keys[startAt], keys[1 - startAt]]) {
-    let ready = await checkKey(key, body.model);
-    if (!ready && !refreshed) {
-      refreshed = true;
-      await refreshProxy();
-      ready = await checkKey(key, body.model);
-    }
-    if (!ready) continue;
+    if (!await checkKey(key, body.model, route)) continue;
     let output;
     try {
       output = await run(CLI, ['images', images.length ? 'edit' : 'generate', '--format', 'json', '--format-error', 'json'], {
-        env: apiEnv(key), timeout: 180_000,
+        env: apiEnv(key, route), timeout: 180_000,
         input: JSON.stringify(images.length ? { ...body, image: images } : body),
       });
     } catch (error) {
@@ -232,23 +257,22 @@ export function createHandler({
   let nextKey = 0;
   let lastStart = -Infinity;
   const recentJobs = new Map();
-  return async (context) => {
+  function allowedScope(context) {
     const scope = resolveScope(context);
-    if (!scope || (scope.group && !groups.has(scope.address) &&
-        !(allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) {
-      return { text: '当前会话未开放生图。' };
-    }
+    if (scope && (!scope.group || groups.has(scope.address) ||
+        (allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) return scope;
+  }
+  const handle = async (context) => {
+    const scope = allowedScope(context);
+    if (!scope) return { text: '当前会话未开放生图。' };
     let args = typeof context.args === 'string' ? context.args.trim() : '';
     let images = context.images ?? [];
     const expected = context.expectedImages ?? 0;
     const channel = context.channelId ?? context.channel;
-    const actor = typeof context.senderId === 'string' ? context.senderId.trim() : '';
-    const actorKey = actor && actor.length <= 256 ? JSON.stringify([
-      context.channelId ?? context.channel, context.accountId ?? '', scope.address ?? context.to, actor,
-    ]) : undefined;
+    const actorKey = imagenActorKey(context, scope);
     const previous = actorKey && recentJobs.get(actorKey);
     const redraw = context.intent?.kind === 'redraw' || (!context.intent && isImagenRedraw(args));
-    if (redraw && (!previous || now() - previous.at > 10 * 60_000)) {
+    if (redraw && (!previous || now() - previous.at > REDRAW_WINDOW_MS)) {
       return { text: '我没有找到你在这个会话里近期的生图请求。请补充完整出图要求，或把要修改的原图一起发来。' };
     }
     if (context.intent?.kind === 'video') return { text: '目前能做静态图和短 GIF，不能生成视频文件。' };
@@ -301,7 +325,7 @@ export function createHandler({
     }
     if (mode === 'text' && images.length) return { text: '文生图不接收附件；请去掉图片或使用 edit / ref。' };
     const requestArgs = redraw
-      ? `${inferImagenFormat(args) === 'gif' ? 'gif' : previous.format} ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${combineRevision(previous.prompt, args)}`
+      ? `${inferImagenFormat(args) === 'gif' ? 'gif' : previous.format} ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${combineRevision(previous.prompt, args, previous.feedback)}`
       : correctionPrompt ?? args.slice(modifier?.[0].length ?? 0);
     let request = parseRequest(requestArgs, mode);
     if (!request) return { text: USAGE };
@@ -389,6 +413,15 @@ export function createHandler({
     }
     finally { active = false; }
   };
+  handle.observe = (context, text) => {
+    const scope = allowedScope(context);
+    if (!scope) return;
+    const job = recentJobs.get(imagenActorKey(context, scope));
+    if (!job || now() - job.at > REDRAW_WINDOW_MS) return;
+    const [feedback] = boundedContext([text]);
+    if (feedback) job.feedback = [...(job.feedback ?? []).filter((line) => line !== feedback), feedback].slice(-3);
+  };
+  return handle;
 }
 
 export function createDispatchHook(handler) {
@@ -397,19 +430,26 @@ export function createDispatchHook(handler) {
     const input = ctx?.ImagenInput;
     const channel = ctx?.Provider;
     if (!input || !['qqbot', 'ddingtalk'].includes(channel) || ctx.OriginatingChannel !== channel) return;
+    const scopeContext = {
+      channel, from: ctx.From, to: ctx.To, senderId: ctx.SenderId, accountId: ctx.AccountId,
+    };
+    const deliverable = event.sendPolicy !== 'deny' && !event.suppressUserDelivery && !event.isTailDispatch &&
+      ctx.OriginatingTo === ctx.To;
     const hasPotentialSource = input.expectedImages > 0 || input.quotedImageCount > 0 ||
       (channel === 'qqbot' && (isImagenEditCorrection(input.naturalText ?? '') ||
         (input.recentImages?.length > 0 && wantsRecentImagenSource(input.naturalText ?? ''))));
     const intent = typeof input.args === 'string' ? undefined : recognizeImagenIntent(input.naturalText, hasPotentialSource);
-    if (typeof input.args !== 'string' && !intent) return;
+    if (typeof input.args !== 'string' && !intent) {
+      if (deliverable && typeof input.naturalText === 'string') handler.observe?.(scopeContext, input.naturalText);
+      return;
+    }
     const { dispatcher } = dispatch;
     let queuedFinal = false;
-    if (event.sendPolicy !== 'deny' && !event.suppressUserDelivery && !event.isTailDispatch &&
-        ctx.OriginatingTo === ctx.To) {
+    if (deliverable) {
       const reply = await handler({
-        channel, from: ctx.From, to: ctx.To,
+        ...scopeContext,
         args: input.args ?? intent?.args, intent, images: input.images, expectedImages: input.expectedImages,
-        recentChat: input.recentChat, senderId: ctx.SenderId, accountId: ctx.AccountId,
+        recentChat: input.recentChat,
         quotedImageCount: channel === 'qqbot' ? input.quotedImageCount : undefined,
         loadQuotedImages: channel === 'qqbot' ? input.loadQuotedImages : undefined,
         recentImages: channel === 'qqbot' ? input.recentImages : undefined,

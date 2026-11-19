@@ -9,7 +9,7 @@ export function shouldDeliverDingTalkReply(
   payload: DingTalkReplyPayloadFlags,
   kind: "tool" | "block" | "final" | string,
 ): boolean {
-  return (kind === "block" || kind === "final")
+  return kind === "final"
     && payload.isReasoning !== true
     && payload.isStatusNotice !== true
     && payload.isFallbackNotice !== true

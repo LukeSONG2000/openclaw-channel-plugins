@@ -7,6 +7,7 @@ import plugin, { createDispatchHook, createHandler, parseArgs, resolveScope, val
 import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-brief.mjs';
 import { inferImagenMode, recognizeImagenIntent } from './intent.mjs';
 import { proxyConfig } from './proxy-config.mjs';
+import { rankImageProxyRoutes, selectImageProxyRoute } from './proxy-route.mjs';
 
 const user = 'qqbot:c2c:' + 'A'.repeat(32);
 const group = 'qqbot:group:' + 'B'.repeat(32);
@@ -93,6 +94,8 @@ test('natural requests distinguish drawing, editing and references from discussi
   assert.equal(recognizeImagenIntent('我要的是动态图', false)?.kind, 'format-correction');
   assert.equal(recognizeImagenIntent('主角是蓝色圆形，不是机器人，重新画', false)?.kind, 'redraw');
   assert.equal(recognizeImagenIntent('重新画一下，背景留白', false)?.kind, 'redraw');
+  assert.equal(recognizeImagenIntent('现在重新画', false)?.kind, 'redraw');
+  assert.equal(recognizeImagenIntent('不要现在重新画', false), undefined);
   assert.equal(recognizeImagenIntent('不用重新画', false), undefined);
   assert.equal(recognizeImagenIntent('怎么重新画？', false), undefined);
   assert.equal(inferImagenMode('将图中的日语替换成翻译后的中文', true), 'edit');
@@ -117,7 +120,12 @@ test('DingTalk redraw uses the latest correction and only the same conversation 
   const ctx = { Provider: 'ddingtalk', OriginatingChannel: 'ddingtalk', From: 'ddingtalk:sender',
     To: to, OriginatingTo: to, AccountId: 'account-a', SenderId: 'sender' };
   await hook({ ctx: { ...ctx, ImagenInput: { args: 'low 画一张白底红色方形的图片', images: [], expectedImages: 0 } } }, dispatch);
-  const input = { naturalText: '是蓝色的，不是红色，重新画', images: [], expectedImages: 0 };
+  time += 47 * 60_000;
+  const feedback = { naturalText: '主体是蓝色的，不是红色', images: [], expectedImages: 0 };
+  assert.equal(await hook({ ctx: { ...ctx, ImagenInput: feedback } }, dispatch), undefined);
+  assert.equal(await hook({ ctx: { ...ctx, SenderId: 'other', From: 'ddingtalk:other',
+    ImagenInput: { ...feedback, naturalText: '换成橙色' } } }, dispatch), undefined);
+  const input = { naturalText: '现在重新画', images: [], expectedImages: 0 };
   for (const patch of [{ SenderId: 'other', From: 'ddingtalk:other' }, { AccountId: 'account-b' },
     { To: 'ddingtalk:chat:cidDifferent==', OriginatingTo: 'ddingtalk:chat:cidDifferent==' }]) {
     await hook({ ctx: { ...ctx, ...patch, ImagenInput: input } }, dispatch);
@@ -126,11 +134,11 @@ test('DingTalk redraw uses the latest correction and only the same conversation 
   await hook({ ctx: { ...ctx, ImagenInput: input } }, dispatch);
   assert.equal(rendered.length, 2);
   assert.equal(decisions[1].decideIntent, false);
-  assert.match(decisions[1].prompt, /^本次要求（优先）：是蓝色的，不是红色，重新画\n上一张的出图要求：画一张白底红色方形的图片$/);
+  assert.match(decisions[1].prompt, /^本次要求（优先）：现在重新画\n此后用户补充（只采用与该图有关的内容）：主体是蓝色的，不是红色\n上一张的出图要求：画一张白底红色方形的图片$/);
   assert.deepEqual(decisions[1].images, []);
   assert.equal(rendered[1].body.quality, 'low');
   assert.equal(sent.at(-1).mediaUrl, '/fake/test.png');
-  time += 10 * 60_000;
+  time += 2 * 60 * 60_000;
   await hook({ ctx: { ...ctx, ImagenInput: input } }, dispatch);
   assert.match(sent.at(-1).text, /没有找到/);
   assert.equal(rendered.length, 2);
@@ -440,21 +448,65 @@ test('gateway startup loads Imagen before the first reply dispatch', async () =>
   assert.match(skill, /description:.*动图.*精修/);
 });
 
-test('proxy refresh and health checks pin both Japan 2 candidates to the OpenAI host', () => {
+test('proxy listeners isolate subscriptions and only route the OpenAI API', () => {
   const cfg = proxyConfig(['https://example.org/sub1', 'https://example.org/sub2']);
   assert.equal(cfg['allow-lan'], false);
-  assert.deepEqual(cfg.rules, ['DOMAIN,api.openai.com,OPENAI-IMAGE', 'MATCH,REJECT']);
-  const [main, preferred, alternate] = cfg['proxy-groups'];
-  assert.deepEqual(main.proxies, ['JAPAN-2', 'JAPAN-ALTERNATE', 'REJECT']);
-  assert.deepEqual(preferred.use, ['image-1', 'image-2']);
-  assert.deepEqual(preferred.proxies, ['REJECT']);
-  assert.equal(alternate['exclude-filter'], preferred.filter);
-  assert.match('日本2-Ver.8', new RegExp(preferred.filter));
-  assert.doesNotMatch('日本20-Ver.8', new RegExp(preferred.filter));
+  assert.deepEqual(cfg.rules, [
+    'AND,((IN-NAME,image-1),(DOMAIN,api.openai.com)),OPENAI-IMAGE-1',
+    'AND,((IN-NAME,image-2),(DOMAIN,api.openai.com)),OPENAI-IMAGE-2',
+    'MATCH,REJECT',
+  ]);
+  for (const [i, listener] of cfg.listeners.entries()) {
+    const [main, preferred, alternate] = cfg['proxy-groups'].slice(i * 3, i * 3 + 3);
+    assert.deepEqual(listener, { name: `image-${i + 1}`, type: 'mixed', listen: '127.0.0.1', port: 17979 + i });
+    assert.deepEqual(main.proxies, [preferred.name, alternate.name, 'REJECT']);
+    assert.deepEqual(preferred.use, [listener.name]);
+    assert.deepEqual(alternate.use, [listener.name]);
+    assert.deepEqual(preferred.proxies, ['REJECT']);
+    assert.equal(alternate['exclude-filter'], preferred.filter);
+    assert.match('日本2-Ver.8', new RegExp(preferred.filter));
+    assert.doesNotMatch('日本20-Ver.8', new RegExp(preferred.filter));
+  }
   for (const provider of Object.values(cfg['proxy-providers'])) {
     assert.equal(provider.proxy, 'DIRECT');
     assert.equal(provider['health-check']['expected-status'], 401);
     assert.equal(provider.filter, '日本');
     assert.equal(provider['exclude-filter'], '下载专用');
   }
+});
+
+const subscription = (Download, Expire = 200) => ({
+  proxies: [{}], subscriptionInfo: { Total: 100, Download, Upload: 10, Expire },
+});
+
+test('proxy ranking subtracts upload and download, skips expired and exhausted subscriptions', () => {
+  const rank = (a, b) => rankImageProxyRoutes({ 'image-1': a, 'image-2': b }, 100_000)
+    .map(({ provider, remaining }) => [provider, remaining]);
+  assert.deepEqual(rank(subscription(50), subscription(10)), [['image-2', 80], ['image-1', 40]]);
+  assert.deepEqual(rank(subscription(90), subscription(10)), [['image-2', 80]]);
+  assert.deepEqual(rank(subscription(50, 100), subscription(10)), [['image-2', 80]]);
+  assert.deepEqual(rank({ proxies: [{}] }, subscription(10)), [['image-2', 80], ['image-1', -1]]);
+  assert.deepEqual(rank(subscription(100), subscription(0, 99)), []);
+  assert.deepEqual(rank({ proxies: [] }, subscription(10)), [['image-2', 80]]);
+});
+
+test('unreachable high-quota proxy falls back; health refresh never probes an exhausted route', async () => {
+  const calls = [];
+  let result = await selectImageProxyRoute({
+    providers: { 'image-1': subscription(50), 'image-2': subscription(10) }, now: 100_000,
+    probe: async ({ provider }) => (calls.push(provider), provider === 'image-1'),
+    refresh: async () => assert.fail('unnecessary refresh'),
+  });
+  assert.equal(result.provider, 'image-1');
+  assert.deepEqual(calls, ['image-2', 'image-1']);
+
+  calls.length = 0;
+  let refreshed = false;
+  result = await selectImageProxyRoute({
+    providers: { 'image-1': subscription(90), 'image-2': subscription(10) }, now: 100_000,
+    probe: async ({ provider }) => (calls.push(provider), refreshed),
+    refresh: async ({ provider }) => { calls.push(`refresh:${provider}`); refreshed = true; },
+  });
+  assert.equal(result.provider, 'image-2');
+  assert.deepEqual(calls, ['image-2', 'refresh:image-2', 'image-2']);
 });

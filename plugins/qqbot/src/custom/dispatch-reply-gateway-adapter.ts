@@ -54,6 +54,7 @@ export interface CustomDispatchReplyMessagesConfig {
 export interface CustomDispatchReplyDispatcherParams {
   ctx: unknown;
   cfg: unknown;
+  toolsAllow?: string[];
   dispatcherOptions: {
     responsePrefix?: string;
     deliver: (payload: DeliverPayload, info: DeliverInfo) => Promise<void>;
@@ -76,6 +77,7 @@ export interface RunCustomDispatchReplyGatewayParams {
   cfg: unknown;
   routeAgentId: string;
   ctxPayload: unknown;
+  toolsAllow?: string[];
   replyAnchorId?: string;
   fallbackSession: CustomDispatchReplyFallbackSession;
   sendErrorMessage: (text: string) => Promise<void>;
@@ -130,6 +132,7 @@ export async function runCustomDispatchReplyGateway(
     const dispatchPromise = params.dispatchReply({
       ctx: params.ctxPayload,
       cfg: params.cfg,
+      ...(params.toolsAllow !== undefined ? { toolsAllow: params.toolsAllow } : {}),
       dispatcherOptions: {
         responsePrefix: messagesConfig.responsePrefix,
         deliver: async (payload, info) => {

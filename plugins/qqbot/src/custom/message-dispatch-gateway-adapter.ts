@@ -23,6 +23,7 @@ import { applyCustomUnreadCompletionGateway } from "./unread-completion-gateway-
 import type { CustomUnreadGatewayEffect } from "./unread-gateway-adapter.js";
 import type { ResolvedCustomUnreadConfig } from "./unread-runtime.js";
 import type { CustomUnreadRuntime } from "./unread-runtime.js";
+import { loadGroupSummaryPrompt, parseGroupSummaryHours } from "./group-summary.js";
 
 export interface CustomMessageDispatchGatewayLogger {
   info?: (msg: string) => void;
@@ -131,10 +132,36 @@ export async function runCustomMessageDispatchGateway(
     target: params.qualifiedTarget,
     accountId: params.account.accountId,
   }, async () => {
+    const summaryHours = params.event.type === "group" && params.wasMentioned &&
+      !params.event._customUnreadSnapshotId && !params.event._slashAuthorized
+      ? parseGroupSummaryHours(params.userContent.trim()) : undefined;
+    let ctxPayload = params.ctxPayload;
+    let sessionKey = params.route.sessionKey;
+    if (summaryHours && params.event.groupOpenid && ctxPayload && typeof ctxPayload === "object") {
+      const summary = await loadGroupSummaryPrompt({
+        accountId: params.account.accountId, groupOpenid: params.event.groupOpenid,
+        requestMessageId: params.event.messageId, hours: summaryHours,
+      });
+      if (!summary.sampled) {
+        params.stopTyping();
+        await setup.sendErrorMessage(`我在本群最近 ${summaryHours} 小时的可用记录里没找到可总结的文本。`);
+        return;
+      }
+      sessionKey = `${sessionKey}:qqsummary:${Date.now().toString(36)}`;
+      ctxPayload = {
+        ...ctxPayload,
+        SessionKey: sessionKey,
+        Body: summary.prompt,
+        BodyForAgent: summary.prompt,
+        MediaPath: undefined, MediaPaths: undefined, MediaType: undefined, MediaTypes: undefined,
+        MediaUrl: undefined, MediaUrls: undefined,
+      };
+      params.log?.info?.(`[qqbot:${params.account.accountId}] Group summary bounded: hours=${summaryHours} collected=${summary.count} sampled=${summary.sampled} chars=${summary.prompt.length}`);
+    }
     const fallbackSession = (params.createFallbackSession ?? createCustomDispatchFallbackSession)({
       accountId: params.account.accountId,
       message: params.event,
-      sessionKey: params.route.sessionKey,
+      sessionKey,
       getRuntime: params.getRuntime,
       getQueueSnapshot: params.getQueueSnapshot,
       log: params.log,
@@ -148,7 +175,8 @@ export async function runCustomMessageDispatchGateway(
       event: params.event,
       cfg: params.cfg,
       routeAgentId: params.route.agentId,
-      ctxPayload: params.ctxPayload,
+      ctxPayload,
+      ...(summaryHours ? { toolsAllow: [] } : {}),
       replyAnchorId: setup.replyAnchorId,
       fallbackSession,
       sendErrorMessage: setup.sendErrorMessage,

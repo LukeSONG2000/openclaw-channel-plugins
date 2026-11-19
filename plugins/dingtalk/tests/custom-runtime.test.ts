@@ -103,7 +103,7 @@ assert.deepEqual(
   ["$abc123"],
 );
 assert.equal(shouldDeliverDingTalkReply({}, "final"), true);
-assert.equal(shouldDeliverDingTalkReply({}, "block"), true);
+assert.equal(shouldDeliverDingTalkReply({}, "block"), false);
 assert.equal(shouldDeliverDingTalkReply({}, "tool"), false);
 assert.equal(shouldDeliverDingTalkReply({ isReasoning: true }, "final"), false);
 assert.equal(shouldDeliverDingTalkReply({ isReasoning: true }, "block"), false);
