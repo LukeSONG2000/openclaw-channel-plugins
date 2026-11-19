@@ -1,0 +1,27 @@
+{
+  "id": "luke-aoa-async",
+  "name": "Luke Async Tasks",
+  "description": "Isolated QQ and DingTalk async tasks",
+  "activation": { "onStartup": true },
+  "configSchema": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": ["routes"],
+    "properties": {
+      "routes": {
+        "type": "array",
+        "minItems": 1,
+        "items": {
+          "type": "object",
+          "required": ["channel", "account", "to"],
+          "additionalProperties": false,
+          "properties": {
+            "channel": { "enum": ["qqbot", "ddingtalk"] },
+            "account": { "type": "string" },
+            "to": { "type": "string" }
+          }
+        }
+      }
+    }
+  }
+}
