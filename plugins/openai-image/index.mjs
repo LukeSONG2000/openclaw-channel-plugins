@@ -125,20 +125,31 @@ async function loadKeys() {
   return keys;
 }
 
+export function readProviderFailure({ killed, stderr, stdout } = {}) {
+  if (killed) return { reason: 'timeout' };
+  for (const stream of [stderr, stdout]) {
+    if (!stream) continue;
+    try {
+      const root = JSON.parse(stream);
+      const err = root.error ?? root;
+      const code = err.code ?? root.code;
+      const status = Number(err.status_code ?? err.http_status ?? err.status ?? root.status_code ?? root.status);
+      if (code === 'insufficient_quota') return { reason: 'quota' };
+      if (code === 'rate_limit_exceeded' || status === 429) return { reason: 'rate_limit' };
+      if (['content_policy_violation', 'moderation_blocked', 'safety_violations'].includes(code)) return { reason: 'policy' };
+      if (status === 401 || status === 403) return { reason: 'auth' };
+      if (status === 400 || status === 422 || err.type === 'invalid_request_error') return { reason: 'invalid_request' };
+      if (status >= 500 && status <= 599) return { reason: 'upstream' };
+    } catch { /* Do not log or replay raw CLI output. */ }
+  }
+  return { reason: 'provider' };
+}
+
 function run(file, args, { input, env, timeout }) {
   return new Promise((resolve, reject) => {
     const child = execFile(file, args, { env, timeout, maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
-      const failure = new Error(error.killed ? 'timeout' : 'provider');
-      if (!error.killed) {
-        for (const stream of [stderr, stdout]) {
-          try {
-            const parsed = JSON.parse(stream);
-            failure.quota = (parsed.error?.code ?? parsed.code) === 'insufficient_quota';
-            if (failure.quota) break;
-          } catch { /* Never surface raw CLI output. */ }
-        }
-      }
+      const failure = new Error(readProviderFailure({ killed: error.killed, stderr, stdout }).reason);
       reject(failure);
     });
     child.stdin.on('error', () => {});
@@ -223,6 +234,7 @@ export async function generate(body, startAt, images = []) {
   const keys = await loadKeys();
   const route = await resolveImageProxy();
   if (!route) throw new Error('no_provider');
+  let rejected;
   for (const key of [keys[startAt], keys[1 - startAt]]) {
     if (!await checkKey(key, body.model, route)) continue;
     let output;
@@ -233,7 +245,7 @@ export async function generate(body, startAt, images = []) {
       });
     } catch (error) {
       // A request with an uncertain outcome must not generate or charge again.
-      if (error.quota) continue;
+      if (['quota', 'rate_limit'].includes(error?.message)) { rejected = error; continue; }
       throw error;
     }
     const encoded = JSON.parse(output).data?.[0]?.b64_json;
@@ -248,7 +260,7 @@ export async function generate(body, startAt, images = []) {
     await writeFile(file, bytes, { flag: 'wx', mode: 0o600 });
     return file;
   }
-  throw new Error('no_provider');
+  throw rejected ?? new Error('no_provider');
 }
 
 export function createHandler({
@@ -368,7 +380,8 @@ export function createHandler({
       }
       catch (error) {
         const code = error?.message;
-        planFailure = ['timeout', 'provider', 'planner_unreachable', 'planner_incomplete', 'planner_budget', 'planner_refusal', 'planner_no_brief'].includes(code)
+        planFailure = ['timeout', 'provider', 'quota', 'rate_limit', 'policy', 'auth', 'invalid_request', 'upstream',
+          'planner_unreachable', 'planner_incomplete', 'planner_budget', 'planner_refusal', 'planner_no_brief'].includes(code)
           ? code : 'unexpected';
         logger?.warn(`[imagen] visual brief failed reason=${planFailure} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
       }
@@ -417,9 +430,21 @@ export function createHandler({
       logger?.info(`[imagen] rendered channel=${channel} mode=${mode} format=${body.output_format}`);
       return { mediaUrl, channelData: { imagen: true } };
     } catch (error) {
-      const code = error?.message === 'no_provider' ? 'unavailable' : 'failed';
-      logger?.warn(`[imagen] generation ${code}`);
-      return { text: code === 'unavailable' ? '生图服务暂时连不上，请稍后再试。' : '生图暂时失败，请稍后再试。' };
+      const messages = {
+        no_provider: '暂时没有可用的生图线路，本次未出图。',
+        timeout: '生图接口超时，未收到成品，不能确认服务端是否已完成。',
+        quota: '生图账号额度不足，本次未出图。',
+        rate_limit: '生图接口限流，本次未出图。',
+        policy: '生图服务拒绝了这次请求，本次未出图。',
+        auth: '生图服务的账号认证失败，本次未出图。',
+        invalid_request: '生图接口拒绝了请求参数，本次未出图。',
+        upstream: '生图服务返回错误，未收到成品。',
+        invalid_media: '生图接口返回的文件无效，没法发送。',
+      };
+      const reason = typeof error?.message === 'string' && Object.hasOwn(messages, error.message) ? error.message : 'provider';
+      logger?.warn(`[imagen] generation failed reason=${reason}`);
+      return { text: messages[reason] ?? '没收到生图成品，暂时无法确定失败原因。',
+        details: { status: reason === 'no_provider' ? 'not_started' : 'failed', reason } };
     }
     finally { release(); }
   };

@@ -8,7 +8,7 @@ const modes = ['text', 'edit', 'ref'];
 const formats = ['png', 'gif'];
 const qualities = ['low', 'medium', 'high'];
 const variants = ['flare', 'sunburst'];
-const answer = text => ({ content: [{ type: 'text', text }] });
+const answer = (text, details) => ({ content: [{ type: 'text', text }], ...(details ? { details } : {}) });
 
 function normalizeSlash(ctx, input) {
   const args = input.args.trim();
@@ -77,7 +77,8 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
         calls.delete(callId);
         if (!entry || entry.expires <= now() || entry.signal?.aborted) {
           api.logger?.warn?.('[conversation] no active turn binding for tool execution');
-          return answer('这条消息没能接上本轮会话上下文，请重试一次。');
+          return answer('这条消息没能接上原始会话，本次没有发起生图。不要自动重试或声称接口报错；等用户发来新的有效请求再继续。',
+            { status: 'not_started', reason: 'no_active_turn' });
         }
         return execute(entry, params);
       },
@@ -121,7 +122,7 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
           const result = await entry.result;
           return answer(result?.mediaUrl
             ? '图片已生成，会随本轮最终回复一起发送。请简短正常回复，不要输出路径或重复调用。'
-            : result?.text ?? '本次没有生成图片。');
+            : result?.text ?? '本次没有生成图片。', result?.details);
         } catch {
           return answer('生图暂时失败。');
         }

@@ -3,7 +3,7 @@ import { mkdtemp, readFile, realpath, rm, symlink, writeFile } from 'node:fs/pro
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
-import plugin, { createHandler, parseArgs, resolveScope, validateImages } from './index.mjs';
+import plugin, { createHandler, parseArgs, readProviderFailure, resolveScope, validateImages } from './index.mjs';
 import { registerImagenTool } from './agent-tool.mjs';
 import { boundedContext, buildBriefRequest, readVisualBrief } from './visual-brief.mjs';
 import { inferImagenMode, recognizeImagenIntent } from './intent.mjs';
@@ -471,6 +471,20 @@ test('four jobs render concurrently; queued work starts FIFO and key rotation is
   for (const result of await Promise.all(running)) assert.equal(result.mediaUrl, '/fake/image.png');
 });
 
+test('provider failures expose only sanitized categories and distinguish timeout from quota', async () => {
+  assert.deepEqual(readProviderFailure({ stderr: '{"error":{"code":"insufficient_quota","message":"private"}}' }), { reason: 'quota' });
+  assert.deepEqual(readProviderFailure({ stdout: '{"status":429,"error":{"message":"private"}}' }), { reason: 'rate_limit' });
+  assert.deepEqual(readProviderFailure({ stderr: '{"status":503,"error":{"message":"private"}}' }), { reason: 'upstream' });
+  assert.deepEqual(readProviderFailure({ killed: true, stderr: '{"error":{"code":"insufficient_quota"}}' }), { reason: 'timeout' });
+  assert.deepEqual(readProviderFailure({ stderr: 'sk-do-not-log raw secret' }), { reason: 'provider' });
+  const warnings = [];
+  const run = createHandler({ plan: noPlan, logger: { warn: text => warnings.push(text) },
+    render: async () => { throw new Error('raw-private-provider-output'); } });
+  const result = await run(call(user, 'paint'));
+  assert.deepEqual(result.details, { status: 'failed', reason: 'provider' });
+  assert.doesNotMatch(JSON.stringify([result, warnings]), /raw-private/);
+});
+
 test('registers one native skill tool and no standalone slash responder', () => {
   const tools = [];
   const hooks = [];
@@ -497,7 +511,9 @@ test('dispatch and the native tool can be loaded from separate plugin registries
     SenderId: 'member', OriginatingChannel: channel, OriginatingTo: group, ImagenInput: {} } }, {});
   const tool = b.factory({ sessionKey, messageChannel: channel, requesterSenderId: 'runtime-alias' });
   const params = { prompt: 'draw' };
-  assert.match((await tool.execute('unprepared', params)).content[0].text, /没能接上/);
+  const unprepared = await tool.execute('unprepared', params);
+  assert.match(unprepared.content[0].text, /本次没有发起生图/);
+  assert.deepEqual(unprepared.details, { status: 'not_started', reason: 'no_active_turn' });
   tool.prepareBeforeToolCallParams(params, { toolCallId: 'prepared', hookContext: { sessionKey, runId } });
   assert.equal((await tool.execute('prepared', params)).content[0].text, group);
 });
