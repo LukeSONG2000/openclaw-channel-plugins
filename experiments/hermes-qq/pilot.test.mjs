@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { boundSample } from './bound-sample.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
-import { hermesPilot, hermesRuns } from './pilot.mjs';
+import { backgroundRequest, hermesPilot, hermesRuns } from './pilot.mjs';
 
 const event = (messageId, text, overrides = {}) => ({
   channel: 'qqbot', account: 'test-bot', groupId: 'group-one', senderId: 'speaker-one',
@@ -53,7 +53,9 @@ test('a request can cross independent runner processes only with its original wo
     async wait() { return 'organized'; },
   } });
   const source = event('task', '整理一下群内的话题', { mentioned: true });
-  const request = JSON.parse(JSON.stringify(await classifier.planMention(source)));
+  const intent = await classifier.planMention(source);
+  assert.equal(intent.contextHours, null);
+  const request = JSON.parse(JSON.stringify(backgroundRequest(source, intent, { messages: [] })));
   assert.deepEqual(calls, ['chat']);
   await assert.rejects(worker.startWork({ ...request, source: { ...request.source, groupId: 'elsewhere' } }), /mismatch/);
   await assert.rejects(worker.startWork({ ...request, request: { ...request.request, requestKey: 'other' } }), /mismatch/);
@@ -64,11 +66,15 @@ test('a request can cross independent runner processes only with its original wo
   assert.equal(result.text, 'organized');
 });
 
-test('a group-history intent asks the host for a bounded lookback, not a group or file path', async () => {
-  const source = event('recap', '总结一下近24h群里的聊天内容', { mentioned: true });
+test('any work intent can ask the host for bounded context, not a different group', async () => {
+  const source = event('trace', '找一下我们今天为什么决定换场地', { mentioned: true });
   const withAnswer = answer => hermesPilot({ fast: { start: async () => 'route', wait: async () => answer } });
-  assert.equal((await withAnswer('{"route":"group-history","hours":24}').planMention(source)).hours, 24);
-  for (const answer of ['{"route":"group-history","hours":25}', '{"route":"group-history","hours":6,"groupId":"other"}']) {
+  const extended = '{"route":"work","text":"trace the venue decision","contextHours":24}';
+  assert.equal((await withAnswer(extended).planMention(source)).contextHours, 24);
+  await assert.rejects(withAnswer(extended).mention(source), /requires the conversation adapter/);
+  for (const answer of ['{"route":"work","text":"trace","contextHours":25}',
+    '{"route":"work","text":"trace","contextHours":6,"groupId":"other"}',
+    '{"route":"chat","text":"hello","contextHours":6}']) {
     await assert.rejects(withAnswer(answer).planMention(source), /invalid mention route/);
   }
 });

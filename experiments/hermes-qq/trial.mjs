@@ -4,8 +4,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { prepareGroupHistory } from './group-history.mjs';
-import { readGroupWindow } from './inbox-view.mjs';
+import { readGroupContext, readGroupWindow } from './inbox-view.mjs';
+import { backgroundRequest } from './pilot.mjs';
 
 const maxAge = 180_000;
 // The QQ client clipped a 308-byte native-mention payload despite accepting the send.
@@ -114,10 +114,8 @@ export function makeTrial({
     const task = promise.finally(() => active.delete(task));
     active.add(task);
   }
-  function prior(at, omit) {
-    return readGroupWindow(inbox, { account, groupId, after: Math.max(0, at - 86_400_000), through: at })
-      .filter(item => item.messageId !== omit).slice(-8)
-      .map(item => ({ speaker: item.senderId, text: item.text }));
+  function contextAt(through, beforeMessageId, hours = null) {
+    return readGroupContext(inbox, { groupId, through, beforeMessageId, hours });
   }
   async function deliver(event, result) {
     if (!sameSource(event, result?.source) || typeof result?.text !== 'string') return record(event, 'withheld');
@@ -130,24 +128,24 @@ export function makeTrial({
   }
   async function route(event) {
     try {
-      let decision = await plan(event, prior(event.at, event.messageId));
+      const recent = contextAt(event.at, event.messageId);
+      const decision = await plan(event, recent.messages);
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
-      let notice;
-      if (decision.kind === 'group-history') {
-        if (!isLive() || now() - event.at > maxAge) { record(event, 'withheld'); return; }
-        const history = prepareGroupHistory(inbox, event, decision.hours);
-        if (!history.decision) { await deliver(event, { source: event, text: history.notice }); return; }
-        decision = history.decision;
-        notice = history.notice;
-      }
       if (decision.kind === 'chat') await deliver(event, decision);
-      else if (decision.kind === 'work-request' || decision.kind === 'work') {
+      else if (decision.kind === 'work-intent' || decision.kind === 'work') {
         record(event, 'working');
         track(Promise.resolve().then(async () => {
-          if (!isLive()) return record(event, 'withheld');
-          const job = decision.kind === 'work-request' ? await startWork(decision) : decision;
+          if (!isLive() || now() - event.at > maxAge) return record(event, 'withheld');
+          const context = decision.kind === 'work-intent' && decision.contextHours !== null
+            ? contextAt(event.at, event.messageId, decision.contextHours) : recent;
+          const job = decision.kind === 'work-intent'
+            ? await startWork(backgroundRequest(event, decision, context)) : decision;
           if (!sameSource(event, job?.source) || job.kind !== 'work') return record(event, 'withheld');
           const result = await finish(job);
+          const coverage = context.coverage;
+          const notice = coverage && ('上下文：近 ' + coverage.hours + ' 小时收到 ' + coverage.available + ' 条可用文字'
+            + (coverage.available > coverage.sampled ? '，按时段抽取 ' + coverage.sampled + ' 条' : '')
+            + '。不含图片、附件和未收到的记录。');
           return deliver(event, notice && typeof result?.text === 'string'
             ? { ...result, text: result.text + '\n\n' + notice } : result);
         })
@@ -168,7 +166,7 @@ export function makeTrial({
     const anchors = new Set(events.map(item => item.messageId));
     ambient = true;
     budget--;
-    track(Promise.resolve().then(() => planWindow(events, since > 0 ? prior(since) : [])).then(async actions => {
+    track(Promise.resolve().then(() => planWindow(events, since > 0 ? contextAt(since).messages : [])).then(async actions => {
       if (!Array.isArray(actions)) return;
       for (const action of actions.slice(0, 2)) {
         if (!isLive() || now() - through > maxAge || latestMention.get(groupId, senderId)?.at >= through) break;

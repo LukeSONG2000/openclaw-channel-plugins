@@ -154,7 +154,9 @@ test('a later mention replies before a separate work run settles, with no replay
   let finishWork;
   const pending = new Promise(resolve => { finishWork = resolve; });
   const data = setup(t, {
-    plan: async event => ({ kind: event.text === 'task' ? 'work-request' : 'chat', source: event, text: 'answer' }),
+    plan: async event => event.text === 'task'
+      ? { kind: 'work-intent', source: event, brief: 'a report', contextHours: null }
+      : { kind: 'chat', source: event, text: 'answer' },
     startWork: async request => ({ kind: 'work', source: request.source }),
     finish: async job => { await pending; return { source: job.source, text: 'report' }; },
     send: async event => { sent.push(event.messageId); return { id: 'ok' }; },
@@ -207,7 +209,7 @@ test('a slow intent decision does not block a later natural mention', async t =>
   assert.deepEqual(sent, ['quick', 'slow']);
 });
 
-test('group recap reaches beyond quick context and uses only retained text from the source group', async t => {
+test('tracing a decision uses older context only from the source group', async t => {
   let started;
   const replies = [];
   const data = setup(t, {
@@ -216,7 +218,7 @@ test('group recap reaches beyond quick context and uses only retained text from 
     plan: async (event, context) => {
       assert.equal(context.length, 8);
       assert.equal(context.some(row => row.text === 'earlier discussion'), false);
-      return { kind: 'group-history', source: event, hours: 1 };
+      return { kind: 'work-intent', source: event, brief: 'trace the original decision', contextHours: 1 };
     },
     startWork: async request => { started = request; return { kind: 'work', source: request.source }; },
     finish: async job => ({ source: job.source, text: 'report' }),
@@ -227,33 +229,40 @@ test('group recap reaches beyond quick context and uses only retained text from 
   data.advance(3_595_001);
   for (let i = 0; i < 12; i++) data.put('recent-' + i, 'new topic ' + i, { rawEventType: 'GROUP_MESSAGE_CREATE' });
   data.put('credential', 'API Key: synthetic-secret', { rawEventType: 'GROUP_MESSAGE_CREATE' });
-  data.put('summary', 'request phrase');
+  data.put('trace', '为什么我们说要换地方？');
   data.put('same-time-later', 'posted after the request', { rawEventType: 'GROUP_MESSAGE_CREATE' });
   const trial = data.trial();
   trial.tick();
   await trial.drain();
   assert.ok(started);
   assert.match(started.request.input, /earlier discussion/);
-  assert.doesNotMatch(started.request.input, /private other-group|synthetic-secret|request phrase|posted after|test-author/);
-  assert.equal(replies[0].id, 'summary');
+  const { current, context } = JSON.parse(started.request.input.split('\n').at(-1));
+  assert.equal(current, '为什么我们说要换地方？');
+  assert.doesNotMatch(JSON.stringify(context), /private other-group|synthetic-secret|为什么我们说要换地方|posted after|test-author/);
+  assert.equal(replies[0].id, 'trace');
   assert.match(replies[0].text, /13 .*7 /);
 });
 
-test('empty retained history replies honestly without starting a worker', async t => {
-  let called = 0;
+test('an empty context is evidence, not a reason to suppress work', async t => {
+  let context;
   const replies = [];
   const data = setup(t, {
-    plan: async event => ({ kind: 'group-history', source: event, hours: 24 }),
-    startWork: async () => { called++; },
+    plan: async event => ({ kind: 'work-intent', source: event, brief: 'summarize if possible', contextHours: 24 }),
+    startWork: async request => {
+      context = JSON.parse(request.request.input.split('\n').at(-1)).context;
+      return { kind: 'work', source: request.source };
+    },
+    finish: async job => ({ source: job.source, text: 'No messages available.' }),
     send: async (_, text) => { replies.push(text); return { id: 'ok' }; },
   });
   data.put('summary', 'summarize');
   const trial = data.trial();
   trial.tick();
   await trial.drain();
-  assert.equal(called, 0);
+  assert.deepEqual(context.messages, []);
+  assert.equal(context.coverage.available, 0);
   assert.equal(replies.length, 1);
-  assert.match(replies[0], /24 .*没有收到/);
+  assert.match(replies[0], /No messages available\.[\s\S]+24 .*0 /);
 });
 
 test('plain chat opens one same-group window, with natural and source-targeted delivery', async t => {
