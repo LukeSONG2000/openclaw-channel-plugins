@@ -17,9 +17,12 @@ QQ and DingTalk direct messages can submit requests. Groups require an exact cha
 
 Clearly addressed natural-language requests work without mentioning the skill name or using a slash command. In groups, use a native bot mention. “做一张动图” chooses GIF even with `/imagen` and no explicit format flag. A short correction such as “我要的是动态图” reuses only the sender's recent successful static text-to-image prompt in that same conversation, within five minutes, and does not reuse attachments. See [skill scenarios](skills/imagen/SKILL.md).
 
+After a successful render, an explicit “重新画” follow-up can amend that sender's most recent Imagen request in the same account and conversation for ten minutes. The latest correction takes priority over the original description. Original reference images are revalidated if reused; no external image search or cross-conversation lookup is performed.
+
 ## Runtime
 
 - The manifest opts into gateway startup so the reply hook is installed before the first incoming message. A standalone plugin inspection alone does not verify gateway activation.
+- When Imagen is the sole image generator, deny OpenClaw's generic `image_generate` tool at the gateway. Do not deny the separate `image` analysis tool for this purpose; existing channel-specific restrictions still apply.
 - Install an official OpenAI CLI build that accepts GPT Image 2.6 GIF options at `~/.openclaw/bin/openai-image-cli`.
 - Store two distinct official API keys in `~/.openclaw/openai-image-private/accounts.json` as `{ "keys": [...] }` with file mode `0600`. Requests alternate starting accounts and check access to the selected model before generating.
 - Store two HTTPS provider URLs as `{ "subscriptions": [...] }` in the same private directory. Run `proxy-config.mjs` with that file path; write the generated JSON privately to `proxy/config.json` and use the included user service to launch the existing Mihomo binary. The cache and Unix control socket stay in the private proxy directory.

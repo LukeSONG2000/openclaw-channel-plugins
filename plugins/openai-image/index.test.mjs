@@ -91,8 +91,49 @@ test('natural requests distinguish drawing, editing and references from discussi
   assert.equal(recognizeImagenIntent('把这张图换个背景', false)?.kind, 'needs-image');
   assert.equal(recognizeImagenIntent('做一个飞船的视频', false)?.kind, 'video');
   assert.equal(recognizeImagenIntent('我要的是动态图', false)?.kind, 'format-correction');
+  assert.equal(recognizeImagenIntent('主角是蓝色圆形，不是机器人，重新画', false)?.kind, 'redraw');
+  assert.equal(recognizeImagenIntent('重新画一下，背景留白', false)?.kind, 'redraw');
+  assert.equal(recognizeImagenIntent('不用重新画', false), undefined);
+  assert.equal(recognizeImagenIntent('怎么重新画？', false), undefined);
   assert.equal(inferImagenMode('将图中的日语替换成翻译后的中文', true), 'edit');
   assert.equal(inferImagenMode('参考这张的配色换成人物海报', true), 'ref');
+});
+
+test('DingTalk redraw uses the latest correction and only the same conversation and sender', async () => {
+  let time = 0;
+  const rendered = [];
+  const decisions = [];
+  const handler = createHandler({ allowAllDingTalkGroups: true, now: () => time += 11_000,
+    plan: async (input) => { decisions.push(input); return 'Follow the current request; keep the white background.'; },
+    render: async (body, _key, files) => { rendered.push({ body, files }); return '/fake/test.png'; },
+  });
+  const hook = createDispatchHook(handler);
+  const sent = [];
+  const dispatch = {
+    dispatcher: { sendFinalReply: (reply) => Boolean(sent.push(reply)), getQueuedCounts: () => ({ final: sent.length }) },
+    recordProcessed() {}, markIdle() {},
+  };
+  const to = 'ddingtalk:chat:cidRoom==';
+  const ctx = { Provider: 'ddingtalk', OriginatingChannel: 'ddingtalk', From: 'ddingtalk:sender',
+    To: to, OriginatingTo: to, AccountId: 'account-a', SenderId: 'sender' };
+  await hook({ ctx: { ...ctx, ImagenInput: { args: 'low 画一张白底红色方形的图片', images: [], expectedImages: 0 } } }, dispatch);
+  const input = { naturalText: '是蓝色的，不是红色，重新画', images: [], expectedImages: 0 };
+  for (const patch of [{ SenderId: 'other', From: 'ddingtalk:other' }, { AccountId: 'account-b' },
+    { To: 'ddingtalk:chat:cidDifferent==', OriginatingTo: 'ddingtalk:chat:cidDifferent==' }]) {
+    await hook({ ctx: { ...ctx, ...patch, ImagenInput: input } }, dispatch);
+    assert.match(sent.at(-1).text, /没有找到/);
+  }
+  await hook({ ctx: { ...ctx, ImagenInput: input } }, dispatch);
+  assert.equal(rendered.length, 2);
+  assert.equal(decisions[1].decideIntent, false);
+  assert.match(decisions[1].prompt, /^本次要求（优先）：是蓝色的，不是红色，重新画\n上一张的出图要求：画一张白底红色方形的图片$/);
+  assert.deepEqual(decisions[1].images, []);
+  assert.equal(rendered[1].body.quality, 'low');
+  assert.equal(sent.at(-1).mediaUrl, '/fake/test.png');
+  time += 10 * 60_000;
+  await hook({ ctx: { ...ctx, ImagenInput: input } }, dispatch);
+  assert.match(sent.at(-1).text, /没有找到/);
+  assert.equal(rendered.length, 2);
 });
 
 test('a format correction can reuse only the same sender and conversation text prompt', async () => {

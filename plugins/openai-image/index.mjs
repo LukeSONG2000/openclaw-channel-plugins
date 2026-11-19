@@ -3,7 +3,7 @@ import { mkdir, open, readFile, realpath, stat, writeFile } from 'node:fs/promis
 import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
-import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
+import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, recognizeImagenIntent, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
 import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsGroupContext } from './visual-brief.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
@@ -71,6 +71,13 @@ function renderPrompt(mode, request, brief) {
     : mode === 'ref' ? 'Create a new image; use the supplied images as visual references, not as originals to edit.' : '';
   return [orientation, request, brief && `Visual direction (the user's requirements above take precedence):\n${brief}`]
     .filter(Boolean).join('\n\n');
+}
+
+function combineRevision(previous, next) {
+  const change = `本次要求（优先）：${next}`.slice(0, 1800);
+  const label = '\n上一张的出图要求：';
+  const available = 1800 - change.length - label.length;
+  return available > 0 ? change + label + previous.slice(0, available) : change;
 }
 
 export async function validateImages(paths, root) {
@@ -224,8 +231,7 @@ export function createHandler({
   let active = false;
   let nextKey = 0;
   let lastStart = -Infinity;
-  const recentTextJobs = new Map();
-  const recentEdits = new Map();
+  const recentJobs = new Map();
   return async (context) => {
     const scope = resolveScope(context);
     if (!scope || (scope.group && !groups.has(scope.address) &&
@@ -240,6 +246,11 @@ export function createHandler({
     const actorKey = actor && actor.length <= 256 ? JSON.stringify([
       context.channelId ?? context.channel, context.accountId ?? '', scope.address ?? context.to, actor,
     ]) : undefined;
+    const previous = actorKey && recentJobs.get(actorKey);
+    const redraw = context.intent?.kind === 'redraw' || (!context.intent && isImagenRedraw(args));
+    if (redraw && (!previous || now() - previous.at > 10 * 60_000)) {
+      return { text: '我没有找到你在这个会话里近期的生图请求。请补充完整出图要求，或把要修改的原图一起发来。' };
+    }
     if (context.intent?.kind === 'video') return { text: '目前能做静态图和短 GIF，不能生成视频文件。' };
     if (context.intent?.kind === 'needs-image') return { text: '请引用原图，或把原图和修改要求一起发过来。' };
     if (context.intent?.kind === 'format-correction') {
@@ -248,8 +259,8 @@ export function createHandler({
       if (hasExplicitSource) {
         args = ANIMATE_SOURCE;
       } else {
-        const previous = actorKey && recentTextJobs.get(actorKey);
-        if (!previous || now() - previous.at > 5 * 60_000) {
+        if (!previous || previous.mode !== 'text' || previous.format !== 'png' || previous.useContext ||
+            now() - previous.at > 5 * 60_000) {
           return { text: '可以做 GIF。请一起发想画的内容；要让某张图动起来，请附上或引用原图。' };
         }
         args = `text gif ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${previous.prompt}`;
@@ -265,10 +276,12 @@ export function createHandler({
     if (quoteCount > 4) return { text: '一次最多使用 4 张图，请只引用需要修改的原图。' };
     let source = images.length ? 'attachment' : quoteCount ? 'quote' : 'none';
     let correctionPrompt;
-    if (source === 'none' && channel === 'qqbot' && explicitMode !== 'text') {
+    if (redraw && source === 'none' && previous.paths.length) {
+      images = previous.paths;
+      source = 'previous-source';
+    } else if (source === 'none' && channel === 'qqbot' && explicitMode !== 'text') {
       if (isImagenEditCorrection(args)) {
-        const previous = actorKey && recentEdits.get(actorKey);
-        if (previous && now() - previous.at <= 10 * 60_000) {
+        if (previous?.mode === 'edit' && previous.paths.length && now() - previous.at <= 10 * 60_000) {
           images = previous.paths;
           correctionPrompt = `此前的编辑目标：${previous.prompt}\n本次纠正：${args}`.slice(0, 1800);
           source = 'previous-edit';
@@ -282,11 +295,14 @@ export function createHandler({
     const hasSource = source !== 'none';
     let mode = explicitMode ?? inferImagenMode(args, hasSource);
     if (correctionPrompt) mode = 'edit';
+    if (redraw) mode = hasSource && previous.mode === 'text' ? 'ref' : previous.mode;
     if (!hasSource && (mode !== 'text' || (!explicitMode && (requiresImagenSource(args) || wantsRecentImagenSource(args))))) {
       return { text: '请在同一条消息中上传或引用原图，不会用文字重新画一个替代。' };
     }
     if (mode === 'text' && images.length) return { text: '文生图不接收附件；请去掉图片或使用 edit / ref。' };
-    const requestArgs = correctionPrompt ?? args.slice(modifier?.[0].length ?? 0);
+    const requestArgs = redraw
+      ? `${inferImagenFormat(args) === 'gif' ? 'gif' : previous.format} ${previous.studio ? 'studio ' : ''}${previous.quality} ${previous.variant} ${combineRevision(previous.prompt, args)}`
+      : correctionPrompt ?? args.slice(modifier?.[0].length ?? 0);
     let request = parseRequest(requestArgs, mode);
     if (!request) return { text: USAGE };
     const useContext = scope.group && wantsGroupContext(request.prompt);
@@ -326,6 +342,7 @@ export function createHandler({
           ? code : 'unexpected';
         logger?.warn(`[imagen] visual brief failed reason=${planFailure} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
       }
+      if (planFailure === 'planner_unreachable') return { text: '暂时连不上生图服务，这次没有出图。请稍后再试。' };
       if (decideIntent) {
         if (!planned) return { text: '暂时没能完成生图请求解析，请稍后再试。' };
         if (planned.intent === 'ignore') return;
@@ -343,10 +360,10 @@ export function createHandler({
         brief = planned;
       }
       const { body, prompt, studio } = request;
-      logger?.info(`[imagen] accepted channel=${channel} mode=${mode} format=${body.output_format} trigger=${context.intent ? 'natural' : 'command'} attachments=${files.length} source=${source}`);
+      logger?.info(`[imagen] accepted channel=${channel} mode=${mode} format=${body.output_format} trigger=${redraw ? 'redraw' : context.intent ? 'natural' : 'command'} attachments=${files.length} source=${source}`);
       logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length} model=${PLANNER_MODEL} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
       if (!brief && useContext) return { text: '这次没能整理出本群主题。请稍后再试，或直接告诉我想画什么。' };
-      if (!brief && files.length) {
+      if (!brief && (files.length || redraw)) {
         return { text: planFailure === 'planner_no_brief'
           ? '我没能确认原图应该改成什么样。请补充目标外观，或一起附上目标参考图。'
           : '这次没能完成看图和改图规划，没有继续生成。请稍后再试。' };
@@ -355,19 +372,13 @@ export function createHandler({
       logger?.info(`[imagen] render settings model=${body.model} quality=${body.quality} complexity=${body.complexity}`);
       const mediaUrl = await render(body, startAt, files);
       if (actorKey) {
-        recentTextJobs.delete(actorKey);
-        if (mode === 'text' && !useContext && body.output_format === 'png') {
-          if (recentTextJobs.size >= 128) recentTextJobs.delete(recentTextJobs.keys().next().value);
-          recentTextJobs.set(actorKey, { at: now(), prompt, studio, quality: body.quality, variant: body.model.split('-').at(-1) });
-        }
-        if (mode === 'edit' && channel === 'qqbot' && files.length) {
-          const originalPrompt = correctionPrompt ? recentEdits.get(actorKey)?.prompt ?? prompt : prompt;
-          recentEdits.delete(actorKey);
-          if (recentEdits.size >= 128) recentEdits.delete(recentEdits.keys().next().value);
-          recentEdits.set(actorKey, { at: now(), paths: files, prompt: originalPrompt });
-        } else {
-          recentEdits.delete(actorKey);
-        }
+        recentJobs.delete(actorKey);
+        if (recentJobs.size >= 128) recentJobs.delete(recentJobs.keys().next().value);
+        recentJobs.set(actorKey, {
+          at: now(), mode, paths: files, format: body.output_format, useContext,
+          prompt: correctionPrompt ? previous.prompt : prompt,
+          studio, quality: body.quality, variant: body.model.split('-').at(-1),
+        });
       }
       logger?.info(`[imagen] rendered channel=${channel} mode=${mode} format=${body.output_format}`);
       return { mediaUrl, channelData: { imagen: true } };

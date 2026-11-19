@@ -10,6 +10,12 @@ const VISUAL_CORRECTION = /(?:毛色|花纹|品种|脸|五官|颜色|主体|构�
 const REF = /(?:参考(?:这|图|图片|原图|附件|风格)|借鉴|照着(?:它|这|图)|仿照|根据.{0,10}(?:参考图|附件|配色|画风)|inspired by|as (?:a )?reference|same (?:palette|style))/iu;
 const VIDEO = /(?:视频|短片|MP4|WebM|动效视频|video clip)/iu;
 const VISUAL_AS_INPUT = /(?:图片|图像|照片|GIF|动图)(?:的)?(?:识别|压缩|转换|搜索|下载|浏览|编辑|上传|生成)(?:器|工具|脚本|网站|程序|软件|接口|应用)/iu;
+const REDRAW = /(?:^|[，,。！!；;：:\n])\s*(?:(?:那就|请|麻烦|帮我|给我)\s*)*(?:重新(?:画|绘制|生成|出图)|重画|重绘|再(?:画|生成)(?:一张|一幅)|再出(?:一张|一版))(?:一(?:次|张|版|幅)|一下)?(?:吧|一下吧|可以吗|好吗)?\s*(?:[，,。！!；;：:？?\n]|$)/u;
+const REDRAW_NEGATED = /(?:不(?:要|用|必|需要|想)|别|无需|先别)\s*(?:再|帮我)?\s*(?:重新(?:画|绘制|生成|出图)|重画|重绘|再画|再生成|再出图)/u;
+
+export function isImagenRedraw(text) {
+  return !NO_ACTION.test(text) && !REDRAW_NEGATED.test(text) && REDRAW.test(text);
+}
 
 export function inferImagenFormat(prompt) {
   return ANIMATION.test(prompt) && !STILL_ONLY.test(prompt) ? 'gif' : 'png';
@@ -36,10 +42,12 @@ export function wantsRecentImagenSource(prompt) {
 export function recognizeImagenIntent(raw, hasImages) {
   if (typeof raw !== 'string') return;
   const text = raw.trim();
-  if (!text || text.length > 1800 || text.startsWith('/') || NO_ACTION.test(text) || VISUAL_AS_INPUT.test(text)) return;
+  if (!text || text.length > 1800 || text.startsWith('/') || NO_ACTION.test(text) ||
+      REDRAW_NEGATED.test(text) || VISUAL_AS_INPUT.test(text)) return;
   if (/^(?:我(?:想)?要(?:的)?(?:是)?|还是(?:要|做)|不是静态图[，,，。！! ]+(?:要|换成)|(?:改成|换成|做成|转成))\s*(?:一(?:张|个)?\s*)?(?:动态图|动图|GIF)(?:版(?:本)?)?[吧呀啊呢。！!，, ]*$/iu.test(text)) {
     return { kind: 'format-correction' };
   }
+  if (isImagenRedraw(text)) return { kind: 'redraw', args: text };
   if ((requiresImagenSource(text) || wantsRecentImagenSource(text)) && !hasImages) return { kind: 'needs-image' };
   const request = text.replace(LEAD, '').replace(/^(?:please|can you|could you|would you)\s+/iu, '');
   const startsCreation = DIRECT.test(request) || /^(?:根据|基于|结合|按).{1,45}(?:生成|画|做|创作|制作)(?:一|个|张|幅)/u.test(request);
