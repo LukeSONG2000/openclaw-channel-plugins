@@ -28,8 +28,8 @@ function toolHarness(handler) {
     const dispatch = hooks.reply_dispatch({ runId, sessionKey, ctx, ...options }, {});
     const invoke = async (params, override = {}) => {
       const toolCallId = 'call-' + ++n;
-      const block = hooks.before_tool_call({ runId, toolCallId, toolName: tool.name, ...override }, { sessionKey });
-      return block ?? (await tool.execute(toolCallId, params)).content[0].text;
+      const prepared = tool.prepareBeforeToolCallParams(params, { toolCallId, hookContext: { sessionKey, runId, ...override } });
+      return (await tool.execute(toolCallId, prepared)).content[0].text;
     };
     const final = (payload, overrides = {}) => hooks.reply_payload_sending({
       kind: 'final', channel: ctx.Provider, runId, sessionKey, payload, ...overrides,
@@ -420,10 +420,11 @@ test('native tool execution is rejected for suppressed, unbound and wrong-run tu
     ImagenInput: { naturalText: '做个插画', images: [], expectedImages: 0 } };
   const args = { prompt: '画插画' };
   for (const options of [{ sendPolicy: 'deny' }, { suppressUserDelivery: true }, { isTailDispatch: true }]) {
-    assert.equal((await bind(ctx, options).invoke(args)).block, true);
+    assert.match(await bind(ctx, options).invoke(args), /没能接上/);
   }
-  assert.equal((await bind({ ...ctx, OriginatingTo: other }).invoke(args)).block, true);
-  assert.equal((await bind(ctx).invoke(args, { runId: 'wrong-run' })).block, true);
+  assert.match(await bind({ ...ctx, OriginatingTo: other }).invoke(args), /没能接上/);
+  assert.match(await bind(ctx).invoke(args, { runId: 'wrong-run' }), /没能接上/);
+  assert.match(await bind(ctx).invoke(args, { sessionKey: 'wrong-session' }), /没能接上/);
   assert.equal(calls, 0);
   assert.equal(await bind(ctx).invoke(args), 'ok');
   assert.equal(calls, 1);
@@ -451,7 +452,30 @@ test('registers one native skill tool and no standalone slash responder', () => 
   const hooks = [];
   plugin.register({ registerTool: (_factory, options) => tools.push(options.name), on: event => hooks.push(event) });
   assert.deepEqual(tools, ['luke_imagen']);
-  assert.deepEqual(hooks, ['reply_dispatch', 'before_tool_call', 'reply_payload_sending']);
+  assert.deepEqual(hooks, ['reply_dispatch', 'reply_payload_sending']);
+});
+
+test('dispatch and the native tool can be loaded from separate plugin registries', async () => {
+  const turns = new Map();
+  const registered = () => {
+    const hooks = {};
+    const run = async ctx => ({ text: ctx.from });
+    run.allowed = () => true;
+    let factory;
+    registerImagenTool({ on: (name, hook) => { hooks[name] = hook; },
+      registerTool: create => { factory = create; } }, run, { turns });
+    return { hooks, factory };
+  };
+  const a = registered();
+  const b = registered();
+  const sessionKey = 'session', runId = 'trusted-turn', channel = 'qqbot';
+  a.hooks.reply_dispatch({ runId, sessionKey, ctx: { Provider: channel, From: group, To: group,
+    SenderId: 'member', OriginatingChannel: channel, OriginatingTo: group, ImagenInput: {} } }, {});
+  const tool = b.factory({ sessionKey, messageChannel: channel, requesterSenderId: 'runtime-alias' });
+  const params = { prompt: 'draw' };
+  assert.match((await tool.execute('unprepared', params)).content[0].text, /没能接上/);
+  tool.prepareBeforeToolCallParams(params, { toolCallId: 'prepared', hookContext: { sessionKey, runId } });
+  assert.equal((await tool.execute('prepared', params)).content[0].text, group);
 });
 
 test('gateway startup loads Imagen before the first reply dispatch', async () => {

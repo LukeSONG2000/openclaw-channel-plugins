@@ -18,6 +18,7 @@ const PNG = Buffer.from([137, 80, 78, 71, 13, 10, 26, 10]);
 const MIB = 1024 * 1024;
 const ANIMATE_SOURCE = 'edit gif 把原图制作成短循环动图。加一个符合画面的自然微动作，保持原有主体、造型、配色、构图和背景不变。';
 const REDRAW_WINDOW_MS = 2 * 60 * 60_000;
+const runtimeState = Symbol.for('luke-openai-image.runtime-state.v1');
 
 export function resolveScope({ channel, channelId, from, to }) {
   const kind = channelId ?? channel;
@@ -444,11 +445,14 @@ export function createHandler({
 export default {
   id: 'luke-openai-image',
   register(api) {
-    registerImagenTool(api, createHandler({
+    // The gateway can load dispatch hooks and tool factories in separate plugin registries.
+    const state = globalThis[runtimeState] ??= { turns: new Map() };
+    state.handle ??= createHandler({
       allowedGroups: api.pluginConfig?.allowedGroups ?? [],
       allowAllDingTalkGroups: api.pluginConfig?.allowAllDingTalkGroups === true,
       jobs: createJobPool({ concurrency: api.pluginConfig?.maxConcurrentJobs ?? 4 }),
       logger: api.logger,
-    }));
+    });
+    registerImagenTool(api, state.handle, { turns: state.turns });
   },
 };

@@ -18,13 +18,10 @@ function normalizeSlash(ctx, args) {
   ctx.BodyForCommands = request;
 }
 
-export function registerImagenTool(api, handle, now = Date.now) {
-  const turns = new Map();
-  const calls = new Map();
+export function registerImagenTool(api, handle, { now = Date.now, turns = new Map() } = {}) {
   const key = (session, id) => JSON.stringify([session, id]);
   function sweep() {
     for (const [id, entry] of turns) if (entry.expires <= now()) turns.delete(id);
-    for (const [id, entry] of calls) if (entry.expires <= now()) calls.delete(id);
     while (turns.size >= 128) turns.delete(turns.keys().next().value);
   }
 
@@ -49,21 +46,9 @@ export function registerImagenTool(api, handle, now = Date.now) {
     });
   });
 
-  api.on('before_tool_call', (event, ctx) => {
-    if (event.toolName !== toolName) return;
-    const entry = turns.get(key(ctx.sessionKey, event.runId ?? ctx.runId));
-    const callId = event.toolCallId ?? ctx.toolCallId;
-    if (!entry || !callId || !ctx.sessionKey || entry.expires <= now() || entry.signal?.aborted) {
-      return { block: true, blockReason: 'Imagen requires a current, permitted QQ or DingTalk message.' };
-    }
-    const id = key(ctx.sessionKey, callId);
-    const existing = calls.get(id);
-    if (existing && existing !== entry) return { block: true, blockReason: 'Imagen call identity is ambiguous.' };
-    calls.set(id, entry);
-  });
-
   api.registerTool((ctx) => {
     if (!channels.has(ctx.messageChannel) || !ctx.sessionKey) return;
+    const calls = new Map();
     return {
       name: toolName,
       label: 'Imagen',
@@ -81,14 +66,25 @@ export function registerImagenTool(api, handle, now = Date.now) {
             description: 'When the image depends on this conversation, select the time range requested by the user. Omit for a self-contained request.' },
         },
       },
+      prepareBeforeToolCallParams(params, { hookContext, toolCallId }) {
+        if (toolCallId) calls.delete(toolCallId);
+        if (!toolCallId || !hookContext?.runId || hookContext.sessionKey !== ctx.sessionKey) {
+          api.logger?.warn?.('[imagen] tool preparation lacks a matching runtime session or run');
+          return params;
+        }
+        const entry = turns.get(key(hookContext.sessionKey, hookContext.runId));
+        if (entry && entry.expires > now() && !entry.signal?.aborted && entry.source.channel === ctx.messageChannel) {
+          if (calls.size >= 32) calls.delete(calls.keys().next().value);
+          calls.set(toolCallId, entry);
+        } else api.logger?.warn?.('[imagen] tool preparation did not find an active source turn');
+        return params;
+      },
       async execute(callId, params) {
-        const id = key(ctx.sessionKey, callId);
-        const entry = calls.get(id);
-        calls.delete(id);
-        if (!entry || entry.expires <= now() || entry.signal?.aborted ||
-          ctx.messageChannel !== entry.source.channel ||
-          (ctx.requesterSenderId && ctx.requesterSenderId !== entry.source.senderId)) {
-          return answer('当前会话没有可用的生图授权。');
+        const entry = calls.get(callId);
+        calls.delete(callId);
+        if (!entry || entry.expires <= now() || entry.signal?.aborted) {
+          api.logger?.warn?.('[imagen] no active turn binding for tool execution');
+          return answer('这条消息没能接上生图上下文。不是群权限问题，请重试一次。');
         }
         const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : '';
         if (!prompt || prompt.length > 1700) return answer('请补充描述要画什么。');
