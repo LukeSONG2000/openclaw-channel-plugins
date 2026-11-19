@@ -9,11 +9,14 @@ const BUCKETS = 12;
 const PER_BUCKET = 6;
 const MAX_MESSAGE_LENGTH = 140;
 
-export type GroupContextRange = "today" | "last24h";
 const DAY_MS = 86_400_000;
-const CHINA_OFFSET_MS = 8 * 3_600_000;
-export function groupContextStart(range: GroupContextRange, at: number): number {
-  return range === "today" ? Math.floor((at + CHINA_OFFSET_MS) / DAY_MS) * DAY_MS - CHINA_OFFSET_MS : at - DAY_MS;
+export type ConversationContextQuery = { since: number; through?: number };
+
+export function boundConversationContext(query: ConversationContextQuery, receivedAt: number) {
+  const { since, through = receivedAt } = query;
+  if (!Number.isSafeInteger(since) || !Number.isSafeInteger(through) || !Number.isSafeInteger(receivedAt) ||
+      since >= through || since >= receivedAt || since < receivedAt - DAY_MS) return;
+  return { since, through: Math.min(through, receivedAt) };
 }
 
 export async function loadGroupTextContext(params: {
@@ -61,7 +64,7 @@ export async function loadGroupTextContext(params: {
               typeof message.id !== "string" || message.id === params.requestMessageId || seen.has(message.id) ||
               typeof message.content !== "string") continue;
           const text = message.content
-            .replace(/<@!?[^>]+>|<faceType=[^>]+>|https?:\/\/[^\s<>]+|\bsk-[\w-]{10,}|\b[0-9a-f]{32,}\b/giu, "")
+            .replace(/<@!?[^>]+>|<faceType=[^>]+>|https?:\/\/[^\s<>]+|[\w.+-]+@[\w.-]+\.[a-z]+|\b\d{7,}\b|\bsk-[\w-]{10,}|\b[0-9a-f]{32,}\b/giu, "")
             .replace(/\s+/gu, " ").trim();
           if (!text || text.startsWith("/") || params.skipText?.(text) ||
               /(?:密码|密钥|验证码|access[_ -]?token|api[_ -]?key)/iu.test(text)) continue;

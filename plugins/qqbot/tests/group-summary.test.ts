@@ -4,15 +4,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { test } from "node:test";
 import { loadGroupSummaryPrompt, parseGroupSummaryHours } from "../src/custom/group-summary.js";
-import { groupContextStart, loadGroupTextContext } from "../src/custom/group-text-context.js";
+import { boundConversationContext, loadGroupTextContext } from "../src/custom/group-text-context.js";
 
-test("today is the current UTC+08:00 calendar day, not a rolling 24-hour window", async () => {
+test("the context reader accepts arbitrary intervals and clamps end to the request", async () => {
   const dir = await mkdtemp(join(tmpdir(), "qq-context-"));
   try {
     const now = Date.parse("2026-11-19T16:03:00Z");
-    const since = groupContextStart("today", now);
-    assert.equal(since, Date.parse("2026-11-19T16:00:00Z"));
-    assert.equal(groupContextStart("last24h", now), now - 86_400_000);
+    const since = Date.parse("2026-11-20T00:00:00+08:00");
+    const bound = boundConversationContext({ since, through: now + 5_000 }, now);
+    assert.deepEqual(bound, { since, through: now });
+    assert.equal(boundConversationContext({ since: now - 86_400_001 }, now), undefined);
+    assert.equal(boundConversationContext({ since: now }, now), undefined);
+    assert.deepEqual(boundConversationContext({ since: since + 5_000, through: since + 60_000 }, now),
+      { since: since + 5_000, through: since + 60_000 });
     const line = (id: string, at: number, text: string, group = "local") => JSON.stringify({
       time: new Date(at).toISOString(),
       "1": `[qqbot:default] Dispatch event: t=GROUP_MESSAGE_CREATE, d=${JSON.stringify({ id, group_openid: group, content: text })}`,

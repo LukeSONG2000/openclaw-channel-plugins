@@ -18,15 +18,17 @@ const call = (address, args) => ({ channelId: 'qqbot', from: address, to: addres
 const noPlan = async () => undefined;
 function toolHarness(handler) {
   const hooks = {};
-  let factory;
+  const factories = new Map();
   let n = 0;
-  registerImagenTool({ on: (name, hook) => { hooks[name] = hook; }, registerTool: create => { factory = create; } }, handler);
+  registerImagenTool({ on: (name, hook) => { hooks[name] = hook; },
+    registerTool: (create, { name }) => factories.set(name, create) }, handler);
   return (ctx, options = {}) => {
     const runId = 'run-' + ++n;
     const sessionKey = ctx.SessionKey ?? 'session';
-    const tool = factory({ sessionKey, messageChannel: ctx.Provider, requesterSenderId: ctx.SenderId });
+    const scope = { sessionKey, messageChannel: ctx.Provider, requesterSenderId: ctx.SenderId };
     const dispatch = hooks.reply_dispatch({ runId, sessionKey, ctx, ...options }, {});
-    const invoke = async (params, override = {}) => {
+    const invoke = async (params, override = {}, name = 'luke_imagen') => {
+      const tool = factories.get(name)(scope);
       const toolCallId = 'call-' + ++n;
       const prepared = tool.prepareBeforeToolCallParams(params, { toolCallId, hookContext: { sessionKey, runId, ...override } });
       return (await tool.execute(toolCallId, prepared)).content[0].text;
@@ -205,47 +207,46 @@ test('natural candidates require a semantic decision and use the returned brief'
   assert.match(output[0].prompt, /moves smoothly/);
 });
 
-test('slash and natural-language turns use the same on-demand conversation scope', async () => {
+test('the agent reads arbitrary time ranges before calling a renderer that never reads chat', async () => {
   const planned = [];
-  let loads = 0;
+  const loads = [];
   const bind = toolHarness(createHandler({ allowedGroups: [group],
-    plan: async input => { planned.push(input); return 'A mural of the two stories discussed today.'; },
-    render: async () => '/fake/today.png',
+    plan: async input => { planned.push(input); return 'A mural of the workbench and the evening storm.'; },
+    render: async () => '/fake/context.png',
   }));
+  const start = '2026-11-19T00:00:00+08:00', end = '2026-11-19T09:30:00+08:00';
   const ctx = {
     Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group, OriginatingTo: group, SenderId: 'tester',
-    ReplyToBody: '累了一天想放松，喝苹果汁，联系私下用 noecho@example.org',
-    ConversationContextLoader: async range => {
-      assert.equal(range, 'today');
-      loads++;
-      return { messages: Array.from({ length: 12 }, (_, i) => ({ at: '08:00', text: 'group story ' + i })), count: 54 };
+    ConversationContextLoader: async query => {
+      loads.push(query);
+      return { ...query, through: query.through ?? Date.parse(end), messages: [{ at: '08:00', text: 'RAW source' }], count: 15 };
     },
   };
-  const input = { expectedImages: 0, images: [], recentChat: ['unrelated short-context'] };
+  const input = { expectedImages: 0, images: [] };
   const slashCtx = { ...ctx, ImagenInput: { ...input, args: '看看群里今天的对话，生成一张图' } };
   const slash = bind(slashCtx);
   const natural = bind({ ...ctx, ImagenInput: { ...input, naturalText: '看看群里今天的对话，生成一张图片' } });
   assert.equal(slash.dispatch, undefined);
   assert.equal(natural.dispatch, undefined);
   assert.match(slashCtx.CommandBody, /^请使用 Imagen/);
-  assert.equal(loads, 0);
+  assert.equal(loads.length, 0);
+
+  const read = async (turn, args) => JSON.parse(await turn.invoke(args, {}, 'read_conversation_context'));
+  assert.equal((await read(bind(ctx), { start: 'today' })).status, 'invalid_interval');
+  assert.equal((await read(bind(ctx), { start, end })).messages[0].text, 'RAW source');
+  assert.deepEqual(loads, [{ since: Date.parse(start), through: Date.parse(end) }]);
+  assert.equal((await read(natural, { start })).status, 'ok');
   for (const t of [slash, natural]) {
-    const args = { prompt: '把今天的话题画成一幅插画', contextRange: 'today' };
-    assert.match(await t.invoke(args), /已生成/);
-    assert.match(await t.invoke(args), /已生成/);
-    assert.equal(t.final({ text: '画好了。' }, { kind: 'block' }), undefined);
-    assert.equal(t.final({ text: '画好了。' }).payload.mediaUrl, '/fake/today.png');
+    assert.match(await t.invoke({ prompt: '画工作台与晚上的暴雨，采用复古插画风' }), /已生成/);
+    assert.equal(t.final({ text: '画好了。' }).payload.mediaUrl, '/fake/context.png');
     assert.equal(t.final({ text: '画好了。' }), undefined);
   }
-  assert.equal(loads, 2);
+  assert.equal(loads.length, 2);
   assert.equal(planned.length, 2);
-  assert.deepEqual(planned[0].contextCoverage, { available: 54, sampled: 12, partial: undefined });
-  assert.equal(planned[0].context.length, 12);
-  assert.match(planned[0].quotedText, /苹果汁/);
-  assert.doesNotMatch(planned[0].quotedText, /noecho/);
-  assert.match(await bind({ ...ctx, ConversationContextLoader: undefined, ImagenInput: input })
-    .invoke({ prompt: '画一下今天的群聊', contextRange: 'today' }), /不能把最近几条/);
-  assert.equal(planned.length, 2);
+  assert.match(planned[0].prompt, /工作台.*暴雨/);
+  assert.doesNotMatch(JSON.stringify(planned), /RAW source/);
+  assert.equal((await read(bind({ ...ctx, ConversationContextLoader: undefined, ImagenInput: input }), { start })).status,
+    'conversation_history_unavailable');
 });
 
 test('explicit QQ quote edits use the quoted pixels and cannot silently become text-to-image', async () => {
@@ -329,29 +330,22 @@ test('edit and reference paths require all current attachments and have distinct
   assert.deepEqual(calls.map((x) => x.files), [images, images, images]);
 });
 
-test('group context is opt-in and is not copied into the rendering request', async () => {
-  let time = 0;
+test('the renderer takes explicit prompts and immediate quoted material, not raw history', async () => {
   const planned = [];
   const rendered = [];
-  const run = createHandler({ allowedGroups: [group], now: () => time += 11_000,
-    plan: async (request) => { planned.push(request); return 'An illustrated discussion under a night sky.'; },
+  const run = createHandler({ allowedGroups: [group],
+    plan: async (input) => { planned.push(input); return 'A starry night with a telescope.'; },
     render: async (body) => { rendered.push(body); return '/fake/render.png'; },
   });
-  const recentChat = ['周末聊星空，邮箱 luke@example.org', 'https://example.org/private', '/reset', '这张卡的密码是 secret'];
-  await run({ ...call(group, '画棵树'), recentChat });
-  assert.deepEqual(planned[0].context, []);
-  assert.equal(rendered[0].complexity, 'high');
-  await run({ ...call(group, '根据你对这个群的了解生成一张图片'), recentChat });
-  assert.deepEqual(planned[1].context, ['周末聊星空，邮箱']);
-  assert.doesNotMatch(rendered[1].prompt, /邮箱|private|\/reset/);
-  assert.match(rendered[1].prompt, /An illustrated discussion/);
-  assert.equal(rendered[1].complexity, 'high');
-  assert.match((await run(call(group, '根据这个群画图'))).text, /没有足够/);
-  assert.equal(rendered.length, 2);
-  await run({ ...call(user, 'studio paint'), recentChat });
-  assert.deepEqual(planned[2].context, []);
-  assert.equal(rendered[2].quality, 'high');
-  assert.equal(rendered[2].model, 'gpt-image-2.6-sunburst');
+  const recentChat = ['not a renderer input'];
+  await run({ ...call(group, 'studio 画一幅望远镜的插画'), recentChat,
+    quotedText: '周末聊星空，邮箱 luke@example.org' });
+  assert.equal(planned[0].quotedText, '周末聊星空，邮箱');
+  assert.doesNotMatch(JSON.stringify(planned), /not a renderer input|luke@example/);
+  assert.equal(rendered[0].quality, 'high');
+  assert.equal(rendered[0].model, 'gpt-image-2.6-sunburst');
+  assert.match((await run({ ...call(group, '基于这个画图'), hasQuote: true })).text, /没有拿到引用/);
+  assert.equal(rendered.length, 1);
 });
 
 test('VLM receives actual image bytes, no tools and no retention flag, then returns only a brief', async () => {
@@ -451,7 +445,7 @@ test('registers one native skill tool and no standalone slash responder', () => 
   const tools = [];
   const hooks = [];
   plugin.register({ registerTool: (_factory, options) => tools.push(options.name), on: event => hooks.push(event) });
-  assert.deepEqual(tools, ['luke_imagen']);
+  assert.deepEqual(tools, ['read_conversation_context', 'luke_imagen']);
   assert.deepEqual(hooks, ['reply_dispatch', 'reply_payload_sending']);
 });
 
@@ -482,7 +476,7 @@ test('gateway startup loads Imagen before the first reply dispatch', async () =>
   const manifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
   assert.equal(manifest.activation?.onStartup, true);
   assert.deepEqual(manifest.skills, ['./skills']);
-  assert.deepEqual(manifest.contracts.tools, ['luke_imagen']);
+  assert.deepEqual(manifest.contracts.tools, ['read_conversation_context', 'luke_imagen']);
   const skill = await readFile(new URL('./skills/imagen/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /description:.*动图.*精修/);
 });

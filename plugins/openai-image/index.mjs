@@ -4,7 +4,7 @@ import { randomUUID } from 'node:crypto';
 import { homedir } from 'node:os';
 import { isAbsolute, join, relative, sep } from 'node:path';
 import { inferImagenFormat, inferImagenMode, isImagenEditCorrection, isImagenRedraw, requiresImagenSource, wantsRecentImagenSource } from './intent.mjs';
-import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsConversationContext, wantsGroupContext } from './visual-brief.mjs';
+import { boundedContext, buildBriefRequest, imageMime, PLANNER_EFFORT, PLANNER_MODEL, readVisualBrief, wantsConversationContext } from './visual-brief.mjs';
 import { createJobPool } from './jobs.mjs';
 import { registerImagenTool } from './agent-tool.mjs';
 import { OPENAI_PROBE, selectImageProxyRoute } from './proxy-route.mjs';
@@ -332,15 +332,9 @@ export function createHandler({
     let request = parseRequest(requestArgs, mode);
     if (!request) return { text: USAGE };
     const [quotedText] = boundedContext([context.quotedText]);
-    const snapshot = context.contextSnapshot;
-    const contextRequested = Boolean(snapshot) || context.useRecentChat === true || wantsConversationContext(request.prompt);
-    const contextLines = snapshot ? boundedContext(snapshot.messages.map(({ at, text }) => `${at} ${text}`), 72)
-      : contextRequested ? boundedContext(context.recentChat) : [];
-    const useContext = Boolean(quotedText || contextRequested);
-    const missingContext = wantsGroupContext(request.prompt) ? !contextLines.length
-      : !quotedText && !hasSource && (context.hasQuote || !contextLines.length);
-    if (contextRequested && missingContext) {
-      return context.intent?.tentative ? undefined : { text: '我现在没有足够的上下文来构图。请引用原文或原图，或把主题说一下。' };
+    const useContext = Boolean(quotedText);
+    if (context.hasQuote && !quotedText && !hasSource && wantsConversationContext(request.prompt)) {
+      return { text: '我没有拿到引用内容。请引用原文或原图，或把主题说一下。' };
     }
     const requestSequence = ++sequence;
     if (signal?.aborted) return;
@@ -368,8 +362,7 @@ export function createHandler({
       const planAt = Date.now();
       try {
         planned = await plan({
-          prompt: request.prompt, mode, images: files, context: contextLines, quotedText,
-          contextCoverage: snapshot && { available: snapshot.count, sampled: contextLines.length, partial: snapshot.limited },
+          prompt: request.prompt, mode, images: files, quotedText,
           format: request.body.output_format, decideIntent,
         }, startAt);
       }
@@ -401,7 +394,7 @@ export function createHandler({
       }
       const { body, prompt, studio } = request;
       logger?.info(`[imagen] accepted channel=${channel} mode=${mode} format=${body.output_format} trigger=${redraw ? 'redraw' : context.intent ? 'natural' : 'command'} attachments=${files.length} source=${source}`);
-      logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} context=${contextLines.length} model=${PLANNER_MODEL} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
+      logger?.info(`[imagen] visual brief ${brief ? 'ready' : 'unavailable'} channel=${channel} mode=${mode} quote=${Boolean(quotedText)} model=${PLANNER_MODEL} effort=${PLANNER_EFFORT} elapsedMs=${Date.now() - planAt}`);
       if (!brief && useContext && !files.length) return { text: '这次没能确认所指的素材，没有继续出图。请补一下原文、原图或目标。' };
       if (!brief && (files.length || redraw)) {
         return { text: planFailure === 'planner_no_brief'

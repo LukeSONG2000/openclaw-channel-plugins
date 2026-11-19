@@ -7,7 +7,7 @@
   },
   "skills": ["./skills"],
   "contracts": {
-    "tools": ["luke_imagen"]
+    "tools": ["read_conversation_context", "luke_imagen"]
   },
   "configSchema": {
     "type": "object",

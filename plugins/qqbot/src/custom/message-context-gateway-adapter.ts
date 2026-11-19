@@ -19,7 +19,7 @@ import { isCustomRuntimeAdmin } from "./auth-admin.js";
 import { resolveCustomRuntimeConfig } from "./config.js";
 import { toCustomActorFromQueuedMessage } from "./queued-message-context.js";
 import { buildQQImagenInput, getQQImagenQuotedImages, getRecentQQImagenImages, rememberQQImagenImages } from "./imagen-input.js";
-import { groupContextStart, loadGroupTextContext, type GroupContextRange } from "./group-text-context.js";
+import { boundConversationContext, loadGroupTextContext, type ConversationContextQuery } from "./group-text-context.js";
 
 const CUSTOM_MENTION_HISTORY_IMAGE_LIMIT = 1;
 const CUSTOM_AUTONOMOUS_HISTORY_IMAGE_LIMIT = 4;
@@ -175,13 +175,6 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     });
     return processed.attachmentLocalPaths.filter((path): path is string => Boolean(path));
   } : undefined;
-  const imagenRecentChat = imagenInput && event.groupOpenid
-    ? (groupDispatch.customUnreadHistoryForEvent?.length
-      ? groupDispatch.customUnreadHistoryForEvent
-      : params.groupHistories.get(event.groupOpenid) ?? [])
-      .filter((entry) => entry.messageId !== event.messageId)
-      .slice(-10).map((entry) => entry.body.slice(0, 800))
-    : undefined;
   const historyImageMedia = imagenInput?.args !== undefined ? undefined : await prepareCustomUnreadHistoryImageMedia({
     cfg: params.cfg,
     account: { accountId: account.accountId, appId: account.appId },
@@ -201,11 +194,13 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
     ? params.resolveHistoryLimit(event.groupOpenid, account.accountId)
     : 0;
   const groupOpenid = event.groupOpenid;
-  const loadConversationContext = event.type === "group" && groupOpenid ? (range: GroupContextRange) => {
-    if (range !== "today" && range !== "last24h") return;
-    const through = Math.min(Date.now(), new Date(event.timestamp).getTime());
-    return loadGroupTextContext({ accountId: account.accountId, groupOpenid, requestMessageId: event.messageId,
-      since: groupContextStart(range, through), through });
+  const loadConversationContext = event.type === "group" && groupOpenid && !event.senderIsBot &&
+    !event._customUnreadSnapshotId && !event._mergedMessages?.length ? async (query: ConversationContextQuery) => {
+    const bound = boundConversationContext(query, Math.min(Date.now(), new Date(event.timestamp).getTime()));
+    if (!bound) return;
+    const snapshot = await loadGroupTextContext({ ...bound, accountId: account.accountId,
+      groupOpenid, requestMessageId: event.messageId });
+    return { ...snapshot, ...bound };
   } : undefined;
   const agentContext = applyCustomAgentContextGateway({
     accountId: account.accountId,
@@ -225,7 +220,7 @@ export async function runCustomMessageContextGateway<TConfig extends OpenClawCon
       ...payload,
       ...(loadConversationContext ? { ConversationContextLoader: loadConversationContext } : {}),
       ...(imagenInput ? { ImagenInput: {
-        ...imagenInput, recentChat: imagenRecentChat,
+        ...imagenInput,
         recentImages: imagenRecentImages,
         quotedImageCount: imagenQuote.length, loadQuotedImages: loadImagenQuote,
       } } : {}),

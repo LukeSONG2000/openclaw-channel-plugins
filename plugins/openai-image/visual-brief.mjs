@@ -32,10 +32,9 @@ export function imageMime(bytes) {
   if (bytes.subarray(0, 4).toString() === 'RIFF' && bytes.subarray(8, 12).toString() === 'WEBP') return 'image/webp';
 }
 
-export async function buildBriefRequest({ prompt, mode, images, context, contextCoverage, quotedText, format, decideIntent = false }, read = readFile) {
+export async function buildBriefRequest({ prompt, mode, images, quotedText, format, decideIntent = false }, read = readFile) {
   const content = [{ type: 'input_text', text: JSON.stringify({
-    request: prompt, mode, output: format, quoted_message: quotedText, recent_chat_excerpts: context,
-    context_coverage: contextCoverage,
+    request: prompt, mode, output: format, quoted_message: quotedText,
     images: images.length,
   }) }];
   for (const image of images) {

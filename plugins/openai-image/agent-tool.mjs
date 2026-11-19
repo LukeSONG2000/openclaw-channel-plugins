@@ -1,3 +1,5 @@
+import { registerConversationTool } from './conversation-tool.mjs';
+
 const toolName = 'luke_imagen';
 const ttl = 5 * 60_000;
 const channels = new Set(['qqbot', 'ddingtalk']);
@@ -30,13 +32,13 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
     const channel = ctx?.Provider;
     const input = ctx?.ImagenInput;
     const sessionKey = ctx?.SessionKey ?? event.sessionKey;
-    if (!input || !channels.has(channel) || ctx.OriginatingChannel !== channel ||
+    if ((!input && typeof ctx?.ConversationContextLoader !== 'function') || !channels.has(channel) || ctx.OriginatingChannel !== channel ||
       ctx.OriginatingTo !== ctx.To || !runId || !sessionKey || !ctx.SenderId ||
       event.isTailDispatch || event.suppressUserDelivery || event.sendPolicy === 'deny') return;
     const source = { channel, from: ctx.From, to: ctx.To, senderId: ctx.SenderId, accountId: ctx.AccountId };
-    if (typeof input.args === 'string') normalizeSlash(ctx, input.args);
+    if (typeof input?.args === 'string') normalizeSlash(ctx, input.args);
     if (!handle.allowed(source)) return;
-    if (typeof input.naturalText === 'string') handle.observe?.(source, input.naturalText);
+    if (typeof input?.naturalText === 'string') handle.observe?.(source, input.naturalText);
     sweep();
     const id = key(sessionKey, runId);
     if (!turns.has(id)) turns.set(id, {
@@ -46,10 +48,39 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
     });
   });
 
-  api.registerTool((ctx) => {
-    if (!channels.has(ctx.messageChannel) || !ctx.sessionKey) return;
+  function bindTool(ctx, { execute, ...definition }) {
     const calls = new Map();
     return {
+      ...definition,
+      prepareBeforeToolCallParams(params, { hookContext, toolCallId }) {
+        if (toolCallId) calls.delete(toolCallId);
+        if (!toolCallId || !hookContext?.runId || hookContext.sessionKey !== ctx.sessionKey) {
+          api.logger?.warn?.('[conversation] tool preparation lacks a matching runtime session or run');
+          return params;
+        }
+        const entry = turns.get(key(hookContext.sessionKey, hookContext.runId));
+        if (entry && entry.expires > now() && !entry.signal?.aborted && entry.source.channel === ctx.messageChannel) {
+          if (calls.size >= 32) calls.delete(calls.keys().next().value);
+          calls.set(toolCallId, entry);
+        } else api.logger?.warn?.('[conversation] tool preparation did not find an active source turn');
+        return params;
+      },
+      async execute(callId, params) {
+        const entry = calls.get(callId);
+        calls.delete(callId);
+        if (!entry || entry.expires <= now() || entry.signal?.aborted) {
+          api.logger?.warn?.('[conversation] no active turn binding for tool execution');
+          return answer('这条消息没能接上本轮会话上下文，请重试一次。');
+        }
+        return execute(entry, params);
+      },
+    };
+  }
+
+  registerConversationTool(api, bindTool);
+  api.registerTool((ctx) => {
+    if (!channels.has(ctx.messageChannel) || !ctx.sessionKey) return;
+    return bindTool(ctx, {
       name: toolName,
       label: 'Imagen',
       description: 'Generate, edit or animate an image for the current QQ or DingTalk request. Read the imagen skill before use.',
@@ -62,49 +93,19 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
           quality: { type: 'string', enum: qualities },
           variant: { type: 'string', enum: variants },
           studio: { type: 'boolean' },
-          contextRange: { type: 'string', enum: ['recent', 'today', 'last24h'],
-            description: 'When the image depends on this conversation, select the time range requested by the user. Omit for a self-contained request.' },
         },
       },
-      prepareBeforeToolCallParams(params, { hookContext, toolCallId }) {
-        if (toolCallId) calls.delete(toolCallId);
-        if (!toolCallId || !hookContext?.runId || hookContext.sessionKey !== ctx.sessionKey) {
-          api.logger?.warn?.('[imagen] tool preparation lacks a matching runtime session or run');
-          return params;
-        }
-        const entry = turns.get(key(hookContext.sessionKey, hookContext.runId));
-        if (entry && entry.expires > now() && !entry.signal?.aborted && entry.source.channel === ctx.messageChannel) {
-          if (calls.size >= 32) calls.delete(calls.keys().next().value);
-          calls.set(toolCallId, entry);
-        } else api.logger?.warn?.('[imagen] tool preparation did not find an active source turn');
-        return params;
-      },
-      async execute(callId, params) {
-        const entry = calls.get(callId);
-        calls.delete(callId);
-        if (!entry || entry.expires <= now() || entry.signal?.aborted) {
-          api.logger?.warn?.('[imagen] no active turn binding for tool execution');
-          return answer('这条消息没能接上生图上下文。不是群权限问题，请重试一次。');
-        }
+      async execute(entry, params) {
+        if (!entry.input) return answer('当前消息没有可用的生图素材入口。');
         const prompt = typeof params?.prompt === 'string' ? params.prompt.trim() : '';
         if (!prompt || prompt.length > 1700) return answer('请补充描述要画什么。');
         if (!entry.result) {
           const args = [modes.includes(params.mode) && params.mode, formats.includes(params.format) && params.format,
             qualities.includes(params.quality) && params.quality, variants.includes(params.variant) && params.variant,
             params.studio === true && 'studio', prompt].filter(Boolean).join(' ');
-          entry.result = Promise.resolve().then(async () => {
-            let contextSnapshot;
-            if (params.contextRange === 'today' || params.contextRange === 'last24h') {
-              contextSnapshot = await entry.loadContext?.(params.contextRange);
-              if (!contextSnapshot?.messages?.length) {
-                return { text: '我没拿到这段时间内可用的对话，不能把最近几条当成整个时间段来画。请提供素材或改用较近的上下文。' };
-              }
-            }
-            return handle({
-              ...entry.source, ...entry.input, args, quotedText: entry.quotedText, hasQuote: entry.hasQuote,
-              useRecentChat: params.contextRange === 'recent', contextSnapshot,
-            }, entry.signal);
-          }).then(result => {
+          entry.result = Promise.resolve().then(() => handle({
+            ...entry.source, ...entry.input, args, quotedText: entry.quotedText, hasQuote: entry.hasQuote,
+          }, entry.signal)).then(result => {
             if (result?.mediaUrl) entry.media = result;
             return result;
           });
@@ -118,7 +119,7 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
           return answer('生图暂时失败。');
         }
       },
-    };
+    });
   }, { name: toolName });
 
   api.on('reply_payload_sending', (event, ctx) => {
