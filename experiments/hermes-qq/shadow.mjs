@@ -43,7 +43,7 @@ async function main(mode) {
     }));
     return;
   }
-  if (!['window', 'mention', 'trial-mention', 'trial-settle'].includes(mode)) throw new Error('invalid shadow mode');
+  if (!['window', 'mention', 'trial-mention', 'trial-window', 'trial-settle'].includes(mode)) throw new Error('invalid shadow mode');
   const sample = await readSample();
   await assertNoTools();
   const pilot = hermesPilot({ fast: runs });
@@ -52,9 +52,10 @@ async function main(mode) {
     return;
   }
   if (!Array.isArray(sample?.events) || sample.events.length > 24) throw new Error('invalid shadow sample');
-  if (mode === 'window') {
-    const actions = await pilot.window(sample.events);
-    console.log(JSON.stringify({ status: 'completed', count: actions.length, modes: actions.map(x => x.mode) }));
+  if (mode === 'window' || mode === 'trial-window') {
+    const actions = await pilot.window(sample.events, Array.isArray(sample.context) ? sample.context : []);
+    console.log(JSON.stringify(mode === 'trial-window' ? actions
+      : { status: 'completed', count: actions.length, modes: actions.map(x => x.mode) }));
     return;
   }
   if (sample.events.length !== 1) throw new Error('expected one source event');

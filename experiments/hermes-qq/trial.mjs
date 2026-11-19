@@ -7,18 +7,17 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { readGroupWindow } from './inbox-view.mjs';
 
 const maxAge = 180_000;
-const prefix = '[Hermes]';
 const sameSource = (event, source) => ['channel', 'account', 'groupId', 'messageId', 'senderId']
   .every(key => event[key] === source?.[key]);
 
 export function trialInput(body) {
-  const text = body.replace(/^(?:\s*<@!?[\w-]+>\s*|\s*@Luke\s+)*/iu, '').trimStart();
-  return text.startsWith(prefix) ? text.slice(prefix.length).trim().slice(0, 1600) : '';
+  return body.replace(/^(?:\s*<@!?[\w-]+>\s*|\s*@Luke\s+)*/iu, '')
+    .trim().replace(/^\[Hermes\]\s*/u, '').slice(0, 1600);
 }
 
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
-  now = Date.now, plan, finish, send, log = () => {},
+  now = Date.now, windowMs = 60_000, plan, finish, send, planWindow, sendWindow, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -27,17 +26,63 @@ export function makeTrial({
   const mark = ledger.prepare('UPDATE trial_receipts SET state = ? WHERE group_id = ? AND message_id = ?');
   const known = ledger.prepare('SELECT 1 FROM trial_receipts WHERE group_id = ? AND message_id = ?');
   const rows = inbox.prepare(`SELECT * FROM events WHERE group_id=? AND sender_id=? AND mentioned=1
-    AND received_at>? AND received_at<=? AND instr(body, '[Hermes]')>0 ORDER BY received_at,rowid LIMIT 32`);
+    AND received_at>? AND received_at<=? ORDER BY received_at,rowid LIMIT 32`);
+  const firstPlain = inbox.prepare(`SELECT MIN(received_at) AS at FROM events
+    WHERE group_id=? AND sender_id=? AND mentioned=0 AND received_at>?
+      AND length(trim(body))>0`);
+  const latestMention = inbox.prepare('SELECT MAX(received_at) AS at FROM events WHERE group_id=? AND sender_id=? AND mentioned=1');
   const active = new Set();
   let budget = 6;
-  const record = (event, status) => { mark.run(status, event.groupId, event.messageId); log(status); };
+  let coveredThrough = start;
+  let ambient = false;
+  const isLive = () => !signal?.aborted && now() < until;
+  const record = (event, status, key = event.messageId) => { mark.run(status, event.groupId, key); log(status); return status; };
+  function track(promise) {
+    const task = promise.finally(() => active.delete(task));
+    active.add(task);
+  }
+  function prior(at, omit) {
+    return readGroupWindow(inbox, { account, groupId, after: Math.max(0, at - 86_400_000), through: at })
+      .filter(item => item.messageId !== omit).slice(-8)
+      .map(item => ({ speaker: item.senderId, text: item.text }));
+  }
   async function deliver(event, result) {
     if (!sameSource(event, result?.source) || typeof result?.text !== 'string' || !result.text.trim() ||
       result.text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(result.text) ||
-      signal?.aborted || now() >= until || now() - event.at > maxAge) return record(event, 'withheld');
+      !isLive() || now() - event.at > maxAge) return record(event, 'withheld');
     record(event, 'sending');
     try { record(event, (await send(event, result.text))?.id ? 'accepted' : 'uncertain'); }
     catch { record(event, 'uncertain'); }
+  }
+  function startWindow() {
+    if (!planWindow || !sendWindow || ambient || !budget || !isLive()) return;
+    const since = Math.max(coveredThrough, now() - maxAge);
+    const first = firstPlain.get(groupId, senderId, since)?.at;
+    if (!Number.isSafeInteger(first) || now() < first + windowMs) return;
+    const through = first + windowMs;
+    coveredThrough = through;
+    const events = readGroupWindow(inbox, { account, groupId, after: since, through }).filter(item => !item.mentioned);
+    if (!events.some(item => item.senderId === senderId)) return;
+    const tail = events.at(-1);
+    const anchors = new Set(events.map(item => item.messageId));
+    ambient = true;
+    budget--;
+    track(Promise.resolve().then(() => planWindow(events, since > 0 ? prior(since) : [])).then(async actions => {
+      if (!Array.isArray(actions)) return;
+      for (const action of actions.slice(0, 2)) {
+        if (!isLive() || now() - through > maxAge || latestMention.get(groupId, senderId)?.at >= through) break;
+        if (!['natural', 'reply'].includes(action?.mode) ||
+          (action.mode === 'reply' && !anchors.has(action.replyToId)) ||
+          typeof action.text !== 'string' || !action.text.trim() || action.text.length > 180 ||
+          /[<\r\n]|\[CQ:|[@＠]|\bNO_REPLY\b/i.test(action.text)) continue;
+        const key = 'window:' + tail.messageId + ':' + action.mode;
+        if (!claim.run(groupId, key).changes) continue;
+        record(tail, 'sending', key);
+        try {
+          if (record(tail, (await sendWindow(groupId, action))?.id ? 'accepted' : 'uncertain', key) !== 'accepted') break;
+        } catch { record(tail, 'uncertain', key); break; }
+      }
+    }).catch(() => log('window_failed')).finally(() => { ambient = false; }));
   }
   return {
     async tick() {
@@ -47,25 +92,23 @@ export function makeTrial({
         const text = trialInput(row.body);
         if (!text || known.get(groupId, row.message_id) || !claim.run(groupId, row.message_id).changes) continue;
         budget--;
+        coveredThrough = Math.max(coveredThrough, row.received_at);
         const event = {
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
         };
         try {
-          const context = readGroupWindow(inbox, { account, groupId, after: Math.max(0, event.at - 86_400_000), through: event.at })
-            .filter(item => item.messageId !== event.messageId && !trialInput(item.text)).slice(-8)
-            .map(item => ({ speaker: item.senderId, text: item.text }));
-          const decision = await plan(event, context);
+          const decision = await plan(event, prior(event.at, event.messageId));
           if (!sameSource(event, decision?.source)) { record(event, 'withheld'); continue; }
           if (decision.kind === 'chat') await deliver(event, decision);
           else if (decision.kind === 'work') {
             record(event, 'working');
-            const task = Promise.resolve().then(() => finish(decision)).then(result => deliver(event, result))
-              .catch(() => record(event, 'failed')).finally(() => active.delete(task));
-            active.add(task);
+            track(Promise.resolve().then(() => finish(decision)).then(result => deliver(event, result))
+              .catch(() => record(event, 'failed')));
           } else record(event, 'withheld');
         } catch { record(event, 'failed'); }
       }
+      startWindow();
     },
     async drain() { await Promise.all(active); },
   };
@@ -116,6 +159,11 @@ async function main() {
     inbox, ledger, account, groupId, senderId, start, until, signal: stop.signal,
     plan: (event, context) => callRuntime(container, 'trial-mention', { events: [event], context }),
     finish: job => callRuntime(container, 'trial-settle', { job }),
+    planWindow: (events, context) => callRuntime(container, 'trial-window', { events, context }),
+    sendWindow: (to, action) => bot.send({
+      target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId } : {}) },
+      msgType: 0, content: action.text, extra: { msg_seq: 1 },
+    }),
     send: (event, content) => bot.send({
       target: { scope: 'group', targetId: event.groupId, msgId: event.messageId },
       msgType: 0, content: '<@' + event.senderId + '> ' + content, extra: { msg_seq: 1 },
