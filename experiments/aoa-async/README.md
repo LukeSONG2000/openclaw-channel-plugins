@@ -23,6 +23,8 @@ The [official channel](https://docs.openclaw.ai/channels/qqbot) uses `always` (e
 
 Our [custom free-reply runtime](../../plugins/qqbot/docs/custom-runtime/free-reply.md) instead records unread events, schedules adaptive checks, separates read context from consumed topics, and can suppress sending after topic selection. Its `default/free/admin` roles are not the stock activation modes or a platform permission. An async-task hook does not port that runtime. Test full-event access, request/receipt idempotency, and reply cadence separately before considering migration.
 
+The offline `window-reply.mjs` contract evaluates one unread window in one call: at most one unanchored conversational line and one anchored reply on a separate topic; either can be absent. Older messages are context only and are never reply targets. In the fixture `AA BB A CC AA`, the bot joins A naturally, replies to one B message, and leaves the two members in C alone. This contract is not enabled in the live dispatch hook: native quote display and one-to-one ingress identity still need test-bot verification.
+
 ## Run offline
 
 `npm test` uses SQLite and synthetic platform and provider events. It needs no credentials. For the additional stock-package tests, install the pinned upstream packages outside this repository, then run:
