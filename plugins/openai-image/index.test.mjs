@@ -458,6 +458,7 @@ test('gateway startup loads Imagen before the first reply dispatch', async () =>
   const manifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
   assert.equal(manifest.activation?.onStartup, true);
   assert.deepEqual(manifest.skills, ['./skills']);
+  assert.deepEqual(manifest.contracts.tools, ['luke_imagen']);
   const skill = await readFile(new URL('./skills/imagen/SKILL.md', import.meta.url), 'utf8');
   assert.match(skill, /description:.*动图.*精修/);
 });

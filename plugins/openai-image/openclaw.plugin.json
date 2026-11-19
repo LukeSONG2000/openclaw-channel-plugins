@@ -6,6 +6,9 @@
     "onStartup": true
   },
   "skills": ["./skills"],
+  "contracts": {
+    "tools": ["luke_imagen"]
+  },
   "configSchema": {
     "type": "object",
     "additionalProperties": false,
