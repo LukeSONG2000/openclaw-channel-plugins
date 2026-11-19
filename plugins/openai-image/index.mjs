@@ -9,6 +9,9 @@ import { createJobPool } from './jobs.mjs';
 import { registerImagenTool } from './agent-tool.mjs';
 import { OPENAI_PROBE, rankImageProxyRoutes } from './proxy-route.mjs';
 import { runProviderJob } from './provider-failover.mjs';
+import { readProviderFailure } from './provider-diagnostics.mjs';
+
+export { readProviderFailure } from './provider-diagnostics.mjs';
 
 const ROOT = join(homedir(), '.openclaw');
 const PROXY_SOCKET = join(ROOT, 'openai-image-private', 'proxy', 'control.sock');
@@ -126,34 +129,12 @@ async function loadKeys() {
   return keys;
 }
 
-export function readProviderFailure({ killed, stderr, stdout } = {}) {
-  if (killed) return { reason: 'timeout' };
-  for (const stream of [stderr, stdout]) {
-    if (!stream) continue;
-    try {
-      const root = JSON.parse(stream);
-      const err = root.error ?? root;
-      const code = err.code ?? root.code;
-      const status = Number(err.status_code ?? err.http_status ?? err.status ?? root.status_code ?? root.status);
-      if (err.request_sent === false && ['connect', 'proxy_connect', 'tls_handshake'].includes(err.phase)) {
-        return { reason: 'connection_before_send' };
-      }
-      if (code === 'insufficient_quota') return { reason: 'quota' };
-      if (code === 'rate_limit_exceeded' || status === 429) return { reason: 'rate_limit' };
-      if (['content_policy_violation', 'moderation_blocked', 'safety_violations'].includes(code)) return { reason: 'policy' };
-      if (status === 401 || status === 403) return { reason: 'auth' };
-      if (status === 400 || status === 422 || err.type === 'invalid_request_error') return { reason: 'invalid_request' };
-      if (status >= 500 && status <= 599) return { reason: 'upstream' };
-    } catch { /* Do not log or replay raw CLI output. */ }
-  }
-  return { reason: 'provider' };
-}
-
 function run(file, args, { input, env, timeout, signal }) {
   return new Promise((resolve, reject) => {
     const child = execFile(file, args, { env, timeout, signal, maxBuffer: 32 * 1024 * 1024 }, (error, stdout, stderr) => {
       if (!error) return resolve(stdout);
-      const failure = new Error(readProviderFailure({ killed: error.killed, stderr, stdout }).reason);
+      const diagnostic = readProviderFailure({ killed: error.killed, stderr, stdout });
+      const failure = Object.assign(new Error(diagnostic.reason), diagnostic);
       reject(failure);
     });
     child.stdin.on('error', () => {});
@@ -211,9 +192,20 @@ async function callProvider({ phase, model, args, payload, startAt, signal, dead
   return runProviderJob({
     phase, keys, startAt, signal, deadline, routes: rankImageProxyRoutes(providers),
     check: (key, route, budget) => checkKey(key, model, route, budget, signal), refresh: refreshImageRoutes,
-    attempt: (key, route, timeout) => run(CLI, args, {
-      env: apiEnv(key, route), timeout, signal, input: JSON.stringify(payload),
-    }),
+    async attempt(key, route, timeout) {
+      try {
+        return await run(CLI, phase === 'render' ? [...args, '--debug'] : args, {
+          env: apiEnv(key, route), timeout, signal, input: JSON.stringify(payload),
+        });
+      } catch (error) {
+        if (phase === 'render') {
+          const attempts = error.attempts?.map(x => x.status ?? 'transport').join(',') || 'none';
+          const requestId = error.attempts?.at(-1)?.requestId ?? 'none';
+          logger?.warn?.(`[imagen] render diagnostics route=${route.provider} reason=${error.reason ?? 'unknown'} attempts=${attempts} requestId=${requestId}`);
+        }
+        throw error;
+      }
+    },
     onRetry: ({ phase, route, account, reason }) => {
       logger?.warn?.(`[imagen] provider failover phase=${phase} route=${route} account=${account} reason=${reason}`);
     },
@@ -247,7 +239,9 @@ export async function generate(body, startAt, images = [], { signal, deadline, l
     args: ['images', images.length ? 'edit' : 'generate', '--format', 'json', '--format-error', 'json'],
     payload: images.length ? { ...body, image: images } : body,
   });
-  const encoded = JSON.parse(output).data?.[0]?.b64_json;
+  let encoded;
+  try { encoded = JSON.parse(output).data?.[0]?.b64_json; }
+  catch { throw new Error('invalid_media'); }
   const bytes = typeof encoded === 'string' ? Buffer.from(encoded, 'base64') : Buffer.alloc(0);
   const gif = body.output_format === 'gif';
   const valid = gif ? /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString('ascii'))
@@ -434,11 +428,12 @@ export function createHandler({
         timeout: '生图接口超时，未收到成品，不能确认服务端是否已完成。',
         quota: '生图账号额度不足，本次未出图。',
         rate_limit: '生图接口限流，本次未出图。',
-        policy: '生图服务拒绝了这次请求，本次未出图。',
+        policy: '这次请求未通过生图服务的内容审核，没有出图。',
         auth: '生图服务的账号认证失败，本次未出图。',
         invalid_request: '生图接口拒绝了请求参数，本次未出图。',
         upstream: '生图服务返回错误，未收到成品。',
         invalid_media: '生图接口返回的文件无效，没法发送。',
+        transport_uncertain: '生图时连接中断，没有收到成品，无法确认服务端是否已完成。',
       };
       const reason = typeof error?.message === 'string' && Object.hasOwn(messages, error.message) ? error.message : 'provider';
       logger?.warn(`[imagen] generation failed reason=${reason}`);

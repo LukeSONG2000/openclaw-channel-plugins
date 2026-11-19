@@ -486,6 +486,27 @@ test('provider failures expose only sanitized categories and distinguish timeout
   assert.doesNotMatch(JSON.stringify([result, warnings]), /raw-private/);
 });
 
+test('CLI timing plus a JSON footer retain only status, request ID and demonstrably safe retry state', () => {
+  const safe = readProviderFailure({ stderr: [
+    '2026/11/19 22:00:11 HTTP attempt 1: response headers received after 100 ms (429 Too Many Requests)',
+    'X-Request-Id: 21305256-47a0-400b-b5a3-ab0a47e55ca7\r',
+    'Authorization: prv-this-must-not-leak',
+    '{"error":{"code":"rate_limit_exceeded","message":"a private request"}}',
+  ].join('\n') });
+  assert.deepEqual(safe, {
+    reason: 'rate_limit', retrySafe: true,
+    attempts: [{ id: 1, status: 429, requestId: '21305256-47a0-400b-b5a3-ab0a47e55ca7' }],
+  });
+  const ambiguous = readProviderFailure({ stderr: [
+    '2026/11/19 22:00:01 HTTP attempt 1: transport failed after 900 ms',
+    '2026/11/19 22:00:03 HTTP attempt 2: response headers received after 8 ms (429 Too Many Requests)',
+    '{"error":{"code":"rate_limit_exceeded"}}',
+  ].join('\n') });
+  assert.equal(ambiguous.reason, 'rate_limit');
+  assert.equal(ambiguous.retrySafe, false);
+  assert.deepEqual(ambiguous.attempts.map(a => a.status), [null, 429]);
+});
+
 test('registers one native skill tool and no standalone slash responder', () => {
   const tools = [];
   const hooks = [];
@@ -605,13 +626,13 @@ test('a definite render rejection can switch accounts but an uncertain result ca
   const result = await runProviderJob({ ...providerCase, phase: 'render',
     attempt: async (key, route) => {
       calls.push([key, route.provider]);
-      if (key === 'a') throw new Error('rate_limit');
+      if (key === 'a') throw Object.assign(new Error('rate_limit'), { retrySafe: true });
       return 'png';
     },
   });
   assert.equal(result, 'png');
   assert.deepEqual(calls, [['a', 'preferred'], ['b', 'preferred']]);
-  for (const reason of ['timeout', 'upstream', 'provider', 'policy', 'invalid_request']) {
+  for (const reason of ['timeout', 'upstream', 'provider', 'policy', 'invalid_request', 'rate_limit', 'transport_uncertain']) {
     let attempts = 0;
     await assert.rejects(runProviderJob({ ...providerCase, phase: 'render',
       attempt: async () => { attempts++; throw new Error(reason); },

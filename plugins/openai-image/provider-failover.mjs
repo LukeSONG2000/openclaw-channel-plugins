@@ -1,5 +1,5 @@
 const accountFailure = new Set(['quota', 'rate_limit', 'auth']);
-const plannerTransient = new Set(['timeout', 'upstream', 'provider']);
+const plannerTransient = new Set(['timeout', 'upstream', 'provider', 'transport_uncertain']);
 
 // A reachability check is read-only; a render is not. Only definite rejections may repeat a render.
 export async function runProviderJob({
@@ -37,8 +37,9 @@ export async function runProviderJob({
           signal?.throwIfAborted();
           lastFailure = error;
           const reason = error?.message;
-          const rejected = accountFailure.has(reason);
-          const rotateRoute = reason === 'connection_before_send' || (planning && plannerTransient.has(reason));
+          const rejected = (planning || error?.retrySafe === true) && accountFailure.has(reason);
+          const rotateRoute = (reason === 'connection_before_send' && (planning || error?.retrySafe === true)) ||
+            (planning && plannerTransient.has(reason));
           if (attempts >= maxAttempts || (!rejected && !rotateRoute)) throw error;
           onRetry({ phase, route: route.provider, account: index + 1, reason });
           if (rejected) skipAccount.add(index);
