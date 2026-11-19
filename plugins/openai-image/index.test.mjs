@@ -207,6 +207,36 @@ test('natural candidates require a semantic decision and use the returned brief'
   assert.match(output[0].prompt, /moves smoothly/);
 });
 
+test('a bare slash command treats the current quote or attachment as sufficient material', async () => {
+  const planned = [];
+  const bind = toolHarness(createHandler({ allowedGroups: [group], verify: async paths => paths,
+    plan: async input => { planned.push(input); return 'A visual interpretation of the source.'; },
+    render: async () => '/fake/rendered.png',
+  }));
+  const base = { Provider: 'qqbot', OriginatingChannel: 'qqbot', From: group, To: group,
+    OriginatingTo: group, SenderId: 'tester', ImagenInput: { args: '', expectedImages: 0, images: [] } };
+  const quote = { ...base, ReplyToBody: '有人拿着一长串问题追问朋友的学业与生活。' };
+  const turn = bind(quote);
+  assert.equal(turn.dispatch, undefined);
+  assert.match(quote.CommandBody, /直接调用技能出图/);
+  assert.doesNotMatch(quote.CommandBody, /没写绘图描述/);
+  assert.match(await turn.invoke({ prompt: '画一个人拿着厚厚的问题清单，朋友目瞪口呆' }), /已生成/);
+  assert.equal(planned[0].quotedText, '有人拿着一长串问题追问朋友的学业与生活。');
+
+  const image = { ...base, ImagenInput: { args: '', expectedImages: 1, images: ['/current/picture.png'] } };
+  const imageTurn = bind(image);
+  assert.match(image.CommandBody, /直接调用技能出图/);
+  assert.match(await imageTurn.invoke({ mode: 'ref', prompt: '参考附图创作一张新图' }), /已生成/);
+  assert.deepEqual(planned[1].images, ['/current/picture.png']);
+
+  const noMaterial = { ...base };
+  bind(noMaterial);
+  assert.match(noMaterial.CommandBody, /只有确实无法确定/);
+  const explicit = { ...quote, ImagenInput: { ...base.ImagenInput, args: '做成黑白四格' } };
+  bind(explicit);
+  assert.match(explicit.CommandBody, /用户补充的要求：做成黑白四格/);
+});
+
 test('the agent reads arbitrary time ranges before calling a renderer that never reads chat', async () => {
   const planned = [];
   const loads = [];

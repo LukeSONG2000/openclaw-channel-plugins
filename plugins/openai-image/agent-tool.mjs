@@ -1,4 +1,5 @@
 import { registerConversationTool } from './conversation-tool.mjs';
+import { boundedContext } from './visual-brief.mjs';
 
 const toolName = 'luke_imagen';
 const ttl = 5 * 60_000;
@@ -9,10 +10,16 @@ const qualities = ['low', 'medium', 'high'];
 const variants = ['flare', 'sunburst'];
 const answer = text => ({ content: [{ type: 'text', text }] });
 
-function normalizeSlash(ctx, args) {
-  const request = args.trim()
-    ? '请使用 Imagen 技能完成这次请求（用户显式指定 /imagen）：' + args
-    : '用户显式指定了 /imagen，但没写绘图描述。若当前上下文不足，请正常询问要画什么。';
+function normalizeSlash(ctx, input) {
+  const args = input.args.trim();
+  const [quotedText] = boundedContext([ctx.ReplyToBody]);
+  const hasMaterial = Boolean(quotedText || input.expectedImages > 0 || input.quotedImageCount > 0);
+  const instruction = '请使用 Imagen 技能完成这次请求（用户显式指定 /imagen）。';
+  const request = args
+    ? instruction + ' 用户补充的要求：' + args
+    : instruction + (hasMaterial
+      ? '以本轮引用或所附图片为创作素材，提炼后直接调用技能出图，不要让用户重复描述或再确认。'
+      : '有明确的同会话素材就据此创作；只有确实无法确定要画什么时才询问。');
   const body = ctx.BodyForAgent ?? ctx.Body ?? '';
   ctx.BodyForAgent = [body, request].filter(Boolean).join('\n\n');
   ctx.CommandBody = request;
@@ -36,7 +43,7 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
       ctx.OriginatingTo !== ctx.To || !runId || !sessionKey || !ctx.SenderId ||
       event.isTailDispatch || event.suppressUserDelivery || event.sendPolicy === 'deny') return;
     const source = { channel, from: ctx.From, to: ctx.To, senderId: ctx.SenderId, accountId: ctx.AccountId };
-    if (typeof input?.args === 'string') normalizeSlash(ctx, input.args);
+    if (typeof input?.args === 'string') normalizeSlash(ctx, input);
     if (!handle.allowed(source)) return;
     if (typeof input?.naturalText === 'string') handle.observe?.(source, input.naturalText);
     sweep();

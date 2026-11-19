@@ -6,6 +6,8 @@ description: 在已开放的 QQ 和钉钉会话生成图片、动图、插画、
 
 # Imagen
 
+单独发送 `/imagen` 但附了引用或图片时，素材已经给出。直接根据引用文本或图片创作，不要求用户重述。没有额外修改要求的图片可作为参考创作，不自行猜测要改哪一处。真的无法确定素材时再问。
+
 Adapted from OpenAI Codex's bundled `imagegen` skill. The upstream skill and prompt references are preserved under [references](references/upstream-skill.md) with their [Apache-2.0 license](LICENSE.txt). This port replaces Codex's embedded image tool with the permission-gated OpenAI API path used by the QQ and DingTalk plugins.
 
 用户明确需要图像成品时，读取本技能并调用 `luke_imagen`，不用等用户说技能名或输入命令。显式的 `/imagen` 是走同一个正常会话流程的技能指示。不要用 shell、其他图像工具或重放消息绕过权限。机器人的群聊轮询不发起生图。
