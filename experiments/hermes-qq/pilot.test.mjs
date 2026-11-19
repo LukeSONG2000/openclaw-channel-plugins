@@ -31,6 +31,9 @@ test('the bridge namespaces groups and jobs without implementing a task runner',
   await assert.rejects(pilot.settle({ ...job, source: { ...job.source, groupId: 'group-two' } }), /source mismatch/);
   await assert.rejects(pilot.window([event('a', 'a'), event('b', 'b', { groupId: 'group-two' })]), /one group/);
   assert.equal(requests.length, 4);
+  const sameGroup = await pilot.mention(event('new-id', 'report', { mentioned: true }));
+  assert.notEqual(requests[0].sessionId, requests[4].sessionId);
+  assert.notEqual(sameGroup.sessionId, job.sessionId);
 });
 
 test('the API client only accepts the local gateway', () => {

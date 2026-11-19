@@ -72,7 +72,7 @@ function boundedRows(rows) {
 
 function spec(source, lane, input, batch = '') {
   const group = digest(source.channel, source.account, source.groupId);
-  const sessionId = 'qq-' + lane + '-' + (lane === 'chat' ? group : digest(group, source.messageId, batch)).slice(0, 40);
+  const sessionId = 'qq-' + lane + '-' + digest(group, source.messageId, batch).slice(0, 40);
   return { input, sessionId, requestKey: digest('hermes-qq-pilot-v1', sessionId, source.messageId, batch) };
 }
 

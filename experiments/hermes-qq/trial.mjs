@@ -50,6 +50,7 @@ export function makeTrial({
       AND length(trim(body))>0`);
   const latestMention = inbox.prepare('SELECT MAX(received_at) AS at FROM events WHERE group_id=? AND sender_id=? AND mentioned=1');
   const active = new Set();
+  let routing = 0;
   let budget = 6;
   let coveredThrough = start;
   let ambient = false;
@@ -71,6 +72,18 @@ export function makeTrial({
     record(event, 'sending');
     try { record(event, (await send(event, result.text))?.id ? 'accepted' : 'uncertain'); }
     catch { record(event, 'uncertain'); }
+  }
+  async function route(event) {
+    try {
+      const decision = await plan(event, prior(event.at, event.messageId));
+      if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
+      if (decision.kind === 'chat') await deliver(event, decision);
+      else if (decision.kind === 'work') {
+        record(event, 'working');
+        track(Promise.resolve().then(() => finish(decision)).then(result => deliver(event, result))
+          .catch(() => record(event, 'failed')));
+      } else record(event, 'withheld');
+    } catch { record(event, 'failed'); }
   }
   function startWindow() {
     if (!planWindow || !sendWindow || ambient || !budget || !isLive()) return;
@@ -103,10 +116,10 @@ export function makeTrial({
     }).catch(() => log('window_failed')).finally(() => { ambient = false; }));
   }
   return {
-    async tick() {
+    tick() {
       if (!budget || signal?.aborted || now() >= until) return;
       for (const row of rows.all(groupId, senderId, Math.max(start, now() - maxAge), now())) {
-        if (!budget || signal?.aborted || now() >= until) break;
+        if (!budget || signal?.aborted || now() >= until || routing >= 3) break;
         const text = trialInput(row.body);
         if (!text || known.get(groupId, row.message_id) || !claim.run(groupId, row.message_id).changes) continue;
         budget--;
@@ -115,20 +128,12 @@ export function makeTrial({
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
         };
-        try {
-          const decision = await plan(event, prior(event.at, event.messageId));
-          if (!sameSource(event, decision?.source)) { record(event, 'withheld'); continue; }
-          if (decision.kind === 'chat') await deliver(event, decision);
-          else if (decision.kind === 'work') {
-            record(event, 'working');
-            track(Promise.resolve().then(() => finish(decision)).then(result => deliver(event, result))
-              .catch(() => record(event, 'failed')));
-          } else record(event, 'withheld');
-        } catch { record(event, 'failed'); }
+        routing++;
+        track(route(event).finally(() => { routing--; }));
       }
       startWindow();
     },
-    async drain() { await Promise.all(active); },
+    async drain() { while (active.size) await Promise.all(active); },
   };
 }
 
@@ -191,7 +196,7 @@ async function main() {
   console.log('qq_trial_ready');
   try {
     while (!stop.signal.aborted && Date.now() < until) {
-      await trial.tick();
+      trial.tick();
       await delay(700, undefined, { signal: stop.signal });
     }
   } catch (error) {

@@ -97,6 +97,36 @@ test('a later mention replies before a separate work run settles, with no replay
   assert.deepEqual(sent, ['ping', 'job']);
 });
 
+test('a slow intent decision does not block a later natural mention', async t => {
+  let releaseRouting;
+  const blocked = new Promise(resolve => { releaseRouting = resolve; });
+  let sawQuick;
+  const quick = new Promise(resolve => { sawQuick = resolve; });
+  const sent = [];
+  const data = setup(t, {
+    plan: async event => {
+      if (event.text === 'slow') { await blocked; return { kind: 'work', source: event }; }
+      return { kind: 'chat', source: event, text: 'here' };
+    },
+    finish: async job => ({ source: job.source, text: 'finished' }),
+    send: async event => {
+      sent.push(event.messageId);
+      if (event.messageId === 'quick') sawQuick();
+      return { id: 'ok' };
+    },
+  });
+  const trial = data.trial();
+  data.put('slow', 'slow');
+  trial.tick();
+  data.put('quick', 'quick');
+  trial.tick();
+  await quick;
+  assert.deepEqual(sent, ['quick']);
+  releaseRouting();
+  await trial.drain();
+  assert.deepEqual(sent, ['quick', 'slow']);
+});
+
 test('plain chat opens one same-group window, with natural and source-targeted delivery', async t => {
   const sent = [];
   const data = setup(t, {
@@ -156,8 +186,10 @@ test('an uncertain send and a mismatched source never cause a retry or wrong-tar
   });
   data.put('uncertain', '[Hermes] hello');
   data.put('wrong', '[Hermes] wrong');
-  await data.trial().tick();
-  await data.trial().tick();
+  const trial = data.trial();
+  trial.tick();
+  trial.tick();
+  await trial.drain();
   assert.equal(attempted, 1);
   assert.deepEqual(data.status(), ['uncertain', 'withheld']);
 });
