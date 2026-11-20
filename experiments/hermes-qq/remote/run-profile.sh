@@ -23,7 +23,8 @@ done
 work_mounts=()
 if [[ "$lane" == work ]]; then
   work_mounts=(-v "$source/hermes-qq/extensions/luke-imagen:/opt/data/plugins/luke-imagen:ro,z"
-    -v "$root/imagen-ipc:/run/luke-imagen:ro,z")
+    -v "$root/imagen-ipc/requests:/run/luke-imagen/requests:rw,z"
+    -v "$root/imagen-ipc/responses:/run/luke-imagen/responses:ro,z")
 fi
 
 exec /usr/bin/podman run --pull=never --replace --rm \

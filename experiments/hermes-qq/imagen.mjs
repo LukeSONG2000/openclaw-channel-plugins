@@ -1,5 +1,5 @@
-import { createServer } from 'node:http';
-import { chmod, mkdir, mkdtemp, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
+import { constants } from 'node:fs';
+import { mkdir, mkdtemp, open, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises';
 import { join } from 'node:path';
 import { setTimeout as delay } from 'node:timers/promises';
 import { createHandler, generate } from '../../plugins/openai-image/index.mjs';
@@ -118,29 +118,50 @@ export function imagenJobs({ getTask, allowed, artifacts, directory,
 }
 
 export async function serveImagen({ directory, run }) {
-  await mkdir(directory, { recursive: true, mode: 0o755 });
-  const path = join(directory, 'render.sock');
-  await rm(path, { force: true });
-  const server = createServer(async (req, res) => {
-    if (req.method !== 'POST' || req.url !== '/render') { res.writeHead(404).end(); return; }
+  const requests = join(directory, 'requests');
+  const responses = join(directory, 'responses');
+  await mkdir(responses, { recursive: true, mode: 0o755 });
+  if (!(await stat(requests)).isDirectory()) throw new Error('Imagen request directory missing');
+  const pending = new Set();
+  let scan;
+  async function processRequest(name) {
+    const input = join(requests, name);
+    let payload;
+    const fd = await open(input, constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_NONBLOCK);
     try {
-      let body = '';
-      for await (const chunk of req) {
-        body += chunk.toString('utf8');
-        if (Buffer.byteLength(body) > 8192) throw new Error('body too large');
+      const info = await fd.stat();
+      if (!info.isFile() || info.size > 8192 || info.mtimeMs < Date.now() - 240_000) return;
+      const bytes = Buffer.alloc(8193);
+      const { bytesRead } = await fd.read(bytes, 0, bytes.length, 0);
+      if (bytesRead > 8192) return;
+      payload = JSON.parse(bytes.toString('utf8', 0, bytesRead));
+    } finally { await fd.close(); await rm(input, { force: true }); }
+    const result = await run(payload);
+    const output = join(responses, name);
+    await writeFile(output + '.tmp', JSON.stringify(result), { flag: 'wx', mode: 0o644 });
+    // The bridge has a private umask; the rootless worker reads only this status file.
+    const out = await open(output + '.tmp', 'r');
+    try { await out.chmod(0o644); } finally { await out.close(); }
+    await rename(output + '.tmp', output);
+  }
+  let nextPrune = 0;
+  const timer = setInterval(() => {
+    if (scan) return;
+    scan = (async () => {
+      for (const name of (await readdir(requests)).slice(0, 128)) {
+        if (!/^[a-f0-9]{32}\.json$/.test(name) || pending.size >= 16) continue;
+        const job = processRequest(name).catch(() => {}).finally(() => pending.delete(job));
+        pending.add(job);
       }
-      const result = await run(JSON.parse(body));
-      res.writeHead(200, { 'content-type': 'application/json' }).end(JSON.stringify(result));
-    } catch { if (!res.headersSent) res.writeHead(400); res.end(); }
-  });
-  server.requestTimeout = 15_000;
-  await new Promise((resolve, reject) => {
-    server.once('error', reject);
-    server.listen(path, resolve);
-  });
-  await chmod(path, 0o666);
-  return async () => {
-    await new Promise(resolve => server.close(resolve));
-    await rm(path, { force: true });
-  };
+      if (Date.now() >= nextPrune) {
+        nextPrune = Date.now() + 60_000;
+        for (const name of await readdir(responses)) {
+          if (!/^[a-f0-9]{32}\.json(?:\.tmp)?$/.test(name)) continue;
+          const path = join(responses, name);
+          if ((await stat(path)).mtimeMs < Date.now() - 300_000) await rm(path, { force: true });
+        }
+      }
+    })().catch(() => {}).finally(() => { scan = null; });
+  }, 500);
+  return async () => { clearInterval(timer); await scan; await Promise.all(pending); };
 }

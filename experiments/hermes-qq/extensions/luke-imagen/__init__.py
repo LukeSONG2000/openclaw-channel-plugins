@@ -1,17 +1,11 @@
 """Send a typed render request for this worker's native task only."""
 
-import http.client
 import json
 import os
 import re
-import socket
-
-
-class RendererConnection(http.client.HTTPConnection):
-    def connect(self):
-        self.sock = socket.socket(socket.AF_UNIX)
-        self.sock.settimeout(self.timeout)
-        self.sock.connect("/run/luke-imagen/render.sock")
+import time
+import uuid
+from pathlib import Path
 
 
 def render(args, **_):
@@ -20,17 +14,21 @@ def render(args, **_):
     if (not re.fullmatch(r"t_[a-f0-9]{8,32}", task) or not isinstance(prompt, str)
             or not 1 <= len(prompt.strip()) <= 1800 or not isinstance(use_images, bool)):
         return json.dumps({"status": "denied"})
-    conn = RendererConnection("localhost", timeout=235)
+    name = uuid.uuid4().hex + ".json"
+    request = Path("/run/luke-imagen/requests") / name
+    temporary = request.with_suffix(".tmp")
+    response = Path("/run/luke-imagen/responses") / name
     try:
-        conn.request("POST", "/render", body=json.dumps(
-            {"id": task, "args": prompt, "useImages": use_images}, ensure_ascii=False).encode("utf-8"))
-        response = conn.getresponse()
-        if response.status == 200:
-            return response.read(8192).decode("utf-8")
-    except (OSError, http.client.HTTPException):
+        temporary.write_text(json.dumps({"id": task, "args": prompt, "useImages": use_images}, ensure_ascii=False))
+        temporary.chmod(0o644)
+        temporary.rename(request)
+        deadline = time.monotonic() + 235
+        while time.monotonic() < deadline:
+            if response.is_file():
+                return response.read_text()[:8192]
+            time.sleep(0.5)
+    except OSError:
         pass
-    finally:
-        conn.close()
     return json.dumps({"status": "unknown", "message": "Render not confirmed. Do not retry automatically."})
 
 
