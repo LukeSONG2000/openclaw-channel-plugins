@@ -5,16 +5,14 @@ import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
 import { hermesPilot } from './pilot.mjs';
 import { groupPolicy } from './group-policy.mjs';
-import { makeTrial, sendAmbientReply, sendMentionReply, sendWorkImage, trialInput, workAcknowledgment } from './trial.mjs';
+import { makeTrial, sendAmbientReply, sendMentionReply, sendWorkImage, trialInput } from './trial.mjs';
 import { qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
 const groupId = 'test-group';
 const senderId = 'test-author';
 const clock = 5_000;
 
-test('task hints contain no model prose; images after a hint use the second QQ reply slot', async () => {
-  assert.equal(workAcknowledgment('internal model reasoning'), workAcknowledgment('work'));
-  assert.notEqual(workAcknowledgment('image'), workAcknowledgment('work'));
+test('images after a task hint use the second QQ reply slot', async () => {
   const target = { scope: 'group', targetId: groupId, msgId: 'original' };
   const artifact = { bytes: Buffer.from('fixture'), format: 'gif' };
   const sent = [];

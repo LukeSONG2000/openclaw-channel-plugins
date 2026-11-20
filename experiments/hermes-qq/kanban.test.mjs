@@ -137,7 +137,7 @@ test('a ready task gets one acknowledgment across restart, then keeps a distinct
     acknowledge: async item => { sent.push(item); throw new Error('lost send receipt'); },
     deliver: async item => { sent.push(item); return { id: 'sent' }; } };
   let db = open();
-  const request = { ...decision(source), acknowledgment: 'image' };
+  const request = { ...decision(source), acknowledgment: '这张海报我先排个版，好了发你。' };
   bridge(db).enqueue(request);
   await bridge(db).sweep(transport);
   status = 'blocked';
@@ -154,7 +154,7 @@ test('a ready task gets one acknowledgment across restart, then keeps a distinct
     status = 'done';
     await bridge(db).sweep(transport);
     assert.deepEqual(sent, [
-      { source: request.source, kind: 'image' },
+      { source: request.source, text: request.acknowledgment },
       { source: request.source, receiptKey: request.request.requestKey, text: '', artifact, seq: 2 },
     ]);
   } finally { db.close(); }
@@ -171,7 +171,7 @@ test('a quick result or stale anchor does not emit a progress message or use its
       const transport = { canDeliver: () => true, canAcknowledge: () => !expireHint,
         acknowledge: () => assert.fail('unexpected progress message'),
         deliver: item => { assert.equal(item.seq, undefined); return { id: 'done' }; } };
-      queue.enqueue({ ...decision(source), acknowledgment: 'do not send model prose' });
+      queue.enqueue({ ...decision(source), acknowledgment: '我先把需要的材料看一遍。' });
       await queue.sweep(transport);
       await queue.sweep(transport);
       status = 'done';
@@ -179,6 +179,47 @@ test('a quick result or stale anchor does not emit a progress message or use its
       assert.equal(state(db), 'accepted');
     } finally { db.close(); }
   }
+});
+
+test('invalid and missing acknowledgments are omitted without a template', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const source = event();
+    const queue = makeKanbanBridge({ db, account: source.account, groupId: source.groupId,
+      tasks: { create: async () => 't_12345678', read: async () => ({ status: 'ready' }) } });
+    queue.enqueue(decision(source));
+    queue.enqueue({ ...decision(event('another')), acknowledgment: '好的\n[analysis] internal trace' });
+    const transport = { canDeliver: () => true, canAcknowledge: () => true,
+      acknowledge: () => assert.fail('unexpected fallback hint'), deliver: () => assert.fail('unexpected result') };
+    await queue.sweep(transport);
+    await queue.sweep(transport);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM kanban_acknowledgments').get().n, 0);
+  } finally { db.close(); }
+});
+
+test('an expired result can be collected once using a new same-user same-group message', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const original = event('original');
+    const artifact = { bytes: Buffer.from('fixture'), format: 'png' };
+    const queue = makeKanbanBridge({ db, account: original.account, groupId: original.groupId,
+      tasks: { create: async () => 't_12345678', read: async () => ({ status: 'done', result: 'final' }) },
+      readArtifact: async () => artifact });
+    queue.enqueue(decision(original));
+    const sent = [];
+    const transport = { canDeliver: s => s.messageId === 'original' ? 'expired' : true,
+      deliver: async item => { sent.push(item); return { id: 'sent' }; } };
+    await queue.sweep(transport);
+    await queue.sweep(transport);
+    assert.equal(state(db), 'retained');
+    const next = event('next');
+    assert.equal(await queue.retrieve({ ...next, senderId: 'other' }, transport), 'not_found');
+    assert.equal(await queue.retrieve({ ...next, groupId: 'other-group' }, transport), 'expired');
+    assert.equal(await queue.retrieve(original, transport), 'expired');
+    assert.equal(await queue.retrieve(next, transport), 'accepted');
+    assert.equal(await queue.retrieve(event('duplicate-request'), transport), 'not_found');
+    assert.deepEqual(sent, [{ source: next, text: '', receiptKey: decision(original).request.requestKey, artifact }]);
+  } finally { db.close(); }
 });
 
 test('native image attachments survive a restart without opening an incomplete card or uploading twice', async t => {

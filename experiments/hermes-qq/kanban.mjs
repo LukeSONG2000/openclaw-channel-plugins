@@ -1,11 +1,14 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { imageInputs, validateBackgroundRequest } from './pilot.mjs';
+import { imageInputs, validateBackgroundRequest, workAcknowledgment } from './pilot.mjs';
 
 const cardId = /^t_[a-f0-9]{8,32}$/;
 const titleFor = key => 'QQ background work ' + key.slice(0, 16);
 const tenantFor = (account, groupId) => 'qq-' + createHash('sha256')
   .update(JSON.stringify([account, groupId])).digest('hex').slice(0, 32);
+const retainedAge = 24 * 60 * 60_000;
+const finalText = card => typeof card.result === 'string' ? card.result.trim() : '';
+const validText = text => text && text.length <= 1800 && !/<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text);
 
 export function runKanbanCommand(file, args, body, { json = true } = {}) {
   return new Promise((resolve, reject) => {
@@ -117,22 +120,28 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
   );
   CREATE TABLE IF NOT EXISTS kanban_acknowledgments (
     key TEXT PRIMARY KEY REFERENCES kanban_receipts(key) ON DELETE CASCADE,
-    kind TEXT NOT NULL, attempted INTEGER NOT NULL DEFAULT 0
+    kind TEXT NOT NULL, attempted INTEGER NOT NULL DEFAULT 0, text TEXT
   );
   PRAGMA secure_delete = ON;`);
+  if (!db.prepare('PRAGMA table_info(kanban_acknowledgments)').all().some(row => row.name === 'text')) {
+    db.exec('ALTER TABLE kanban_acknowledgments ADD COLUMN text TEXT');
+  }
   const insert = db.prepare('INSERT OR IGNORE INTO kanban_receipts (key, tenant, source, input) VALUES (?, ?, ?, ?)');
   const pending = db.prepare(`SELECT * FROM kanban_receipts WHERE tenant = ? AND state IN ('pending', 'watching')
     ORDER BY checked_at, rowid LIMIT 8`);
   const check = db.prepare('UPDATE kanban_receipts SET checked_at = ? WHERE key = ?');
   const attach = db.prepare("UPDATE kanban_receipts SET card_id = ?, input = NULL, state = 'watching' WHERE key = ? AND state = 'pending'");
   const move = db.prepare('UPDATE kanban_receipts SET state = ? WHERE key = ? AND state = ?');
+  const retained = db.prepare(`SELECT * FROM kanban_receipts WHERE tenant = ? AND state = 'retained'
+    AND checked_at >= ? AND json_extract(source,'$.senderId') = ? ORDER BY checked_at DESC, rowid DESC LIMIT 1`);
   const stageMedia = db.prepare('INSERT INTO kanban_input_media VALUES (?, ?, ?)');
   const stagedMedia = db.prepare('SELECT images, valid_until FROM kanban_input_media WHERE key = ?');
   const dropMedia = db.prepare('DELETE FROM kanban_input_media WHERE key = ?');
   const expire = db.prepare("UPDATE kanban_receipts SET state = 'withheld', input = NULL WHERE key = ? AND state = 'pending'");
-  const addAcknowledgment = db.prepare('INSERT INTO kanban_acknowledgments(key,kind) VALUES (?,?)');
-  const acknowledgment = db.prepare('SELECT kind,attempted FROM kanban_acknowledgments WHERE key = ?');
-  const claimAcknowledgment = db.prepare('UPDATE kanban_acknowledgments SET attempted = 1 WHERE key = ? AND attempted = 0');
+  const addAcknowledgment = db.prepare("INSERT INTO kanban_acknowledgments(key,kind,text) VALUES (?,'generated',?)");
+  const acknowledgment = db.prepare('SELECT text,attempted FROM kanban_acknowledgments WHERE key = ?');
+  const claimAcknowledgment = db.prepare('UPDATE kanban_acknowledgments SET attempted = 1, text = NULL WHERE key = ? AND attempted = 0');
+  const clearAcknowledgment = db.prepare('UPDATE kanban_acknowledgments SET text = NULL WHERE key = ? AND text IS NOT NULL');
   let sweeping = false;
 
   function transaction(action) {
@@ -151,9 +160,32 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
   const keepRenderInput = row => keepInput(JSON.parse(row.source));
   async function cleanup(key) {
     dropMedia.run(key);
+    clearAcknowledgment.run(key);
     await onTerminal?.(key);
   }
   return {
+    async retrieve(source, { canDeliver, deliver }) {
+      if (!owns(source) || await canDeliver(source) !== true) return 'expired';
+      const row = retained.get(tenant, now() - retainedAge, source.senderId);
+      if (!row) return 'not_found';
+      const original = JSON.parse(row.source);
+      if (!owns(original) || original.senderId !== source.senderId || original.messageId === source.messageId) return 'not_found';
+      const card = await tasks.read({ key: row.key, tenant: nativeTenant(original), id: row.card_id });
+      if (card.status !== 'done') return 'not_found';
+      const artifact = await readArtifact?.(row.key, original);
+      const text = artifact?.bytes ? '' : artifact?.note || finalText(card);
+      if (!artifact?.bytes && !validText(text)) return 'not_found';
+      if (await canDeliver(source) !== true) return 'expired';
+      if (!move.run('sending', row.key, 'retained').changes) return 'not_found';
+      try {
+        const receipt = await deliver({ source, text, receiptKey: row.key, ...(artifact?.bytes ? { artifact } : {}) });
+        move.run(receipt?.id ? 'accepted' : 'uncertain', row.key, 'sending');
+        return receipt?.id ? 'accepted' : 'uncertain';
+      } catch {
+        move.run('uncertain', row.key, 'sending');
+        return 'uncertain';
+      } finally { await cleanup(row.key); }
+    },
     enqueue(decision, images = []) {
       const { source, request } = validateBackgroundRequest(decision);
       if (!owns(source)) throw new Error('Kanban work outside QQ binding');
@@ -162,7 +194,8 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
       const inserted = transaction(() => {
         const created = insert.run(key, tenant, JSON.stringify(source), request.input).changes === 1;
         if (created && media.length) stageMedia.run(key, JSON.stringify(media), now() + 24 * 60 * 60_000);
-        if (created) addAcknowledgment.run(key, ['image', 'research'].includes(decision.acknowledgment) ? decision.acknowledgment : 'work');
+        const hint = workAcknowledgment(decision.acknowledgment);
+        if (created && hint) addAcknowledgment.run(key, hint);
         return created;
       });
       return { key, inserted };
@@ -182,7 +215,7 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
             if (!id) {
               const media = stagedMedia.get(key);
               if (media?.valid_until <= now()) {
-                transaction(() => { expire.run(key); dropMedia.run(key); });
+                transaction(() => { expire.run(key); dropMedia.run(key); clearAcknowledgment.run(key); });
                 continue;
               }
               const card = await tasks.create({ key, tenant: taskTenant, input: row.input, ...(media ? { images: JSON.parse(media.images) } : {}) });
@@ -193,23 +226,23 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
             const ack = acknowledgment.get(key);
             if (card.status === 'archived') { move.run('withheld', key, 'watching'); await cleanup(key); continue; }
             if (card.status !== 'done') {
-              if (ack && !ack.attempted && ['ready', 'running'].includes(card.status) && acknowledge &&
+              if (workAcknowledgment(ack?.text) && !ack.attempted && ['ready', 'running'].includes(card.status) && acknowledge &&
                   await canAcknowledge?.(source) && claimAcknowledgment.run(key).changes) {
                 // Persist the attempt before sending; a lost receipt never causes a duplicate hint.
-                try { await acknowledge({ source, kind: ack.kind }); } catch { onError('acknowledge'); }
+                try { await acknowledge({ source, text: ack.text }); } catch { onError('acknowledge'); }
               }
               continue;
             }
             const artifact = await readArtifact?.(key, source);
             if (artifact?.pending) continue;
-            const text = artifact?.bytes ? '' : artifact?.note || (typeof card.result === 'string' ? card.result.trim() : '');
-            if (!artifact?.bytes && (!text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text))) {
+            const text = artifact?.bytes ? '' : artifact?.note || finalText(card);
+            if (!artifact?.bytes && !validText(text)) {
               move.run('withheld', key, 'watching');
               await cleanup(key);
               continue;
             }
             const available = await canDeliver(source);
-            if (available === 'expired') { move.run('retained', key, 'watching'); dropMedia.run(key); continue; }
+            if (available === 'expired') { move.run('retained', key, 'watching'); dropMedia.run(key); clearAcknowledgment.run(key); continue; }
             if (available !== true || !move.run('sending', key, 'watching').changes) continue;
             // Do not replay a post whose receipt was lost, including on process restart.
             try { move.run((await deliver({ source, text, receiptKey: key, ...(ack?.attempted ? { seq: 2 } : {}),

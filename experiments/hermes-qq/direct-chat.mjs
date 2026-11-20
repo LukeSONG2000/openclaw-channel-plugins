@@ -5,7 +5,7 @@ export function groupMemoryAuthorized(groupId, approvals = '') {
     approvals.split(',').map(v => v.trim()).includes(groupId);
 }
 
-export function makeDirectChat({ inbox, ledger, account, start, signal, plan, send, queueWork, memoryFor, readImages,
+export function makeDirectChat({ inbox, ledger, account, start, signal, plan, send, queueWork, retrieveWork, memoryFor, readImages,
   now = Date.now, log = () => {} }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS direct_receipts (
     account TEXT NOT NULL, sender_id TEXT NOT NULL, message_id TEXT NOT NULL, at INTEGER NOT NULL,
@@ -30,9 +30,18 @@ export function makeDirectChat({ inbox, ledger, account, start, signal, plan, se
     let images = [];
     try { if (readImages) images = await readImages(event); } catch { log('media_read_failed'); }
     const result = await plan(event, context, preferences, images);
+    const matches = result?.source?.chatType === 'direct' &&
+      ['channel', 'account', 'senderId', 'messageId'].every(k => result.source[k] === event[k]);
+    if (result?.kind === 'retrieve') {
+      if (retrieveWork && matches && !signal?.aborted && await retrieveWork(event) === 'not_found') {
+        if (!signal?.aborted && now() - row.received_at <= maxAge) {
+          await send(event, '我没找到你还没收到的成品，可能还在做，也可能已经发过了。');
+        }
+      }
+      return;
+    }
     if (result?.kind === 'work-request') {
-      if (queueWork && !signal?.aborted && result.source?.chatType === 'direct' &&
-        ['channel', 'account', 'senderId', 'messageId'].every(k => result.source[k] === event[k])) {
+      if (queueWork && !signal?.aborted && matches) {
         await queueWork(result, images);
         log('queued');
       }

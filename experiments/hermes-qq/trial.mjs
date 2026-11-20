@@ -72,6 +72,7 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
   let seq = firstSeq;
   let markdownEnabled = true;
   while (remaining.trim()) {
+    if (seq > 5) throw new Error('QQ passive reply budget exhausted');
     const prefix = markdownEnabled && seq === firstSeq ? mentionTag(event.senderId) + ' ' : '';
     const markdown = markdownEnabled && (prefix !== '' || remaining.includes('<qqbot-at-user id="'));
     const [part, tail] = takeText(remaining, markdown ? mentionMarkdownBudget - Buffer.byteLength(prefix) : plainTextBudget);
@@ -95,16 +96,6 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
     remaining = tail;
   }
   return receipt;
-}
-
-const taskHint = {
-  image: '我去画，画好了发你。',
-  research: '我去查一下，整理好了回你。',
-  work: '这得花点时间，我先去做。',
-};
-
-export function workAcknowledgment(kind) {
-  return Object.hasOwn(taskHint, kind) ? taskHint[kind] : taskHint.work;
 }
 
 export async function sendWorkImage(bot, target, artifact, seq, canSend = () => true) {
@@ -132,7 +123,7 @@ export function sendAmbientReply({ bot, sendMention, always }, { groupId, action
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
   always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow,
-  readImages, memberMemory, log = () => {},
+  readImages, memberMemory, retrieveWork, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -203,6 +194,13 @@ export function makeTrial({
       const related = new Set(Array.isArray(decision.consumedMessageIds) ? decision.consumedMessageIds : []);
       const relatedRows = unread.filter(row => related.has(row.messageId));
       const consumeRelated = () => { if (relatedRows.length) turnState.markRead(relatedRows, now()); };
+      if (decision.kind === 'retrieve' && retrieveWork && !event.senderIsBot) {
+        const status = await retrieveWork(event);
+        if (status === 'not_found') return deliver(event, {
+          source: event, text: '我没找到你在这个群里还没送达的成品，可能还在做，也可能已经发过了。',
+        });
+        return record(event, status);
+      }
       if (decision.kind === 'chat') {
         consumeRelated();
         const delivered = await deliver(event, decision);
@@ -391,9 +389,11 @@ async function main() {
   const sendDirect = (event, content, seq) => safeSend(() => bot.send({ target: {
     scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
   }, msgType: 0, content, ...(seq ? { extra: { msg_seq: seq } } : {}) }));
-  const acknowledge = ({ source, kind }) => {
-    const text = workAcknowledgment(kind);
-    return source.chatType === 'direct' ? sendDirect(source, text, 1) : send(source, text, 1);
+  const acknowledge = ({ source, text }) => {
+    return source.chatType === 'direct' ? sendDirect(source, text, 1) : safeSend(() => bot.send({
+      target: { scope: 'group', targetId: source.groupId, msgId: source.messageId },
+      msgType: 0, content: text, extra: { msg_seq: 1 },
+    }));
   };
   const bindings = withImagen ? (() => {
     const directory = join(trialDir, 'artifacts');
@@ -406,7 +406,10 @@ async function main() {
         if (!grantImage(source)) return { note: '当前会话未开放生图。' };
         if (row.status === 'failed') return { note: row.note };
         if (row.status === 'running') return { note: '没有确认收到生图成品，请发一条新消息后再试。' };
-        return artifacts.read(key);
+        return artifacts.read(key).catch(error => {
+          if (error?.code === 'ENOENT') return { note: '那张成品图已经过了保留期，没法补发。' };
+          throw error;
+        });
       },
       onTerminal: key => artifacts.lookup(key)?.status === 'ready' ? artifacts.remove(key) : undefined,
     };
@@ -439,6 +442,9 @@ async function main() {
       event, context, preferences, images, allowWork: Boolean(directWork), imageGeneration: Boolean(directWork) && withImagen && grantImage(event),
     }),
     queueWork: directWork?.enqueue,
+    retrieveWork: directWork && (source => directWork.retrieve(source, { canDeliver: canDeliverDirect,
+      deliver: ({ source, text, artifact }) => artifact
+        ? sendArtifact(source, artifact, 1, () => canDeliverDirect(source) === true) : sendDirect(source, text, 1) })),
     send: sendDirect,
     log: status => console.log('qq_direct_' + status),
   }) : null;
@@ -452,6 +458,7 @@ async function main() {
     }
     const bridge = always ? makeKanbanBridge({ db: ledger, tasks, account, groupId, ...bindings,
       onError: phase => console.error('qq_kanban_error phase=' + phase) }) : null;
+    const canDeliver = qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal });
     const trial = makeTrial({
       inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
       plan: (event, context, unread, images, preferences) =>
@@ -462,13 +469,16 @@ async function main() {
       startWork: decision => callRuntime(worker, 'trial-start', { decision }),
       finish: job => callRuntime(worker, 'trial-settle', { job }),
       queueWork: bridge?.enqueue,
+      retrieveWork: bridge && (source => bridge.retrieve(source, { canDeliver,
+        deliver: ({ source, text, artifact }) => artifact
+          ? sendArtifact(source, artifact, 1, () => canDeliver(source) === true) : send(source, text, 1) })),
       planWindow: grants.freeReply ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
       sendWindow: (to, action, tail, anchor) => safeSend(() => sendAmbientReply(
         { bot, sendMention: send, always }, { groupId: to, action, tail, anchor })),
       send,
       log: status => console.log('qq_trial_' + status),
     });
-    return { trial, bridge, canDeliver: qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal }) };
+    return { trial, bridge, canDeliver };
   }
   const initialGroups = always && configured ? [groupId, ...policy.groupIds] : [groupId];
   const groups = new Map([...new Set(initialGroups)].map(id => [id, makeGroup(id)]));

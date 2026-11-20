@@ -20,6 +20,8 @@
 | 私聊、被动回复与主动发送 | [消息收发](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/send.html)、[消息流矩阵](../plugins/qqbot/docs/custom-runtime/qqbot-message-flow.md) | 被动回复用同一会话真实消息的 `msg_id`；主动发送是另一路。权限预检不是发信回执，轮询周期也不是平台回复有效期。 |
 | 引用、图片、GIF、文件、按钮 | [富媒体](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/send-receive/rich-media.html)、[消息按钮](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/message/trans/msg-btn.html)、[消息流矩阵](../plugins/qqbot/docs/custom-runtime/qqbot-message-flow.md) | 保留来源会话和消息锚点。各格式分别验收，不能从文本成功推断图片、动画或卡片可用。 |
 
+腾讯[群聊发送文档](https://github.com/tencent-connect/bot-docs/blob/main/docs/develop/api-v2/server-inter/message/send-receive/send.md)规定：一个群消息锚点在 5 分钟内可被动回复最多 5 次，`msg_seq` 和 `msg_id` 共同去重。剩余次数不延长有效期。Luke 允许发起者在同一会话用一条新消息明确索取尚未送达的最近结果，使用新的回复锚点；不借用别人的消息，不自动补发，也不重新执行原任务。
+
 ## 按真实群名迁移
 
 1. 分别用源 bot 和目标 bot 的凭据、各自的群 ID 查询 `/info`。旧配置里的别名不能代替真实群名。
