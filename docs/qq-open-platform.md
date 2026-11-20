@@ -22,6 +22,12 @@
 
 腾讯[群聊发送文档](https://github.com/tencent-connect/bot-docs/blob/main/docs/develop/api-v2/server-inter/message/send-receive/send.md)规定：一个群消息锚点在 5 分钟内可被动回复最多 5 次，`msg_seq` 和 `msg_id` 共同去重。剩余次数不延长有效期。Luke 允许发起者在同一会话用一条新消息明确索取尚未送达的最近结果，使用新的回复锚点；不借用别人的消息，不自动补发，也不重新执行原任务。
 
+## 指令面板与斜杠
+
+- QQ 输入框的斜杠菜单由平台[指令面板](https://bot.q.qq.com/wiki/develop/api-v2/server-inter/menu-panel/)控制，和消息进入应用后的命令路由分开。[查询面板](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels.get.html)是 `GET /v2/panels?scope=c2c` 或 `scope=group`；已有面板用 [`PUT /v2/panels/{panel_id}`](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_panels_panel_id.put.html) 更新。私聊底部快捷菜单是另一组 `/v2/menu` 接口。
+- 2026-11-21 线上只读核验：当前生产 bot 的凭据调用私聊和群聊面板列表及私聊底部菜单均返回 HTTP 200，两种斜杠场景各有一个面板。没有执行写入，未验证当前账号的写权限或 QQ 客户端刷新。
+- R2 当前按已安装技能识别用户手输的前缀，不会从配置自动发布面板。将来若接入配置同步，应先预览差异、只更新明确指定的面板，再读回验证；不要启动时反复新建面板或覆盖手动维护的面板。可见条目不授予技能权限，也不保证群聊事件可达。
+
 ## 按真实群名迁移
 
 1. 分别用源 bot 和目标 bot 的凭据、各自的群 ID 查询 `/info`。旧配置里的别名不能代替真实群名。
