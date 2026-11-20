@@ -23,7 +23,13 @@ Run `bash run-honcho-persistence-probe.sh <private-probe-workspace> <pinned-honc
 
 To verify the channel adapter against the same API, run the script from its repository layout with `LUKE_HONCHO_FIXTURE_NODE` set to the absolute remote Node path. It writes two synthetic attributed source messages and verifies explicit peer recall and cross-group isolation. The ordinary Node suite covers a real request timeout and chat delivery with an unavailable memory dependency.
 
-The bridge integration is off by default. Only after the real provider and egress are independently verified, supply a loopback Honcho origin (`LUKE_HONCHO_ORIGIN`) and a scoped token (`LUKE_HONCHO_TOKEN`) to the bridge through a private environment file. Never point it at the synthetic sandbox or publish an unauthenticated API. The integration does not add a group, change roles, or turn on Hermes-wide memory. Its best-effort writes are single-flight; overlapping events can skip storage. Remove both variables and restart only the Luke bridge to disable it.
+### Live private memory
+
+Use the separate `luke-honcho-live` rootless pod and database container `luke-honcho-live-pg`, with no network interfaces except loopback, no ports, and a dedicated volume and database `luke_memory` containing pgvector. Do not reuse the probe volume. The `luke-honcho.service` unit expects a private `honcho/` directory under the pilot root, with the pinned source environment reachable through `source`, verified tokenization files in `token-cache/`, and owner-only `jwt-secret`, `zhipu.env` and `bailian.key` files.
+
+The bridge uses `LUKE_HONCHO_SOCKET` pointing to `honcho/api.sock`, `LUKE_HONCHO_ORIGIN=http://127.0.0.1` as a path-construction base, and an authenticated Honcho token in the private environment file. It needs workspace creation on this dedicated instance. The API has no host TCP listener. `LUKE_QQ_DIRECT=1` enables native QQ C2C in the receiver and bridge. Separate private conversations use separate memory workspaces. All currently supported private text turns can use memory; quotes, media, commands and detected credential-like text are not written. Reads time out quickly and writes follow confirmed reply delivery.
+
+Group memory is disabled by default. To grant it after the owner explicitly approves a group, put its exact platform ID in `LUKE_HONCHO_APPROVED_GROUPS` in the private bridge environment and restart the bridge. This setting does not bind a new group for replies; only the existing reply route is eligible. Chat content cannot change approval. Remove the ID to stop recall and new writes; revocation does not delete stored history. Removing the memory environment and restarting the bridge leaves ordinary chat running.
 
 ### Automatic learning fixture
 

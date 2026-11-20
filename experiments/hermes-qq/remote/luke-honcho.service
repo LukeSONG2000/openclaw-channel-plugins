@@ -1,0 +1,14 @@
+[Unit]
+Description=Luke private memory (Honcho)
+After=network-online.target
+
+[Service]
+Type=simple
+UMask=0077
+ExecStart=/usr/bin/bash %h/.local/share/luke-qq-pilot/code/experiments/hermes-qq/remote/run-honcho-live.sh %h/.local/share/luke-qq-pilot/honcho
+Restart=always
+RestartSec=10
+TimeoutStopSec=30
+
+[Install]
+WantedBy=default.target

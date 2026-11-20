@@ -1,31 +1,62 @@
-import { qqMemberIdentity } from './member-identity.mjs';
+import { qqDirectIdentity, qqMemberIdentity } from './member-identity.mjs';
+import { request } from 'node:http';
 
 const observer = 'luke';
 const session = 'qq-mentions';
 const limit = 4;
 
-export function makeMemberMemory({ origin, token, account, groupId, timeoutMs = 450, fetchImpl = fetch }) {
+function unixFetch(socketPath, url, options) {
+  return new Promise((resolve, reject) => {
+    const req = request({ socketPath, path: url.pathname + url.search, method: options.method,
+      headers: { ...options.headers, 'content-length': Buffer.byteLength(options.body) }, signal: options.signal }, res => {
+      const chunks = [];
+      let bytes = 0;
+      res.on('error', reject);
+      res.on('data', chunk => {
+        bytes += chunk.length;
+        if (bytes > 262_144) req.destroy(new Error('Honcho response too large'));
+        else chunks.push(chunk);
+      });
+      res.on('end', () => resolve(new Response(Buffer.concat(chunks), { status: res.statusCode })));
+    });
+    req.on('error', reject);
+    req.end(options.body);
+  });
+}
+
+export function makeMemberMemory({ origin, socketPath, token, account, groupId, directSender, timeoutMs = 450, fetchImpl = fetch }) {
+  if (socketPath && (!socketPath.startsWith('/') || !token)) throw new Error('invalid Honcho socket');
   const url = new URL(origin);
   if (url.protocol !== 'http:' || url.hostname !== '127.0.0.1' || url.pathname !== '/' ||
     url.username || url.password || url.search || url.hash || !token) throw new Error('invalid local Honcho endpoint');
-  const { workspaceId } = qqMemberIdentity({ account, groupId, senderId: observer });
+  if (Boolean(groupId) === Boolean(directSender)) throw new Error('exactly one memory scope is required');
+  const { workspaceId } = directSender ? qqDirectIdentity({ account, senderId: directSender })
+    : qqMemberIdentity({ account, groupId, senderId: observer });
   const base = '/v3/workspaces/' + workspaceId;
   let writing = false;
   let ready = false;
   const registered = new Set();
 
   function identify(event) {
-    if (event?.channel !== 'qqbot' || event.account !== account || event.groupId !== groupId ||
-      event.mentioned !== true) throw new Error('memory event is outside the bound QQ route');
-    return qqMemberIdentity(event).peerId;
+    if (event?.channel === 'qqbot' && event.account === account) {
+      if (directSender && event.chatType === 'direct' && event.senderId === directSender && !event.groupId) {
+        return qqDirectIdentity(event).peerId;
+      }
+      if (!directSender && event.chatType !== 'direct' && event.groupId === groupId && event.mentioned === true) {
+        return qqMemberIdentity(event).peerId;
+      }
+    }
+    throw new Error('memory event is outside the bound QQ route');
   }
 
   async function post(path, body, signal, missing = false) {
-    const response = await fetchImpl(new URL(path, url), {
+    const target = new URL(path, url);
+    const options = {
       method: 'POST', redirect: 'error', signal,
       headers: { 'content-type': 'application/json', authorization: 'Bearer ' + token },
       body: JSON.stringify(body),
-    });
+    };
+    const response = socketPath ? await unixFetch(socketPath, target, options) : await fetchImpl(target, options);
     if (!response.ok) {
       await response.body?.cancel();
       if (missing && response.status === 404) return null;

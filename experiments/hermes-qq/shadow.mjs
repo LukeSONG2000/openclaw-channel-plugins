@@ -56,10 +56,14 @@ async function main(mode) {
     }));
     return;
   }
-  const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window'];
+  const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window', 'direct'];
   if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
   const sample = await readSample(mode === 'trial-plan' ? 6_000_000 : 48_000);
   const pilot = hermesPilot({ fast: runs });
+  if (mode === 'direct') {
+    console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences)));
+    return;
+  }
   if (mode === 'trial-start') {
     console.log(JSON.stringify(await pilot.startWork(sample.decision)));
     return;

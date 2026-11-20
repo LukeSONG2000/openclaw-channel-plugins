@@ -12,6 +12,7 @@ import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
 import { makeMemberMemory } from './member-memory.mjs';
+import { makeDirectChat, groupMemoryAuthorized } from './direct-chat.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -309,9 +310,10 @@ async function main() {
   const imagesFor = makeGroupImageReader(inbox, groupId);
   const origin = process.env.LUKE_HONCHO_ORIGIN;
   const token = process.env.LUKE_HONCHO_TOKEN;
+  const socketPath = process.env.LUKE_HONCHO_SOCKET;
   let memberMemory;
-  if (always && (origin || token)) {
-    try { memberMemory = makeMemberMemory({ origin, token, account, groupId }); }
+  if (always && (origin || token) && groupMemoryAuthorized(groupId, process.env.LUKE_HONCHO_APPROVED_GROUPS)) {
+    try { memberMemory = makeMemberMemory({ origin, token, socketPath, account, groupId }); }
     catch { console.error('qq_trial_memory_config_invalid'); }
   }
   const stop = new AbortController();
@@ -338,6 +340,19 @@ async function main() {
   };
   const send = (event, content) => safeSend(() => sendMentionReply(bot, event, content, ApiError,
     () => console.log('qq_trial_mention_plain_fallback')));
+  const direct = always && process.env.LUKE_QQ_DIRECT === '1' ? makeDirectChat({
+    inbox, ledger, account, start, signal: stop.signal,
+    memoryFor: sender => {
+      if (!origin || !token) return;
+      try { return makeMemberMemory({ origin, token, socketPath, account, directSender: sender }); }
+      catch { console.error('qq_direct_memory_config_invalid'); }
+    },
+    plan: (event, context, preferences) => callRuntime(container, 'direct', { event, context, preferences }),
+    send: (event, content) => safeSend(() => bot.send({ target: {
+      scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
+    }, msgType: 0, content })),
+    log: status => console.log('qq_direct_' + status),
+  }) : null;
   const trial = makeTrial({
     inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
     plan: (event, context, unread, images, preferences) =>
@@ -363,6 +378,7 @@ async function main() {
   try {
     while (!stop.signal.aborted && Date.now() < until) {
       trial.tick();
+      direct?.tick();
       if (bridge && !sweep && Date.now() >= nextSweep) {
         nextSweep = Date.now() + 5_000;
         sweep = bridge.sweep({
@@ -379,7 +395,7 @@ async function main() {
   } catch (error) {
     if (!stop.signal.aborted) throw error;
   } finally {
-    await trial.drain();
+    await Promise.all([trial.drain(), direct?.drain()]);
     await sweep;
     await bot.stop();
     inbox.close();

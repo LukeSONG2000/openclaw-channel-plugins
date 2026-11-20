@@ -45,6 +45,11 @@ function migrate(db) {
   db.exec(`
     CREATE INDEX IF NOT EXISTS events_received_at ON events(received_at);
     CREATE INDEX IF NOT EXISTS events_by_group ON events(group_id, received_at);
+    CREATE TABLE IF NOT EXISTS direct_events (
+      message_id TEXT NOT NULL, sender_id TEXT NOT NULL, received_at INTEGER NOT NULL,
+      body TEXT NOT NULL, has_media INTEGER NOT NULL, PRIMARY KEY (sender_id, message_id)
+    );
+    CREATE INDEX IF NOT EXISTS direct_events_received ON direct_events(received_at);
     CREATE TABLE IF NOT EXISTS event_quotes (
       group_id TEXT NOT NULL, message_id TEXT NOT NULL, message_index TEXT,
       quoted_index TEXT, quoted_text TEXT NOT NULL, quoted_attachments INTEGER NOT NULL,
@@ -63,7 +68,7 @@ function migrate(db) {
 
 const quoteIndex = value => typeof value === 'string' && value.length <= 256 && value.trim() ? value : null;
 
-export function inbox(db, { mode = 'bound-group', challenge, now = Date.now }) {
+export function inbox(db, { mode = 'bound-group', challenge, enableDirect = false, now = Date.now }) {
   if (mode !== 'bound-group' && mode !== 'all-groups') throw new Error('invalid receive mode');
   migrate(db);
   const binding = db.prepare('SELECT group_id FROM group_binding WHERE singleton = 1');
@@ -75,11 +80,26 @@ export function inbox(db, { mode = 'bound-group', challenge, now = Date.now }) {
   const trim = db.prepare(`DELETE FROM events WHERE rowid IN (
     SELECT rowid FROM events WHERE group_id = ? ORDER BY received_at DESC, rowid DESC LIMIT -1 OFFSET 2000
   )`);
-  const prune = () => expire.run(now() - day);
+  const expireDirect = db.prepare('DELETE FROM direct_events WHERE received_at < ?');
+  const putDirect = db.prepare('INSERT OR IGNORE INTO direct_events VALUES (?, ?, ?, ?, ?)');
+  const prune = () => {
+    const cutoff = now() - day;
+    expire.run(cutoff);
+    expireDirect.run(cutoff);
+  };
   prune();
   return {
     prune,
     record(msg, quote) {
+      if (enableDirect && msg?.kind === 'c2c' && msg.rawEventType === 'C2C_MESSAGE_CREATE' && !msg.senderIsBot &&
+        typeof msg.senderId === 'string' && /^[a-z0-9_-]{1,256}$/i.test(msg.senderId) &&
+        typeof msg.messageId === 'string' && msg.messageId && msg.messageId.length <= 256 &&
+        typeof msg.content === 'string' && msg.content.trim()) {
+        const saved = putDirect.run(msg.messageId, msg.senderId, now(), msg.content.slice(0, 1600),
+          msg.refMsgIdx || msg.attachments?.length ? 1 : 0).changes === 1;
+        prune();
+        return saved;
+      }
       if (!msg || msg.kind !== 'group' || msg.senderIsBot || !groupEvents.has(msg.rawEventType)
         || !msg.groupOpenid || !msg.senderId || !msg.messageId) return false;
       const mentioned = msg.rawEventType === 'GROUP_AT_MESSAGE_CREATE' || msg.mentions?.some(m => m.is_you === true);
@@ -134,7 +154,7 @@ async function main() {
   const { QQBot, quoteRef } = await import(pathToFileURL(sdkPath));
   const appSecret = readQqAppSecret(appId, keychainService);
   const db = new DatabaseSync(join(root, 'inbox.sqlite'));
-  const receiver = inbox(db, { mode, challenge: scope });
+  const receiver = inbox(db, { mode, challenge: scope, enableDirect: process.env.LUKE_QQ_DIRECT === '1' });
   const stop = new AbortController();
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };

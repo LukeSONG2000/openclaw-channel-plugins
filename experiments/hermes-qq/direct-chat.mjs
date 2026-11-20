@@ -1,0 +1,53 @@
+const maxAge = 180_000;
+
+export function groupMemoryAuthorized(groupId, approvals = '') {
+  return typeof groupId === 'string' && /^[a-z0-9_-]{1,256}$/i.test(groupId) &&
+    approvals.split(',').map(v => v.trim()).includes(groupId);
+}
+
+export function makeDirectChat({ inbox, ledger, account, start, signal, plan, send, memoryFor, now = Date.now, log = () => {} }) {
+  ledger.exec(`CREATE TABLE IF NOT EXISTS direct_receipts (
+    account TEXT NOT NULL, sender_id TEXT NOT NULL, message_id TEXT NOT NULL, at INTEGER NOT NULL,
+    PRIMARY KEY (account, sender_id, message_id)
+  )`);
+  const claim = ledger.prepare('INSERT OR IGNORE INTO direct_receipts VALUES (?, ?, ?, ?)');
+  const prune = ledger.prepare('DELETE FROM direct_receipts WHERE at < ?');
+  const batch = inbox.prepare(`SELECT rowid, * FROM direct_events WHERE received_at >= ? AND received_at <= ?
+    AND rowid > ? ORDER BY rowid LIMIT 32`);
+  const history = inbox.prepare(`SELECT body FROM direct_events WHERE sender_id = ? AND rowid < ?
+    AND received_at >= ? AND received_at <= ? ORDER BY rowid DESC LIMIT 6`);
+  const pending = new Map();
+  let rowid = 0;
+  let prunedAt = 0;
+  async function reply(row, event) {
+    const memory = memoryFor?.(event.senderId);
+    let preferences = [];
+    try { if (memory) preferences = await memory.recall(event); } catch { log('memory_read_unavailable'); }
+    const context = history.all(event.senderId, row.rowid, row.received_at - 86_400_000, row.received_at)
+      .reverse().map(item => item.body.slice(0, 320));
+    const text = (await plan(event, context, preferences))?.trim();
+    if (!text || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text) || signal?.aborted || now() - row.received_at > maxAge) return;
+    const receipt = await send(event, text.slice(0, 500));
+    if (receipt?.id) {
+      log('accepted');
+      try { await memory?.observe(event); } catch { log('memory_write_unavailable'); }
+    }
+  }
+  return {
+    tick() {
+      const at = now();
+      if (signal?.aborted) return;
+      if (at - prunedAt > 60_000) { prune.run(at - 86_400_000); prunedAt = at; }
+      for (const row of batch.all(Math.max(start, at - maxAge), at, rowid)) {
+        if (pending.size >= 3 || pending.has(row.sender_id)) break;
+        rowid = row.rowid;
+        if (!claim.run(account, row.sender_id, row.message_id, at).changes) continue;
+        const event = { channel: 'qqbot', chatType: 'direct', account, senderId: row.sender_id,
+          messageId: row.message_id, text: row.body, attachmentCount: row.has_media };
+        pending.set(event.senderId, reply(row, event).catch(() => log('failed'))
+          .finally(() => pending.delete(event.senderId)));
+      }
+    },
+    async drain() { while (pending.size) await Promise.all(pending.values()); },
+  };
+}

@@ -65,7 +65,7 @@ def upstream(socket_path, credential_file, embedding_file):
             server.serve_forever()
 
 
-async def local(socket_path):
+async def local(socket_path, port):
     async def handle(reader, writer):
         async def copy(src, dst):
             while data := await src.read(65536):
@@ -85,20 +85,50 @@ async def local(socket_path):
             if other:
                 other.close()
 
-    async with await asyncio.start_server(handle, "127.0.0.1", 18080) as server:
+    async with await asyncio.start_server(handle, "127.0.0.1", port) as server:
+        await server.serve_forever()
+
+
+async def expose_api(socket_path):
+    async def handle(reader, writer):
+        try:
+            server, client = await asyncio.open_connection("127.0.0.1", 8000)
+        except OSError:
+            writer.close()
+            return
+
+        async def copy(src, dst):
+            while data := await src.read(65536):
+                dst.write(data)
+                await dst.drain()
+
+        try:
+            tasks = [asyncio.create_task(copy(reader, client)), asyncio.create_task(copy(server, writer))]
+            _, pending = await asyncio.wait(tasks, return_when=asyncio.FIRST_COMPLETED, timeout=50)
+            for task in pending:
+                task.cancel()
+            await asyncio.gather(*tasks, return_exceptions=True)
+        finally:
+            writer.close()
+            client.close()
+
+    async with await asyncio.start_unix_server(handle, socket_path) as server:
         await server.serve_forever()
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mode", choices=["upstream", "local"])
+    parser.add_argument("mode", choices=["upstream", "local", "api"])
     parser.add_argument("socket")
     parser.add_argument("--credentials", type=Path)
     parser.add_argument("--embedding-credentials", type=Path)
+    parser.add_argument("--port", type=int, default=18080)
     args = parser.parse_args()
     if args.mode == "upstream":
         if not args.credentials:
             parser.error("upstream requires a Zhipu credential file")
         upstream(args.socket, args.credentials, args.embedding_credentials)
+    elif args.mode == "api":
+        asyncio.run(expose_api(args.socket))
     else:
-        asyncio.run(local(args.socket))
+        asyncio.run(local(args.socket, args.port))

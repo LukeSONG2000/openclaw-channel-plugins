@@ -15,6 +15,10 @@ export function qqMemberIdentity({ account, senderId, groupId }) {
   };
 }
 
+export function qqDirectIdentity({ account, senderId }) {
+  return { peerId: key('direct-member', account, senderId), workspaceId: key('direct', account, senderId) };
+}
+
 export function confirmCrossGroupMember(db, { account, message, now = Date.now(), since }) {
   if (typeof message !== 'string' || !message.trim() || !Number.isSafeInteger(since) ||
     !Number.isSafeInteger(now) || since > now || now - since > 3_600_000) {
