@@ -4,6 +4,8 @@ This is the first isolated vertical slice from the [agent evaluation](../../docs
 
 See [native history, member memory and the R2 migration inventory](../../docs/luke-native-capability-migration.md) before adding another context reader, memory store or feature-specific route.
 
+For Linux deployment with rootless Podman and systemd user services, see [remote deployment](remote/README.md).
+
 The bridge replays a selected window, or routes an @ to quick chat or a separate work run. Session IDs are namespaced by channel, bot account, group, source message, and lane. The trial supplies recent context from the group inbox so concurrent intent decisions do not wait on a single Hermes session lease. A work run has its own session, deterministic admission key and original source envelope. Only completed output is read; the bridge never forwards streamed thoughts or tool progress. The recorded source and stable receipt key are inputs for later delivery deduplication, not proof of actual QQ delivery.
 
 ## Smoke test with official Hermes
@@ -53,6 +55,8 @@ Start both isolated Compose profiles and initialize the worker's board with `her
 New background requests use Kanban. A completed result may send only against its original mention in the bound group, with a small margin inside QQ's [five-minute group reply window](https://github.com/tencent-connect/bot-docs/blob/main/docs/develop/api-v2/server-inter/message/send-receive/send.md). Once that anchor expires, the result stays on the board rather than becoming an unthreaded push. Natural replies use a recent ordinary message as the passive send anchor without adding a mention; selected replies keep their own anchor. An API receipt alone does not prove how the QQ client displays either. Validate participant attribution before enabling Honcho.
 
 ## Adaptive cadence and shared context
+
+The scheduling policy lives in [Human-style conversation polling](../human-polling/README.md); the QQ adapter separately checks whether a platform anchor is eligible for delivery.
 
 - Checks start at 1 minute and step through 2, 5, 10 and 15 minutes on empty polls. Empty polls make no model call. Finding unread text resets to 1 minute even if the model stays silent. An @ resets the schedule from its arrival time; successive @ events slide it forward.
 - The private ledger stores per-account, per-group cadence and individual read marks. An @ gives the model recent read context and up to 12 eligible preceding unread messages; it replies to the current request and consumes only related unread anchors from that same group. A later @ invalidates an unfinished ambient decision without consuming unrelated unread messages.

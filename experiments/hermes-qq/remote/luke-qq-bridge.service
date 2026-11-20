@@ -1,0 +1,15 @@
+[Unit]
+Description=Luke test QQ and Hermes bridge
+Wants=luke-qq-receive.service luke-hermes-qq@chat.service luke-hermes-qq@work.service
+After=luke-qq-receive.service luke-hermes-qq@chat.service luke-hermes-qq@work.service
+
+[Service]
+EnvironmentFile=%h/.local/share/luke-qq-pilot/deploy.env
+UMask=0077
+ExecStart=/usr/bin/env ${LUKE_NODE} %h/.local/share/luke-qq-pilot/code/experiments/hermes-qq/trial.mjs %h/.local/share/luke-qq-pilot/inbox ${LUKE_QQ_SDK} ${LUKE_QQ_APP_ID} %h/.local/share/luke-qq-pilot/secrets/qq-app-secret luke-hermes-qq-chat --always luke-hermes-qq-work
+Restart=always
+RestartSec=10
+TimeoutStopSec=35
+
+[Install]
+WantedBy=default.target

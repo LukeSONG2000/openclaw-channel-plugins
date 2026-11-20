@@ -1,0 +1,13 @@
+[Unit]
+Description=Luke test QQ inbox
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/.local/share/luke-qq-pilot/deploy.env
+UMask=0077
+ExecStart=/usr/bin/env ${LUKE_NODE} %h/.local/share/luke-qq-pilot/code/experiments/aoa-async/qq-receive-only.mjs %h/.local/share/luke-qq-pilot/inbox ${LUKE_QQ_SDK} ${LUKE_QQ_APP_ID} %h/.local/share/luke-qq-pilot/secrets/qq-app-secret all-groups
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

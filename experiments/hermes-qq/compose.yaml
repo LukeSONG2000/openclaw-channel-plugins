@@ -17,6 +17,7 @@ services:
       - ./bound-sample.mjs:/pilot/hermes-qq/bound-sample.mjs:ro
       - ../aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro
       - ../aoa-async/qq-receive-only.mjs:/pilot/aoa-async/qq-receive-only.mjs:ro
+      - ../aoa-async/qq-credential.mjs:/pilot/aoa-async/qq-credential.mjs:ro
     networks:
       - laboratory
     depends_on:

@@ -1,4 +1,4 @@
-import { execFile, execFileSync } from 'node:child_process';
+import { execFile } from 'node:child_process';
 import { mkdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -8,10 +8,11 @@ import { readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
 import { backgroundRequest } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand } from './kanban.mjs';
+import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
+import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
 const maxAge = 180_000;
-const passiveWindowMs = 295_000;
-const docker = '/usr/local/bin/docker';
+const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
 // The QQ client clipped a 308-byte native-mention payload despite accepting the send.
 const mentionMarkdownBudget = 280;
 const plainTextBudget = 1800;
@@ -185,7 +186,7 @@ export function makeTrial({
     const batch = turnState.poll(at, item => always || item.senderId === senderId);
     if (!batch?.messages.length) return;
     const { messages, revision } = batch;
-    const eligibleAnchor = row => row && now() - row.at < passiveWindowMs;
+    const eligibleAnchor = row => canUseQqReplyAnchor(row?.at, now());
     const events = messages.filter(eligibleAnchor).slice(-24);
     if (!events.length) {
       turnState.markRead(messages, now(), revision);
@@ -196,7 +197,7 @@ export function makeTrial({
     const anchors = new Map(events.map(item => [item.messageId, item]));
     const isCurrent = () => isLive() && turnState.isCurrent(revision) && currentMention() === mentionAtStart;
     const context = contextAt(at, undefined, null, (id, receivedAt) =>
-      !anchors.has(id) && (turnState.isRead(id, receivedAt) || at - receivedAt >= passiveWindowMs)).messages;
+      !anchors.has(id) && (turnState.isRead(id, receivedAt) || !canUseQqReplyAnchor(receivedAt, at))).messages;
     ambient = true;
     budget--;
     track(Promise.resolve().then(() => planWindow(events, context, revision)).then(async actions => {
@@ -243,20 +244,9 @@ export function makeTrial({
   };
 }
 
-export function qqReceiptPolicy(inbox, { account, groupId, signal, now = Date.now }) {
-  const lookup = inbox.prepare('SELECT sender_id, received_at FROM events WHERE group_id=? AND message_id=? AND mentioned=1');
-  return source => {
-    if (signal?.aborted) return false;
-    if (source.channel !== 'qqbot' || source.account !== account || source.groupId !== groupId) return 'expired';
-    const row = lookup.get(groupId, source.messageId);
-    const age = now() - (row?.received_at ?? 0);
-    return row?.sender_id === source.senderId && age >= 0 && age < passiveWindowMs ? true : 'expired';
-  };
-}
-
 function callRuntime(container, mode, payload) {
   return new Promise((resolve, reject) => {
-    const child = execFile(docker, ['exec', '-i', '-u', 'hermes', container,
+    const child = execFile(engine, ['exec', '-i', '-u', 'hermes', container,
       'node', '/pilot/hermes-qq/shadow.mjs', mode], { timeout: 155_000, maxBuffer: 48_000 }, (error, stdout) => {
       if (error) return reject(new Error('Hermes trial call failed'));
       try { resolve(JSON.parse(stdout)); } catch { reject(new Error('invalid Hermes response')); }
@@ -292,16 +282,14 @@ async function main() {
     if (!/^[a-z0-9_-]{1,128}$/i.test(senderId ?? '')) throw new Error('no verified QQ trial sender');
   }
   const { QQBot, ApiError } = await import(pathToFileURL(sdk));
-  const appSecret = execFileSync('/usr/bin/security', ['find-generic-password', '-a', account,
-    '-s', keychainService, '-w'], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  if (!appSecret) throw new Error('no QQ test credential');
+  const appSecret = readQqAppSecret(account, keychainService);
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId: account, appSecret, logger });
   const stop = new AbortController();
   process.once('SIGTERM', () => stop.abort());
   process.once('SIGINT', () => stop.abort());
-  const kanbanCommand = (args, input) => runKanbanCommand(docker, ['exec', '-i', '-u', 'hermes', worker,
+  const kanbanCommand = (args, input) => runKanbanCommand(engine, ['exec', '-i', '-u', 'hermes', worker,
     'hermes', 'kanban', ...args], input);
   if (always) await Promise.all([callRuntime(container, 'health', {}), kanbanCommand(['diagnostics', '--json'])]);
   const bridge = always ? makeKanbanBridge({

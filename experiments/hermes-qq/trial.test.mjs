@@ -3,7 +3,8 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
-import { makeTrial, qqReceiptPolicy, sendMentionReply, trialInput } from './trial.mjs';
+import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
+import { qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
 const groupId = 'test-group';
 const senderId = 'test-author';

@@ -1,0 +1,16 @@
+[Unit]
+Description=Luke test Hermes profile (%i)
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+Delegate=yes
+ExecStart=/usr/bin/bash %h/.local/share/luke-qq-pilot/code/experiments/hermes-qq/remote/run-profile.sh %i
+ExecStop=/usr/bin/podman stop --ignore -t 15 luke-hermes-qq-%i
+Restart=always
+RestartSec=10
+TimeoutStopSec=35
+
+[Install]
+WantedBy=default.target

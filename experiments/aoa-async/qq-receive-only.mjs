@@ -1,8 +1,8 @@
-import { execFileSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
+import { readQqAppSecret } from './qq-credential.mjs';
 
 const day = 86_400_000;
 const groupEvents = new Set(['GROUP_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE']);
@@ -93,10 +93,7 @@ async function main() {
   const stat = statSync(root);
   if (stat.uid !== process.getuid() || stat.mode & 0o077) throw new Error('pilot state must be private');
   const { QQBot } = await import(pathToFileURL(sdkPath));
-  const appSecret = execFileSync('/usr/bin/security', [
-    'find-generic-password', '-a', appId, '-s', keychainService, '-w',
-  ], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
-  if (!appSecret) throw new Error('empty keychain credential');
+  const appSecret = readQqAppSecret(appId, keychainService);
   const db = new DatabaseSync(join(root, 'inbox.sqlite'));
   const receiver = inbox(db, { mode, challenge: scope });
   const stop = new AbortController();
