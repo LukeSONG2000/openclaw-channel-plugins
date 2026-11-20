@@ -6,7 +6,7 @@ export function groupMemoryAuthorized(groupId, approvals = '') {
 }
 
 export function makeDirectChat({ inbox, ledger, account, start, signal, plan, send, queueWork, retrieveWork, memoryFor, readImages,
-  now = Date.now, log = () => {} }) {
+  deliveries, now = Date.now, log = () => {} }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS direct_receipts (
     account TEXT NOT NULL, sender_id TEXT NOT NULL, message_id TEXT NOT NULL, at INTEGER NOT NULL,
     PRIMARY KEY (account, sender_id, message_id)
@@ -65,7 +65,8 @@ export function makeDirectChat({ inbox, ledger, account, start, signal, plan, se
         rowid = row.rowid;
         if (!claim.run(account, row.sender_id, row.message_id, at).changes) continue;
         const event = { channel: 'qqbot', chatType: 'direct', account, senderId: row.sender_id,
-          messageId: row.message_id, text: row.body, attachmentCount: row.has_media };
+          messageId: row.message_id, text: row.body, attachmentCount: row.has_media,
+          recentDeliveries: deliveries?.recent('direct', row.sender_id, row.received_at) };
         pending.set(event.senderId, reply(row, event).catch(() => log('failed'))
           .finally(() => pending.delete(event.senderId)));
       }

@@ -2,9 +2,39 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
+import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { boundSample } from './bound-sample.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
-import { backgroundRequest, hermesPilot, hermesRuns, requestedSkill } from './pilot.mjs';
+import { backgroundRequest, hermesPilot, hermesRuns, qqImageBytes, requestedSkill } from './pilot.mjs';
+
+test('QQ quote over the old size limit reaches the native model alongside conversation and delivery context', async () => {
+  const bytes = Buffer.alloc(2_271_262);
+  Buffer.from('89504e470d0a1a0a', 'hex').copy(bytes);
+  const candidates = [{ origin: 'quote', locator: 'https://gchat.qpic.cn/fixture' }];
+  const fetchImage = async () => new Response(bytes, { headers: { 'content-length': String(bytes.length) } });
+  assert.equal((await readQqImages(candidates, { fetchImage })).length, 0);
+  const images = await readQqImages(candidates, { fetchImage, maxBytes: qqImageBytes });
+  assert.equal(images.length, 1);
+  const delivery = { speaker: 'assistant', self: true, text: '', artifact: 'png' };
+  const source = event('quoted-artifact', 'Who is in this picture?', { mentioned: true, groupName: 'Example Group',
+    quote: { availability: 'received', attachmentCount: 1 }, recentDeliveries: [delivery] });
+  const pilot = hermesPilot({ fast: {
+    async start({ input }) {
+      const blocks = input[0].content;
+      const fields = JSON.parse(blocks[0].text.split('\n').at(-1));
+      assert.deepEqual(fields.conversation, { name: 'Example Group' });
+      assert.deepEqual(fields.recentDeliveries, [delivery]);
+      assert.equal(fields.current.quote.self, undefined);
+      assert.deepEqual(Buffer.from(blocks[2].image_url.url.split(',')[1], 'base64'), bytes);
+      return 'run';
+    },
+    async wait() { return '{"route":"chat","text":"I can see the picture."}'; },
+  } });
+  assert.equal((await pilot.planMention(source, [], [], images)).kind, 'chat');
+  const bad = await readQqImages(candidates, { maxBytes: qqImageBytes,
+    fetchImage: async () => new Response(Buffer.alloc(qqImageBytes + 1)) });
+  assert.deepEqual(bad, []);
+});
 
 test('any mention can use native image blocks and no CDN locator enters the request', async () => {
   const picture = 'data:image/png;base64,iVBORw0KGgo=';

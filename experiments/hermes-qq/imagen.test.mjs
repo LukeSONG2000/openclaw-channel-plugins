@@ -18,14 +18,17 @@ test('an admitted task uses only its own image and renders at most once, even ac
   let renders = 0;
   const opts = { directory, artifacts,
     getTask: id => id === 't_11111111' ? { key, source: { account: 'luke', groupId: 'a', senderId: 'member' },
+      quote: { text: 'Use the wording on the quoted sign', attachmentCount: 1 },
       images: [{ origin: 'quote', dataUrl: 'data:image/png;base64,' + base64 }] }
       : { key: denied, source: { account: 'luke', groupId: 'b' }, images: [] },
     allowed: source => source.groupId === 'a',
-    renderer: async ({ from, to, images, args }) => {
+    renderer: async ({ from, to, images, args, quotedText, hasQuote }) => {
       renders++;
       assert.equal(from, 'qqbot:group:a');
       assert.equal(from, to);
       assert.equal(args, 'edit keep the same shape');
+      assert.equal(quotedText, 'Use the wording on the quoted sign');
+      assert.equal(hasQuote, true);
       assert.deepEqual(await readFile(images[0]), bytes);
       const mediaUrl = join(directory, 'fixture.png');
       await writeFile(mediaUrl, bytes);

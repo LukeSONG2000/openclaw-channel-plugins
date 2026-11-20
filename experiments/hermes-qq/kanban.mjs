@@ -1,6 +1,6 @@
 import { execFile } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { imageInputs, validateBackgroundRequest, workAcknowledgment } from './pilot.mjs';
+import { imageInputs, qqImageBytes, validateBackgroundRequest, workAcknowledgment } from './pilot.mjs';
 
 const cardId = /^t_[a-f0-9]{8,32}$/;
 const titleFor = key => 'QQ background work ' + key.slice(0, 16);
@@ -51,7 +51,7 @@ function attachmentFiles(images) {
   return imageInputs(images).map(({ origin, dataUrl }, index) => {
     const [, type, extension, base64] = /^data:(image\/(\w+));base64,(.*)$/u.exec(dataUrl);
     const bytes = Buffer.from(base64, 'base64');
-    if (!bytes.length || bytes.length > 2 * 1024 * 1024 || bytes.toString('base64') !== base64) {
+    if (!bytes.length || bytes.length > qqImageBytes || bytes.toString('base64') !== base64) {
       throw new Error('invalid Kanban image bytes');
     }
     const hash = createHash('sha256').update(bytes).digest('hex').slice(0, 24);

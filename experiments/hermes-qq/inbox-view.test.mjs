@@ -2,7 +2,40 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
-import { groupHistoryMs, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+import { groupHistoryMs, makeDeliveryContext, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+
+test('only confirmed scoped deliveries enter context, and legacy work does not claim exact quote ownership', t => {
+  const ledger = new DatabaseSync(':memory:');
+  const db = new DatabaseSync(':memory:');
+  t.after(() => { ledger.close(); db.close(); });
+  let now = 10_000;
+  const receiver = inbox(db, { mode: 'all-groups', now: () => now });
+  const deliveries = makeDeliveryContext(ledger, 'bot', { now: () => now });
+  const group = { channel: 'qqbot', account: 'bot', groupId: 'room', senderId: 'member' };
+  deliveries.remember(group, {}, { text: 'Unconfirmed' });
+  deliveries.remember(group, { id: 'sent', msg_idx: 'quoted-index' }, { artifact: 'png' });
+  deliveries.remember({ ...group, chatType: 'direct', groupId: undefined }, { id: 'pm' }, { text: 'Private reply' });
+  deliveries.remember({ ...group, groupId: 'neighbor' }, { id: 'sent' }, { text: 'Other group' });
+  now++;
+  const put = (id, ref) => receiver.record({ kind: 'group', rawEventType: 'GROUP_MESSAGE_CREATE', groupOpenid: 'room',
+    senderId: 'member', messageId: id, content: 'Look at this photo', refMsgIdx: ref });
+  put('exact', 'quoted-index');
+  put('unrelated', 'pm');
+  const quote = makeGroupQuoteReader(db, 'room', deliveries);
+  assert.deepEqual(quote('exact'), { availability: 'received', attachmentCount: 1, self: true, artifact: 'png' });
+  assert.deepEqual(quote('unrelated'), { availability: 'unavailable' });
+  ledger.exec(`CREATE TABLE kanban_receipts(key, state, source, checked_at);
+    CREATE TABLE imagen_receipts(key, status, format);`);
+  ledger.prepare("INSERT INTO kanban_receipts VALUES ('previous','accepted',?,?)").run(JSON.stringify(group), now - 2);
+  ledger.exec("INSERT INTO imagen_receipts VALUES ('previous','ready','gif')");
+  deliveries.readLegacyArtifacts();
+  assert.deepEqual(deliveries.recent('group', 'room', now).map(row => row.artifact), ['gif', 'png']);
+  assert.deepEqual(deliveries.recent('direct', 'member', now).map(row => row.text), ['Private reply']);
+  assert.equal(makeDeliveryContext(ledger, 'other-bot').recent('group', 'room', now).length, 0);
+  now += groupHistoryMs + 1;
+  deliveries.prune();
+  assert.equal(deliveries.recent('group', 'room', now).length, 0);
+});
 
 test('range reads never cross the retention horizon, request anchor or future', t => {
   const db = new DatabaseSync(':memory:');

@@ -4,9 +4,9 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+import { makeDeliveryContext, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
-import { backgroundRequest } from './pilot.mjs';
+import { backgroundRequest, qqImageBytes } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand, runKanbanMediaUpload } from './kanban.mjs';
 import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
@@ -141,7 +141,7 @@ export function sendAmbientReply({ bot, sendMention, always }, { groupId, action
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
   always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow,
-  readImages, memberMemory, retrieveWork, log = () => {},
+  readImages, memberMemory, retrieveWork, deliveries, groupName, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -156,7 +156,7 @@ export function makeTrial({
     WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=1
     ORDER BY received_at DESC, rowid DESC LIMIT 1`);
   const turnState = makeGroupTurnState({ inbox, ledger, account, groupId, start, resume: always, intervals: pollIntervalsMs });
-  const quoteFor = makeGroupQuoteReader(inbox, groupId);
+  const quoteFor = makeGroupQuoteReader(inbox, groupId, deliveries);
   const withQuote = row => {
     const quote = quoteFor(row.messageId);
     return quote ? { ...row, quote } : row;
@@ -234,7 +234,8 @@ export function makeTrial({
             : { messages: [...recent.messages, ...relatedRows.map(row => ({
                 speaker: row.senderId, text: row.text.slice(0, 320), at: row.at, quote: row.quote,
               }))].sort((a, b) => a.at - b.at).slice(-12) };
-          const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision, context) : null;
+          const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision,
+            { ...context, recentDeliveries: event.recentDeliveries }) : null;
           if (queueWork && request) {
             await queueWork(request, images);
             consumeRelated();
@@ -284,7 +285,8 @@ export function makeTrial({
       .map(row => known.get(groupId, row.id) ? { ...row, handled: true } : row);
     ambient = true;
     budget--;
-    track(Promise.resolve().then(() => planWindow(events, context, revision)).then(async actions => {
+    track(Promise.resolve().then(() => planWindow(events, context, revision,
+      deliveries?.recent('group', groupId, at))).then(async actions => {
       if (!Array.isArray(actions) || !isCurrent() || !turnState.markRead(messages, now(), revision)) return;
       for (const action of actions.slice(0, 2)) {
         if (!isCurrent()) break;
@@ -316,6 +318,7 @@ export function makeTrial({
         const event = withQuote({
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
+          groupName, recentDeliveries: deliveries?.recent('group', groupId, row.received_at),
           ...(row.sender_is_bot ? { senderIsBot: true } : {}),
           ...(row.attachment_count ? { attachmentCount: Math.min(20, row.attachment_count) } : {}),
         });
@@ -402,13 +405,22 @@ async function main() {
       throw error;
     }
   };
-  const send = (event, content, seq) => safeSend(() => sendMentionReply(bot, event, content, ApiError,
-    () => console.log('qq_trial_mention_plain_fallback'), seq));
-  const sendDirect = (event, content, seq) => safeSend(() => bot.send({ target: {
+  const deliveries = makeDeliveryContext(ledger, account);
+  const download = candidates => readQqImages(candidates, { getToken: () => bot.api.getToken(), maxBytes: qqImageBytes });
+  const recordSend = async (source, value, operation) => {
+    const receipt = await safeSend(operation);
+    try { deliveries.remember(source, receipt, value); }
+    catch { console.error('qq_delivery_context_write_failed'); }
+    return receipt;
+  };
+  const sendMention = (event, content, seq) => sendMentionReply(bot, event, content, ApiError,
+    () => console.log('qq_trial_mention_plain_fallback'), seq);
+  const send = (event, content, seq) => recordSend(event, { text: content }, () => sendMention(event, content, seq));
+  const sendDirect = (event, content, seq) => recordSend(event, { text: content }, () => bot.send({ target: {
     scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
   }, msgType: 0, content, ...(seq ? { extra: { msg_seq: seq } } : {}) }));
   const acknowledge = ({ source, text }) => {
-    return source.chatType === 'direct' ? sendDirect(source, text, 1) : safeSend(() => bot.send({
+    return source.chatType === 'direct' ? sendDirect(source, text, 1) : recordSend(source, { text }, () => bot.send({
       target: { scope: 'group', targetId: source.groupId, msgId: source.messageId },
       msgType: 0, content: text, extra: { msg_seq: 1 },
     }));
@@ -432,11 +444,11 @@ async function main() {
       onTerminal: key => artifacts.lookup(key)?.status === 'ready' ? artifacts.remove(key) : undefined,
     };
   })() : {};
-  const sendArtifact = (source, artifact, seq, canSend) => {
+  const sendArtifact = (source, artifact, seq, canSend, workKey) => {
     const target = source.chatType === 'direct'
       ? { scope: 'c2c', targetId: source.senderId, msgId: source.messageId }
       : { scope: 'group', targetId: source.groupId, msgId: source.messageId };
-    return safeSend(() => sendWorkImage(bot, target, artifact, seq, canSend));
+    return recordSend(source, { artifact: artifact.format, workKey }, () => sendWorkImage(bot, target, artifact, seq, canSend));
   };
   const directWork = always && process.env.LUKE_QQ_DIRECT === '1' && process.env.LUKE_QQ_DIRECT_WORK === '1' ? makeKanbanBridge({
     db: ledger, tasks, account, direct: true, ...bindings, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
@@ -448,27 +460,29 @@ async function main() {
   const freshEnough = at => Number.isSafeInteger(at) && Date.now() - at >= 0 && Date.now() - at < 60_000;
   const directImages = withImagen ? makeDirectImageReader(inbox) : null;
   const direct = always && process.env.LUKE_QQ_DIRECT === '1' ? makeDirectChat({
-    inbox, ledger, account, start, signal: stop.signal,
+    inbox, ledger, account, start, deliveries, signal: stop.signal,
     memoryFor: sender => {
       if (!origin || !token || !policy.forDirect(sender).memory) return;
       try { return makeMemberMemory({ origin, token, socketPath, account, directSender: sender }); }
       catch { console.error('qq_direct_memory_config_invalid'); }
     },
     readImages: directImages && (event => grantImage(event) ?
-      readQqImages(directImages(event.senderId, event.messageId), { getToken: () => bot.api.getToken() }) : []),
+      download(directImages(event.senderId, event.messageId)) : []),
     plan: (event, context, preferences, images) => callRuntime(container, 'direct', {
       event, context, preferences, images, allowWork: Boolean(directWork), imageGeneration: Boolean(directWork) && withImagen && grantImage(event),
     }),
     queueWork: directWork?.enqueue,
     retrieveWork: directWork && (source => directWork.retrieve(source, { canDeliver: canDeliverDirect,
-      deliver: ({ source, text, artifact }) => artifact
-        ? sendArtifact(source, artifact, 1, () => canDeliverDirect(source) === true) : sendDirect(source, text, 1) })),
+      deliver: ({ source, text, artifact, receiptKey }) => artifact
+        ? sendArtifact(source, artifact, 1, () => canDeliverDirect(source) === true, receiptKey) : sendDirect(source, text, 1) })),
     send: sendDirect,
     log: status => console.log('qq_direct_' + status),
   }) : null;
   function makeGroup(groupId) {
     const grants = policy.forGroup(groupId);
     const groupRules = policy.rulesForGroup(groupId);
+    const groupName = policy.nameForGroup(groupId);
+    const quoteFor = makeGroupQuoteReader(inbox, groupId, deliveries);
     const imagesFor = makeGroupImageReader(inbox, groupId, { verified: withImagen && grants.imageGeneration });
     let memberMemory;
     if (always && origin && token && grants.memory) {
@@ -479,25 +493,26 @@ async function main() {
       onError: phase => console.error('qq_kanban_error phase=' + phase) }) : null;
     const canDeliver = qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal });
     const trial = makeTrial({
-      inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
+      inbox, ledger, account, groupId, groupName, deliveries, senderId, start, until, always, signal: stop.signal,
       plan: (event, context, unread, images, preferences) =>
         callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences,
           imageGeneration: withImagen && grantImage(event), groupRules }),
       memberMemory,
-      readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
+      readImages: messageId => download(imagesFor(messageId)),
       startWork: decision => callRuntime(worker, 'trial-start', { decision }),
       finish: job => callRuntime(worker, 'trial-settle', { job }),
       queueWork: bridge?.enqueue,
       retrieveWork: bridge && (source => bridge.retrieve(source, { canDeliver,
-        deliver: ({ source, text, artifact }) => artifact
-          ? sendArtifact(source, artifact, 1, () => canDeliver(source) === true) : send(source, text, 1) })),
-      planWindow: grants.freeReply ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt, groupRules }) : undefined,
-      sendWindow: (to, action, tail, anchor) => safeSend(() => sendAmbientReply(
-        { bot, sendMention: send, always }, { groupId: to, action, tail, anchor })),
+        deliver: ({ source, text, artifact, receiptKey }) => artifact
+          ? sendArtifact(source, artifact, 1, () => canDeliver(source) === true, receiptKey) : send(source, text, 1) })),
+      planWindow: grants.freeReply ? (events, context, attempt, recentDeliveries) => callRuntime(container, 'trial-window',
+        { events, context, attempt, groupRules, groupName, recentDeliveries }) : undefined,
+      sendWindow: (to, action, tail, anchor) => recordSend(tail, { text: action.text }, () => sendAmbientReply(
+        { bot, sendMention, always }, { groupId: to, action, tail, anchor })),
       send,
       log: status => console.log('qq_trial_' + status),
     });
-    return { trial, bridge, canDeliver };
+    return { trial, bridge, canDeliver, quoteFor };
   }
   const initialGroups = always && configured ? [groupId, ...policy.groupIds].filter(Boolean) : [groupId];
   const groups = new Map([...new Set(initialGroups)].map(id => [id, makeGroup(id)]));
@@ -505,11 +520,13 @@ async function main() {
   const closeImagen = withImagen ? await (() => {
     const find = ledger.prepare(`SELECT r.key,r.source,m.images,m.valid_until FROM kanban_receipts r
       LEFT JOIN kanban_input_media m USING(key) WHERE r.card_id=? AND r.state='watching'`);
+    deliveries.readLegacyArtifacts();
     return serveImagen({ directory: join(root, '..', 'imagen-ipc'), run: imagenJobs({
       ...bindings, allowed: source => !stop.signal.aborted && grantImage(source), getTask(id) {
         const row = find.get(id);
         if (!row) return;
-        return { key: row.key, source: JSON.parse(row.source),
+        const source = JSON.parse(row.source);
+        return { key: row.key, source, quote: groups.get(source.groupId)?.quoteFor(source.messageId),
           images: row.valid_until > Date.now() ? JSON.parse(row.images) : [] };
       },
     }) });
@@ -538,8 +555,8 @@ async function main() {
             return canDeliver(source) === true && row?.sender_is_bot === 0 && freshEnough(row.received_at);
           },
           acknowledge,
-          deliver: async ({ source, text, artifact, seq }) => {
-            const receipt = artifact ? await sendArtifact(source, artifact, seq, () => canDeliver(source) === true)
+          deliver: async ({ source, text, artifact, seq, receiptKey }) => {
+            const receipt = artifact ? await sendArtifact(source, artifact, seq, () => canDeliver(source) === true, receiptKey)
               : await send(source, text, seq);
             console.log('qq_kanban_' + (receipt?.id ? 'accepted' : 'uncertain'));
             return receipt;
@@ -550,12 +567,13 @@ async function main() {
           canAcknowledge: source => canDeliverDirect(source) === true &&
             freshEnough(directAnchor.get(source.senderId, source.messageId)?.received_at),
           acknowledge,
-          deliver: ({ source, text, artifact, seq }) => artifact
-            ? sendArtifact(source, artifact, seq, () => canDeliverDirect(source) === true) : sendDirect(source, text, seq),
+          deliver: ({ source, text, artifact, seq, receiptKey }) => artifact
+            ? sendArtifact(source, artifact, seq, () => canDeliverDirect(source) === true, receiptKey) : sendDirect(source, text, seq),
         }));
-        if (bindings.artifacts && Date.now() >= nextPrune) {
+        if (Date.now() >= nextPrune) {
           nextPrune = Date.now() + 3_600_000;
-          receipts.push(bindings.artifacts.prune(Date.now() - 86_400_000));
+          deliveries.prune();
+          if (bindings.artifacts) receipts.push(bindings.artifacts.prune(Date.now() - 86_400_000));
         }
         sweep = Promise.all(receipts).catch(() => console.error('qq_kanban_sweep_failed')).finally(() => { sweep = null; });
       }

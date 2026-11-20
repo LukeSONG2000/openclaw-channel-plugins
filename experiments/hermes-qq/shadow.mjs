@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { existsSync, readdirSync } from 'node:fs';
-import { hermesPilot, hermesRuns } from './pilot.mjs';
+import { hermesPilot, hermesRuns, qqImageSampleBytes } from './pilot.mjs';
 
 const runs = hermesRuns({
   origin: 'http://127.0.0.1:8642', token: process.env.API_SERVER_KEY, timeoutMs: 145_000, pollMs: 750,
@@ -72,7 +72,7 @@ async function main(mode) {
   }
   const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window', 'direct'];
   if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
-  const sample = await readSample(['trial-plan', 'direct'].includes(mode) ? 6_000_000 : 48_000);
+  const sample = await readSample(['trial-plan', 'direct'].includes(mode) ? qqImageSampleBytes : 48_000);
   const skillRoot = '/opt/data/plugins/luke-readonly/skills';
   const installedSkills = existsSync(skillRoot) ? readdirSync(skillRoot, { withFileTypes: true })
     .filter(row => row.isDirectory() && existsSync(`${skillRoot}/${row.name}/SKILL.md`)).map(row => row.name) : [];
@@ -94,7 +94,9 @@ async function main(mode) {
   if (!Array.isArray(sample?.events) || sample.events.length > 24) throw new Error('invalid shadow sample');
   if (mode === 'window' || mode === 'trial-window') {
     const actions = await pilot.window(sample.events, Array.isArray(sample.context) ? sample.context : [],
-      Number.isSafeInteger(sample.attempt) && sample.attempt >= 0 ? sample.attempt : 0, groupRules);
+      Number.isSafeInteger(sample.attempt) && sample.attempt >= 0 ? sample.attempt : 0, groupRules,
+      typeof sample.groupName === 'string' ? sample.groupName.slice(0, 120) : '',
+      Array.isArray(sample.recentDeliveries) ? sample.recentDeliveries.slice(-4) : []);
     console.log(JSON.stringify(mode === 'trial-window' ? actions
       : { status: 'completed', count: actions.length, modes: actions.map(x => x.mode) }));
     return;

@@ -43,9 +43,62 @@ function excerpt(body, maxChars = 140, jsonLimit = 180) {
   return chars.join('');
 }
 
+export function makeDeliveryContext(db, account, { now = Date.now } = {}) {
+  db.exec(`CREATE TABLE IF NOT EXISTS qq_delivered_context (
+    account TEXT NOT NULL, scope TEXT NOT NULL, peer TEXT NOT NULL, id TEXT NOT NULL,
+    message_index TEXT, at INTEGER NOT NULL, text TEXT NOT NULL, artifact TEXT, work_key TEXT,
+    PRIMARY KEY(account, scope, peer, id)
+  );
+  CREATE INDEX IF NOT EXISTS qq_delivered_recent ON qq_delivered_context(account, scope, peer, at);`);
+  const insert = db.prepare('INSERT OR IGNORE INTO qq_delivered_context VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+  const prune = db.prepare('DELETE FROM qq_delivered_context WHERE at < ?');
+  const recent = db.prepare(`SELECT at, text, artifact FROM qq_delivered_context
+    WHERE account=? AND scope=? AND peer=? AND at>=? AND at<? ORDER BY at DESC LIMIT 4`);
+  const quote = db.prepare(`SELECT text, artifact FROM qq_delivered_context
+    WHERE account=? AND scope=? AND peer=? AND at>=? AND at<? AND (id=? OR message_index=?) ORDER BY at DESC LIMIT 1`);
+  const ref = value => typeof value === 'string' && value && value.length <= 256 ? value : null;
+  let legacy;
+  return {
+    remember(source, receipt, { text = '', artifact, workKey } = {}) {
+      const id = ref(receipt?.id);
+      const safeText = excerpt(text, 320, 400);
+      const format = ['png', 'gif'].includes(artifact) ? artifact : null;
+      if (!id || source.account !== account || (!format && !safeText)) return;
+      const direct = source.chatType === 'direct';
+      const peer = direct ? source.senderId : source.groupId;
+      if (!peer) return;
+      insert.run(account, direct ? 'direct' : 'group', peer, id, ref(receipt.msg_idx), now(), safeText,
+        format, ref(workKey));
+    },
+    recent(scope, peer, through) {
+      const after = through - groupHistoryMs;
+      const old = legacy?.all(account, scope, peer, after, through, account, scope, peer) ?? [];
+      return [...recent.all(account, scope, peer, after, through), ...old].sort((a, b) => a.at - b.at)
+        .slice(-4).map(row => ({ at: row.at, speaker: 'assistant', self: true, text: row.text,
+          ...(row.artifact ? { artifact: row.artifact } : {}) }));
+    },
+    quote(scope, peer, before, index) {
+      return quote.get(account, scope, peer, before - groupHistoryMs, before, index, index);
+    },
+    readLegacyArtifacts() {
+      // Older receipts prove delivery, but have no platform ID for resolving a quote.
+      legacy = db.prepare(`SELECT r.checked_at AS at, '' AS text, a.format AS artifact
+        FROM kanban_receipts r JOIN imagen_receipts a USING(key)
+        WHERE r.state='accepted' AND a.status='ready' AND a.format IN ('png','gif')
+          AND json_extract(r.source,'$.channel')='qqbot' AND json_extract(r.source,'$.account')=?
+          AND coalesce(json_extract(r.source,'$.chatType'),'group')=?
+          AND coalesce(json_extract(r.source,'$.groupId'),json_extract(r.source,'$.senderId'))=?
+          AND r.checked_at>=? AND r.checked_at<?
+          AND NOT EXISTS (SELECT 1 FROM qq_delivered_context q WHERE q.account=? AND q.scope=? AND q.peer=? AND q.work_key=r.key)
+        ORDER BY r.checked_at DESC LIMIT 2`);
+    },
+    prune() { prune.run(now() - groupHistoryMs); },
+  };
+}
+
 function prepareQuoteLookup(db) {
   return db.prepare(`
-    SELECT q.quoted_text AS pushed_text, q.quoted_attachments AS pushed_attachments,
+    SELECT q.quoted_index, current.received_at, q.quoted_text AS pushed_text, q.quoted_attachments AS pushed_attachments,
            source.message_id AS source_id, source.body AS source_text, source.attachment_count AS source_attachments
     FROM events AS current
     JOIN event_quotes AS q USING (group_id, message_id)
@@ -66,17 +119,19 @@ function prepareQuoteLookup(db) {
   `);
 }
 
-export function makeGroupQuoteReader(db, groupId) {
+export function makeGroupQuoteReader(db, groupId, deliveries) {
   const select = prepareQuoteLookup(db);
   return messageId => {
     const row = select.get(groupId, messageId);
     if (!row) return;
-    const text = excerpt(row.source_text || row.pushed_text || '', 600, 800);
-    const attachmentCount = Math.min(20, Math.max(row.pushed_attachments, row.source_attachments ?? 0));
+    const own = deliveries?.quote('group', groupId, row.received_at, row.quoted_index);
+    const text = excerpt(row.source_text || row.pushed_text || own?.text || '', 600, 800);
+    const attachmentCount = Math.min(20, Math.max(row.pushed_attachments, row.source_attachments ?? 0, own?.artifact ? 1 : 0));
     return {
       availability: text || attachmentCount ? 'received' : 'unavailable',
       ...(text ? { text } : {}),
       ...(attachmentCount ? { attachmentCount } : {}),
+      ...(own ? { self: true, ...(own.artifact ? { artifact: own.artifact } : {}) } : {}),
     };
   };
 }

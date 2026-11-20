@@ -62,6 +62,10 @@ export function conversationPolicy(config, { pilotGroup, groupMemory = () => fal
   return Object.freeze({
     groupIds: Object.freeze([...new Set([...Object.keys(config?.verifiedNames ?? {}),
       ...[...overrides.keys()].filter(key => key.startsWith('group:')).map(key => key.slice(6))])]),
+    nameForGroup(peer) {
+      const names = config?.verifiedNames ?? {};
+      return Object.hasOwn(names, peer) ? normalize(names[peer]).slice(0, 120) : '';
+    },
     rulesForGroup(peer) { return rulesByGroup.get(peer) ?? ''; },
     forGroup(peer) {
       return { freeReply: mode(peer) === 'free', memory: groupMemory(peer), imageGeneration: false,

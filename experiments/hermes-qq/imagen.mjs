@@ -78,7 +78,8 @@ export function imagenJobs({ getTask, allowed, artifacts, directory,
       }
       const address = source.chatType === 'direct' ? 'qqbot:c2c:' + source.senderId : 'qqbot:group:' + source.groupId;
       const result = await renderer({ channel: 'qqbot', accountId: source.account, from: address, to: address,
-        senderId: source.senderId, args, images, expectedImages: images.length, inputRoot: root });
+        senderId: source.senderId, args, images, expectedImages: images.length, inputRoot: root,
+        quotedText: task.quote?.text, hasQuote: Boolean(task.quote) });
       if (!result?.mediaUrl) {
         const message = result?.text ?? failed;
         artifacts.fail(key, message);

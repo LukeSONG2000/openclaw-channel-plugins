@@ -40,7 +40,8 @@ function abortable(promise, signal) {
   });
 }
 
-export async function readQqImages(candidates, { getToken, fetchImage = fetch, signal = AbortSignal.timeout(4000) } = {}) {
+export async function readQqImages(candidates, { getToken, fetchImage = fetch, signal = AbortSignal.timeout(4000),
+  maxBytes = maxImageBytes } = {}) {
   let token;
   const requests = candidates.slice(0, 2).map(async ({ origin, locator }) => {
     const url = cdnUrl(locator);
@@ -54,7 +55,7 @@ export async function readQqImages(candidates, { getToken, fetchImage = fetch, s
         headers.authorization = 'QQBot ' + accessToken;
       }
       const response = await fetchImage(url, { headers, redirect: 'error', signal });
-      if (!response.ok || !response.body || Number(response.headers.get('content-length')) > maxImageBytes) {
+      if (!response.ok || !response.body || Number(response.headers.get('content-length')) > maxBytes) {
         await response.body?.cancel();
         return;
       }
@@ -62,7 +63,7 @@ export async function readQqImages(candidates, { getToken, fetchImage = fetch, s
       let total = 0;
       for await (const chunk of response.body) {
         total += chunk.length;
-        if (total > maxImageBytes) return;
+        if (total > maxBytes) return;
         chunks.push(chunk);
       }
       const bytes = Buffer.concat(chunks, total);
