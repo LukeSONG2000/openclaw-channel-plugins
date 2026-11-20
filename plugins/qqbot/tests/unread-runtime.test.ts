@@ -144,6 +144,17 @@ assert.equal(followup.length, 1);
 assert.equal(followup[0]!.snapshot!.entries.map((entry) => entry.messageId).join(","), "msg-5");
 runtime.consumeSnapshot(followup[0]!.snapshot!.id);
 
+const singleFlight = new CustomUnreadRuntime();
+singleFlight.recordNonMention({ message: msg({ messageId: "image", timestamp: 100_000 }), cfg, now: 100_000 });
+const delayed = singleFlight.fireScheduledFollowup({ peerId: "GROUP_OPENID", cfg, now: 100_005 });
+assert.equal(delayed[0]?.kind, "schedule-followup");
+singleFlight.recordNonMention({ message: msg({ messageId: "caption", timestamp: 102_000 }), cfg, now: 102_000 });
+const window = singleFlight.fireScheduledFollowup({ peerId: "GROUP_OPENID", cfg, now: 110_005 })[0]!.snapshot!;
+assert.deepEqual(window.entries.map(entry => entry.messageId), ["image", "caption"]);
+singleFlight.recordNonMention({ message: msg({ messageId: "next", timestamp: 111_000 }), cfg, now: 111_000 });
+assert.deepEqual(singleFlight.fireScheduledFollowup({ peerId: "GROUP_OPENID", cfg, now: 112_000 }), []);
+assert.equal(singleFlight.consumeSnapshot(window.id).remaining, 1);
+
 const gatedRuntime = new CustomUnreadRuntime();
 const gatedCfg = resolveCustomUnreadConfig({
   runtime: { enabled: true, unread: { enabled: true } },

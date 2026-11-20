@@ -103,7 +103,7 @@ assert.equal(kept.handled, true);
 assert.equal(kept.persist, true);
 assert.equal(kept.effects.length, 1);
 assert.equal(kept.effects[0]?.kind, "set-timer");
-assert.equal(Object.keys(keptRuntime.getState().snapshots).length, 1);
+assert.equal(Object.keys(keptRuntime.getState().snapshots).length, 0);
 assert.equal(keptRuntime.getPendingCount("GROUP_OPENID"), 1);
 
 const skippedRuntime = runtimeWithHistory();

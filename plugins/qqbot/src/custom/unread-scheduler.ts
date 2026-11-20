@@ -70,6 +70,8 @@ export class CustomUnreadScheduler {
   }
 
   restore(state: CustomUnreadRuntimeState): void {
+    // No queued model run survives a gateway restart; retained messages are still unread.
+    this.options.unread.releaseAllSnapshots();
     for (const [peerId, peerState] of Object.entries(state.peers)) {
       const intents: CustomUnreadIntent[] = [];
       if (peerState.scheduledFollowupDueAt !== undefined) {

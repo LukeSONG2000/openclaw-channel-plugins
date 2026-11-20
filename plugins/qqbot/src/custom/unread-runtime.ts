@@ -25,6 +25,7 @@ export const CUSTOM_UNREAD_ACTOR_ID = "__qqbot_digest__";
 export const CUSTOM_UNREAD_RECOVERY_DELAY_MS = 60_000;
 const CUSTOM_UNREAD_SNAPSHOT_TTL_MS = 2 * 60 * 60_000;
 const CUSTOM_UNREAD_MAX_SNAPSHOTS = 50;
+const RECENT_CONTINUATION_MS = 10_000;
 
 export type CustomUnreadIntentKind =
   | "schedule-followup"
@@ -97,6 +98,7 @@ export interface CustomUnreadRuntimeState {
 
 interface PeerState {
   history: CustomUnreadHistoryEntry[];
+  continuationDeferred?: boolean;
   followupActive: boolean;
   catchupAnchor?: number;
   scheduledFollowupDueAt?: number;
@@ -276,11 +278,25 @@ export class CustomUnreadRuntime {
     if (!params.cfg.enabled) return [];
     const peer = this.getPeer(params.peerId);
     if (peer.history.length === 0 && !params.allowEmpty) return [];
+    const now = params.now ?? Date.now();
+    // The source belongs to a single in-flight window. Keep new arrivals for the next window.
+    if ([...this.snapshots.values()].some(snapshot => snapshot.peerId === params.peerId && !isSnapshotExpired(snapshot, now))) {
+      return [];
+    }
+    if (params.source === "followup" && peer.history.length) {
+      const last = peer.history.at(-1)!;
+      // A short quiet period avoids splitting a screenshot from the line that follows it.
+      if (last.timestamp <= now && last.timestamp > now - RECENT_CONTINUATION_MS && !peer.continuationDeferred) {
+        peer.continuationDeferred = true;
+        peer.scheduledFollowupDueAt = now + RECENT_CONTINUATION_MS;
+        return [{ kind: "schedule-followup", peerId: params.peerId, dueAt: peer.scheduledFollowupDueAt, source: "followup" }];
+      }
+    }
+    peer.continuationDeferred = false;
     if (peer.history.length > 0 && (params.source === "followup" || params.source === "sleep-timer")) {
       decreasePollInterval(peer);
     }
 
-    const now = params.now ?? Date.now();
     const snapshot: CustomUnreadCatchupSnapshot = {
       id: `custom-unread-${params.peerId}-${now}-${this.snapshots.size + 1}`,
       peerId: params.peerId,
@@ -330,6 +346,14 @@ export class CustomUnreadRuntime {
       source: "followup",
       reason: "recover stuck follow-up without a live timer",
     }];
+  }
+
+  releaseSnapshot(id: string): void {
+    this.snapshots.delete(id);
+  }
+
+  releaseAllSnapshots(): void {
+    this.snapshots.clear();
   }
 
   consumeSnapshot(snapshotId: string): {

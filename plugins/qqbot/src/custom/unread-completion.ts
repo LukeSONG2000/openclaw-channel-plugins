@@ -35,8 +35,9 @@ export function completeCustomUnreadAfterDispatch(params: {
     if (!params.hasModelBlockOutput && !params.hasModelSkipOutput) {
       logs.push({
         level: "info",
-        message: `Group ${params.groupOpenid}: custom unread catch-up produced no model output; snapshot kept and follow-up recovered (${params.snapshotId})`,
+        message: `Group ${params.groupOpenid}: custom unread catch-up produced no model output; messages kept and follow-up recovered (${params.snapshotId})`,
       });
+      params.unread.releaseSnapshot(params.snapshotId);
       const effects = params.cfg
         ? effectsFromCustomUnreadIntents({
             accountId: params.accountId,
@@ -47,7 +48,7 @@ export function completeCustomUnreadAfterDispatch(params: {
             }),
           })
         : [];
-      return { handled: true, effects, persist: effects.length > 0, logs };
+      return { handled: true, effects, persist: true, logs };
     }
 
     const consumed = params.unread.consumeSnapshot(params.snapshotId);
