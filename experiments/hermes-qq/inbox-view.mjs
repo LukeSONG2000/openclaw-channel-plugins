@@ -1,3 +1,4 @@
+export const groupHistoryMs = 24 * 3_600_000;
 const hour = 3_600_000;
 const bucketCount = 12;
 const perBucket = 6;
@@ -5,23 +6,25 @@ const timestamp = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
-function selectRows(db, { groupId, after, through, beforeMessageId = null, limit }) {
+function selectRows(db, { groupId, after, through, beforeMessageId = null, ordinaryOnly = false, limit }) {
   return db.prepare(`
     SELECT message_id, sender_id, mentioned, received_at, body FROM events
     WHERE group_id = ? AND received_at > ? AND received_at <= ?
       AND (? IS NULL OR rowid < (SELECT rowid FROM events WHERE group_id = ? AND message_id = ?))
+      AND (? = 0 OR (mentioned = 0 AND length(trim(body)) > 0))
     ORDER BY received_at DESC, rowid DESC LIMIT ?
-  `).all(groupId, after, through, beforeMessageId, groupId, beforeMessageId, limit).reverse();
+  `).all(groupId, after, through, beforeMessageId, groupId, beforeMessageId, ordinaryOnly ? 1 : 0, limit).reverse();
 }
 
-export function readGroupWindow(db, { account, groupId, after, through }) {
+export function readGroupWindow(db, { account, groupId, after, through, beforeMessageId, ordinaryOnly, limit = 24 }) {
   if (typeof account !== 'string' || !account || typeof groupId !== 'string' || !groupId
-    || !Number.isSafeInteger(after) || !Number.isSafeInteger(through) || through <= after) {
+    || !Number.isSafeInteger(after) || !Number.isSafeInteger(through) || through <= after
+    || !Number.isInteger(limit) || limit < 1 || limit > 2000) {
     throw new Error('invalid QQ window selection');
   }
-  return selectRows(db, { groupId, after, through, limit: 24 }).map(row => ({
+  return selectRows(db, { groupId, after, through, beforeMessageId, ordinaryOnly, limit }).map(row => ({
     channel: 'qqbot', account, groupId, messageId: row.message_id,
-    senderId: row.sender_id, mentioned: row.mentioned === 1, text: row.body,
+    senderId: row.sender_id, mentioned: row.mentioned === 1, text: row.body, at: row.received_at,
   }));
 }
 
@@ -36,15 +39,19 @@ function excerpt(body) {
   return chars.join('');
 }
 
-export function readGroupContext(db, { groupId, through, beforeMessageId, hours = null }) {
+export function readGroupContext(db, { groupId, through, beforeMessageId, hours = null, include }) {
   if (typeof groupId !== 'string' || !groupId || !Number.isSafeInteger(through) ||
     (hours !== null && (!beforeMessageId || !Number.isInteger(hours) || hours < 1 || hours > 24))) {
     throw new Error('invalid QQ context selection');
   }
   const start = through - (hours ?? 24) * hour;
-  const rows = selectRows(db, { groupId, after: start - 1, through, beforeMessageId, limit: hours === null ? 8 : 2000 });
+  const rows = selectRows(db, {
+    groupId, after: start - 1, through, beforeMessageId, limit: hours === null && !include ? 8 : 2000,
+  }).filter(row => !include || include(row.message_id, row.received_at));
   if (hours === null) {
-    return { messages: rows.map(row => ({ speaker: row.sender_id.slice(0, 60), text: row.body.slice(0, 320) })) };
+    return { messages: rows.slice(-8).map(row => ({
+      id: row.message_id, at: row.received_at, speaker: row.sender_id.slice(0, 60), text: row.body.slice(0, 320),
+    })) };
   }
   const buckets = Array.from({ length: bucketCount }, () => []);
   let available = 0;

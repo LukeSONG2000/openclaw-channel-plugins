@@ -20,7 +20,7 @@ function setup(t, handlers) {
     now: () => time, ...handlers,
   };
   return {
-    db,
+    db, ledger,
     trial: () => makeTrial(parameters),
     advance: ms => { time += ms; },
     put: (messageId, content, changes = {}) => intake.record({
@@ -226,7 +226,7 @@ test('the durable work adapter receives normal context without replacing quick r
   const data = setup(t, {
     queueWork: bridge.enqueue,
     plan: async event => event.text === 'task'
-      ? { kind: 'work-intent', source: event, brief: 'research it', contextHours: null }
+      ? { kind: 'work-intent', source: event, brief: 'research it', contextHours: null, consumedMessageIds: ['context'] }
       : { kind: 'chat', source: event, text: 'here' },
     send: async event => { sent.push(event.messageId); return { id: 'quick-receipt' }; },
   });
@@ -285,9 +285,10 @@ test('tracing a decision uses older context only from the source group', async t
   const data = setup(t, {
     start: 3_600_000,
     until: 3_700_000,
-    plan: async (event, context) => {
-      assert.equal(context.length, 8);
-      assert.equal(context.some(row => row.text === 'earlier discussion'), false);
+    plan: async (event, context, unread) => {
+      assert.equal(unread.length, 12);
+      assert.equal(unread.some(row => row.text === 'earlier discussion'), false);
+      assert.equal(context.some(row => row.text === 'earlier discussion'), true);
       return { kind: 'work-intent', source: event, brief: 'trace the original decision', contextHours: 1 };
     },
     startWork: async request => { started = request; return { kind: 'work', source: request.source }; },
@@ -338,7 +339,7 @@ test('an empty context is evidence, not a reason to suppress work', async t => {
 test('plain chat opens one same-group window, with natural and source-targeted delivery', async t => {
   const sent = [];
   const data = setup(t, {
-    windowMs: 2000,
+    pollIntervalsMs: [2000, 4000],
     planWindow: async rows => {
       assert.deepEqual(rows.map(e => e.messageId), ['other-plain', 'tester-plain']);
       return [{ mode: 'natural', text: 'a' }, { mode: 'reply', replyToId: 'other-plain', text: 'b' }];
@@ -368,7 +369,7 @@ test('a later mention bypasses a pending window and cancels its proposed reply',
   const window = new Promise(resolve => { finishWindow = resolve; });
   const sent = [];
   const data = setup(t, {
-    windowMs: 2000, planWindow: () => window,
+    pollIntervalsMs: [2000, 4000], planWindow: () => window,
     sendWindow: async () => { sent.push('window'); return { id: 'ok' }; },
     plan: async event => ({ kind: 'chat', source: event, text: 'answer' }),
     send: async () => { sent.push('mention'); return { id: 'ok' }; },
@@ -384,6 +385,130 @@ test('a later mention bypasses a pending window and cancels its proposed reply',
   finishWindow([{ mode: 'natural', text: 'late' }]);
   await trial.drain();
   assert.deepEqual(sent, ['mention']);
+  assert.deepEqual(data.ledger.prepare('SELECT message_id FROM group_turn_read').all()
+    .map(row => row.message_id), ['ping']);
+});
+
+test('empty polls back off to fifteen minutes, and even a silent hit resets to one minute', async t => {
+  let planned = 0;
+  const data = setup(t, {
+    always: true, until: Infinity,
+    planWindow: async () => { planned++; return []; }, sendWindow: async () => assert.fail('silence must not send'),
+  });
+  const state = () => data.ledger.prepare('SELECT level, due_at FROM group_turn_poll').get();
+  const trial = data.trial();
+  let time = clock;
+  for (const [minutes, nextMinutes, level] of [[1, 2, 1], [2, 5, 2], [5, 10, 3], [10, 15, 4], [15, 15, 4]]) {
+    data.advance(minutes * 60_000);
+    time += minutes * 60_000;
+    trial.tick();
+    assert.equal(state().level, level);
+    assert.equal(state().due_at, time + nextMinutes * 60_000);
+  }
+  assert.equal(planned, 0);
+  data.advance(14 * 60_000);
+  data.put('fresh', 'a topic', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.advance(60_000);
+  time += 15 * 60_000;
+  trial.tick();
+  await trial.drain();
+  assert.equal(planned, 1);
+  assert.equal(state().level, 0);
+  assert.equal(state().due_at, time + 60_000);
+  data.advance(60_000);
+  data.trial().tick();
+  assert.equal(planned, 1);
+  assert.equal(state().level, 1);
+});
+
+test('mentions slide the next poll, consume only their related IDs and retain readable context after restart', async t => {
+  const sent = [];
+  const data = setup(t, {
+    always: true, until: Infinity,
+    plan: async (event, _, unread) => {
+      assert.deepEqual(unread.map(r => r.messageId), event.messageId === 'first' ? ['a', 'b'] : ['b']);
+      return { kind: 'chat', text: 'answer', source: event, consumedMessageIds: ['a', 'nonexistent'] };
+    },
+    send: async event => { sent.push(event.messageId); return { id: 'ok' }; },
+    planWindow: async (unread, context) => {
+      assert.deepEqual(unread.map(r => r.messageId), ['b']);
+      assert.ok(context.some(row => row.id === 'a' && row.text === 'topic A'));
+      return [{ mode: 'reply', replyToId: 'b', text: 'topic B also matters' }];
+    },
+    sendWindow: async (_, action) => { sent.push(action.replyToId); return { id: 'ok' }; },
+  });
+  const dueAt = () => data.ledger.prepare('SELECT due_at FROM group_turn_poll').get().due_at;
+  const trial = data.trial();
+  data.put('a', 'topic A', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('b', 'topic B', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('first', 'question about A');
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(sent, ['first']);
+  assert.equal(dueAt(), clock + 60_000);
+  data.advance(20_000);
+  data.put('second', 'another question about A');
+  trial.tick();
+  await trial.drain();
+  assert.equal(dueAt(), clock + 80_000);
+  const resumed = data.trial();
+  data.advance(40_000);
+  resumed.tick();
+  await resumed.drain();
+  assert.deepEqual(sent, ['first', 'second']);
+  data.advance(20_000);
+  resumed.tick();
+  await resumed.drain();
+  assert.deepEqual(sent, ['first', 'second', 'b']);
+});
+
+test('a delayed poll reads stale messages but only offers live anchors to the model', async t => {
+  const sent = [];
+  const data = setup(t, {
+    always: true, until: Infinity,
+    planWindow: async (rows, context) => {
+      assert.deepEqual(rows.map(row => row.messageId), ['fresh']);
+      assert.ok(context.some(row => row.id === 'stale'));
+      return [{ mode: 'reply', replyToId: 'stale', text: 'wrong anchor' }, { mode: 'natural', text: 'fresh topic' }];
+    },
+    sendWindow: async (_, action, tail) => { sent.push([action.mode, tail.messageId]); return { id: 'ok' }; },
+  });
+  const trial = data.trial();
+  data.put('stale', 'old topic', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.advance(15 * 60_000);
+  data.put('fresh', 'new topic', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(sent, [['natural', 'fresh']]);
+  assert.deepEqual(data.ledger.prepare('SELECT message_id FROM group_turn_read ORDER BY received_at').all()
+    .map(row => row.message_id), ['stale', 'fresh']);
+});
+
+test('an inference failure leaves unread messages for the next poll, including after restart', async t => {
+  const revisions = [];
+  const data = setup(t, {
+    always: true, until: Infinity,
+    planWindow: async (rows, _context, revision) => {
+      assert.deepEqual(rows.map(row => row.messageId), ['subject']);
+      revisions.push(revision);
+      if (revisions.length === 1) throw new Error('model failed');
+      return [];
+    },
+    sendWindow: async () => assert.fail('must not post'),
+  });
+  const trial = data.trial();
+  data.put('subject', 'a topic', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.advance(60_000);
+  trial.tick();
+  await trial.drain();
+  assert.equal(data.ledger.prepare('SELECT COUNT(*) AS n FROM group_turn_read').get().n, 0);
+  data.advance(60_000);
+  const resumed = data.trial();
+  resumed.tick();
+  await resumed.drain();
+  assert.equal(revisions.length, 2);
+  assert.ok(revisions[1] > revisions[0]);
+  assert.equal(data.ledger.prepare('SELECT COUNT(*) AS n FROM group_turn_read').get().n, 1);
 });
 
 test('an uncertain send and a mismatched source never cause a retry or wrong-target send', async t => {

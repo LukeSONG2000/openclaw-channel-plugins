@@ -70,13 +70,15 @@ async function main(mode) {
   }
   if (!Array.isArray(sample?.events) || sample.events.length > 24) throw new Error('invalid shadow sample');
   if (mode === 'window' || mode === 'trial-window') {
-    const actions = await pilot.window(sample.events, Array.isArray(sample.context) ? sample.context : []);
+    const actions = await pilot.window(sample.events, Array.isArray(sample.context) ? sample.context : [],
+      Number.isSafeInteger(sample.attempt) && sample.attempt >= 0 ? sample.attempt : 0);
     console.log(JSON.stringify(mode === 'trial-window' ? actions
       : { status: 'completed', count: actions.length, modes: actions.map(x => x.mode) }));
     return;
   }
   if (sample.events.length !== 1) throw new Error('expected one source event');
-  const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : []);
+  const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : [],
+    Array.isArray(sample.unread) ? sample.unread.slice(-12) : []);
   console.log(JSON.stringify(mode === 'trial-plan' ? decision
     : { status: 'completed', route: decision.kind === 'work-intent' ? 'work' : decision.kind }));
 }

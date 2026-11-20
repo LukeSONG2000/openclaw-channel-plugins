@@ -4,7 +4,8 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { readGroupContext, readGroupWindow } from './inbox-view.mjs';
+import { readGroupContext } from './inbox-view.mjs';
+import { makeGroupTurnState } from './group-turn-state.mjs';
 import { backgroundRequest } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand } from './kanban.mjs';
 
@@ -92,7 +93,7 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
 
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
-  always = false, now = Date.now, windowMs = 60_000, plan, startWork, finish, queueWork, send, planWindow, sendWindow, log = () => {},
+  always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -103,17 +104,16 @@ export function makeTrial({
   const rows = inbox.prepare(`SELECT rowid AS inbox_row, * FROM events WHERE group_id=? AND (? IS NULL OR sender_id=?)
     AND mentioned=1 AND received_at>? AND received_at<=?
     AND (received_at>? OR (received_at=? AND rowid>?)) ORDER BY received_at,rowid LIMIT 32`);
-  const firstPlain = inbox.prepare(`SELECT MIN(received_at) AS at FROM events
-    WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=0 AND received_at>?
-      AND length(trim(body))>0`);
-  const latestMention = inbox.prepare(`SELECT MAX(received_at) AS at FROM events
-    WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=1`);
+  const latestMention = inbox.prepare(`SELECT message_id AS id FROM events
+    WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=1
+    ORDER BY received_at DESC, rowid DESC LIMIT 1`);
+  const turnState = makeGroupTurnState({ inbox, ledger, account, groupId, start, resume: always, intervals: pollIntervalsMs });
+  const { startedAt } = turnState;
   const allowedSender = always ? null : senderId;
   const active = new Set();
   let routing = 0;
   let budget = always ? Infinity : 6;
-  let coveredThrough = start;
-  let lastMentionAt = start;
+  let lastMentionAt = startedAt;
   let lastMentionRow = 0;
   let ambient = false;
   const isLive = () => !signal?.aborted && now() < until;
@@ -122,8 +122,8 @@ export function makeTrial({
     const task = promise.finally(() => active.delete(task));
     active.add(task);
   }
-  function contextAt(through, beforeMessageId, hours = null) {
-    return readGroupContext(inbox, { groupId, through, beforeMessageId, hours });
+  function contextAt(through, beforeMessageId, hours = null, include) {
+    return readGroupContext(inbox, { groupId, through, beforeMessageId, hours, include });
   }
   async function deliver(event, result) {
     if (!sameSource(event, result?.source) || typeof result?.text !== 'string') return record(event, 'withheld');
@@ -136,23 +136,35 @@ export function makeTrial({
   }
   async function route(event) {
     try {
-      const recent = contextAt(event.at, event.messageId);
-      const decision = await plan(event, recent.messages);
+      const unread = turnState.unread(event.at, event.messageId).slice(-12);
+      const recent = contextAt(event.at, event.messageId, null, turnState.isRead);
+      const decision = await plan(event, recent.messages, unread);
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
-      if (decision.kind === 'chat') await deliver(event, decision);
+      const related = new Set(Array.isArray(decision.consumedMessageIds) ? decision.consumedMessageIds : []);
+      const relatedRows = unread.filter(row => related.has(row.messageId));
+      const consumeRelated = () => { if (relatedRows.length) turnState.markRead(relatedRows, now()); };
+      if (decision.kind === 'chat') {
+        consumeRelated();
+        await deliver(event, decision);
+      }
       else if (decision.kind === 'work-intent' || decision.kind === 'work') {
         record(event, 'working');
         track(Promise.resolve().then(async () => {
           if (!isLive() || now() - event.at > maxAge) return record(event, 'withheld');
           const context = decision.kind === 'work-intent' && decision.contextHours !== null
-            ? contextAt(event.at, event.messageId, decision.contextHours) : recent;
+            ? contextAt(event.at, event.messageId, decision.contextHours)
+            : { messages: [...recent.messages, ...relatedRows.map(row => ({
+                speaker: row.senderId, text: row.text.slice(0, 320), at: row.at,
+              }))].sort((a, b) => a.at - b.at).slice(-12) };
           const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision, context) : null;
           if (queueWork && request) {
             await queueWork(request);
+            consumeRelated();
             return record(event, 'queued');
           }
           const job = request ? await startWork(request) : decision;
           if (!sameSource(event, job?.source) || job.kind !== 'work') return record(event, 'withheld');
+          consumeRelated();
           const result = await finish(job);
           const coverage = context.coverage;
           const notice = coverage && ('上下文：近 ' + coverage.hours + ' 小时收到 ' + coverage.available + ' 条可用文字'
@@ -166,24 +178,33 @@ export function makeTrial({
     } catch { record(event, 'failed'); }
   }
   function startWindow() {
-    if (!planWindow || !sendWindow || ambient || !budget || !isLive()) return;
-    const since = Math.max(coveredThrough, now() - maxAge);
-    const first = firstPlain.get(groupId, allowedSender, allowedSender, since)?.at;
-    if (!Number.isSafeInteger(first) || now() < first + windowMs) return;
-    const through = first + windowMs;
-    coveredThrough = through;
-    const events = readGroupWindow(inbox, { account, groupId, after: since, through }).filter(item => !item.mentioned);
-    if (!events.some(item => always || item.senderId === senderId)) return;
+    if (!planWindow || !sendWindow || ambient || routing || !budget || !isLive()) return;
+    const currentMention = () => latestMention.get(groupId, allowedSender, allowedSender)?.id;
+    const mentionAtStart = currentMention();
+    const at = now();
+    const batch = turnState.poll(at, item => always || item.senderId === senderId);
+    if (!batch?.messages.length) return;
+    const { messages, revision } = batch;
+    const eligibleAnchor = row => row && now() - row.at < passiveWindowMs;
+    const events = messages.filter(eligibleAnchor).slice(-24);
+    if (!events.length) {
+      turnState.markRead(messages, now(), revision);
+      log('window_read_only');
+      return;
+    }
     const tail = events.at(-1);
-    const anchors = new Set(events.map(item => item.messageId));
+    const anchors = new Map(events.map(item => [item.messageId, item]));
+    const isCurrent = () => isLive() && turnState.isCurrent(revision) && currentMention() === mentionAtStart;
+    const context = contextAt(at, undefined, null, (id, receivedAt) =>
+      !anchors.has(id) && (turnState.isRead(id, receivedAt) || at - receivedAt >= passiveWindowMs)).messages;
     ambient = true;
     budget--;
-    track(Promise.resolve().then(() => planWindow(events, since > 0 ? contextAt(since).messages : [])).then(async actions => {
-      if (!Array.isArray(actions)) return;
+    track(Promise.resolve().then(() => planWindow(events, context, revision)).then(async actions => {
+      if (!Array.isArray(actions) || !isCurrent() || !turnState.markRead(messages, now(), revision)) return;
       for (const action of actions.slice(0, 2)) {
-        if (!isLive() || now() - through > maxAge || latestMention.get(groupId, allowedSender, allowedSender)?.at >= through) break;
+        if (!isCurrent()) break;
         if (!['natural', 'reply'].includes(action?.mode) ||
-          (action.mode === 'reply' && !anchors.has(action.replyToId)) ||
+          !eligibleAnchor(action.mode === 'reply' ? anchors.get(action.replyToId) : tail) ||
           typeof action.text !== 'string' || !action.text.trim() || action.text.length > 180 ||
           /[<\r\n]|\[CQ:|[@＠]|\bNO_REPLY\b/i.test(action.text)) continue;
         const key = 'window:' + tail.messageId + ':' + action.mode;
@@ -198,19 +219,21 @@ export function makeTrial({
   return {
     tick() {
       if (!budget || signal?.aborted || now() >= until) return;
-      for (const row of rows.all(groupId, allowedSender, allowedSender, Math.max(start, now() - maxAge), now(),
+      for (const row of rows.all(groupId, allowedSender, allowedSender, Math.max(startedAt, now() - maxAge), now(),
         lastMentionAt, lastMentionAt, lastMentionRow)) {
         if (!budget || signal?.aborted || now() >= until || routing >= 3) break;
         lastMentionAt = row.received_at;
         lastMentionRow = row.inbox_row;
         const text = trialInput(row.body);
-        if (!text || known.get(groupId, row.message_id) || !claim.run(groupId, row.message_id).changes) continue;
+        if (known.get(groupId, row.message_id) || !claim.run(groupId, row.message_id).changes) continue;
         budget--;
-        coveredThrough = Math.max(coveredThrough, row.received_at);
         const event = {
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
         };
+        turnState.mention(event.at);
+        turnState.markRead([event], now());
+        if (!text) { record(event, 'withheld'); continue; }
         routing++;
         track(route(event).finally(() => { routing--; }));
       }
@@ -300,11 +323,11 @@ async function main() {
     () => console.log('qq_trial_mention_plain_fallback')));
   const trial = makeTrial({
     inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
-    plan: (event, context) => callRuntime(container, 'trial-plan', { events: [event], context }),
+    plan: (event, context, unread) => callRuntime(container, 'trial-plan', { events: [event], context, unread }),
     startWork: decision => callRuntime(worker, 'trial-start', { decision }),
     finish: job => callRuntime(worker, 'trial-settle', { job }),
     queueWork: bridge?.enqueue,
-    planWindow: (events, context) => callRuntime(container, 'trial-window', { events, context }),
+    planWindow: (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }),
     sendWindow: (to, action, tail) => safeSend(() => bot.send({
       target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId }
         : always ? { msgId: tail.messageId } : {}) },

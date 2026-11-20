@@ -79,6 +79,22 @@ test('any work intent can ask the host for bounded context, not a different grou
   }
 });
 
+test('mention decisions can consume only local unread anchors from the supplied window', async () => {
+  const source = event('ask', 'Tell me more', { mentioned: true });
+  const pilot = hermesPilot({ fast: {
+    async start({ input }) {
+      const payload = JSON.parse(input.split('\n').at(-1));
+      assert.deepEqual(payload.unread.map(row => row.text), ['topic A', 'topic B']);
+      return 'route';
+    },
+    async wait() { return '{"route":"chat","text":"answer","related":["m1","m1","remote","m3"]}'; },
+  } });
+  const decision = await pilot.planMention(source, [], [
+    event('a', 'topic A'), event('b', 'topic B'), event('secret', 'elsewhere', { groupId: 'elsewhere' }),
+  ]);
+  assert.deepEqual(decision.consumedMessageIds, ['a']);
+});
+
 test('a failed or malformed inference is not reported as a deliberate silent decision', async () => {
   const input = [event('ordinary', 'A')];
   const withAnswer = wait => hermesPilot({ fast: { start: async () => 'fast', wait } });
@@ -104,7 +120,7 @@ test('read-only input reuses the QQ receipt schema but scopes the selected group
   const plain = event('ordinary', 'A');
   const mention = event('mention', '@Luke', { mentioned: true, senderId: 'speaker-two' });
   const other = event('different', 'not in this group', { groupId: 'group-two' });
-  assert.deepEqual(recordedWindow([plain, other, mention]), [plain, mention]);
+  assert.deepEqual(recordedWindow([plain, other, mention]), [{ ...plain, at: 42 }, { ...mention, at: 42 }]);
 });
 
 test('live samples require a previously verified group and omit old or mentioned inputs', () => {
