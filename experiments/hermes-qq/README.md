@@ -10,13 +10,19 @@ The bridge replays a selected window, or routes an @ to quick chat or a separate
 docker compose -f experiments/hermes-qq/compose.yaml up -d
 docker compose -f experiments/hermes-qq/compose.yaml exec -T -u hermes \
   -e HERMES_QQ_FIXTURE_ORIGIN=http://127.0.0.1:8642 gateway \
-  node --test /pilot/hermes-qq/pilot.test.mjs
+  node --test /pilot/hermes-qq/pilot.test.mjs /pilot/hermes-qq/kanban.test.mjs
 docker compose -f experiments/hermes-qq/compose.yaml down -v
 ```
 
 The published image is pinned to Hermes v0.23.2. The Compose network has no external egress; the API is reachable only from inside the gateway container. Wait for the gateway to be ready before running the test. The credentials and provider are local fixtures. Only synthetic messages are used. There is no QQ sender, live watcher, private mount, production configuration, or third-party model credential.
 
 This test checks the adapter's source mapping, final-only output, Hermes concurrency, and idempotency. A deterministic provider does not validate real model intent accuracy, memory learning, QQ native quotes, or delivery. It deliberately does not replace the existing read-only test bot.
+
+## Durable work (isolated)
+
+The same background request can be passed to the [native Hermes Kanban](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban) adapter in `kanban.mjs` through the trial's optional `queueWork` callback. Hermes owns the task, execution, retries and final result. The adapter's private SQLite ledger keeps only the source mapping, a pending submission until Kanban acknowledges it, and the destination receipt state. Admission uses the original source-derived idempotency key. A restarted bridge can discover completed work and offer its final result to the original QQ destination; it does not replay a send with an uncertain outcome.
+
+The smoke test uses the upstream worker and a synthetic provider. It closes and reopens the bridge ledger while the worker runs, repeats admission, and records one simulated receipt after another @ has answered. Kanban is not enabled in the live QQ trial. Before opting in, use a separate worker and board, keep the ledger private, and verify what QQ permits for delayed delivery to the original message. Tenant labels help correlate sources but do not enforce privacy inside a shared board. The bridge requires an explicit delivery policy and does not silently turn an expired quote into an unthreaded group message.
 
 ## Real-model shadow
 
@@ -36,4 +42,4 @@ All chat and work requests use the same QQ context reader. Ordinary conversation
 
 Replies to a direct @ use the QQ Markdown mention element. Only an explicit Markdown-permission rejection from the [group-send API](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html) permits a plain-text fallback with the same reply anchor and no mention.
 
-The worker trial has a bounded send window: results are delivered only during the active trial and within three minutes of the original message. Pending work is not resumed by the bridge after a restart. For durable or longer work, evaluate native Kanban and validate how late results can still target the original QQ conversation. Validate participant attribution before enabling Honcho. Do not send a live message until an explicit test destination is selected and delivery replay/uncertainty has been tested.
+The live worker trial has a bounded send window: results are delivered only during the active trial and within three minutes of the original message. It does not use the durable adapter yet. Validate participant attribution before enabling Honcho. Do not send a live message until an explicit test destination is selected and the applicable QQ delivery policy has been tested.

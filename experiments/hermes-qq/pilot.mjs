@@ -87,6 +87,18 @@ export function backgroundRequest(event, intent, context) {
   return { kind: 'work-request', request: spec(source, 'work', input), source };
 }
 
+export function validateBackgroundRequest(decision) {
+  if (decision?.kind !== 'work-request') throw new Error('expected a background work request');
+  const source = sourceOf(decision.source);
+  const { sessionId, requestKey, input } = decision.request ?? {};
+  const expected = spec(source, 'work', '');
+  if (expected.sessionId !== sessionId || expected.requestKey !== requestKey ||
+    typeof input !== 'string' || !input.startsWith('[QQ_BACKGROUND_WORK]\n') || input.length > 24_000) {
+    throw new Error('background request mismatch');
+  }
+  return { source, request: { sessionId, requestKey, input } };
+}
+
 export function hermesPilot({ fast, work = fast }) {
   async function complete(api, request) {
     return api.wait(await api.start(request), request.sessionId);
@@ -119,16 +131,9 @@ export function hermesPilot({ fast, work = fast }) {
       return { kind: 'work-intent', source, brief: plan.text.trim(), contextHours };
     },
     async startWork(decision) {
-      if (decision?.kind !== 'work-request') throw new Error('expected a background work request');
-      const source = sourceOf(decision.source);
-      const { sessionId, requestKey, input } = decision.request ?? {};
-      const expected = spec(source, 'work', '');
-      if (expected.sessionId !== sessionId || expected.requestKey !== requestKey ||
-        typeof input !== 'string' || !input.startsWith('[QQ_BACKGROUND_WORK]\n') || input.length > 24_000) {
-        throw new Error('background request mismatch');
-      }
-      const runId = await work.start({ sessionId, requestKey, input });
-      return Object.freeze({ kind: 'work', runId, sessionId, source });
+      const { source, request } = validateBackgroundRequest(decision);
+      const runId = await work.start(request);
+      return Object.freeze({ kind: 'work', runId, sessionId: request.sessionId, source });
     },
     async mention(event, context) {
       const decision = await pilot.planMention(event, context);

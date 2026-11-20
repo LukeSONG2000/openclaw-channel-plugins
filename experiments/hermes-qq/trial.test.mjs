@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
+import { makeKanbanBridge } from './kanban.mjs';
 import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
 
 const groupId = 'test-group';
@@ -207,6 +208,42 @@ test('a slow intent decision does not block a later natural mention', async t =>
   releaseRouting();
   await trial.drain();
   assert.deepEqual(sent, ['quick', 'slow']);
+});
+
+test('the durable work adapter receives normal context without replacing quick replies', async t => {
+  const ledger = new DatabaseSync(':memory:');
+  t.after(() => ledger.close());
+  const tasks = {
+    async create({ input }) {
+      assert.match(input, /previous topic/);
+      return 't_12345678';
+    },
+    async read() { return { status: 'done', result: 'finished research' }; },
+  };
+  const bridge = makeKanbanBridge({ db: ledger, tasks, account: 'luke', groupId });
+  const sent = [];
+  const data = setup(t, {
+    queueWork: bridge.enqueue,
+    plan: async event => event.text === 'task'
+      ? { kind: 'work-intent', source: event, brief: 'research it', contextHours: null }
+      : { kind: 'chat', source: event, text: 'here' },
+    send: async event => { sent.push(event.messageId); return { id: 'quick-receipt' }; },
+  });
+  data.put('context', 'previous topic', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('job', 'task');
+  data.put('ping', 'hello');
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(data.status(), ['queued', 'accepted']);
+  assert.deepEqual(sent, ['ping']);
+  const transport = {
+    canDeliver: source => source.groupId === groupId && source.senderId === senderId,
+    deliver: async ({ source }) => { sent.push(source.messageId); return { id: 'work-receipt' }; },
+  };
+  await bridge.sweep(transport);
+  await bridge.sweep(transport);
+  assert.deepEqual(sent, ['ping', 'job']);
 });
 
 test('tracing a decision uses older context only from the source group', async t => {

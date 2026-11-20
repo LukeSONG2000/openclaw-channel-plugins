@@ -89,7 +89,7 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
 
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
-  now = Date.now, windowMs = 60_000, plan, startWork, finish, send, planWindow, sendWindow, log = () => {},
+  now = Date.now, windowMs = 60_000, plan, startWork, finish, queueWork, send, planWindow, sendWindow, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -138,8 +138,12 @@ export function makeTrial({
           if (!isLive() || now() - event.at > maxAge) return record(event, 'withheld');
           const context = decision.kind === 'work-intent' && decision.contextHours !== null
             ? contextAt(event.at, event.messageId, decision.contextHours) : recent;
-          const job = decision.kind === 'work-intent'
-            ? await startWork(backgroundRequest(event, decision, context)) : decision;
+          const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision, context) : null;
+          if (queueWork && request) {
+            await queueWork(request);
+            return record(event, 'queued');
+          }
+          const job = request ? await startWork(request) : decision;
           if (!sameSource(event, job?.source) || job.kind !== 'work') return record(event, 'withheld');
           const result = await finish(job);
           const coverage = context.coverage;
