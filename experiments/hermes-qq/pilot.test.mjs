@@ -141,6 +141,23 @@ test('mention decisions can consume only local unread anchors from the supplied 
   assert.deepEqual(decision.consumedMessageIds, ['a']);
 });
 
+test('an open-ended mention asks for conversational prose, not an inventory of old requests', async () => {
+  const source = event('nudge', '说话', { mentioned: true });
+  const pilot = hermesPilot({ fast: {
+    async start({ input }) {
+      assert.match(input, /warm or playful line/);
+      assert.match(input, /do not turn unrelated old messages into requests to accept or decline/);
+      assert.match(input, /Never narrate what topics you picked, skipped, or already handled/);
+      assert.match(input, /If the current request really cannot be done/);
+      return 'route';
+    },
+    async wait() { return '{"route":"chat","text":"在呢，想聊点什么？"}'; },
+  } });
+  const result = await pilot.planMention(source, [], [event('other-topic', '帮我取快递')]);
+  assert.equal(result.text, '在呢，想聊点什么？');
+  assert.deepEqual(result.consumedMessageIds, []);
+});
+
 test('a failed or malformed inference is not reported as a deliberate silent decision', async () => {
   const input = [event('ordinary', 'A')];
   const withAnswer = wait => hermesPilot({ fast: { start: async () => 'fast', wait } });

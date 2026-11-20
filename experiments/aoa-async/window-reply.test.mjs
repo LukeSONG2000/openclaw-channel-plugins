@@ -32,6 +32,8 @@ test('AA BB A CC AA gives one natural A reply and one anchored B reply from one 
       const data = JSON.parse(prompt.split('\n').at(-1));
       assert.deepEqual(data.unread.map(({ target, text }) => [target, text]), cases.map(({ text }, index) => [`m${index + 1}`, text]));
       assert.match(prompt, /各聊各的.*不参与/);
+      assert.match(prompt, /开放话题，优先参与/);
+      assert.match(prompt, /不解释接了什么、为什么没接/);
       return '{"natural":"蘸料碟管够，鸳鸯锅别点成全辣就行。","reply":{"target":"m3","text":"可以先试 CSV，导出后看原文件里的列名全不全。"}}';
     },
   });
