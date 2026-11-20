@@ -107,6 +107,88 @@ test('a card from a different tenant is never treated as the original task', asy
   await assert.rejects(tasks.read({ id: 't_12345678', tenant: 'group', key: 'a'.repeat(64) }), /identity mismatch/);
 });
 
+test('native image attachments survive a restart without opening an incomplete card or uploading twice', async t => {
+  const open = withLedger(t);
+  const source = event('media-task');
+  const bytes = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+jf2sAAAAASUVORK5CYII=', 'base64');
+  const images = ['current', 'quote'].map(origin => ({ origin, dataUrl: 'data:image/png;base64,' + bytes.toString('base64') }));
+  const nativeAttachments = [];
+  const events = [{ kind: 'blocked', payload: { reason: 'initial_status' } }];
+  let status = 'blocked';
+  let uploads = 0;
+  let creates = 0;
+  let native;
+  let unblocks = 0;
+  const tasks = kanbanTasks({
+    async command(args, body) {
+      const [op, title] = args;
+      if (op === 'create') {
+        creates++;
+        assert.equal(args[args.indexOf('--initial-status') + 1], 'blocked');
+        assert.match(body, /vision_analyze/);
+        assert.doesNotMatch(body, /base64/);
+        native ??= { id: 't_12345678', title, tenant: args[args.indexOf('--tenant') + 1], assignee: 'default',
+          workspace_kind: 'scratch', completion_contract: 'local-only' };
+        return native;
+      }
+      if (op === 'show') return { task: { ...native, status }, events, runs: [] };
+      if (op === 'attachments') return [...nativeAttachments];
+      assert.equal(op, 'unblock');
+      assert.equal(nativeAttachments.length, 2);
+      unblocks++;
+      status = 'ready';
+      events.push({ kind: 'unblocked' });
+      throw new Error('lost response after card release');
+    },
+    async attachFile(file) {
+      uploads++;
+      assert.equal(status, 'blocked');
+      assert.deepEqual(file.bytes, bytes);
+      nativeAttachments.push({ filename: file.name, content_type: file.type, size: file.bytes.length, uploaded_by: 'luke-qq-media' });
+      if (uploads === 1) throw new Error('lost response after first attachment');
+    },
+  });
+  const transport = { canDeliver: () => false, deliver: () => assert.fail('no QQ send') };
+  const use = async fn => {
+    const db = open();
+    try { await fn(makeKanbanBridge({ db, tasks, account: source.account, groupId: source.groupId }), db); }
+    finally { db.close(); }
+  };
+  await use(async (bridge, db) => {
+    bridge.enqueue(decision(source), images);
+    await bridge.sweep(transport);
+    assert.equal(status, 'blocked');
+    assert.equal(state(db), 'pending');
+  });
+  await use(async (bridge, db) => {
+    await bridge.sweep(transport);
+    assert.equal(status, 'ready');
+    assert.equal(state(db), 'pending');
+  });
+  await use(async (bridge, db) => {
+    await bridge.sweep(transport);
+    assert.equal(state(db), 'watching');
+    assert.equal(db.prepare('SELECT count(*) AS n FROM kanban_input_media').get().n, 0);
+  });
+  assert.equal(creates, 3);
+  assert.equal(uploads, 2);
+  assert.equal(unblocks, 1);
+});
+
+test('a stale input is discarded instead of silently launching a text-only card', async t => {
+  const db = withLedger(t)();
+  t.after(() => db.close());
+  const source = event('stale');
+  let at = 100;
+  const bridge = makeKanbanBridge({ db, tasks: { create: () => assert.fail('must not create') },
+    account: source.account, groupId: source.groupId, now: () => at });
+  bridge.enqueue(decision(source), [{ origin: 'quote', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }]);
+  at += 86_400_001;
+  await bridge.sweep({ canDeliver: () => false, deliver: () => assert.fail('must not post') });
+  assert.equal(state(db), 'withheld');
+  assert.equal(db.prepare('SELECT count(*) AS n FROM kanban_input_media').get().n, 0);
+});
+
 test('an expired QQ anchor retains the result in Kanban without retrying or posting it', async t => {
   const db = withLedger(t)();
   t.after(() => db.close());

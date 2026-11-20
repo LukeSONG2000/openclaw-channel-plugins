@@ -7,7 +7,7 @@ import { setTimeout as delay } from 'node:timers/promises';
 import { makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
 import { backgroundRequest } from './pilot.mjs';
-import { kanbanTasks, makeKanbanBridge, runKanbanCommand } from './kanban.mjs';
+import { kanbanTasks, makeKanbanBridge, runKanbanCommand, runKanbanMediaUpload } from './kanban.mjs';
 import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
@@ -170,7 +170,7 @@ export function makeTrial({
               }))].sort((a, b) => a.at - b.at).slice(-12) };
           const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision, context) : null;
           if (queueWork && request) {
-            await queueWork(request);
+            await queueWork(request, images);
             consumeRelated();
             return record(event, 'queued');
           }
@@ -302,11 +302,12 @@ async function main() {
   const stop = new AbortController();
   process.once('SIGTERM', () => stop.abort());
   process.once('SIGINT', () => stop.abort());
-  const kanbanCommand = (args, input) => runKanbanCommand(engine, ['exec', '-i', '-u', 'hermes', worker,
-    'hermes', 'kanban', ...args], input);
+  const workerExec = ['exec', '-i', '-u', 'hermes', worker];
+  const kanbanCommand = (args, input, options) => runKanbanCommand(engine, [...workerExec, 'hermes', 'kanban', ...args], input, options);
   if (always) await Promise.all([callRuntime(container, 'health', {}), kanbanCommand(['diagnostics', '--json'])]);
   const bridge = always ? makeKanbanBridge({
-    db: ledger, tasks: kanbanTasks({ command: kanbanCommand }), account, groupId,
+    db: ledger, tasks: kanbanTasks({ command: kanbanCommand,
+      attachFile: file => runKanbanMediaUpload(engine, [...workerExec, 'node'], file) }), account, groupId,
     onError: phase => console.error('qq_kanban_error phase=' + phase),
   }) : null;
   const start = Date.now();

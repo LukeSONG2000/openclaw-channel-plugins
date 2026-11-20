@@ -5,10 +5,11 @@ model:
   context_length: 204800
 agent:
   reasoning_effort: medium
+  image_input_mode: native
   max_turns: 8
 platform_toolsets:
   api_server: [todo]
-toolsets: [todo]
+toolsets: [todo, vision]
 kanban:
   dispatch_interval_seconds: 5
   max_in_progress: 2
