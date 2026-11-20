@@ -106,6 +106,32 @@ test('a window can mention a bot but cannot use a message addressed to someone e
   assert.deepEqual(delivered, [['mention', 'another-bot']]);
 });
 
+test('a handled mention can inform the next window but cannot be replied to again from it', async t => {
+  const sent = [];
+  const data = setup(t, {
+    always: true, pollIntervalsMs: [100],
+    plan: async source => ({ kind: 'chat', source, text: 'Direct reply' }),
+    send: async event => { sent.push(event.messageId); return { id: 'direct' }; },
+    planWindow: async (events, context) => {
+      assert.deepEqual(events.map(event => event.messageId), ['unrelated']);
+      assert.equal(context.find(row => row.id === 'mention').handled, true);
+      return [{ mode: 'reply', replyToId: 'mention', text: 'Wrong duplicate' },
+        { mode: 'reply', replyToId: 'unrelated', text: 'Independent topic' }];
+    },
+    sendWindow: async (_group, action) => { sent.push(action.replyToId); return { id: 'ambient' }; },
+  });
+  const trial = data.trial();
+  data.put('mention', 'current request');
+  trial.tick();
+  await trial.drain();
+  data.advance(10);
+  data.put('unrelated', 'new topic', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.advance(100);
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(sent, ['mention', 'unrelated']);
+});
+
 test('chat replies survive a memory outage without writing window context or bot replies', async t => {
   const observed = [];
   const data = setup(t, {
