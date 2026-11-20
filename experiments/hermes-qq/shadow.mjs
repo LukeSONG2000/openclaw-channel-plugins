@@ -17,13 +17,13 @@ async function assertTools() {
     throw new Error('invalid Hermes tool inventory');
   }
   const enabled = data.filter(row => row.enabled).map(row => row.name).sort();
-  const expected = lane === 'work' ? ['luke-imagen', 'luke-readonly', 'todo'] : ['luke-readonly'];
+  const expected = lane === 'dingtalk' ? ['web'] : lane === 'work' ? ['luke-imagen', 'luke-readonly', 'todo'] : ['luke-readonly'];
   if (lane === 'chat' && process.env.HERMES_QQ_WEB === '1') expected.push('web');
   if (enabled.length !== expected.length || enabled.some((name, index) => name !== expected[index])) {
     throw new Error('unexpected tools in Hermes profile');
   }
   const readonly = data.find(row => row.name === 'luke-readonly');
-  if (JSON.stringify(readonly?.tools?.sort()) !== JSON.stringify(['luke_reference_search', 'luke_skill_read'])) {
+  if (lane !== 'dingtalk' && JSON.stringify(readonly?.tools?.sort()) !== JSON.stringify(['luke_reference_search', 'luke_skill_read'])) {
     throw new Error('unexpected read-only tool registration');
   }
   return enabled;
@@ -41,7 +41,7 @@ async function readSample(maxBytes) {
 }
 
 async function main(mode) {
-  if (!['chat', 'work'].includes(lane)) throw new Error('invalid Hermes lane');
+  if (!['chat', 'work', 'dingtalk'].includes(lane)) throw new Error('invalid Hermes lane');
   const enabledTools = await assertTools();
   if (mode === 'health') {
     console.log(JSON.stringify({ status: 'ready', lane }));
@@ -59,6 +59,14 @@ async function main(mode) {
       status: 'completed', lane, enabledTools, provider: valid(provider) ? provider : null,
       model: valid(model) ? model : null, totalTokens: Number.isFinite(usage?.total_tokens) ? usage.total_tokens : null,
     }));
+    return;
+  }
+  if (lane === 'dingtalk') {
+    if (mode !== 'dingtalk') throw new Error('invalid DingTalk mode');
+    const { dingtalkTurn } = await import('./dingtalk-turn.mjs');
+    const request = dingtalkTurn(await readSample(6_000_000));
+    const text = await runs.wait(await runs.start(request), request.sessionId);
+    console.log(JSON.stringify({ text }));
     return;
   }
   const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window', 'direct'];

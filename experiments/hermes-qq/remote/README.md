@@ -74,6 +74,24 @@ Vision is available to Kanban workers, not the chat gateway. It does not replace
 native image inputs on current or quoted QQ messages. Keep all secrets and
 runtime package state out of the repository.
 
+### DingTalk with the existing DWS app
+
+Keep the existing DingTalk channel connected to its app. Its Stream client owns
+delivery and the DWS history reader continues to use its current authorization.
+Do not also start Hermes's native DingTalk Stream client with the same app.
+
+Start `r2-hermes-qq@dingtalk.service` with a private `secrets/dingtalk.env`
+containing the model and search credentials and a distinct loopback API key.
+This profile has its own state and no DingTalk credentials, QQ persona, QQ
+skill catalog or shell tools. Verify `shadow.mjs health` before enabling
+`R2_DINGTALK_HERMES_CONTAINER=r2-hermes-qq-dingtalk` on the existing channel
+gateway. The channel passes conversational turns through local Podman stdin
+and sends only the final response through the original DingTalk delivery path.
+Explicit slash commands stay with the existing channel handler. This opt-in
+does not migrate the QQ background worker, reset alerts, or old transcripts.
+To revert, remove the opt-in and safely reload the channel gateway before
+stopping the isolated profile.
+
 ### Automatic learning fixture
 
 Run `bash run-honcho-learning-probe.sh <private-probe-workspace> <pinned-honcho-checkout> <private-zhipu-env> [private-bailian-key-file]` on the remote host. The Zhipu file contains `ZAI_API_KEY`; the optional Bailian file contains only a Beijing Model Studio inference key. Both must be mode `0600`. Do not add either file to a checkout.

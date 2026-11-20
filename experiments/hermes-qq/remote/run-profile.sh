@@ -8,6 +8,7 @@ lane="${1:?profile lane required}"
 case "$lane" in
   chat) config=shadow-config.yaml ;;
   work) config=worker-config.yaml ;;
+  dingtalk) config=dingtalk-config.yaml ;;
   *) exit 2 ;;
 esac
 source="$root/code/experiments"
@@ -25,13 +26,20 @@ for asset in "$source/hermes-qq/$config" "$source/hermes-qq/shadow.mjs" "$source
 done
 
 work_mounts=()
+channel_mounts=()
+if [[ "$lane" == dingtalk ]]; then
+  test -f "$source/hermes-qq/dingtalk-turn.mjs"
+  channel_mounts=(-v "$source/hermes-qq/dingtalk-turn.mjs:/pilot/hermes-qq/dingtalk-turn.mjs:ro,z")
+else
+  channel_mounts=(-v "$plugin:/opt/data/plugins/luke-readonly:ro,z")
+fi
 if [[ "$lane" == work ]]; then
   work_mounts=(-v "$source/hermes-qq/extensions/luke-imagen:/opt/data/plugins/luke-imagen:ro,z"
     -v "$root/imagen-ipc/requests:/run/luke-imagen/requests:rw,z"
     -v "$root/imagen-ipc/responses:/run/luke-imagen/responses:ro,z")
 fi
 persona_mount=()
-if [[ -f "$root/SOUL.md" ]]; then
+if [[ "$lane" != dingtalk && -f "$root/SOUL.md" ]]; then
   persona_mount=(-v "$root/SOUL.md:/opt/data/SOUL.md:ro,z")
 fi
 
@@ -46,8 +54,8 @@ exec /usr/bin/podman run --pull=never --replace --rm \
   -v "$source/hermes-qq/shadow.mjs:/pilot/hermes-qq/shadow.mjs:ro,z" \
   -v "$source/hermes-qq/pilot.mjs:/pilot/hermes-qq/pilot.mjs:ro,z" \
   -v "$source/aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro,z" \
-  -v "$plugin:/opt/data/plugins/luke-readonly:ro,z" \
   -v "$web_plugin:/opt/data/plugins/qq-web-search:ro,z" \
+  "${channel_mounts[@]}" \
   "${work_mounts[@]}" \
   "${persona_mount[@]}" \
   "$image" gateway run

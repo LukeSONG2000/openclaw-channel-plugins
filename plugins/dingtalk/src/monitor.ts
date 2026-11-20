@@ -25,6 +25,7 @@ import { fetchDwsGroupHistory } from "./dws-history.js";
 import { sanitizeDingTalkReplyText, shouldDeliverDingTalkReply } from "./reply-filter.js";
 import { KeyedAsyncQueue } from "./message-queue.js";
 import { DingTalkMemberDirectory } from "./member-directory.js";
+import { createHermesDingTalkReply } from "./hermes-reply.js";
 
 // ============================================================================
 // 媒体信息类型定义
@@ -922,6 +923,9 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
   };
 
   const memberDirectory = new DingTalkMemberDirectory({ log: logger });
+  const hermesTarget = process.env.R2_DINGTALK_HERMES_CONTAINER;
+  const hermesReply = hermesTarget ? createHermesDingTalkReply(hermesTarget) : undefined;
+  if (hermesReply) logger.log("DingTalk conversational replies use Hermes");
 
   /** 创建回复分发器 */
   const createReplyDispatcher = (
@@ -1051,6 +1055,18 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         wasMentioned: checkBotMentioned(data),
       });
       const groupSystemPrompt = [configuredGroupPrompt, runtimeReplyPolicy].filter(Boolean).join("\n\n") || undefined;
+
+      // Keep command authorization and delivery on the existing channel; route only conversation.
+      if (hermesReply && (options?.proactive || !data.text?.content?.trim().startsWith("/"))) {
+        if (!rawBody.trim()) return false;
+        const text = await hermesReply({
+          account: accountId, scope: sender.isGroup ? "group" : "direct", chat: sender.chatId,
+          messageId: data.msgId, text: rawBody, instruction: groupSystemPrompt,
+          ambient: options?.proactive === true, media,
+        });
+        const result = await createReplyDispatcher(data, options).deliver({ text }, { kind: "final" });
+        return result.visibleReplySent || options?.proactive === true;
+      }
 
       // 3. 构建入站上下文（含路由信息）
       const { ctxPayload, route } = buildInboundContext(
