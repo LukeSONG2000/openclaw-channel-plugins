@@ -7,7 +7,7 @@
 | Agent 自己参与的回合、后台结果及可恢复会话 | [Hermes Sessions](https://hermes-agent.nousresearch.com/docs/user-guide/sessions)、内置 `session_search`、[会话消息 API](https://hermes-agent.nousresearch.com/docs/user-guide/features/api-server#detached-results-and-session-history) | Luke 的路由和窗口输入是已有群消息的组合，不能把对应会话记录当成完整 QQ 聊天。原生搜索可看到该 profile 的历史，不能替代数据隔离。 |
 | 平台实际推来的普通聊天、原始发言人、引用和附件 | 原版 QQ SDK、现有 [QQ inbox](../experiments/aoa-async/qq-receive-only.mjs) 与 [同群上下文读取](../experiments/hermes-qq/inbox-view.mjs) | Luke 从同群、早于引用消息的 inbox 记录或 QQ 随消息推送的引用元素取内容。引用文字随当前消息进入聊天、窗口和后台任务。仅在绑定的试点群保留图片定位信息；收到 @ 时，随附或被引用的原图按需下载，交给聊天模型。有后台任务时把同一份图片字节挂到 [Hermes 原生 Kanban 附件](https://hermes-agent.nousresearch.com/docs/user-guide/features/kanban#file-attachments)，确认齐全再放行，worker 用原生视觉工具读附件；签名链接不进 prompt。不扫群历史图片，平台未推送或已经过期的媒体无法回填。 |
 
-**决定：不二开 Hermes，不再做通用历史库。** 让 Hermes 管自己的会话和搜索，让现有 QQ 适配层继续读平台材料。下次改读取能力时，复用一个只读契约：可信会话绑定、时间区间或消息锚点、条数或游标；返回来源、覆盖范围、缺失说明和媒体引用。回顾讨论、查早先的决定、给生图取材都调用同一个能力，不新增 `today` 或生图专用历史路径。若平台原生入口日后同时覆盖全量事件、读取隔离和媒体，再考虑删掉重合的接入代码。
+**决定：不二开 Hermes，不再做通用历史库。** 让 Hermes 管自己的会话和搜索，让现有 QQ 适配层继续读平台材料。后台工作已能经同一只读入口请求相对时长或带时区的起止时间；结果受当前群、原始请求锚点和 24 小时保留策略限制，并附查询范围、观测范围和抽样条数。回顾讨论、查早先的决定、给生图取材都复用这一入口，不新增 `today` 或生图专用历史路径。若平台原生入口日后同时覆盖全量事件、读取隔离和媒体，再考虑删掉重合的接入代码。
 
 ## 2. 成员记忆：原生身份字段 + Honcho
 

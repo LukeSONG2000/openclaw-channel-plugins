@@ -406,6 +406,34 @@ test('an empty context is evidence, not a reason to suppress work', async t => {
   assert.match(replies[0], /No messages available\.[\s\S]+24 .*0 /);
 });
 
+test('an explicit time window carries only the selected local records into durable work', async t => {
+  let context;
+  const data = setup(t, {
+    plan: async event => ({ kind: 'work-intent', source: event, brief: 'Trace the decision in this period',
+      contextRange: { start: clock + 1, end: clock + 2 } }),
+    queueWork: ({ request }) => { context = JSON.parse(request.input.split('\n').at(-1)).context; },
+    send: () => assert.fail('no immediate reply'),
+  });
+  const ordinary = { rawEventType: 'GROUP_MESSAGE_CREATE' };
+  data.put('early', 'outside early', ordinary);
+  data.advance(1);
+  data.put('first', 'first included', ordinary);
+  data.put('foreign', 'another group', { ...ordinary, groupOpenid: 'another' });
+  data.advance(1);
+  data.put('last', 'last included', ordinary);
+  data.advance(1);
+  data.put('late', 'outside late', ordinary);
+  data.put('request', 'Trace the decision');
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(data.status(), ['queued']);
+  assert.deepEqual(context.messages.map(row => row.text), ['first included', 'last included']);
+  assert.deepEqual(context.coverage.requested, { start: clock + 1, end: clock + 2 });
+  assert.deepEqual(context.coverage.selected, context.coverage.requested);
+  assert.deepEqual(context.coverage.observed, { first: clock + 1, last: clock + 2 });
+});
+
 test('plain chat opens one same-group window, with natural and source-targeted delivery', async t => {
   const sent = [];
   const data = setup(t, {

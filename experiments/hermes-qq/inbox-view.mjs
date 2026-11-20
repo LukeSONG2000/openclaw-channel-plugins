@@ -2,8 +2,10 @@ export const groupHistoryMs = 24 * 3_600_000;
 const hour = 3_600_000;
 const bucketCount = 12;
 const perBucket = 6;
+const extendedScanLimit = 2000;
 const timestamp = new Intl.DateTimeFormat('en-GB', {
-  timeZone: 'Asia/Shanghai', hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
+  timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit',
+  hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
 });
 
 function selectRows(db, { groupId, after, through, beforeMessageId = null, ordinaryOnly = false, limit }) {
@@ -104,27 +106,36 @@ export function makeGroupImageReader(db, groupId) {
   };
 }
 
-export function readGroupContext(db, { groupId, through, beforeMessageId, hours = null, include, quoteFor }) {
+export function readGroupContext(db, { groupId, through, beforeMessageId, hours = null, range, include, quoteFor }) {
+  const extended = hours !== null || range !== undefined;
   if (typeof groupId !== 'string' || !groupId || !Number.isSafeInteger(through) ||
-    (hours !== null && (!beforeMessageId || !Number.isInteger(hours) || hours < 1 || hours > 24))) {
+    (extended && (typeof beforeMessageId !== 'string' || !beforeMessageId)) ||
+    (hours !== null && (!Number.isInteger(hours) || hours < 1 || hours > 24)) ||
+    (range !== undefined && (hours !== null || !Number.isSafeInteger(range?.start) ||
+      !Number.isSafeInteger(range.end) || range.start > range.end))) {
     throw new Error('invalid QQ context selection');
   }
-  const start = through - (hours ?? 24) * hour;
-  const rows = selectRows(db, {
-    groupId, after: start - 1, through, beforeMessageId, limit: hours === null && !include ? 8 : 2000,
-  }).filter(row => !include || include(row.message_id, row.received_at));
-  if (hours === null) {
-    return { messages: rows.slice(-8).map(row => ({
+  const requested = range ?? { start: through - (hours ?? 24) * hour, end: through };
+  const start = Math.max(through - groupHistoryMs, requested.start);
+  const end = Math.min(through, requested.end);
+  const rows = start > end ? [] : selectRows(db, {
+    groupId, after: start - 1, through: end, beforeMessageId,
+    limit: extended ? extendedScanLimit + 1 : include ? extendedScanLimit : 8,
+  });
+  if (!extended) {
+    return { messages: rows.filter(row => !include || include(row.message_id, row.received_at)).slice(-8).map(row => ({
       id: row.message_id, at: row.received_at, speaker: row.sender_id.slice(0, 60), text: row.body.slice(0, 320),
       quote: quoteFor?.(row.message_id),
     })) };
   }
   const buckets = Array.from({ length: bucketCount }, () => []);
   let available = 0;
-  for (const row of rows) {
+  const scanLimited = rows.length > extendedScanLimit;
+  const scanned = rows.slice(-extendedScanLimit);
+  for (const row of scanned) {
     const text = excerpt(row.body);
     if (!text) continue;
-    const bucket = Math.min(bucketCount - 1, Math.floor((row.received_at - start) * bucketCount / (hours * hour)));
+    const bucket = Math.floor((row.received_at - start) * bucketCount / (end - start + 1));
     buckets[bucket].push({ row, text });
     available++;
   }
@@ -137,6 +148,11 @@ export function readGroupContext(db, { groupId, through, beforeMessageId, hours 
     });
   return {
     messages,
-    coverage: { hours, available, sampled: messages.length, timeZone: 'UTC+08:00', receivedTextOnly: true },
+    coverage: {
+      ...(hours !== null ? { hours } : {}), requested,
+      selected: start <= end ? { start, end } : null,
+      ...(scanned.length ? { observed: { first: scanned[0].received_at, last: scanned.at(-1).received_at } } : {}),
+      scanLimited, available, sampled: messages.length, timeZone: 'UTC+08:00', receivedTextOnly: true,
+    },
   };
 }

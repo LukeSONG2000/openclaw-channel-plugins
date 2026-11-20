@@ -2,7 +2,33 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
-import { makeGroupImageReader, makeGroupQuoteReader } from './inbox-view.mjs';
+import { groupHistoryMs, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+
+test('range reads never cross the retention horizon, request anchor or future', t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  let now = 10_000;
+  const receiver = inbox(db, { mode: 'all-groups', now: () => now });
+  const record = (messageId, content) => receiver.record({
+    kind: 'group', groupOpenid: 'test', senderId: 'speaker', rawEventType: 'GROUP_MESSAGE_CREATE', messageId, content,
+  });
+  record('first', 'first at the retention horizon');
+  now += groupHistoryMs;
+  record('prior', 'before the anchor, at the same time');
+  record('anchor', 'the request');
+  record('after', 'received after the anchor');
+  const read = range => readGroupContext(db, { groupId: 'test', through: now, beforeMessageId: 'anchor', range });
+  const { messages, coverage } = read({ start: 0, end: now + 6000 });
+  assert.deepEqual(messages.map(row => row.text), ['first at the retention horizon', 'before the anchor, at the same time']);
+  assert.deepEqual(coverage.selected, { start: 10_000, end: now });
+  assert.deepEqual(coverage.requested, { start: 0, end: now + 6000 });
+  const future = read({ start: now + 1, end: now + 2 });
+  assert.deepEqual(future.messages, []);
+  assert.equal(future.coverage.selected, null);
+  assert.throws(() => readGroupContext(db, {
+    groupId: 'test', through: now, range: { start: 0, end: now },
+  }), /invalid QQ context selection/);
+});
 
 test('quotes are scoped to a group, preserve receive order and do not require the original event', t => {
   const db = new DatabaseSync(':memory:');

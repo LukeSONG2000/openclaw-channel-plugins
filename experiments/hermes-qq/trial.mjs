@@ -130,8 +130,8 @@ export function makeTrial({
     const task = promise.finally(() => active.delete(task));
     active.add(task);
   }
-  function contextAt(through, beforeMessageId, hours = null, include) {
-    return readGroupContext(inbox, { groupId, through, beforeMessageId, hours, include, quoteFor });
+  function contextAt(through, beforeMessageId, selection = {}) {
+    return readGroupContext(inbox, { ...selection, groupId, through, beforeMessageId, quoteFor });
   }
   async function deliver(event, result) {
     if (!sameSource(event, result?.source) || typeof result?.text !== 'string') return record(event, 'withheld');
@@ -145,7 +145,7 @@ export function makeTrial({
   async function route(event) {
     try {
       const unread = turnState.unread(event.at, event.messageId).slice(-12).map(withQuote);
-      const recent = contextAt(event.at, event.messageId, null, turnState.isRead);
+      const recent = contextAt(event.at, event.messageId, { include: turnState.isRead });
       let images = [];
       if (readImages) {
         try { images = await readImages(event.messageId); } catch { log('media_read_failed'); }
@@ -163,8 +163,8 @@ export function makeTrial({
         record(event, 'working');
         track(Promise.resolve().then(async () => {
           if (!isLive() || now() - event.at > maxAge) return record(event, 'withheld');
-          const context = decision.kind === 'work-intent' && decision.contextHours !== null
-            ? contextAt(event.at, event.messageId, decision.contextHours)
+          const context = decision.kind === 'work-intent' && (decision.contextHours != null || decision.contextRange)
+            ? contextAt(event.at, event.messageId, { hours: decision.contextHours ?? null, range: decision.contextRange })
             : { messages: [...recent.messages, ...relatedRows.map(row => ({
                 speaker: row.senderId, text: row.text.slice(0, 320), at: row.at, quote: row.quote,
               }))].sort((a, b) => a.at - b.at).slice(-12) };
@@ -179,7 +179,8 @@ export function makeTrial({
           consumeRelated();
           const result = await finish(job);
           const coverage = context.coverage;
-          const notice = coverage && ('上下文：近 ' + coverage.hours + ' 小时收到 ' + coverage.available + ' 条可用文字'
+          const notice = coverage && ('上下文：' + (coverage.hours ? '近 ' + coverage.hours + ' 小时' : '指定时段')
+            + (coverage.scanLimited ? '（只检查最近 2000 条记录）' : '') + '收到 ' + coverage.available + ' 条可用文字'
             + (coverage.available > coverage.sampled ? '，按时段抽取 ' + coverage.sampled + ' 条' : '')
             + '。不含图片、附件和未收到的记录。');
           return deliver(event, notice && typeof result?.text === 'string'
@@ -207,8 +208,8 @@ export function makeTrial({
     const tail = events.at(-1);
     const anchors = new Map(events.map(item => [item.messageId, item]));
     const isCurrent = () => isLive() && turnState.isCurrent(revision) && currentMention() === mentionAtStart;
-    const context = contextAt(at, undefined, null, (id, receivedAt) =>
-      !anchors.has(id) && (turnState.isRead(id, receivedAt) || !canUseQqReplyAnchor(receivedAt, at))).messages;
+    const context = contextAt(at, undefined, { include: (id, receivedAt) =>
+      !anchors.has(id) && (turnState.isRead(id, receivedAt) || !canUseQqReplyAnchor(receivedAt, at)) }).messages;
     ambient = true;
     budget--;
     track(Promise.resolve().then(() => planWindow(events, context, revision)).then(async actions => {

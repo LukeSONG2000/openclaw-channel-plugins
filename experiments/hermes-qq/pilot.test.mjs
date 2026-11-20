@@ -99,6 +99,29 @@ test('any work intent can ask the host for bounded context, not a different grou
   }
 });
 
+test('calendar requests use the event clock and validate offset-aware intervals', async () => {
+  const source = event('calendar', 'Summarize the conversation since local midnight', {
+    mentioned: true, at: Date.parse('2026-11-20T15:30:00+08:00'),
+  });
+  const from = '2026-11-20T00:00:00+08:00', to = '2026-11-20T07:30:00Z';
+  const plan = fields => hermesPilot({ fast: {
+    async start({ input }) {
+      assert.equal(Date.parse(JSON.parse(input.split('\n').at(-1)).current.receivedAt), source.at);
+      return 'route';
+    },
+    async wait() { return JSON.stringify({ route: 'work', text: 'Summarize the period', ...fields }); },
+  } }).planMention(source);
+  const intent = await plan({ contextRange: { from, to } });
+  assert.deepEqual(intent.contextRange, { start: Date.parse(from), end: Date.parse(to) });
+  for (const fields of [
+    { contextRange: { from: '2026-11-20T00:00:00', to } },
+    { contextRange: { from: '2026-02-30T00:00:00Z', to } },
+    { contextRange: { from: to, to: from } },
+    { contextRange: { from, to, groupId: 'elsewhere' } },
+    { contextRange: { from, to }, contextHours: 4 },
+  ]) await assert.rejects(plan(fields), /invalid mention route/);
+});
+
 test('mention decisions can consume only local unread anchors from the supplied window', async () => {
   const source = event('ask', 'Tell me more', { mentioned: true });
   const pilot = hermesPilot({ fast: {
