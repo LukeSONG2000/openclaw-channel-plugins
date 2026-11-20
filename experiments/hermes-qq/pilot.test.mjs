@@ -115,6 +115,7 @@ test('calendar requests use the event clock and validate offset-aware intervals'
   } }).planMention(source);
   const intent = await plan({ contextRange: { from, to } });
   assert.deepEqual(intent.contextRange, { start: Date.parse(from), end: Date.parse(to) });
+  assert.deepEqual((await plan({ contextRange: { from, to: 'message' } })).contextRange, intent.contextRange);
   for (const fields of [
     { contextRange: { from: '2026-11-20T00:00:00', to } },
     { contextRange: { from: '2026-02-30T00:00:00Z', to } },
