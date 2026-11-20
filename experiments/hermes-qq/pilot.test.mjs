@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { boundSample } from './bound-sample.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
-import { backgroundRequest, hermesPilot, hermesRuns } from './pilot.mjs';
+import { backgroundRequest, hermesPilot, hermesRuns, requestedSkill } from './pilot.mjs';
 
 test('any mention can use native image blocks and no CDN locator enters the request', async () => {
   const picture = 'data:image/png;base64,iVBORw0KGgo=';
@@ -29,6 +29,29 @@ test('any mention can use native image blocks and no CDN locator enters the requ
 const event = (messageId, text, overrides = {}) => ({
   channel: 'qqbot', account: 'test-bot', groupId: 'group-one', senderId: 'speaker-one',
   messageId, text, mentioned: false, ...overrides,
+});
+
+test('explicit skill selection preserves the free-form message and quote without granting generation', async () => {
+  const installedSkills = ['imagen', 'goh'];
+  assert.equal(requestedSkill('/IMAGEN', installedSkills), 'imagen');
+  assert.equal(requestedSkill('/skill imagen 按引用做一张图', installedSkills), 'imagen');
+  assert.equal(requestedSkill('/goh 查一下免疫机制', installedSkills), 'goh');
+  for (const text of ['用 imagen 作图', '/imagen:edit', '/reset', '/imagen-other']) {
+    assert.equal(requestedSkill(text, installedSkills), undefined);
+  }
+  const pilot = hermesPilot({ installedSkills, fast: {
+    async start({ input }) {
+      assert.match(input, /Image generation is not enabled/);
+      const { current } = JSON.parse(input.split('\n').at(-1));
+      assert.equal(current.requestedSkill, 'imagen');
+      assert.equal(current.text, '/imagen');
+      assert.equal(current.quote.text, '一只猫站在地铁站台');
+      return 'route';
+    },
+    async wait() { return '{"route":"chat","text":"本群未开通生图。"}'; },
+  } });
+  const quote = { availability: 'received', text: '一只猫站在地铁站台' };
+  assert.equal((await pilot.planMention(event('image', '/imagen', { mentioned: true, quote }))).kind, 'chat');
 });
 
 test('the bridge namespaces groups and jobs without implementing a task runner', async () => {

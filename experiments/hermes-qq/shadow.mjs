@@ -1,4 +1,5 @@
 import { randomUUID } from 'node:crypto';
+import { existsSync, readdirSync } from 'node:fs';
 import { hermesPilot, hermesRuns } from './pilot.mjs';
 
 const runs = hermesRuns({
@@ -63,16 +64,19 @@ async function main(mode) {
   }
   if (lane === 'dingtalk') {
     if (mode !== 'dingtalk') throw new Error('invalid DingTalk mode');
-    const { dingtalkTurn } = await import('./dingtalk-turn.mjs');
+    const { dingtalkTurn, readDingTalkDecision } = await import('./dingtalk-turn.mjs');
     const request = dingtalkTurn(await readSample(6_000_000));
     const text = await runs.wait(await runs.start(request), request.sessionId);
-    console.log(JSON.stringify({ text }));
+    console.log(JSON.stringify(readDingTalkDecision(text)));
     return;
   }
   const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window', 'direct'];
   if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
   const sample = await readSample(['trial-plan', 'direct'].includes(mode) ? 6_000_000 : 48_000);
-  const pilot = hermesPilot({ fast: runs });
+  const skillRoot = '/opt/data/plugins/luke-readonly/skills';
+  const installedSkills = existsSync(skillRoot) ? readdirSync(skillRoot, { withFileTypes: true })
+    .filter(row => row.isDirectory() && existsSync(`${skillRoot}/${row.name}/SKILL.md`)).map(row => row.name) : [];
+  const pilot = hermesPilot({ fast: runs, installedSkills });
   const groupRules = typeof sample.groupRules === 'string' && sample.groupRules.length <= 1800 ? sample.groupRules : '';
   if (mode === 'direct') {
     console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences,

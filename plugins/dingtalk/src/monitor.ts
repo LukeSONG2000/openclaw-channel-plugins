@@ -20,6 +20,7 @@ import {
 import {
   DingTalkAuthorizationRuntime,
   formatAuthorizationRequest,
+  selectSkill,
 } from "./authorization.js";
 import { fetchDwsGroupHistory } from "./dws-history.js";
 import { sanitizeDingTalkReplyText, shouldDeliverDingTalkReply } from "./reply-filter.js";
@@ -59,7 +60,7 @@ export interface InboundMediaContext {
 }
 
 function getImagenCommand(data: DingTalkMessageData) {
-  return /^\/imagen(?:\s+([\s\S]*))?$/i.exec(data.text?.content?.trim() ?? "");
+  return selectSkill(data.text?.content ?? "", ["imagen"]);
 }
 
 function buildImagenInput(data: DingTalkMessageData, wasMentioned: boolean, media?: InboundMediaContext, recentChat?: string[]) {
@@ -74,7 +75,7 @@ function buildImagenInput(data: DingTalkMessageData, wasMentioned: boolean, medi
     ? content?.richText?.filter(isRichTextPicture).length ?? 0
     : data.msgtype === "picture" ? 1 : 0;
   return {
-    ...(command ? { args: command[1] ?? "" } : { naturalText: text }),
+    ...(command ? { args: command.description } : { naturalText: text }),
     images, expectedImages, recentChat,
   };
 }
@@ -923,6 +924,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
   };
 
   const memberDirectory = new DingTalkMemberDirectory({ log: logger });
+  const enabledSkills = config.plugins?.entries?.["luke-openai-image"]?.enabled === true ? ["imagen"] : [];
   const hermesTarget = process.env.R2_DINGTALK_HERMES_CONTAINER;
   const hermesReply = hermesTarget ? createHermesDingTalkReply(hermesTarget) : undefined;
   if (hermesReply) logger.log("DingTalk conversational replies use Hermes");
@@ -1055,26 +1057,35 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         wasMentioned: checkBotMentioned(data),
       });
       const groupSystemPrompt = [configuredGroupPrompt, runtimeReplyPolicy].filter(Boolean).join("\n\n") || undefined;
+      const currentText = data.text?.content?.trim() ?? "";
+      let skill = options?.proactive ? undefined : selectSkill(currentText, enabledSkills)?.name;
 
-      // Keep command authorization and delivery on the existing channel; route only conversation.
-      if (hermesReply && (options?.proactive || !data.text?.content?.trim().startsWith("/"))) {
+      // Explicit and inferred skill choices use the same normal tool-enabled turn.
+      if (hermesReply && (options?.proactive || !currentText.startsWith("/"))) {
         if (!rawBody.trim()) return false;
-        const text = await hermesReply({
+        const decision = await hermesReply({
           account: accountId, scope: sender.isGroup ? "group" : "direct", chat: sender.chatId,
-          messageId: data.msgId, text: rawBody, instruction: groupSystemPrompt,
-          ambient: options?.proactive === true, media,
+          messageId: data.msgId, text: rawBody, instruction: configuredGroupPrompt,
+          ambient: options?.proactive === true, imageSkillAvailable: !options?.proactive && enabledSkills.includes("imagen") &&
+            (!sender.isGroup || checkBotMentioned(data)), media,
         });
-        const result = await createReplyDispatcher(data, options).deliver({ text }, { kind: "final" });
-        return result.visibleReplySent || options?.proactive === true;
+        if (decision.kind === "silent") return options?.proactive === true;
+        if (decision.kind === "reply") {
+          const result = await createReplyDispatcher(data, options).deliver({
+            text: `<dingtalk_final>${decision.text}</dingtalk_final>`,
+          }, { kind: "final" });
+          return result.visibleReplySent || options?.proactive === true;
+        }
+        skill = decision.name;
       }
 
       // 3. 构建入站上下文（含路由信息）
       const { ctxPayload, route } = buildInboundContext(
         data,
         sender,
-        rawBody,
+        skill ? `本轮使用 ${skill} 技能。先读取技能，按当前自然语言、会话素材与图片处理；没有固定参数要求。\n\n${rawBody}` : rawBody,
         media,
-        options?.commandAuthorizedOverride,
+        skill ? false : options?.commandAuthorizedOverride,
         groupSystemPrompt,
         options?.proactive ? undefined : buildImagenInput(data, checkBotMentioned(data), media, options?.imagenRecentChat),
       );
@@ -1285,7 +1296,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
         return;
       }
 
-      if (authorization.isRestrictedCommand(data)) {
+      if (authorization.isRestrictedCommand(data, enabledSkills)) {
         const request = authorization.create(data);
         await sendTextMessage(account.adminUserId, formatAuthorizationRequest(request), { account });
         const target = isGroup ? `chat:${groupId}` : data.senderStaffId;

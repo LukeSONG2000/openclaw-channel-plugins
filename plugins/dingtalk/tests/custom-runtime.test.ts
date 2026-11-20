@@ -2,7 +2,7 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { DingTalkAuthorizationRuntime, formatAuthorizationRequest } from "../src/authorization.js";
+import { DingTalkAuthorizationRuntime, formatAuthorizationRequest, selectSkill } from "../src/authorization.js";
 import {
   buildDingTalkCatchupPrompt,
   buildDingTalkMentionContext,
@@ -47,6 +47,17 @@ const message: DingTalkMessageData = {
 const authorization = new DingTalkAuthorizationRuntime("admin-1");
 assert.equal(authorization.isAdmin("admin-1"), true);
 assert.equal(authorization.isRestrictedCommand(message), true);
+const skills = ["imagen"];
+const withText = (content: string) => ({ ...message, text: { content } });
+assert.deepEqual(selectSkill("/imagen 把刚才这张改成动图", skills),
+  { name: "imagen", description: "把刚才这张改成动图" });
+assert.deepEqual(selectSkill("/IMAGEN", skills), { name: "imagen", description: "" });
+assert.deepEqual(selectSkill("/skill imagen 按引用做一张图", skills), { name: "imagen", description: "按引用做一张图" });
+assert.equal(authorization.isRestrictedCommand(withText("/imagen"), skills), false);
+assert.equal(authorization.isRestrictedCommand(withText("/imagen"), []), true);
+for (const text of ["/imagen-backdoor", "/imagen:foo", "/help", "/skill restart", "/ding-auth approve abc"]) {
+  assert.equal(authorization.isRestrictedCommand(withText(text), skills), true);
+}
 const request = authorization.create(message);
 assert.match(formatAuthorizationRequest(request), /位置：测试群/);
 assert.equal(authorization.take(request.id)?.data.msgId, message.msgId);

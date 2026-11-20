@@ -17,8 +17,10 @@ export class DingTalkAuthorizationRuntime {
     return senderId === this.adminId;
   }
 
-  isRestrictedCommand(data: DingTalkMessageData): boolean {
-    return /^\s*\/[a-z0-9][\w-]*/i.test(data.text?.content ?? "") && !this.isAdmin(data.senderStaffId);
+  isRestrictedCommand(data: DingTalkMessageData, enabledSkills: readonly string[] = []): boolean {
+    const text = data.text?.content ?? "";
+    if (selectSkill(text, enabledSkills)) return false;
+    return /^\s*\/[a-z0-9][\w-]*/i.test(text) && !this.isAdmin(data.senderStaffId);
   }
 
   create(data: DingTalkMessageData): AuthorizationRequest {
@@ -46,6 +48,13 @@ export class DingTalkAuthorizationRuntime {
       if (request.createdAt < cutoff) this.requests.delete(id);
     }
   }
+}
+
+export function selectSkill(text: string, enabledSkills: readonly string[]) {
+  const match = /^\s*\/(?:skill\s+)?([a-z0-9][a-z0-9-]{0,63})(?=\s|$)\s*([\s\S]*)$/i.exec(text);
+  const name = match?.[1]?.toLowerCase();
+  if (!match || !name || !enabledSkills.includes(name)) return;
+  return { name, description: match[2].trim() };
 }
 
 export function formatAuthorizationRequest(request: { id: string; data: DingTalkMessageData }): string {

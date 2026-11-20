@@ -87,8 +87,13 @@ skill catalog or shell tools. Verify `shadow.mjs health` before enabling
 `R2_DINGTALK_HERMES_CONTAINER=r2-hermes-qq-dingtalk` on the existing channel
 gateway. The channel passes conversational turns through local Podman stdin
 and sends only the final response through the original DingTalk delivery path.
-Explicit slash commands stay with the existing channel handler. This opt-in
-does not migrate the QQ background worker, reset alerts, or old transcripts.
+An exact installed `/imagen` or `/skill imagen` selects Imagen without a fixed
+argument format. A direct or addressed natural image request can select the
+same skill. Both use the existing tool-enabled DingTalk conversation turn
+and its renderer permissions, not the slash command executor. Other slash
+commands remain on the existing admin-gated OpenClaw path and do not manage
+Hermes sessions. This opt-in does not migrate the QQ background worker,
+reset alerts, or old transcripts.
 To revert, remove the opt-in and safely reload the channel gateway before
 stopping the isolated profile.
 

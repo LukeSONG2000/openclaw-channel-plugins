@@ -11,8 +11,11 @@ type Turn = {
   text: string;
   instruction?: string;
   ambient: boolean;
+  imageSkillAvailable?: boolean;
   media?: InboundMediaContext;
 };
+
+export type HermesDingTalkDecision = { kind: "reply"; text: string } | { kind: "silent" } | { kind: "skill"; name: "imagen" };
 
 const imageLimit = 2 * 1024 * 1024;
 
@@ -39,7 +42,7 @@ async function imageInputs(media?: InboundMediaContext): Promise<string[]> {
 
 export function createHermesDingTalkReply(container: string) {
   if (!/^r2-hermes-qq-dingtalk$/.test(container)) throw new Error("Invalid DingTalk Hermes target");
-  return async ({ media, ...turn }: Turn): Promise<string> => {
+  return async ({ media, ...turn }: Turn): Promise<HermesDingTalkDecision> => {
     const input = JSON.stringify({
       ...turn, text: turn.text.slice(0, 16_000),
       instruction: turn.instruction?.slice(0, 4_000), images: await imageInputs(media),
@@ -60,8 +63,12 @@ export function createHermesDingTalkReply(container: string) {
         if (code !== 0) return reject(new Error("DingTalk Hermes turn failed"));
         try {
           const result = JSON.parse(stdout);
-          if (typeof result.text !== "string" || result.text.length > 12_000) throw new Error();
-          resolve(result.text);
+          if (result?.kind === "silent") return resolve({ kind: "silent" });
+          if (result?.kind === "skill" && result.name === "imagen" && turn.imageSkillAvailable && !turn.ambient) {
+            return resolve({ kind: "skill", name: "imagen" });
+          }
+          if (result?.kind !== "reply" || typeof result.text !== "string" || result.text.length > 12_000) throw new Error();
+          resolve({ kind: "reply", text: result.text });
         } catch { reject(new Error("Invalid DingTalk Hermes response")); }
       });
       child.stdin.end(input);
