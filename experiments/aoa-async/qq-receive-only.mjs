@@ -126,7 +126,13 @@ async function main() {
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId, appSecret, transport: 'websocket', logger });
   // Resolve pushed quote elements using the SDK; stored messages are looked up in SQLite by group.
-  bot.use(quoteRef({ store: { get: noop, set: noop } }));
+  const resolveQuote = quoteRef({ store: { get: noop, set: noop } });
+  bot.use(async (ctx, next) => {
+    if (ctx.message.kind === 'group' && ctx.message.refMsgIdx) {
+      try { await resolveQuote(ctx, noop); } catch { console.error('qq_receive_quote_error'); }
+    }
+    await next();
+  });
   bot.on('ready', () => console.log('qq_receive_ready mode=' + mode));
   bot.on('error', () => console.error('qq_receive_error'));
   bot.on('message', (ctx, msg) => {
