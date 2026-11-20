@@ -2,7 +2,7 @@
 
 Run on the R2 host as a separate test stack, without modifying its gateway, account, services, or storage. Use rootless Podman and systemd user units from this directory. Node.js needs support for `node:sqlite`. The service files use this layout under `~/.local/share/luke-qq-pilot`:
 
-- `code/`: checkout or deployment snapshot at the verified revision.
+- `code/`: checkout or deployment snapshot at the verified revision. After extracting under a private umask, set mode `0644` on the static files mounted into the containers: `shadow-config.yaml`, `worker-config.yaml`, `shadow.mjs`, `pilot.mjs` and `window-reply.mjs`. The parent directory remains private. Do not apply this mode to secrets or data.
 - `inbox/`: existing QQ inbox and verified group binding, plus the SQLite receipts in `hermes-trial/`. Install the pinned QQ SDK from the test runtime's package manifest and lockfile in this directory.
 - `deploy.env`: set `LUKE_NODE` to the absolute Node binary path, `LUKE_QQ_SDK` to the absolute SDK ESM entry path, and `LUKE_QQ_APP_ID` to the existing test-bot account, never the production R2 account.
 - `secrets/`: private `qq-app-secret` (one line), `chat.env` and `work.env` (each containing the model credential and a separate API server key). The root and secrets directory must be private, and the files owner-only. Do not commit any of this state.

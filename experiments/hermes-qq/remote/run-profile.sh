@@ -11,6 +11,13 @@ esac
 source="$root/code/experiments"
 image=docker.io/nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e3d6210444d3c1aeb7c130f0915150065fb2851459
 
+for asset in "$source/hermes-qq/$config" "$source/hermes-qq/shadow.mjs" "$source/hermes-qq/pilot.mjs" "$source/aoa-async/window-reply.mjs"; do
+  if [[ ! -f "$asset" || -L "$asset" || $(stat -c %a "$asset") != 644 ]]; then
+    printf 'Luke container asset must be a regular file with mode 0644: %s\n' "${asset##*/}" >&2
+    exit 1
+  fi
+done
+
 exec /usr/bin/podman run --pull=never --replace --rm \
   --name "luke-hermes-qq-$lane" --label io.lukesong.scope=luke-qq-pilot \
   --sdnotify=conmon --memory=2g --pids-limit=160 --security-opt=no-new-privileges \
