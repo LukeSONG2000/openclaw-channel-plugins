@@ -176,7 +176,7 @@ export function hermesPilot({ fast, work = fast }) {
         requestKey: digest('direct-reply-v1', sessionId) });
       if (!allowWork) return result;
       const decision = JSON.parse(result);
-      if (decision?.route === 'retrieve' && Object.keys(decision).length === 1) {
+      if (decision?.route === 'retrieve') {
         return { kind: 'retrieve', source: sourceOf(event) };
       }
       if (!['chat', 'work'].includes(decision?.route) || typeof decision?.text !== 'string' ||
@@ -223,7 +223,7 @@ export function hermesPilot({ fast, work = fast }) {
             ...(images.length ? { visibleImages: images.length } : {}) } }),
       ].join('\n');
       const plan = JSON.parse(await complete(fast, spec(source, 'chat', withImages(input, images))));
-      if (plan?.route === 'retrieve' && Object.keys(plan).length === 1) return { kind: 'retrieve', source };
+      if (plan?.route === 'retrieve') return { kind: 'retrieve', source };
       if (!plan || Array.isArray(plan) || !['chat', 'work'].includes(plan.route) || typeof plan.text !== 'string' ||
         !plan.text.trim() || plan.text.length > 2000) throw new Error('invalid mention route');
       if (Object.keys(plan).some(key => !['route', 'text', 'related', ...(plan.route === 'work' ? ['contextHours', 'contextRange', 'acknowledgment'] : [])].includes(key))) {
