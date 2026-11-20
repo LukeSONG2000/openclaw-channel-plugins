@@ -37,6 +37,14 @@ export function conversationPolicy(config, { pilotGroup, groupMemory = () => fal
   const directDefaults = config?.directDefaults ?? {};
   if (!record(directDefaults) || Object.entries(directDefaults).some(([key, value]) =>
     !['memory', 'imageGeneration'].includes(key) || typeof value !== 'boolean')) throw new Error('invalid direct defaults');
+  const rulesByGroup = new Map();
+  const groupRules = config?.groupRules ?? {};
+  if (!record(groupRules)) throw new Error('invalid group rules');
+  for (const [group, rules] of Object.entries(groupRules)) {
+    if (!id.test(group) || !Object.hasOwn(config?.verifiedNames ?? {}, group) ||
+        typeof rules !== 'string' || !rules.trim() || rules.length > 1800) throw new Error('invalid scoped group rules');
+    rulesByGroup.set(group, rules.trim());
+  }
   const overrides = new Map();
   const configured = config?.conversations;
   if (configured !== undefined) {
@@ -54,6 +62,7 @@ export function conversationPolicy(config, { pilotGroup, groupMemory = () => fal
   return Object.freeze({
     groupIds: Object.freeze([...new Set([...Object.keys(config?.verifiedNames ?? {}),
       ...[...overrides.keys()].filter(key => key.startsWith('group:')).map(key => key.slice(6))])]),
+    rulesForGroup(peer) { return rulesByGroup.get(peer) ?? ''; },
     forGroup(peer) {
       return { freeReply: mode(peer) === 'free', memory: groupMemory(peer), imageGeneration: false,
         ...overrides.get('group:' + peer) };

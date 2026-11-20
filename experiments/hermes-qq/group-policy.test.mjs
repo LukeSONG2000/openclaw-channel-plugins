@@ -2,6 +2,17 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { conversationPolicy, groupPolicy } from './group-policy.mjs';
 
+test('operator rules require a verified group and never resolve by alias or for private peers', () => {
+  const config = { verifiedNames: { a: 'Chat A', b: 'Chat B' }, namedModes: {},
+    groupRules: { a: 'Local convention.' } };
+  const policy = conversationPolicy(config);
+  assert.equal(policy.rulesForGroup('a'), 'Local convention.');
+  assert.equal(policy.rulesForGroup('b'), '');
+  assert.equal(policy.rulesForGroup('Chat A'), '');
+  assert.equal(Object.hasOwn(policy.forDirect('a'), 'rules'), false);
+  assert.throws(() => conversationPolicy({ ...config, groupRules: { unknown: 'No scope.' } }));
+});
+
 test('verified names map behavior without copying an R2 open ID or granting administration', () => {
   const config = {
     namedModes: { 'Chat A': 'free', 'Chat B': 'default', 'Former management': 'free' },

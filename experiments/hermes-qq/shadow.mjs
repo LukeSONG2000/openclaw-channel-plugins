@@ -64,6 +64,7 @@ async function main(mode) {
   if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
   const sample = await readSample(['trial-plan', 'direct'].includes(mode) ? 6_000_000 : 48_000);
   const pilot = hermesPilot({ fast: runs });
+  const groupRules = typeof sample.groupRules === 'string' && sample.groupRules.length <= 1800 ? sample.groupRules : '';
   if (mode === 'direct') {
     console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences,
       sample.allowWork === true, sample.imageGeneration === true, sample.images)));
@@ -80,7 +81,7 @@ async function main(mode) {
   if (!Array.isArray(sample?.events) || sample.events.length > 24) throw new Error('invalid shadow sample');
   if (mode === 'window' || mode === 'trial-window') {
     const actions = await pilot.window(sample.events, Array.isArray(sample.context) ? sample.context : [],
-      Number.isSafeInteger(sample.attempt) && sample.attempt >= 0 ? sample.attempt : 0);
+      Number.isSafeInteger(sample.attempt) && sample.attempt >= 0 ? sample.attempt : 0, groupRules);
     console.log(JSON.stringify(mode === 'trial-window' ? actions
       : { status: 'completed', count: actions.length, modes: actions.map(x => x.mode) }));
     return;
@@ -88,7 +89,7 @@ async function main(mode) {
   if (sample.events.length !== 1) throw new Error('expected one source event');
   const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : [],
     Array.isArray(sample.unread) ? sample.unread.slice(-12) : [], mode === 'trial-plan' ? sample.images : [],
-    mode === 'trial-plan' ? sample.preferences : [], mode === 'trial-plan' && sample.imageGeneration === true);
+    mode === 'trial-plan' ? sample.preferences : [], mode === 'trial-plan' && sample.imageGeneration === true, groupRules);
   console.log(JSON.stringify(mode === 'trial-plan' ? decision
     : { status: 'completed', route: decision.kind === 'work-intent' ? 'work' : decision.kind }));
 }

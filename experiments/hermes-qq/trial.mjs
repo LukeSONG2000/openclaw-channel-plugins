@@ -450,6 +450,7 @@ async function main() {
   }) : null;
   function makeGroup(groupId) {
     const grants = policy.forGroup(groupId);
+    const groupRules = policy.rulesForGroup(groupId);
     const imagesFor = makeGroupImageReader(inbox, groupId, { verified: withImagen && grants.imageGeneration });
     let memberMemory;
     if (always && origin && token && grants.memory) {
@@ -463,7 +464,7 @@ async function main() {
       inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
       plan: (event, context, unread, images, preferences) =>
         callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences,
-          imageGeneration: withImagen && grantImage(event) }),
+          imageGeneration: withImagen && grantImage(event), groupRules }),
       memberMemory,
       readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
       startWork: decision => callRuntime(worker, 'trial-start', { decision }),
@@ -472,7 +473,7 @@ async function main() {
       retrieveWork: bridge && (source => bridge.retrieve(source, { canDeliver,
         deliver: ({ source, text, artifact }) => artifact
           ? sendArtifact(source, artifact, 1, () => canDeliver(source) === true) : send(source, text, 1) })),
-      planWindow: grants.freeReply ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
+      planWindow: grants.freeReply ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt, groupRules }) : undefined,
       sendWindow: (to, action, tail, anchor) => safeSend(() => sendAmbientReply(
         { bot, sendMention: send, always }, { groupId: to, action, tail, anchor })),
       send,

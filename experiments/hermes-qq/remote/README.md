@@ -52,6 +52,11 @@ Optional import of a recent OpenClaw unread snapshot is context-only:
 old tools, pending work, cross-channel private memory, or automation.
 Rollback with `r2-qq-rollback.sh`, then verify OpenClaw's QQ channel status.
 
+Operator-reviewed group conventions live in the private policy's optional
+`groupRules` object, keyed by a verified group ID. Only the matching group's
+ambient and mention planning turns see them; they are not part of the persona,
+personal memory, or tool permissions. Do not populate this from chat messages.
+
 ### Automatic learning fixture
 
 Run `bash run-honcho-learning-probe.sh <private-probe-workspace> <pinned-honcho-checkout> <private-zhipu-env> [private-bailian-key-file]` on the remote host. The Zhipu file contains `ZAI_API_KEY`; the optional Bailian file contains only a Beijing Model Studio inference key. Both must be mode `0600`. Do not add either file to a checkout.
