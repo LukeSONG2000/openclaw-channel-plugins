@@ -21,6 +21,8 @@
 
 Luke 的 [QQ 记忆适配](../experiments/hermes-qq/member-memory.mjs) 已在相同自托管 API 跑通合成写入与召回，默认关闭。启用时只写直接提及、已投递回复的单条纯文本（排除引用、附件、指令和识别出的敏感格式）；召回按可信群和当前作者查四条以内的显式范围记录，历史窗口和后台任务不写入。记忆读超时不阻断聊天，写入不阻塞回复。待实测真实推导、嵌入及数据出口后才接入真实会话，不含权限或新群启用。
 
+自动学习已用智谱 Coding Plan 的 `glm-5.3-flash` 和模拟向量跑通：两名合成成员的相反偏好分开提炼，改口只影响当事人，新结论按时间排在旧结论之前，旧结论并未删除。百炼选用 `text-embedding-v4`（1536 维），[验收配置](../experiments/hermes-qq/remote/README.md#automatic-learning-fixture)已就绪；账号授权、真实向量与检索排序仍待实测。两种模型只属于记忆后台，不改变 Luke 的聊天模型。
+
 最小接入：
 
 1. 由可信 QQ 事件里的 bot account 与 `member_openid` [派生同一 bot 下跨群稳定的 peer ID](../experiments/hermes-qq/member-identity.mjs)，另用群 ID 派生 workspace ID。仅在平台实际给出同一个成员 ID 时自动对应，不靠昵称或聊天文字，也不跨 bot 或渠道合并。即使两个群认出同一个人，仍使用各自的记忆 workspace；身份匹配不等于管理员授权、允许回复新群或共享群记录。
