@@ -17,7 +17,7 @@ async function assertTools() {
     throw new Error('invalid Hermes tool inventory');
   }
   const enabled = data.filter(row => row.enabled).map(row => row.name).sort();
-  const expected = lane === 'work' ? ['luke-readonly', 'todo'] : ['luke-readonly'];
+  const expected = lane === 'work' ? ['luke-imagen', 'luke-readonly', 'todo'] : ['luke-readonly'];
   if (enabled.length !== expected.length || enabled.some((name, index) => name !== expected[index])) {
     throw new Error('unexpected tools in Hermes profile');
   }
