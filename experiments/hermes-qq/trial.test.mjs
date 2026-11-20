@@ -318,6 +318,24 @@ test('continuations preserve UTF-8 text and keep a compound emoji intact', async
   assert.equal(first + tail.map(part => part.content).join(''), content);
 });
 
+test('QQ continuations do not split a domain, URL or address at internal punctuation', async () => {
+  const event = { groupId, senderId: 'a'.repeat(32), messageId: 'trigger' };
+  for (const token of ['alpo.ge', 'https://example.org/a?b=c#d', 'contact@www.example.org', '[Source](https://example.org/a)']) {
+    const calls = [];
+    const before = '文'.repeat(73) + ' ';
+    const content = before + token + ' 后续消息。';
+    await sendMentionReply({ async send(body) { calls.push(body); return { id: 'ok' }; } }, event, content, TestApiError);
+    assert.equal(calls.length, 2);
+    assert.equal(calls[0].markdown.content.split(' /> ')[1], before);
+    assert.equal(calls[1].content, token + ' 后续消息。');
+  }
+  const calls = [];
+  const url = 'https://example.org/' + 'abc/'.repeat(65);
+  await sendMentionReply({ async send(body) { calls.push(body); return { id: 'ok' }; } }, event, url, TestApiError);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].content, url);
+});
+
 test('an unconfirmed continuation is not retried or followed by further parts', async () => {
   const calls = [];
   const event = { groupId, senderId, messageId: 'trigger' };

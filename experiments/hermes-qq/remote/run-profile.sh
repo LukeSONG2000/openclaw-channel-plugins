@@ -13,7 +13,9 @@ esac
 source="$root/code/experiments"
 image=docker.io/nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e3d6210444d3c1aeb7c130f0915150065fb2851459
 plugin="$source/hermes-qq/extensions/luke-readonly"
+web_plugin="$source/hermes-qq/extensions/qq-web-search"
 test -f "$plugin/plugin.yaml" && test -f "$plugin/data/goh.jsonl" && test -f "$plugin/data/dongwuyuan-skill.jsonl"
+test -f "$web_plugin/plugin.yaml"
 
 for asset in "$source/hermes-qq/$config" "$source/hermes-qq/shadow.mjs" "$source/hermes-qq/pilot.mjs" "$source/aoa-async/window-reply.mjs"; do
   if [[ ! -f "$asset" || -L "$asset" || $(stat -c %a "$asset") != 644 ]]; then
@@ -37,7 +39,7 @@ exec /usr/bin/podman run --pull=never --replace --rm \
   --name "$instance-hermes-qq-$lane" --label "io.lukesong.scope=$instance-qq-pilot" \
   --sdnotify=conmon --memory=2g --pids-limit=160 --security-opt=no-new-privileges \
   --env-file "$root/secrets/$lane.env" \
-  -e "HERMES_QQ_LANE=$lane" -e API_SERVER_ENABLED=true -e API_SERVER_HOST=127.0.0.1 \
+  -e "HERMES_QQ_LANE=$lane" -e HERMES_QQ_WEB=1 -e API_SERVER_ENABLED=true -e API_SERVER_HOST=127.0.0.1 \
   -e GLM_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4 \
   -v "$instance-hermes-qq-$lane-state:/opt/data" \
   -v "$source/hermes-qq/$config:/opt/data/config.yaml:ro,z" \
@@ -45,6 +47,7 @@ exec /usr/bin/podman run --pull=never --replace --rm \
   -v "$source/hermes-qq/pilot.mjs:/pilot/hermes-qq/pilot.mjs:ro,z" \
   -v "$source/aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro,z" \
   -v "$plugin:/opt/data/plugins/luke-readonly:ro,z" \
+  -v "$web_plugin:/opt/data/plugins/qq-web-search:ro,z" \
   "${work_mounts[@]}" \
   "${persona_mount[@]}" \
   "$image" gateway run

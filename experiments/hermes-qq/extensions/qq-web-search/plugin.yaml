@@ -1,0 +1,5 @@
+name: qq-web-search
+version: 1.0.0
+description: "Use native Tavily search with the GLM Search Prime MCP as a fallback."
+kind: backend
+provides_web_providers: [qq-tavily]

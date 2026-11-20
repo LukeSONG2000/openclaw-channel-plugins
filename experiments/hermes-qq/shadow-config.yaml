@@ -11,9 +11,34 @@ agent:
   reasoning_effort: minimal
   max_turns: 5
 plugins:
-  enabled: [luke-readonly]
+  enabled: [luke-readonly, qq-web-search]
+  entries:
+    qq-web-search:
+      mcp_allowlist: [web-search-prime]
+web:
+  backend: tavily
+  search_backend: qq-tavily
+mcp_servers:
+  web-search-prime:
+    url: https://open.bigmodel.cn/api/mcp/web_search_prime/mcp
+    headers: {Authorization: "Bearer ${ZAI_API_KEY}"}
+    connect_timeout: 8
+    timeout: 15
+    tools: {include: [web_search_prime]}
+  web-reader:
+    url: https://open.bigmodel.cn/api/mcp/web_reader/mcp
+    headers: {Authorization: "Bearer ${ZAI_API_KEY}"}
+    connect_timeout: 8
+    timeout: 20
+    tools: {include: [webReader]}
+  zread:
+    url: https://open.bigmodel.cn/api/mcp/zread/mcp
+    headers: {Authorization: "Bearer ${ZAI_API_KEY}"}
+    connect_timeout: 8
+    timeout: 20
+    tools: {include: [search_doc, read_file, get_repo_structure]}
 platform_toolsets:
-  api_server: [luke-readonly]
+  api_server: [luke-readonly, web, web-reader, zread]
 memory:
   memory_enabled: false
   user_profile_enabled: false

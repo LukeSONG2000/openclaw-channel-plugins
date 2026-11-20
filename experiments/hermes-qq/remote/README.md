@@ -57,6 +57,23 @@ Operator-reviewed group conventions live in the private policy's optional
 ambient and mention planning turns see them; they are not part of the persona,
 personal memory, or tool permissions. Do not populate this from chat messages.
 
+### Web and GLM tools
+
+Set `TAVILY_API_KEY` and `ZAI_API_KEY` in each profile's private env file.
+The native `web_search` tool selects the `qq-web-search` provider, which uses
+Hermes's bundled Tavily backend and only calls GLM Search Prime through Hermes's
+MCP client when Tavily fails or returns no hits. Native `web_extract` uses
+Tavily. GLM Web Reader and Zread are separate public-source tools. Search Prime
+is granted to the provider, not exposed as a parallel model-visible search tool.
+
+Install the pinned GLM Vision MCP package into the work profile's persistent
+volume before enabling it. For example, in the work container run
+`npm install --prefix /opt/data/glm-vision --omit=dev --ignore-scripts --no-audit --no-fund @z_ai/mcp-server@0.1.6`.
+The work profile starts the installed entry point, without npm at runtime. GLM
+Vision is available to Kanban workers, not the chat gateway. It does not replace
+native image inputs on current or quoted QQ messages. Keep all secrets and
+runtime package state out of the repository.
+
 ### Automatic learning fixture
 
 Run `bash run-honcho-learning-probe.sh <private-probe-workspace> <pinned-honcho-checkout> <private-zhipu-env> [private-bailian-key-file]` on the remote host. The Zhipu file contains `ZAI_API_KEY`; the optional Bailian file contains only a Beijing Model Studio inference key. Both must be mode `0600`. Do not add either file to a checkout.

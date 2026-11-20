@@ -8,10 +8,41 @@ agent:
   image_input_mode: native
   max_turns: 8
 plugins:
-  enabled: [luke-readonly, luke-imagen]
+  enabled: [luke-readonly, luke-imagen, qq-web-search]
+  entries:
+    qq-web-search:
+      mcp_allowlist: [web-search-prime]
+web:
+  backend: tavily
+  search_backend: qq-tavily
+mcp_servers:
+  web-search-prime:
+    url: https://open.bigmodel.cn/api/mcp/web_search_prime/mcp
+    headers: {Authorization: "Bearer ${ZAI_API_KEY}"}
+    connect_timeout: 8
+    timeout: 15
+    tools: {include: [web_search_prime]}
+  web-reader:
+    url: https://open.bigmodel.cn/api/mcp/web_reader/mcp
+    headers: {Authorization: "Bearer ${ZAI_API_KEY}"}
+    connect_timeout: 8
+    timeout: 20
+    tools: {include: [webReader]}
+  zread:
+    url: https://open.bigmodel.cn/api/mcp/zread/mcp
+    headers: {Authorization: "Bearer ${ZAI_API_KEY}"}
+    connect_timeout: 8
+    timeout: 20
+    tools: {include: [search_doc, read_file, get_repo_structure]}
+  zai-vision:
+    command: /opt/data/glm-vision/node_modules/.bin/zai-mcp-server
+    env: {Z_AI_API_KEY: "${ZAI_API_KEY}", Z_AI_MODE: ZHIPU}
+    connect_timeout: 8
+    timeout: 35
+    tools: {include: [analyze_image, analyze_video, extract_text_from_screenshot, diagnose_error_screenshot, understand_technical_diagram, analyze_data_visualization, ui_diff_check, ui_to_artifact]}
 platform_toolsets:
-  api_server: [todo, luke-readonly]
-toolsets: [todo, vision, delegation, luke-readonly, luke-imagen]
+  api_server: [todo, luke-readonly, no_mcp]
+toolsets: [todo, vision, delegation, luke-readonly, luke-imagen, web, web-reader, zread, zai-vision]
 delegation:
   max_concurrent_children: 2
   max_spawn_depth: 1

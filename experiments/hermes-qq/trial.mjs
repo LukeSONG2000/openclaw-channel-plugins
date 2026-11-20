@@ -24,6 +24,7 @@ const plainTextBudget = 1800;
 const graphemes = new Intl.Segmenter(undefined, { granularity: 'grapheme' });
 const rawMention = /<@!?([a-z0-9_-]{1,128})>/gi;
 const nativeMention = /(<qqbot-at-user id="[a-z0-9_-]{1,128}" \/>)/gi;
+const linkUnit = /\[[^\]\r\n]{1,160}\]\(https?:\/\/[^\s<>()]+\)|https?:\/\/[^\s<>()\[\]"'，。！？；、：]+|(?:[a-z0-9_%+-]+(?:\.[a-z0-9_%+-]+)*@)?(?:[a-z0-9](?:[a-z0-9-]*[a-z0-9])?\.)+[a-z](?:[a-z0-9-]*[a-z0-9])?(?::[0-9]{1,5})?/giu;
 const mentionTag = id => '<qqbot-at-user id="' + id + '" />';
 const memberLabel = '\u90a3\u4f4d\u7fa4\u53cb';
 const sameSource = (event, source) => ['channel', 'account', 'groupId', 'messageId', 'senderId']
@@ -36,8 +37,17 @@ export function trialInput(body) {
 
 function* textUnits(content) {
   for (const [index, part] of content.split(nativeMention).entries()) {
-    if (index % 2) yield { segment: part, mention: true };
-    else yield* graphemes.segment(part);
+    if (index % 2) {
+      yield { segment: part, atomic: true };
+      continue;
+    }
+    let start = 0;
+    for (const link of part.matchAll(linkUnit)) {
+      yield* graphemes.segment(part.slice(start, link.index));
+      yield { segment: link[0], atomic: true };
+      start = link.index + link[0].length;
+    }
+    yield* graphemes.segment(part.slice(start));
   }
 }
 
@@ -47,16 +57,16 @@ function takeText(content, budget) {
   let end = 0;
   let sentenceEnd = 0;
   let softEnd = 0;
-  for (const { segment, mention } of textUnits(content)) {
+  for (const { segment, atomic } of textUnits(content)) {
     bytes += Buffer.byteLength(segment);
     if (bytes > budget) break;
     end += segment.length;
-    if (mention) continue;
+    if (atomic) continue;
     if (/[。！？.!?；;\n]/u.test(segment)) sentenceEnd = end;
     if (/[，、：,:\s]/u.test(segment)) softEnd = end;
   }
   const cut = [sentenceEnd, softEnd, end].find(offset => offset && content.slice(0, offset).trim());
-  if (!cut) throw new Error('no QQ-safe reply boundary');
+  if (!cut) return null;
   return [content.slice(0, cut), content.slice(cut)];
 }
 
@@ -74,8 +84,16 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
   while (remaining.trim()) {
     if (seq > 5) throw new Error('QQ passive reply budget exhausted');
     const prefix = markdownEnabled && seq === firstSeq ? mentionTag(event.senderId) + ' ' : '';
-    const markdown = markdownEnabled && (prefix !== '' || remaining.includes('<qqbot-at-user id="'));
-    const [part, tail] = takeText(remaining, markdown ? mentionMarkdownBudget - Buffer.byteLength(prefix) : plainTextBudget);
+    const hasInlineMention = remaining.includes('<qqbot-at-user id="');
+    let markdown = markdownEnabled && (prefix !== '' || hasInlineMention);
+    let chunk = takeText(remaining, markdown ? mentionMarkdownBudget - Buffer.byteLength(prefix) : plainTextBudget);
+    if (!chunk && markdown && !hasInlineMention) {
+      // An address at the start may not fit beside a mention. Use a single plain reply.
+      markdown = false;
+      chunk = takeText(remaining, plainTextBudget);
+    }
+    if (!chunk) throw new Error('no QQ-safe reply boundary');
+    const [part, tail] = chunk;
     const extra = { msg_seq: seq };
     try {
       receipt = await bot.send(markdown

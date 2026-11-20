@@ -18,6 +18,7 @@ async function assertTools() {
   }
   const enabled = data.filter(row => row.enabled).map(row => row.name).sort();
   const expected = lane === 'work' ? ['luke-imagen', 'luke-readonly', 'todo'] : ['luke-readonly'];
+  if (lane === 'chat' && process.env.HERMES_QQ_WEB === '1') expected.push('web');
   if (enabled.length !== expected.length || enabled.some((name, index) => name !== expected[index])) {
     throw new Error('unexpected tools in Hermes profile');
   }
