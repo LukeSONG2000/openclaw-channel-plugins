@@ -4,7 +4,7 @@ model:
   base_url: https://open.bigmodel.cn/api/coding/paas/v4
   context_length: 204800
 agent:
-  reasoning_effort: medium
+  reasoning_effort: max
   image_input_mode: native
   max_turns: 8
 plugins:
