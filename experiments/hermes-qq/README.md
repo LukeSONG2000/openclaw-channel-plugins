@@ -2,6 +2,8 @@
 
 This is the first isolated vertical slice from the [agent evaluation](../../docs/aoa-agent-evaluation.md). It separates the QQ adapter from the agent: the existing receive-only inbox remains the input schema, its two-mode window planner is reused, and native Hermes API runs own session and work execution. No edits to either agent framework or to deployed channel plugins.
 
+See [native history, member memory and the R2 migration inventory](../../docs/luke-native-capability-migration.md) before adding another context reader, memory store or feature-specific route.
+
 The bridge replays a selected window, or routes an @ to quick chat or a separate work run. Session IDs are namespaced by channel, bot account, group, source message, and lane. The trial supplies recent context from the group inbox so concurrent intent decisions do not wait on a single Hermes session lease. A work run has its own session, deterministic admission key and original source envelope. Only completed output is read; the bridge never forwards streamed thoughts or tool progress. The recorded source and stable receipt key are inputs for later delivery deduplication, not proof of actual QQ delivery.
 
 ## Smoke test with official Hermes
