@@ -280,9 +280,7 @@ export class CustomUnreadRuntime {
     if (peer.history.length === 0 && !params.allowEmpty) return [];
     const now = params.now ?? Date.now();
     // The source belongs to a single in-flight window. Keep new arrivals for the next window.
-    if ([...this.snapshots.values()].some(snapshot => snapshot.peerId === params.peerId && !isSnapshotExpired(snapshot, now))) {
-      return [];
-    }
+    if (this.hasInFlightWindow(params.peerId, now)) return [];
     if (params.source === "followup" && peer.history.length) {
       const last = peer.history.at(-1)!;
       // A short quiet period avoids splitting a screenshot from the line that follows it.
@@ -350,6 +348,10 @@ export class CustomUnreadRuntime {
 
   releaseSnapshot(id: string): void {
     this.snapshots.delete(id);
+  }
+
+  hasInFlightWindow(peerId: string, now = Date.now()): boolean {
+    return [...this.snapshots.values()].some(snapshot => snapshot.peerId === peerId && !isSnapshotExpired(snapshot, now));
   }
 
   releaseAllSnapshots(): void {
