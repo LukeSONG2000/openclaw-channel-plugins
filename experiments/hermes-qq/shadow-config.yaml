@@ -9,9 +9,11 @@ fallback_providers:
   - {provider: zai, model: glm-4.7-flash, base_url: https://open.bigmodel.cn/api/coding/paas/v4}
 agent:
   reasoning_effort: minimal
-  max_turns: 2
+  max_turns: 5
+plugins:
+  enabled: [luke-readonly]
 platform_toolsets:
-  api_server: []
+  api_server: [luke-readonly]
 memory:
   memory_enabled: false
   user_profile_enabled: false

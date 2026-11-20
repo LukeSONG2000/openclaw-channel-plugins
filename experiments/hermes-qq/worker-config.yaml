@@ -7,9 +7,11 @@ agent:
   reasoning_effort: medium
   image_input_mode: native
   max_turns: 8
+plugins:
+  enabled: [luke-readonly]
 platform_toolsets:
-  api_server: [todo]
-toolsets: [todo, vision]
+  api_server: [todo, luke-readonly]
+toolsets: [todo, vision, luke-readonly]
 kanban:
   dispatch_interval_seconds: 5
   max_in_progress: 2

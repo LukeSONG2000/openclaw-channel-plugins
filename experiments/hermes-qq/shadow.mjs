@@ -17,9 +17,13 @@ async function assertTools() {
     throw new Error('invalid Hermes tool inventory');
   }
   const enabled = data.filter(row => row.enabled).map(row => row.name).sort();
-  const expected = lane === 'work' ? ['todo'] : [];
+  const expected = lane === 'work' ? ['luke-readonly', 'todo'] : ['luke-readonly'];
   if (enabled.length !== expected.length || enabled.some((name, index) => name !== expected[index])) {
     throw new Error('unexpected tools in Hermes profile');
+  }
+  const readonly = data.find(row => row.name === 'luke-readonly');
+  if (JSON.stringify(readonly?.tools?.sort()) !== JSON.stringify(['luke_reference_search', 'luke_skill_read'])) {
+    throw new Error('unexpected read-only tool registration');
   }
   return enabled;
 }
@@ -61,7 +65,7 @@ async function main(mode) {
   const sample = await readSample(mode === 'trial-plan' ? 6_000_000 : 48_000);
   const pilot = hermesPilot({ fast: runs });
   if (mode === 'direct') {
-    console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences)));
+    console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences, sample.allowWork === true)));
     return;
   }
   if (mode === 'trial-start') {

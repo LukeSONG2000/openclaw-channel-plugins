@@ -1,0 +1,4 @@
+name: luke-readonly
+version: 1.0.0
+description: "Read-only skills and reference tools for Luke QQ"
+provides_tools: [luke_skill_read, luke_reference_search]

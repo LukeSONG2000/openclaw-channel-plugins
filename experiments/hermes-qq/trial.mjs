@@ -1,5 +1,5 @@
 import { execFile } from 'node:child_process';
-import { mkdirSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
@@ -13,6 +13,7 @@ import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
 import { makeMemberMemory } from './member-memory.mjs';
 import { makeDirectChat, groupMemoryAuthorized } from './direct-chat.mjs';
+import { groupPolicy } from './group-policy.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -307,26 +308,20 @@ async function main() {
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId: account, appSecret, logger });
-  const imagesFor = makeGroupImageReader(inbox, groupId);
+  const configured = process.env.LUKE_QQ_GROUP_POLICY;
+  const policyConfig = configured ? JSON.parse(readFileSync(configured, 'utf8')) : undefined;
+  const modeFor = groupPolicy(policyConfig, groupId);
   const origin = process.env.LUKE_HONCHO_ORIGIN;
   const token = process.env.LUKE_HONCHO_TOKEN;
   const socketPath = process.env.LUKE_HONCHO_SOCKET;
-  let memberMemory;
-  if (always && (origin || token) && groupMemoryAuthorized(groupId, process.env.LUKE_HONCHO_APPROVED_GROUPS)) {
-    try { memberMemory = makeMemberMemory({ origin, token, socketPath, account, groupId }); }
-    catch { console.error('qq_trial_memory_config_invalid'); }
-  }
   const stop = new AbortController();
   process.once('SIGTERM', () => stop.abort());
   process.once('SIGINT', () => stop.abort());
   const workerExec = ['exec', '-i', '-u', 'hermes', worker];
   const kanbanCommand = (args, input, options) => runKanbanCommand(engine, [...workerExec, 'hermes', 'kanban', ...args], input, options);
   if (always) await Promise.all([callRuntime(container, 'health', {}), kanbanCommand(['diagnostics', '--json'])]);
-  const bridge = always ? makeKanbanBridge({
-    db: ledger, tasks: kanbanTasks({ command: kanbanCommand,
-      attachFile: file => runKanbanMediaUpload(engine, [...workerExec, 'node'], file) }), account, groupId,
-    onError: phase => console.error('qq_kanban_error phase=' + phase),
-  }) : null;
+  const tasks = kanbanTasks({ command: kanbanCommand,
+    attachFile: file => runKanbanMediaUpload(engine, [...workerExec, 'node'], file) });
   const start = Date.now();
   const until = always ? Infinity : start + 30 * 60_000;
   const safeSend = async operation => {
@@ -340,6 +335,13 @@ async function main() {
   };
   const send = (event, content) => safeSend(() => sendMentionReply(bot, event, content, ApiError,
     () => console.log('qq_trial_mention_plain_fallback')));
+  const sendDirect = (event, content) => safeSend(() => bot.send({ target: {
+    scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
+  }, msgType: 0, content }));
+  const directWork = always && process.env.LUKE_QQ_DIRECT === '1' ? makeKanbanBridge({
+    db: ledger, tasks, account, direct: true, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
+  }) : null;
+  const directAnchor = directWork ? inbox.prepare('SELECT received_at FROM direct_events WHERE sender_id=? AND message_id=?') : null;
   const direct = always && process.env.LUKE_QQ_DIRECT === '1' ? makeDirectChat({
     inbox, ledger, account, start, signal: stop.signal,
     memoryFor: sender => {
@@ -347,13 +349,24 @@ async function main() {
       try { return makeMemberMemory({ origin, token, socketPath, account, directSender: sender }); }
       catch { console.error('qq_direct_memory_config_invalid'); }
     },
-    plan: (event, context, preferences) => callRuntime(container, 'direct', { event, context, preferences }),
-    send: (event, content) => safeSend(() => bot.send({ target: {
-      scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
-    }, msgType: 0, content })),
+    plan: (event, context, preferences) => callRuntime(container, 'direct', {
+      event, context, preferences, allowWork: Boolean(directWork),
+    }),
+    queueWork: directWork?.enqueue,
+    send: sendDirect,
     log: status => console.log('qq_direct_' + status),
   }) : null;
-  const trial = makeTrial({
+  function makeGroup(groupId) {
+    const free = modeFor(groupId) === 'free';
+    const imagesFor = makeGroupImageReader(inbox, groupId);
+    let memberMemory;
+    if (always && origin && token && groupMemoryAuthorized(groupId, process.env.LUKE_HONCHO_APPROVED_GROUPS)) {
+      try { memberMemory = makeMemberMemory({ origin, token, socketPath, account, groupId }); }
+      catch { console.error('qq_trial_memory_config_invalid'); }
+    }
+    const bridge = always ? makeKanbanBridge({ db: ledger, tasks, account, groupId,
+      onError: phase => console.error('qq_kanban_error phase=' + phase) }) : null;
+    const trial = makeTrial({
     inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
     plan: (event, context, unread, images, preferences) =>
       callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences }),
@@ -362,7 +375,7 @@ async function main() {
     startWork: decision => callRuntime(worker, 'trial-start', { decision }),
     finish: job => callRuntime(worker, 'trial-settle', { job }),
     queueWork: bridge?.enqueue,
-    planWindow: (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }),
+    planWindow: free ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
     sendWindow: (to, action, tail) => safeSend(() => bot.send({
       target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId }
         : always ? { msgId: tail.messageId } : {}) },
@@ -370,32 +383,49 @@ async function main() {
     })),
     send,
     log: status => console.log('qq_trial_' + status),
-  });
-  const canDeliver = qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal });
+    });
+    return { trial, bridge, canDeliver: qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal }) };
+  }
+  const initialGroups = always && configured ? [groupId, ...Object.keys(policyConfig?.verifiedNames ?? {})] : [groupId];
+  const groups = new Map([...new Set(initialGroups)].map(id => [id, makeGroup(id)]));
+  const recentGroups = inbox.prepare('SELECT DISTINCT group_id FROM events WHERE mentioned=1 AND received_at > ?');
+  let nextDiscovery = 0;
   let sweep;
   let nextSweep = start;
   console.log('qq_trial_ready mode=' + (always ? 'always' : 'bounded'));
   try {
     while (!stop.signal.aborted && Date.now() < until) {
-      trial.tick();
+      if (always && configured && Date.now() >= nextDiscovery) {
+        nextDiscovery = Date.now() + 5_000;
+        for (const row of recentGroups.all(Date.now() - maxAge)) {
+          if (groups.size < 64 && !groups.has(row.group_id)) groups.set(row.group_id, makeGroup(row.group_id));
+        }
+      }
+      for (const { trial } of groups.values()) trial.tick();
       direct?.tick();
-      if (bridge && !sweep && Date.now() >= nextSweep) {
+      if (always && !sweep && Date.now() >= nextSweep) {
         nextSweep = Date.now() + 5_000;
-        sweep = bridge.sweep({
+        const receipts = [...groups.values()].map(({ bridge, canDeliver }) => bridge.sweep({
           canDeliver,
           deliver: async ({ source, text }) => {
             const receipt = await send(source, text);
             console.log('qq_kanban_' + (receipt?.id ? 'accepted' : 'uncertain'));
             return receipt;
           },
-        }).catch(() => console.error('qq_kanban_sweep_failed')).finally(() => { sweep = null; });
+        }));
+        if (directWork) receipts.push(directWork.sweep({
+          canDeliver: source => stop.signal.aborted ? false :
+            canUseQqReplyAnchor(directAnchor.get(source.senderId, source.messageId)?.received_at, Date.now()) || 'expired',
+          deliver: ({ source, text }) => sendDirect(source, text),
+        }));
+        sweep = Promise.all(receipts).catch(() => console.error('qq_kanban_sweep_failed')).finally(() => { sweep = null; });
       }
       await delay(700, undefined, { signal: stop.signal });
     }
   } catch (error) {
     if (!stop.signal.aborted) throw error;
   } finally {
-    await Promise.all([trial.drain(), direct?.drain()]);
+    await Promise.all([...groups.values()].map(({ trial }) => trial.drain()).concat(direct?.drain()));
     await sweep;
     await bot.stop();
     inbox.close();

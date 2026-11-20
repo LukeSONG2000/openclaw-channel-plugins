@@ -103,8 +103,8 @@ export function kanbanTasks({ command = cli, attachFile = upload, assignee = 'de
   };
 }
 
-export function makeKanbanBridge({ db, tasks, account, groupId, now = Date.now, onError = () => {} }) {
-  const tenant = tenantFor(account, groupId);
+export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, now = Date.now, onError = () => {} }) {
+  const tenant = tenantFor(account, direct ? ':private' : groupId);
   db.exec(`CREATE TABLE IF NOT EXISTS kanban_receipts (
     key TEXT PRIMARY KEY, tenant TEXT NOT NULL, source TEXT NOT NULL, input TEXT, card_id TEXT,
     state TEXT NOT NULL DEFAULT 'pending', checked_at INTEGER NOT NULL DEFAULT 0
@@ -136,7 +136,8 @@ export function makeKanbanBridge({ db, tasks, account, groupId, now = Date.now, 
   }
 
   function owns(source) {
-    return source?.channel === 'qqbot' && source.account === account && source.groupId === groupId;
+    return source?.channel === 'qqbot' && source.account === account &&
+      (direct ? source.chatType === 'direct' && !source.groupId : source.chatType !== 'direct' && source.groupId === groupId);
   }
   return {
     enqueue(decision, images = []) {
