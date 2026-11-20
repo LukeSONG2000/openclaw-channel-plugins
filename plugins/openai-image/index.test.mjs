@@ -31,7 +31,9 @@ function toolHarness(handler) {
     const invoke = async (params, override = {}, name = 'luke_imagen') => {
       const tool = factories.get(name)(scope);
       const toolCallId = 'call-' + ++n;
-      const prepared = tool.prepareBeforeToolCallParams(params, { toolCallId, hookContext: { sessionKey, runId, ...override } });
+      const event = { toolName: name, runId, toolCallId };
+      const hook = hooks.before_tool_call(event, { ...event, sessionKey, ...override });
+      const prepared = { ...params, ...hook?.params };
       return (await tool.execute(toolCallId, prepared)).content[0].text;
     };
     const final = (payload, overrides = {}) => hooks.reply_payload_sending({
@@ -512,32 +514,58 @@ test('registers one native skill tool and no standalone slash responder', () => 
   const hooks = [];
   plugin.register({ registerTool: (_factory, options) => tools.push(options.name), on: event => hooks.push(event) });
   assert.deepEqual(tools, ['read_conversation_context', 'luke_imagen']);
-  assert.deepEqual(hooks, ['reply_dispatch', 'reply_payload_sending']);
+  assert.deepEqual(hooks, ['reply_dispatch', 'before_tool_call', 'reply_payload_sending']);
 });
 
-test('dispatch and the native tool can be loaded from separate plugin registries', async () => {
+test('native dispatch, hook and execution can span registries without leaking across turns', async () => {
   const turns = new Map();
+  let clock = 0;
   const registered = () => {
     const hooks = {};
     const run = async ctx => ({ text: ctx.from });
     run.allowed = () => true;
     let factory;
     registerImagenTool({ on: (name, hook) => { hooks[name] = hook; },
-      registerTool: create => { factory = create; } }, run, { turns });
+      registerTool: create => { factory = create; } }, run, { turns, now: () => clock });
     return { hooks, factory };
   };
   const a = registered();
   const b = registered();
+  const c = registered();
   const sessionKey = 'session', runId = 'trusted-turn', channel = 'qqbot';
-  a.hooks.reply_dispatch({ runId, sessionKey, ctx: { Provider: channel, From: group, To: group,
-    SenderId: 'member', OriginatingChannel: channel, OriginatingTo: group, ImagenInput: {} } }, {});
-  const tool = b.factory({ sessionKey, messageChannel: channel, requesterSenderId: 'runtime-alias' });
+  const dispatch = (sessionKey, runId, group, abortSignal) => a.hooks.reply_dispatch({
+    runId, sessionKey, ctx: { Provider: channel, From: group, To: group, SenderId: 'member',
+      OriginatingChannel: channel, OriginatingTo: group, ImagenInput: {} },
+  }, { abortSignal });
+  const makeTool = (sessionKey, messageChannel = channel) => c.factory({ sessionKey, messageChannel });
+  const abort = new AbortController();
+  dispatch(sessionKey, runId, group, abort.signal);
+  dispatch('other-session', 'other-turn', other);
+  const tool = makeTool(sessionKey);
   const params = { prompt: 'draw' };
+  const prepare = (sessionKey, runId, toolCallId = 'shared-id') => {
+    const event = { toolName: 'luke_imagen', runId, toolCallId, params };
+    return { ...params, ...b.hooks.before_tool_call(event, { ...event, sessionKey })?.params };
+  };
   const unprepared = await tool.execute('unprepared', params);
-  assert.match(unprepared.content[0].text, /本次没有发起生图/);
-  assert.deepEqual(unprepared.details, { status: 'not_started', reason: 'no_active_turn' });
-  tool.prepareBeforeToolCallParams(params, { toolCallId: 'prepared', hookContext: { sessionKey, runId } });
-  assert.equal((await tool.execute('prepared', params)).content[0].text, group);
+  const denied = { status: 'not_started', reason: 'no_active_turn' };
+  assert.deepEqual(unprepared.details, denied);
+  const prepared = prepare(sessionKey, runId);
+  const second = prepare('other-session', 'other-turn');
+  assert.equal(JSON.stringify(prepared), JSON.stringify(params));
+  assert.deepEqual((await makeTool('other-session').execute('shared-id', prepared)).details, denied);
+  assert.deepEqual((await makeTool(sessionKey, 'ddingtalk').execute('shared-id', prepared)).details, denied);
+  assert.deepEqual((await tool.execute('wrong-id', prepared)).details, denied);
+  assert.deepEqual((await tool.execute('shared-id', prepare(sessionKey, 'other-turn'))).details, denied);
+  assert.equal((await tool.execute('shared-id', prepared)).content[0].text, group);
+  assert.deepEqual((await tool.execute('shared-id', prepared)).details, denied);
+  assert.equal((await makeTool('other-session').execute('shared-id', second)).content[0].text, other);
+  const cancelled = prepare(sessionKey, runId, 'cancelled');
+  abort.abort();
+  assert.deepEqual((await tool.execute('cancelled', cancelled)).details, denied);
+  const expired = prepare('other-session', 'other-turn', 'expired');
+  clock += 5 * 60_000;
+  assert.deepEqual((await makeTool('other-session').execute('expired', expired)).details, denied);
 });
 
 test('gateway startup loads Imagen before the first reply dispatch', async () => {

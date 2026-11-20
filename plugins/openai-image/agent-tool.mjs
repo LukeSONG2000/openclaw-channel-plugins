@@ -2,6 +2,8 @@ import { registerConversationTool } from './conversation-tool.mjs';
 import { boundedContext } from './visual-brief.mjs';
 
 const toolName = 'luke_imagen';
+const boundTools = new Set([toolName, 'read_conversation_context']);
+const turnBinding = Symbol.for('luke-openai-image.tool-turn-binding');
 const ttl = 5 * 60_000;
 const channels = new Set(['qqbot', 'ddingtalk']);
 const modes = ['text', 'edit', 'ref'];
@@ -55,31 +57,32 @@ export function registerImagenTool(api, handle, { now = Date.now, turns = new Ma
     });
   });
 
+  api.on('before_tool_call', (event, ctx) => {
+    if (!boundTools.has(event.toolName)) return;
+    const { sessionKey, runId, toolCallId } = ctx;
+    if (!sessionKey || !runId || !toolCallId || event.toolCallId !== toolCallId || event.runId !== runId) return;
+    const entry = turns.get(key(sessionKey, runId));
+    if (!entry || entry.expires <= now() || entry.signal?.aborted) return;
+    // The host merges hook overrides into the execution arguments. A symbol keeps the
+    // one-use binding out of the model's JSON schema and serialized tool arguments.
+    return { params: { [turnBinding]: { sessionKey, runId, toolCallId, name: event.toolName, used: false } } };
+  });
+
   function bindTool(ctx, { execute, ...definition }) {
-    const calls = new Map();
     return {
       ...definition,
-      prepareBeforeToolCallParams(params, { hookContext, toolCallId }) {
-        if (toolCallId) calls.delete(toolCallId);
-        if (!toolCallId || !hookContext?.runId || hookContext.sessionKey !== ctx.sessionKey) {
-          api.logger?.warn?.('[conversation] tool preparation lacks a matching runtime session or run');
-          return params;
-        }
-        const entry = turns.get(key(hookContext.sessionKey, hookContext.runId));
-        if (entry && entry.expires > now() && !entry.signal?.aborted && entry.source.channel === ctx.messageChannel) {
-          if (calls.size >= 32) calls.delete(calls.keys().next().value);
-          calls.set(toolCallId, entry);
-        } else api.logger?.warn?.('[conversation] tool preparation did not find an active source turn');
-        return params;
-      },
-      async execute(callId, params) {
-        const entry = calls.get(callId);
-        calls.delete(callId);
-        if (!entry || entry.expires <= now() || entry.signal?.aborted) {
-          api.logger?.warn?.('[conversation] no active turn binding for tool execution');
-          return answer('这条消息没能接上原始会话，本次没有发起生图。不要自动重试或声称接口报错；等用户发来新的有效请求再继续。',
+      async execute(callId, params, signal) {
+        const binding = params?.[turnBinding];
+        const matches = binding && !binding.used && binding.name === definition.name &&
+          binding.toolCallId === callId && binding.sessionKey === ctx.sessionKey;
+        const entry = matches ? turns.get(key(binding.sessionKey, binding.runId)) : undefined;
+        if (!entry || entry.expires <= now() || entry.signal?.aborted || signal?.aborted ||
+          entry.source.channel !== ctx.messageChannel) {
+          api.logger?.warn?.(`[conversation] no active turn binding for ${definition.name}`);
+          return answer('这条消息没能接上原始会话，本次没有执行工具。不要自动重试或声称接口报错；等用户发来新的有效请求再继续。',
             { status: 'not_started', reason: 'no_active_turn' });
         }
+        binding.used = true;
         return execute(entry, params);
       },
     };
