@@ -1,5 +1,6 @@
 import { DWClient, TOPIC_ROBOT, type DWClientDownStream } from "dingtalk-stream";
 import { recordInboundSession } from "openclaw/plugin-sdk/conversation-runtime";
+import { listChatCommands } from "openclaw/plugin-sdk/native-command-registry";
 import type { OpenClawConfig } from "openclaw/plugin-sdk/core";
 import type { RuntimeEnv } from "openclaw/plugin-sdk/runtime-env";
 import { readFile, realpath, stat } from "node:fs/promises";
@@ -925,6 +926,8 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
 
   const memberDirectory = new DingTalkMemberDirectory({ log: logger });
   const enabledSkills = config.plugins?.entries?.["luke-openai-image"]?.enabled === true ? ["imagen"] : [];
+  const controlCommands = new Set(listChatCommands().filter((command) => command.key !== "skill")
+    .flatMap((command) => command.textAliases ?? []).map((alias) => alias.toLowerCase()));
   const hermesTarget = process.env.R2_DINGTALK_HERMES_CONTAINER;
   const hermesReply = hermesTarget ? createHermesDingTalkReply(hermesTarget) : undefined;
   if (hermesReply) logger.log("DingTalk conversational replies use Hermes");
@@ -1129,6 +1132,7 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
           disableBlockStreaming: true,
           suppressDefaultToolProgressMessages: true,
           suppressToolErrorWarnings: true,
+          skillFilter: enabledSkills,
         },
       });
 
@@ -1292,6 +1296,16 @@ export function monitorDingTalkProvider(options: MonitorOptions): MonitorResult 
             ? `chat:${request.data.openConversationId ?? request.data.conversationId}`
             : request.data.senderStaffId;
           await sendTextMessage(target, `@${request.data.senderNick} 授权申请已被管理员拒绝。`, { account });
+        }
+        return;
+      }
+
+      if (/^\/[a-z0-9]/i.test(commandText) && !selectSkill(commandText, enabledSkills) &&
+          !controlCommands.has(commandText.split(/\s+/, 1)[0].toLowerCase())) {
+        if (!isGroup || checkBotMentioned(data)) {
+          await createReplyDispatcher(data).deliver({
+            text: "<dingtalk_final>钉钉没有启用这个命令或技能。</dingtalk_final>",
+          }, { kind: "final" });
         }
         return;
       }
