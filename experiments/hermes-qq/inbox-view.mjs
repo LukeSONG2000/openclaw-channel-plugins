@@ -39,8 +39,8 @@ function excerpt(body, maxChars = 140, jsonLimit = 180) {
   return chars.join('');
 }
 
-export function makeGroupQuoteReader(db, groupId) {
-  const select = db.prepare(`
+function prepareQuoteLookup(db) {
+  return db.prepare(`
     SELECT q.quoted_text AS pushed_text, q.quoted_attachments AS pushed_attachments,
            source.message_id AS source_id, source.body AS source_text, source.attachment_count AS source_attachments
     FROM events AS current
@@ -60,6 +60,10 @@ export function makeGroupQuoteReader(db, groupId) {
     ))
     WHERE current.group_id = ? AND current.message_id = ? AND q.quoted_index IS NOT NULL
   `);
+}
+
+export function makeGroupQuoteReader(db, groupId) {
+  const select = prepareQuoteLookup(db);
   return messageId => {
     const row = select.get(groupId, messageId);
     if (!row) return;
@@ -70,6 +74,33 @@ export function makeGroupQuoteReader(db, groupId) {
       ...(text ? { text } : {}),
       ...(attachmentCount ? { attachmentCount } : {}),
     };
+  };
+}
+
+export function makeGroupImageReader(db, groupId) {
+  const quote = prepareQuoteLookup(db);
+  const select = db.prepare(`
+    SELECT locator FROM event_images JOIN group_binding USING (group_id)
+    WHERE group_id = ? AND message_id = ? AND origin = ? ORDER BY position
+  `);
+  const list = (id, origin) => select.all(groupId, id, origin).map(row => row.locator);
+  return messageId => {
+    const current = list(messageId, 'current');
+    let quoted = list(messageId, 'quote');
+    if (!quoted.length) {
+      const source = quote.get(groupId, messageId)?.source_id;
+      if (source) quoted = list(source, 'current');
+    }
+    const unique = new Set();
+    const images = [];
+    for (let i = 0; i < Math.max(current.length, quoted.length) && images.length < 2; i++) {
+      for (const [origin, locator] of [['current', current[i]], ['quote', quoted[i]]]) {
+        if (!locator || unique.has(locator) || images.length >= 2) continue;
+        unique.add(locator);
+        images.push({ origin, locator });
+      }
+    }
+    return images;
   };
 }
 

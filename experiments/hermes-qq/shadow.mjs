@@ -24,12 +24,12 @@ async function assertTools() {
   return enabled;
 }
 
-async function readSample() {
+async function readSample(maxBytes) {
   let bytes = 0;
   const chunks = [];
   for await (const chunk of process.stdin) {
     bytes += chunk.length;
-    if (bytes > 48_000) throw new Error('sample exceeds its size limit');
+    if (bytes > maxBytes) throw new Error('sample exceeds its size limit');
     chunks.push(chunk);
   }
   return JSON.parse(Buffer.concat(chunks).toString('utf8'));
@@ -58,7 +58,7 @@ async function main(mode) {
   }
   const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window'];
   if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
-  const sample = await readSample();
+  const sample = await readSample(mode === 'trial-plan' ? 6_000_000 : 48_000);
   const pilot = hermesPilot({ fast: runs });
   if (mode === 'trial-start') {
     console.log(JSON.stringify(await pilot.startWork(sample.decision)));
@@ -78,7 +78,7 @@ async function main(mode) {
   }
   if (sample.events.length !== 1) throw new Error('expected one source event');
   const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : [],
-    Array.isArray(sample.unread) ? sample.unread.slice(-12) : []);
+    Array.isArray(sample.unread) ? sample.unread.slice(-12) : [], mode === 'trial-plan' ? sample.images : []);
   console.log(JSON.stringify(mode === 'trial-plan' ? decision
     : { status: 'completed', route: decision.kind === 'work-intent' ? 'work' : decision.kind }));
 }

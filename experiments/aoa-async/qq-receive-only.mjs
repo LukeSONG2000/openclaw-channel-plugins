@@ -3,6 +3,7 @@ import { mkdirSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readQqAppSecret } from './qq-credential.mjs';
+import { qqImageLocators } from './qq-image-source.mjs';
 
 const day = 86_400_000;
 const groupEvents = new Set(['GROUP_MESSAGE_CREATE', 'GROUP_AT_MESSAGE_CREATE']);
@@ -51,6 +52,12 @@ function migrate(db) {
       FOREIGN KEY (group_id, message_id) REFERENCES events(group_id, message_id) ON DELETE CASCADE
     );
     CREATE INDEX IF NOT EXISTS event_quotes_by_index ON event_quotes(group_id, message_index);
+    CREATE TABLE IF NOT EXISTS event_images (
+      group_id TEXT NOT NULL, message_id TEXT NOT NULL, origin TEXT NOT NULL,
+      position INTEGER NOT NULL, locator TEXT NOT NULL,
+      PRIMARY KEY (group_id, message_id, origin, position),
+      FOREIGN KEY (group_id, message_id) REFERENCES events(group_id, message_id) ON DELETE CASCADE
+    );
   `);
 }
 
@@ -63,6 +70,7 @@ export function inbox(db, { mode = 'bound-group', challenge, now = Date.now }) {
   const bind = db.prepare('INSERT OR IGNORE INTO group_binding VALUES (1, ?)');
   const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
   const insertQuote = db.prepare('INSERT INTO event_quotes VALUES (?, ?, ?, ?, ?, ?)');
+  const insertImage = db.prepare('INSERT INTO event_images VALUES (?, ?, ?, ?, ?)');
   const expire = db.prepare('DELETE FROM events WHERE received_at < ?');
   const trim = db.prepare(`DELETE FROM events WHERE rowid IN (
     SELECT rowid FROM events WHERE group_id = ? ORDER BY received_at DESC, rowid DESC LIMIT -1 OFFSET 2000
@@ -93,6 +101,12 @@ export function inbox(db, { mode = 'bound-group', challenge, now = Date.now }) {
           insertQuote.run(msg.groupOpenid, msg.messageId, messageIndex, quotedIndex,
             typeof pushedQuote?.rawContent === 'string' ? pushedQuote.rawContent.slice(0, 4096) : '',
             Array.isArray(pushedQuote?.attachments) ? pushedQuote.attachments.length : 0);
+        }
+        if (result.changes && (msg.attachments?.length || pushedQuote?.attachments?.length) &&
+          binding.get()?.group_id === msg.groupOpenid) {
+          for (const [origin, attachments] of [['current', msg.attachments], ['quote', pushedQuote?.attachments]]) {
+            qqImageLocators(attachments).forEach((url, position) => insertImage.run(msg.groupOpenid, msg.messageId, origin, position, url));
+          }
         }
       } catch (error) {
         db.exec('ROLLBACK TO group_event');

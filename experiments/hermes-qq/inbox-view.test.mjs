@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
-import { makeGroupQuoteReader } from './inbox-view.mjs';
+import { makeGroupImageReader, makeGroupQuoteReader } from './inbox-view.mjs';
 
 test('quotes are scoped to a group, preserve receive order and do not require the original event', t => {
   const db = new DatabaseSync(':memory:');
@@ -37,4 +37,33 @@ test('quotes are scoped to a group, preserve receive order and do not require th
   now += 86_400_001;
   receiver.prune();
   assert.equal(db.prepare('SELECT count(*) AS n FROM event_quotes').get().n, 0);
+});
+
+test('direct and quoted image sources use the verified group and expire with their events', t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  let now = 12_000;
+  const receiver = inbox(db, { mode: 'bound-group', challenge: 'bind-test', now: () => now });
+  const binding = { kind: 'group', groupOpenid: 'test', senderId: 'speaker',
+    rawEventType: 'GROUP_AT_MESSAGE_CREATE', content: 'bind-test', messageId: 'handshake' };
+  receiver.record(binding);
+  const all = inbox(db, { mode: 'all-groups', now: () => now });
+  const url = name => 'https://gchat.qpic.cn/' + name;
+  const attachments = name => [{ content_type: 'image/png', url: url(name) }];
+  const add = (id, options, quote) => all.record({
+    ...binding, rawEventType: 'GROUP_MESSAGE_CREATE', messageId: id, ...options,
+  }, quote);
+  add('separate', { groupOpenid: 'other', msgIdx: 'other-idx', attachments: attachments('outside') });
+  add('original', { msgIdx: 'image-idx', attachments: attachments('original') });
+  add('reply', { refMsgIdx: 'image-idx', attachments: attachments('reply') });
+  add('cross-group', { refMsgIdx: 'other-idx' });
+  add('pushed', { refMsgIdx: 'push-only' }, { refKey: 'push-only', source: 'msg_elements', attachments: attachments('pushed') });
+  assert.equal(db.prepare("SELECT count(*) AS n FROM event_images WHERE group_id='other'").get().n, 0);
+  const read = makeGroupImageReader(db, 'test');
+  assert.deepEqual(read('reply'), [{ origin: 'current', locator: url('reply') }, { origin: 'quote', locator: url('original') }]);
+  assert.deepEqual(read('cross-group'), []);
+  assert.deepEqual(read('pushed'), [{ origin: 'quote', locator: url('pushed') }]);
+  now += 86_400_001;
+  all.prune();
+  assert.equal(db.prepare('SELECT count(*) AS n FROM event_images').get().n, 0);
 });

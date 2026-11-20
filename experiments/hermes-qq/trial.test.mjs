@@ -79,6 +79,28 @@ test('ambient messages can use a quote but only the current window supplies repl
   assert.equal(input.context[0].target, undefined);
 });
 
+test('losing the image path does not lose the mention or substitute a picture', async t => {
+  const calls = [];
+  const data = setup(t, {
+    readImages: async id => { calls.push(id); throw new Error('temporarily unavailable'); },
+    plan: async (event, _context, _unread, images) => {
+      assert.deepEqual(images, []);
+      assert.equal(event.quote.attachmentCount, 1);
+      return { kind: 'chat', source: event, text: 'I can see the quotation, but not the image.' };
+    },
+    send: async () => ({ id: 'accepted' }),
+  });
+  data.put('request', '<@LukeBot> What is shown?', { refMsgIdx: 'missing-original' }, {
+    refKey: 'missing-original', source: 'msg_elements', attachments: [{ contentType: 'image/png' }],
+  });
+  data.put('other-group', '<@LukeBot> read this image', { groupOpenid: 'other' });
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(calls, ['request']);
+  assert.deepEqual(data.status(), ['accepted']);
+});
+
 test('trial input preserves natural chat and strips only transport mentions and the optional old prefix', () => {
   assert.equal(trialInput('<@!TOKEN> [Hermes] hi'), 'hi');
   assert.equal(trialInput('@Luke [Hermes] hi'), 'hi');

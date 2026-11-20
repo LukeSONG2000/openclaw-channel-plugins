@@ -4,11 +4,12 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+import { makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
 import { backgroundRequest } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand } from './kanban.mjs';
 import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
+import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
 const maxAge = 180_000;
@@ -94,7 +95,8 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
 
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
-  always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow, log = () => {},
+  always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow,
+  readImages, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -144,7 +146,11 @@ export function makeTrial({
     try {
       const unread = turnState.unread(event.at, event.messageId).slice(-12).map(withQuote);
       const recent = contextAt(event.at, event.messageId, null, turnState.isRead);
-      const decision = await plan(event, recent.messages, unread);
+      let images = [];
+      if (readImages) {
+        try { images = await readImages(event.messageId); } catch { log('media_read_failed'); }
+      }
+      const decision = await plan(event, recent.messages, unread, images);
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
       const related = new Set(Array.isArray(decision.consumedMessageIds) ? decision.consumedMessageIds : []);
       const relatedRows = unread.filter(row => related.has(row.messageId));
@@ -236,6 +242,7 @@ export function makeTrial({
         const event = withQuote({
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
+          ...(row.attachment_count ? { attachmentCount: Math.min(20, row.attachment_count) } : {}),
         });
         turnState.mention(event.at);
         turnState.markRead([event], now());
@@ -291,6 +298,7 @@ async function main() {
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId: account, appSecret, logger });
+  const imagesFor = makeGroupImageReader(inbox, groupId);
   const stop = new AbortController();
   process.once('SIGTERM', () => stop.abort());
   process.once('SIGINT', () => stop.abort());
@@ -316,7 +324,8 @@ async function main() {
     () => console.log('qq_trial_mention_plain_fallback')));
   const trial = makeTrial({
     inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
-    plan: (event, context, unread) => callRuntime(container, 'trial-plan', { events: [event], context, unread }),
+    plan: (event, context, unread, images) => callRuntime(container, 'trial-plan', { events: [event], context, unread, images }),
+    readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
     startWork: decision => callRuntime(worker, 'trial-start', { decision }),
     finish: job => callRuntime(worker, 'trial-settle', { job }),
     queueWork: bridge?.enqueue,

@@ -6,6 +6,26 @@ import { boundSample } from './bound-sample.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
 import { backgroundRequest, hermesPilot, hermesRuns } from './pilot.mjs';
 
+test('any mention can use native image blocks and no CDN locator enters the request', async () => {
+  const picture = 'data:image/png;base64,iVBORw0KGgo=';
+  const event = { channel: 'qqbot', account: 'fixture', groupId: 'synthetic', messageId: 'quote',
+    senderId: 'speaker', mentioned: true, text: 'What is shown?', quote: { availability: 'received', attachmentCount: 1 } };
+  const pilot = hermesPilot({ fast: {
+    async start({ input }) {
+      assert.equal(input[0].role, 'user');
+      assert.match(input[0].content[0].text, /"visibleImages":1/);
+      assert.deepEqual(input[0].content.slice(1), [
+        { type: 'text', text: 'Image from the cited message:' },
+        { type: 'image_url', image_url: { url: picture } },
+      ]);
+      return 'run_image';
+    },
+    async wait() { return '{"route":"chat","text":"A cup."}'; },
+  } });
+  assert.equal((await pilot.planMention(event, [], [], [{ origin: 'quote', dataUrl: picture }])).text, 'A cup.');
+  await assert.rejects(pilot.planMention(event, [], [], [{ origin: 'quote', dataUrl: 'https://cdn.example.test/url' }]),
+    /invalid image for Hermes/);
+});
 const event = (messageId, text, overrides = {}) => ({
   channel: 'qqbot', account: 'test-bot', groupId: 'group-one', senderId: 'speaker-one',
   messageId, text, mentioned: false, ...overrides,
