@@ -4,6 +4,7 @@ import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
 import { hermesPilot } from './pilot.mjs';
+import { groupPolicy } from './group-policy.mjs';
 import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
 import { qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
@@ -32,6 +33,42 @@ function setup(t, handlers) {
     status: () => ledger.prepare('SELECT state FROM trial_receipts ORDER BY rowid').all().map(row => row.state),
   };
 }
+
+test('activating named groups never replies to backlog and isolates free and mention-only rooms', async t => {
+  const db = new DatabaseSync(':memory:');
+  const ledger = new DatabaseSync(':memory:');
+  t.after(() => { db.close(); ledger.close(); });
+  let time = clock;
+  const intake = inbox(db, { mode: 'all-groups', now: () => time });
+  const put = (groupOpenid, messageId, mention = false) => intake.record({
+    kind: 'group', groupOpenid, senderId, messageId, content: messageId,
+    rawEventType: mention ? 'GROUP_AT_MESSAGE_CREATE' : 'GROUP_MESSAGE_CREATE',
+  });
+  put('verified', 'old mention', true);
+  put('verified', 'old ambient');
+  const modeFor = groupPolicy({ verifiedNames: { verified: 'Example Room' }, namedModes: { 'Example Room': 'free' } }, groupId);
+  ++time;
+  const start = time;
+  const windows = [];
+  const delivered = [];
+  const trials = ['verified', 'unknown'].map(groupId => makeTrial({
+    inbox: db, ledger, account: 'luke', groupId, start, until: Infinity, always: true,
+    now: () => time, pollIntervalsMs: [100],
+    planWindow: modeFor(groupId) === 'free' ? async events => { windows.push(events.map(e => e.text)); return []; } : undefined,
+    sendWindow: async () => assert.fail('a silent window must not send'),
+    plan: async event => ({ kind: 'chat', source: event, text: 'ack' }),
+    send: async event => { delivered.push([event.groupId, event.messageId]); return { id: 'receipt' }; },
+  }));
+  ++time;
+  put('verified', 'new ambient');
+  put('unknown', 'ignored ambient');
+  put('unknown', 'new mention', true);
+  time += 100;
+  for (const trial of trials) trial.tick();
+  await Promise.all(trials.map(trial => trial.drain()));
+  assert.deepEqual(windows, [['new ambient']]);
+  assert.deepEqual(delivered, [['unknown', 'new mention']]);
+});
 
 test('chat replies survive a memory outage without writing window context or bot replies', async t => {
   const observed = [];

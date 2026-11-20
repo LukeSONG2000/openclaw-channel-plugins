@@ -338,7 +338,7 @@ async function main() {
   const sendDirect = (event, content) => safeSend(() => bot.send({ target: {
     scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
   }, msgType: 0, content }));
-  const directWork = always && process.env.LUKE_QQ_DIRECT === '1' ? makeKanbanBridge({
+  const directWork = always && process.env.LUKE_QQ_DIRECT === '1' && process.env.LUKE_QQ_DIRECT_WORK === '1' ? makeKanbanBridge({
     db: ledger, tasks, account, direct: true, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
   }) : null;
   const directAnchor = directWork ? inbox.prepare('SELECT received_at FROM direct_events WHERE sender_id=? AND message_id=?') : null;
@@ -367,22 +367,22 @@ async function main() {
     const bridge = always ? makeKanbanBridge({ db: ledger, tasks, account, groupId,
       onError: phase => console.error('qq_kanban_error phase=' + phase) }) : null;
     const trial = makeTrial({
-    inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
-    plan: (event, context, unread, images, preferences) =>
-      callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences }),
-    memberMemory,
-    readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
-    startWork: decision => callRuntime(worker, 'trial-start', { decision }),
-    finish: job => callRuntime(worker, 'trial-settle', { job }),
-    queueWork: bridge?.enqueue,
-    planWindow: free ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
-    sendWindow: (to, action, tail) => safeSend(() => bot.send({
-      target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId }
-        : always ? { msgId: tail.messageId } : {}) },
-      msgType: 0, content: action.text, extra: { msg_seq: always && action.mode === 'natural' ? 2 : 1 },
-    })),
-    send,
-    log: status => console.log('qq_trial_' + status),
+      inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
+      plan: (event, context, unread, images, preferences) =>
+        callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences }),
+      memberMemory,
+      readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
+      startWork: decision => callRuntime(worker, 'trial-start', { decision }),
+      finish: job => callRuntime(worker, 'trial-settle', { job }),
+      queueWork: bridge?.enqueue,
+      planWindow: free ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
+      sendWindow: (to, action, tail) => safeSend(() => bot.send({
+        target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId }
+          : always ? { msgId: tail.messageId } : {}) },
+        msgType: 0, content: action.text, extra: { msg_seq: always && action.mode === 'natural' ? 2 : 1 },
+      })),
+      send,
+      log: status => console.log('qq_trial_' + status),
     });
     return { trial, bridge, canDeliver: qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal }) };
   }

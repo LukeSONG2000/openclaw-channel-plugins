@@ -5,3 +5,4 @@
 - Work through adjacent cases: @ and ambient chat, group and DM, text and attachments, quick chat and background work. Keep authorization and data scope at trusted boundaries. A product or platform exception belongs in its adapter, not in shared behavior.
 - Validate the reported case, a different use of the same contract, and a failure or isolation case where appropriate. Record whether evidence is from source, tests, a running service, or platform delivery. A temporary mitigation needs a removal condition.
 - Keep the Luke pilot and production R2 isolated. Migrating a capability means preserving its contract and reusing its implementation where possible, not copying the old channel or changing production as part of an experiment.
+- For QQ platform contracts, start with [the capability reference](docs/qq-open-platform.md). Record newly verified behavior and its evidence level there. Keep live group identities, credentials, and chat data out of public docs.

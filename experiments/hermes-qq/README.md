@@ -46,9 +46,11 @@ All chat and work requests use the same QQ context reader. Ordinary conversation
 
 Replies to a direct @ use the QQ Markdown mention element. Only an explicit Markdown-permission rejection from the [group-send API](https://bot.q.qq.com/wiki/develop/api-v2/autogen/api/v2_groups_group_openid_messages.post.html) permits a plain-text fallback with the same reply anchor and no mention.
 
-## Always-on test group
+## Always-on test groups
 
 For a group already verified in the private inbox, an operator may replace the original binding-token argument to `trial.mjs` with `--always`. This uses the same fixed group and test bot, accepts new messages from any member of that group, and has no trial expiration or six-turn limit. Keep the existing receive-only process running: the bridge sends through the SDK but does not open another WebSocket. Initial activation treats existing history as context. Later restarts preserve the cadence and read markers; expired backlog cannot be used as a send anchor.
+
+Set `LUKE_QQ_GROUP_POLICY` to a private JSON file with `verifiedNames` (Luke group OpenID to verified QQ title) and `namedModes` (title to `free` or `default`). Verify cross-bot matches using the [QQ platform reference](../../docs/qq-open-platform.md). `free` allows window replies; `default` replies only when mentioned. The file does not grant group memory or an admin role. If the file is absent, only the original pilot group routes. Private background routing remains opt-in via `LUKE_QQ_DIRECT_WORK=1` and requires the matching chat runtime.
 
 Start both isolated Compose profiles and initialize the worker's board with `hermes kanban init` in its container. Use a single supervised bridge process (e.g. a local LaunchAgent with `KeepAlive` on macOS). Both containers are configured to restart unless stopped; the machine, Docker and the user session still have to be available. The worker receives the configured model credential but no QQ credential or private host directories. Its profile enables the native task lifecycle and `todo`, not shell or browser tools.
 

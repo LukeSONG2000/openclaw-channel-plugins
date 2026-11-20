@@ -144,7 +144,7 @@ Current local behavior:
 - Group policy is controlled by `groupPolicy`, `groupAllowFrom`, `groups.{groupOpenid}.requireMention`, `ignoreOtherMentions`, and group/custom unread history.
 - Non-mentioned group messages can be recorded as unread context instead of triggering immediate AI dispatch.
 - Mentioned or implicitly mentioned group messages can inject pending unread context into the current model prompt.
-- Raw QQ group number and raw QQ member number are not reliable event fields. Use `group_openid` and `member_openid` for policy, and maintain a separate human alias table for names such as `945739251` / `Master Luke的图书馆`.
+- Raw QQ group and member numbers are not reliable event fields. Use app-scoped `group_openid` and `member_openid` for policy. For the official group title and live receive permissions, consult the [QQ open platform capability reference](../../../../docs/qq-open-platform.md). Local display aliases are separate from platform metadata.
 
 ## Deployed Evidence Snapshot
 

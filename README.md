@@ -41,6 +41,8 @@ npm run check:dingtalk
 
 ## 自由回复开发入口
 
+涉及 QQ 接口、群名、收发权限或账号迁移时，先查 [QQ 开放平台能力手册](docs/qq-open-platform.md)。
+
 后续 Agent 开发或复用群聊自由回复时，先阅读：
 
 1. [QQ 与钉钉自由回复总览](docs/free-reply.md)：共同链路、渠道差异和复用边界。
