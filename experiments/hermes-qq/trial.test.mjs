@@ -5,12 +5,28 @@ import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
 import { hermesPilot } from './pilot.mjs';
 import { groupPolicy } from './group-policy.mjs';
-import { makeTrial, sendAmbientReply, sendMentionReply, trialInput } from './trial.mjs';
+import { makeTrial, sendAmbientReply, sendMentionReply, sendWorkImage, trialInput, workAcknowledgment } from './trial.mjs';
 import { qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
 const groupId = 'test-group';
 const senderId = 'test-author';
 const clock = 5_000;
+
+test('task hints contain no model prose; images after a hint use the second QQ reply slot', async () => {
+  assert.equal(workAcknowledgment('internal model reasoning'), workAcknowledgment('work'));
+  assert.notEqual(workAcknowledgment('image'), workAcknowledgment('work'));
+  const target = { scope: 'group', targetId: groupId, msgId: 'original' };
+  const artifact = { bytes: Buffer.from('fixture'), format: 'gif' };
+  const sent = [];
+  const bot = { async uploadMedia(options) {
+    assert.equal(options.srvSendMsg, false);
+    assert.equal(options.buffer, artifact.bytes);
+    return { file_info: 'uploaded' };
+  }, async send(options) { sent.push(options); return { id: 'sent' }; } };
+  await sendWorkImage(bot, target, artifact, 2);
+  await sendWorkImage(bot, target, artifact, 2, () => false);
+  assert.deepEqual(sent, [{ target, msgType: 7, media: { file_info: 'uploaded' }, extra: { msg_seq: 2 } }]);
+});
 
 test('ambient native mention targets the selected author rather than the last speaker or a mention inside the message', async () => {
   const bot = { send: async payload => payload };

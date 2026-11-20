@@ -115,6 +115,10 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
     key TEXT PRIMARY KEY REFERENCES kanban_receipts(key) ON DELETE CASCADE,
     images TEXT NOT NULL, valid_until INTEGER NOT NULL
   );
+  CREATE TABLE IF NOT EXISTS kanban_acknowledgments (
+    key TEXT PRIMARY KEY REFERENCES kanban_receipts(key) ON DELETE CASCADE,
+    kind TEXT NOT NULL, attempted INTEGER NOT NULL DEFAULT 0
+  );
   PRAGMA secure_delete = ON;`);
   const insert = db.prepare('INSERT OR IGNORE INTO kanban_receipts (key, tenant, source, input) VALUES (?, ?, ?, ?)');
   const pending = db.prepare(`SELECT * FROM kanban_receipts WHERE tenant = ? AND state IN ('pending', 'watching')
@@ -126,6 +130,9 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
   const stagedMedia = db.prepare('SELECT images, valid_until FROM kanban_input_media WHERE key = ?');
   const dropMedia = db.prepare('DELETE FROM kanban_input_media WHERE key = ?');
   const expire = db.prepare("UPDATE kanban_receipts SET state = 'withheld', input = NULL WHERE key = ? AND state = 'pending'");
+  const addAcknowledgment = db.prepare('INSERT INTO kanban_acknowledgments(key,kind) VALUES (?,?)');
+  const acknowledgment = db.prepare('SELECT kind,attempted FROM kanban_acknowledgments WHERE key = ?');
+  const claimAcknowledgment = db.prepare('UPDATE kanban_acknowledgments SET attempted = 1 WHERE key = ? AND attempted = 0');
   let sweeping = false;
 
   function transaction(action) {
@@ -155,11 +162,12 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
       const inserted = transaction(() => {
         const created = insert.run(key, tenant, JSON.stringify(source), request.input).changes === 1;
         if (created && media.length) stageMedia.run(key, JSON.stringify(media), now() + 24 * 60 * 60_000);
+        if (created) addAcknowledgment.run(key, ['image', 'research'].includes(decision.acknowledgment) ? decision.acknowledgment : 'work');
         return created;
       });
       return { key, inserted };
     },
-    async sweep({ canDeliver, deliver }) {
+    async sweep({ canDeliver, deliver, canAcknowledge, acknowledge }) {
       if (typeof canDeliver !== 'function' || typeof deliver !== 'function') throw new Error('explicit receipt delivery required');
       if (sweeping) return;
       sweeping = true;
@@ -182,8 +190,16 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
               continue;
             }
             const card = await tasks.read({ key, tenant: taskTenant, id });
+            const ack = acknowledgment.get(key);
             if (card.status === 'archived') { move.run('withheld', key, 'watching'); await cleanup(key); continue; }
-            if (card.status !== 'done') continue;
+            if (card.status !== 'done') {
+              if (ack && !ack.attempted && ['ready', 'running'].includes(card.status) && acknowledge &&
+                  await canAcknowledge?.(source) && claimAcknowledgment.run(key).changes) {
+                // Persist the attempt before sending; a lost receipt never causes a duplicate hint.
+                try { await acknowledge({ source, kind: ack.kind }); } catch { onError('acknowledge'); }
+              }
+              continue;
+            }
             const artifact = await readArtifact?.(key, source);
             if (artifact?.pending) continue;
             const text = artifact?.bytes ? '' : artifact?.note || (typeof card.result === 'string' ? card.result.trim() : '');
@@ -196,7 +212,8 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
             if (available === 'expired') { move.run('retained', key, 'watching'); dropMedia.run(key); continue; }
             if (available !== true || !move.run('sending', key, 'watching').changes) continue;
             // Do not replay a post whose receipt was lost, including on process restart.
-            try { move.run((await deliver({ source, text, receiptKey: key, ...(artifact?.bytes ? { artifact } : {}) }))?.id ? 'accepted' : 'uncertain', key, 'sending'); }
+            try { move.run((await deliver({ source, text, receiptKey: key, ...(ack?.attempted ? { seq: 2 } : {}),
+              ...(artifact?.bytes ? { artifact } : {}) }))?.id ? 'accepted' : 'uncertain', key, 'sending'); }
             catch { move.run('uncertain', key, 'sending'); }
             finally { await cleanup(key); }
           } catch { onError(id ? 'read' : 'create'); }

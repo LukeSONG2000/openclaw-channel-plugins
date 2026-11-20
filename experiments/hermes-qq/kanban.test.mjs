@@ -124,6 +124,63 @@ test('a completed artifact replaces model text and is delivered once to the boun
   } finally { db.close(); }
 });
 
+test('a ready task gets one acknowledgment across restart, then keeps a distinct slot for the result', async t => {
+  const source = event();
+  const open = withLedger(t);
+  const artifact = { bytes: Buffer.from('fixture'), format: 'gif' };
+  let status = 'pending';
+  const tasks = { create: async () => 't_12345678', read: async () => ({ status }) };
+  const bridge = db => makeKanbanBridge({ db, tasks, account: source.account, groupId: source.groupId,
+    readArtifact: async () => artifact });
+  const sent = [];
+  const transport = { canDeliver: () => true, canAcknowledge: () => true,
+    acknowledge: async item => { sent.push(item); throw new Error('lost send receipt'); },
+    deliver: async item => { sent.push(item); return { id: 'sent' }; } };
+  let db = open();
+  const request = { ...decision(source), acknowledgment: 'image' };
+  bridge(db).enqueue(request);
+  await bridge(db).sweep(transport);
+  status = 'blocked';
+  await bridge(db).sweep(transport);
+  assert.deepEqual(sent, []);
+  status = 'ready';
+  await bridge(db).sweep(transport);
+  db.close();
+  db = open();
+  try {
+    assert.equal(bridge(db).enqueue(request).inserted, false);
+    status = 'running';
+    await bridge(db).sweep(transport);
+    status = 'done';
+    await bridge(db).sweep(transport);
+    assert.deepEqual(sent, [
+      { source: request.source, kind: 'image' },
+      { source: request.source, receiptKey: request.request.requestKey, text: '', artifact, seq: 2 },
+    ]);
+  } finally { db.close(); }
+});
+
+test('a quick result or stale anchor does not emit a progress message or use its slot', async () => {
+  for (const expireHint of [false, true]) {
+    const db = new DatabaseSync(':memory:');
+    try {
+      const source = event();
+      let status = expireHint ? 'running' : 'done';
+      const queue = makeKanbanBridge({ db, account: source.account, groupId: source.groupId,
+        tasks: { create: async () => 't_12345678', read: async () => ({ status, result: 'done' }) } });
+      const transport = { canDeliver: () => true, canAcknowledge: () => !expireHint,
+        acknowledge: () => assert.fail('unexpected progress message'),
+        deliver: item => { assert.equal(item.seq, undefined); return { id: 'done' }; } };
+      queue.enqueue({ ...decision(source), acknowledgment: 'do not send model prose' });
+      await queue.sweep(transport);
+      await queue.sweep(transport);
+      status = 'done';
+      await queue.sweep(transport);
+      assert.equal(state(db), 'accepted');
+    } finally { db.close(); }
+  }
+});
+
 test('native image attachments survive a restart without opening an incomplete card or uploading twice', async t => {
   const open = withLedger(t);
   const source = event('media-task');

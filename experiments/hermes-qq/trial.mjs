@@ -60,7 +60,7 @@ function takeText(content, budget) {
   return [content.slice(0, cut), content.slice(cut)];
 }
 
-export async function sendMentionReply(bot, event, content, ApiError, onDowngrade = () => {}) {
+export async function sendMentionReply(bot, event, content, ApiError, onDowngrade = () => {}, firstSeq = 1) {
   if (!/^[a-z0-9_-]{1,128}$/i.test(event.senderId)) throw new Error('invalid QQ mention target');
   const target = { scope: 'group', targetId: event.groupId, msgId: event.messageId };
   const targets = new Map(Array.from((event.text ?? '').matchAll(rawMention), ([, id]) => [id.toLowerCase(), id]));
@@ -69,10 +69,10 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
     return targetId ? mentionTag(targetId) : memberLabel;
   });
   let receipt;
-  let seq = 1;
+  let seq = firstSeq;
   let markdownEnabled = true;
   while (remaining.trim()) {
-    const prefix = markdownEnabled && seq === 1 ? mentionTag(event.senderId) + ' ' : '';
+    const prefix = markdownEnabled && seq === firstSeq ? mentionTag(event.senderId) + ' ' : '';
     const markdown = markdownEnabled && (prefix !== '' || remaining.includes('<qqbot-at-user id="'));
     const [part, tail] = takeText(remaining, markdown ? mentionMarkdownBudget - Buffer.byteLength(prefix) : plainTextBudget);
     const extra = { msg_seq: seq };
@@ -95,6 +95,25 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
     remaining = tail;
   }
   return receipt;
+}
+
+const taskHint = {
+  image: '我去画，画好了发你。',
+  research: '我去查一下，整理好了回你。',
+  work: '这得花点时间，我先去做。',
+};
+
+export function workAcknowledgment(kind) {
+  return Object.hasOwn(taskHint, kind) ? taskHint[kind] : taskHint.work;
+}
+
+export async function sendWorkImage(bot, target, artifact, seq, canSend = () => true) {
+  if (!seq) return (await bot.sendImage(target, { buffer: artifact.bytes, fileName: 'imagen.' + artifact.format })).message;
+  // sendImage allocates its own sequence; reserve the slot explicitly after a hint.
+  const upload = await bot.uploadMedia({ target, fileType: 1, buffer: artifact.bytes,
+    fileName: 'imagen.' + artifact.format, srvSendMsg: false });
+  if (!upload?.file_info || !await canSend()) return;
+  return bot.send({ target, msgType: 7, media: { file_info: upload.file_info }, extra: { msg_seq: seq } });
 }
 
 export function sendAmbientReply({ bot, sendMention, always }, { groupId, action, tail, anchor }) {
@@ -367,11 +386,15 @@ async function main() {
       throw error;
     }
   };
-  const send = (event, content) => safeSend(() => sendMentionReply(bot, event, content, ApiError,
-    () => console.log('qq_trial_mention_plain_fallback')));
-  const sendDirect = (event, content) => safeSend(() => bot.send({ target: {
+  const send = (event, content, seq) => safeSend(() => sendMentionReply(bot, event, content, ApiError,
+    () => console.log('qq_trial_mention_plain_fallback'), seq));
+  const sendDirect = (event, content, seq) => safeSend(() => bot.send({ target: {
     scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
-  }, msgType: 0, content }));
+  }, msgType: 0, content, ...(seq ? { extra: { msg_seq: seq } } : {}) }));
+  const acknowledge = ({ source, kind }) => {
+    const text = workAcknowledgment(kind);
+    return source.chatType === 'direct' ? sendDirect(source, text, 1) : send(source, text, 1);
+  };
   const bindings = withImagen ? (() => {
     const directory = join(trialDir, 'artifacts');
     mkdirSync(directory, { recursive: true, mode: 0o700 });
@@ -388,18 +411,20 @@ async function main() {
       onTerminal: key => artifacts.lookup(key)?.status === 'ready' ? artifacts.remove(key) : undefined,
     };
   })() : {};
-  const sendArtifact = async (source, artifact) => {
+  const sendArtifact = (source, artifact, seq, canSend) => {
     const target = source.chatType === 'direct'
       ? { scope: 'c2c', targetId: source.senderId, msgId: source.messageId }
       : { scope: 'group', targetId: source.groupId, msgId: source.messageId };
-    const result = await safeSend(() => bot.sendImage(target, { buffer: artifact.bytes,
-      fileName: 'imagen.' + artifact.format }));
-    return result.message;
+    return safeSend(() => sendWorkImage(bot, target, artifact, seq, canSend));
   };
   const directWork = always && process.env.LUKE_QQ_DIRECT === '1' && process.env.LUKE_QQ_DIRECT_WORK === '1' ? makeKanbanBridge({
     db: ledger, tasks, account, direct: true, ...bindings, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
   }) : null;
   const directAnchor = directWork ? inbox.prepare('SELECT received_at FROM direct_events WHERE sender_id=? AND message_id=?') : null;
+  const canDeliverDirect = source => stop.signal.aborted ? false :
+    canUseQqReplyAnchor(directAnchor.get(source.senderId, source.messageId)?.received_at, Date.now()) || 'expired';
+  const freshGroupMention = inbox.prepare('SELECT sender_is_bot, received_at FROM events WHERE group_id=? AND message_id=?');
+  const freshEnough = at => Number.isSafeInteger(at) && Date.now() - at >= 0 && Date.now() - at < 60_000;
   const directImages = withImagen ? makeDirectImageReader(inbox) : null;
   const direct = always && process.env.LUKE_QQ_DIRECT === '1' ? makeDirectChat({
     inbox, ledger, account, start, signal: stop.signal,
@@ -479,16 +504,25 @@ async function main() {
         nextSweep = Date.now() + 5_000;
         const receipts = [...groups.values()].map(({ bridge, canDeliver }) => bridge.sweep({
           canDeliver,
-          deliver: async ({ source, text, artifact }) => {
-            const receipt = artifact ? await sendArtifact(source, artifact) : await send(source, text);
+          canAcknowledge: source => {
+            const row = freshGroupMention.get(source.groupId, source.messageId);
+            return canDeliver(source) === true && row?.sender_is_bot === 0 && freshEnough(row.received_at);
+          },
+          acknowledge,
+          deliver: async ({ source, text, artifact, seq }) => {
+            const receipt = artifact ? await sendArtifact(source, artifact, seq, () => canDeliver(source) === true)
+              : await send(source, text, seq);
             console.log('qq_kanban_' + (receipt?.id ? 'accepted' : 'uncertain'));
             return receipt;
           },
         }));
         if (directWork) receipts.push(directWork.sweep({
-          canDeliver: source => stop.signal.aborted ? false :
-            canUseQqReplyAnchor(directAnchor.get(source.senderId, source.messageId)?.received_at, Date.now()) || 'expired',
-          deliver: ({ source, text, artifact }) => artifact ? sendArtifact(source, artifact) : sendDirect(source, text),
+          canDeliver: canDeliverDirect,
+          canAcknowledge: source => canDeliverDirect(source) === true &&
+            freshEnough(directAnchor.get(source.senderId, source.messageId)?.received_at),
+          acknowledge,
+          deliver: ({ source, text, artifact, seq }) => artifact
+            ? sendArtifact(source, artifact, seq, () => canDeliverDirect(source) === true) : sendDirect(source, text, seq),
         }));
         if (bindings.artifacts && Date.now() >= nextPrune) {
           nextPrune = Date.now() + 3_600_000;
