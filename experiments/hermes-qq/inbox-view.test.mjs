@@ -1,0 +1,40 @@
+import assert from 'node:assert/strict';
+import { DatabaseSync } from 'node:sqlite';
+import { test } from 'node:test';
+import { inbox } from '../aoa-async/qq-receive-only.mjs';
+import { makeGroupQuoteReader } from './inbox-view.mjs';
+
+test('quotes are scoped to a group, preserve receive order and do not require the original event', t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  let now = 10_000;
+  const receiver = inbox(db, { mode: 'all-groups', now: () => now });
+  const put = (messageId, changes, quote) => receiver.record({
+    kind: 'group', groupOpenid: 'test', senderId: 'speaker', rawEventType: 'GROUP_MESSAGE_CREATE',
+    messageId, ...changes,
+  }, quote);
+  put('other-source', { groupOpenid: 'other', msgIdx: 'same-index', content: 'Never disclose this' });
+  put('local-source', { msgIdx: 'same-index', content: 'Our source text' });
+  put('cited', { refMsgIdx: 'same-index' });
+  put('outside', { refMsgIdx: 'other-source' });
+  put('embedded', { refMsgIdx: 'not-in-inbox' }, {
+    refKey: 'not-in-inbox', source: 'msg_elements', rawContent: 'Pushed with the reply',
+    attachments: [{ contentType: 'image/png', url: 'https://example.test/private' }],
+  });
+  put('wrong-push', { refMsgIdx: 'missing' }, { refKey: 'wrong', source: 'msg_elements', rawContent: 'Wrong quote' });
+  put('future-quote', { refMsgIdx: 'late-idx' });
+  put('late-source', { msgIdx: 'late-idx', content: 'Received after its quote' });
+  put('image-only-ref', { refMsgIdx: 'only-image' }, {
+    refKey: 'only-image', source: 'msg_elements', attachments: [{ contentType: 'image/png' }],
+  });
+  const quote = makeGroupQuoteReader(db, 'test');
+  assert.deepEqual(quote('cited'), { availability: 'received', text: 'Our source text' });
+  assert.deepEqual(quote('embedded'), { availability: 'received', text: 'Pushed with the reply', attachmentCount: 1 });
+  for (const id of ['outside', 'wrong-push', 'future-quote']) assert.deepEqual(quote(id), { availability: 'unavailable' });
+  assert.deepEqual(quote('image-only-ref'), { availability: 'received', attachmentCount: 1 });
+  assert.equal(quote('other-source'), undefined);
+  assert.equal(quote('local-source'), undefined);
+  now += 86_400_001;
+  receiver.prune();
+  assert.equal(db.prepare('SELECT count(*) AS n FROM event_quotes').get().n, 0);
+});

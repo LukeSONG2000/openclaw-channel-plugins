@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { readGroupContext } from './inbox-view.mjs';
+import { makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
 import { backgroundRequest } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand } from './kanban.mjs';
@@ -109,6 +109,11 @@ export function makeTrial({
     WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=1
     ORDER BY received_at DESC, rowid DESC LIMIT 1`);
   const turnState = makeGroupTurnState({ inbox, ledger, account, groupId, start, resume: always, intervals: pollIntervalsMs });
+  const quoteFor = makeGroupQuoteReader(inbox, groupId);
+  const withQuote = row => {
+    const quote = quoteFor(row.messageId);
+    return quote ? { ...row, quote } : row;
+  };
   const { startedAt } = turnState;
   const allowedSender = always ? null : senderId;
   const active = new Set();
@@ -124,7 +129,7 @@ export function makeTrial({
     active.add(task);
   }
   function contextAt(through, beforeMessageId, hours = null, include) {
-    return readGroupContext(inbox, { groupId, through, beforeMessageId, hours, include });
+    return readGroupContext(inbox, { groupId, through, beforeMessageId, hours, include, quoteFor });
   }
   async function deliver(event, result) {
     if (!sameSource(event, result?.source) || typeof result?.text !== 'string') return record(event, 'withheld');
@@ -137,7 +142,7 @@ export function makeTrial({
   }
   async function route(event) {
     try {
-      const unread = turnState.unread(event.at, event.messageId).slice(-12);
+      const unread = turnState.unread(event.at, event.messageId).slice(-12).map(withQuote);
       const recent = contextAt(event.at, event.messageId, null, turnState.isRead);
       const decision = await plan(event, recent.messages, unread);
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
@@ -155,7 +160,7 @@ export function makeTrial({
           const context = decision.kind === 'work-intent' && decision.contextHours !== null
             ? contextAt(event.at, event.messageId, decision.contextHours)
             : { messages: [...recent.messages, ...relatedRows.map(row => ({
-                speaker: row.senderId, text: row.text.slice(0, 320), at: row.at,
+                speaker: row.senderId, text: row.text.slice(0, 320), at: row.at, quote: row.quote,
               }))].sort((a, b) => a.at - b.at).slice(-12) };
           const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision, context) : null;
           if (queueWork && request) {
@@ -187,7 +192,7 @@ export function makeTrial({
     if (!batch?.messages.length) return;
     const { messages, revision } = batch;
     const eligibleAnchor = row => canUseQqReplyAnchor(row?.at, now());
-    const events = messages.filter(eligibleAnchor).slice(-24);
+    const events = messages.filter(eligibleAnchor).slice(-24).map(withQuote);
     if (!events.length) {
       turnState.markRead(messages, now(), revision);
       log('window_read_only');
@@ -228,10 +233,10 @@ export function makeTrial({
         const text = trialInput(row.body);
         if (known.get(groupId, row.message_id) || !claim.run(groupId, row.message_id).changes) continue;
         budget--;
-        const event = {
+        const event = withQuote({
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
-        };
+        });
         turnState.mention(event.at);
         turnState.markRead([event], now());
         if (!text) { record(event, 'withheld'); continue; }

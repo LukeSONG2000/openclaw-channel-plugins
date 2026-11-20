@@ -28,18 +28,52 @@ export function readGroupWindow(db, { account, groupId, after, through, beforeMe
   }));
 }
 
-function excerpt(body) {
+function excerpt(body, maxChars = 140, jsonLimit = 180) {
   const text = body
     .replace(/<[^>]+>|https?:\/\/[^\s<>]+|\bsk-[\w-]{10,}|\b[0-9a-f]{32,}\b/giu, ' ')
     .replace(/\s+/gu, ' ').trim();
   if (!text || text.startsWith('/') ||
     /\u5bc6\u7801|\u5bc6\u94a5|\u9a8c\u8bc1\u7801|access[_ -]?token|api[_ -]?key|app[_ -]?secret|\bBearer\s+\S+/iu.test(text)) return '';
-  const chars = [...text].slice(0, 140);
-  while (JSON.stringify(chars.join('')).length > 180) chars.length -= 12;
+  const chars = [...text].slice(0, maxChars);
+  while (JSON.stringify(chars.join('')).length > jsonLimit) chars.length -= 12;
   return chars.join('');
 }
 
-export function readGroupContext(db, { groupId, through, beforeMessageId, hours = null, include }) {
+export function makeGroupQuoteReader(db, groupId) {
+  const select = db.prepare(`
+    SELECT q.quoted_text AS pushed_text, q.quoted_attachments AS pushed_attachments,
+           source.message_id AS source_id, source.body AS source_text, source.attachment_count AS source_attachments
+    FROM events AS current
+    JOIN event_quotes AS q USING (group_id, message_id)
+    LEFT JOIN events AS source ON source.rowid = coalesce((
+      SELECT candidate.rowid FROM events AS candidate
+      WHERE candidate.group_id = current.group_id AND candidate.message_id = q.quoted_index
+        AND (candidate.received_at, candidate.rowid) < (current.received_at, current.rowid)
+    ), (
+      SELECT candidate.rowid FROM event_quotes AS ref
+      JOIN events AS candidate USING (group_id, message_id)
+      WHERE candidate.group_id = current.group_id
+        AND ref.group_id = current.group_id AND ref.message_index = q.quoted_index
+        AND (candidate.received_at, candidate.rowid) < (current.received_at, current.rowid)
+      ORDER BY candidate.received_at DESC, candidate.rowid DESC
+      LIMIT 1
+    ))
+    WHERE current.group_id = ? AND current.message_id = ? AND q.quoted_index IS NOT NULL
+  `);
+  return messageId => {
+    const row = select.get(groupId, messageId);
+    if (!row) return;
+    const text = excerpt(row.source_text || row.pushed_text || '', 600, 800);
+    const attachmentCount = Math.min(20, Math.max(row.pushed_attachments, row.source_attachments ?? 0));
+    return {
+      availability: text || attachmentCount ? 'received' : 'unavailable',
+      ...(text ? { text } : {}),
+      ...(attachmentCount ? { attachmentCount } : {}),
+    };
+  };
+}
+
+export function readGroupContext(db, { groupId, through, beforeMessageId, hours = null, include, quoteFor }) {
   if (typeof groupId !== 'string' || !groupId || !Number.isSafeInteger(through) ||
     (hours !== null && (!beforeMessageId || !Number.isInteger(hours) || hours < 1 || hours > 24))) {
     throw new Error('invalid QQ context selection');
@@ -51,6 +85,7 @@ export function readGroupContext(db, { groupId, through, beforeMessageId, hours 
   if (hours === null) {
     return { messages: rows.slice(-8).map(row => ({
       id: row.message_id, at: row.received_at, speaker: row.sender_id.slice(0, 60), text: row.body.slice(0, 320),
+      quote: quoteFor?.(row.message_id),
     })) };
   }
   const buckets = Array.from({ length: bucketCount }, () => []);

@@ -3,6 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
+import { hermesPilot } from './pilot.mjs';
 import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
 import { qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
@@ -24,13 +25,59 @@ function setup(t, handlers) {
     db, ledger,
     trial: () => makeTrial(parameters),
     advance: ms => { time += ms; },
-    put: (messageId, content, changes = {}) => intake.record({
+    put: (messageId, content, changes = {}, quote) => intake.record({
       kind: 'group', groupOpenid: groupId, senderId, rawEventType: 'GROUP_AT_MESSAGE_CREATE',
       messageId, content, ...changes,
-    }),
+    }, quote),
     status: () => ledger.prepare('SELECT state FROM trial_receipts ORDER BY rowid').all().map(row => row.state),
   };
 }
+
+test('the same quoted conversation reaches the fast planner and the detached work request', async t => {
+  const requests = [];
+  const sent = [];
+  const pilot = hermesPilot({ fast: {
+    async start(request) { requests.push(JSON.parse(request.input.split('\n').at(-1))); return 'run_synthetic'; },
+    async wait() { return JSON.stringify({ route: 'work', text: 'Draft a one-page poster from the quote' }); },
+  } });
+  const data = setup(t, {
+    plan: pilot.planMention,
+    queueWork: async ({ request }) => { requests.push(JSON.parse(request.input.split('\n').at(-1))); },
+    send: async (...args) => { sent.push(args); return { id: 'unexpected' }; },
+  });
+  data.put('original', 'Exhausted after work; a glass of apple juice is my idea of rebellion.', {
+    rawEventType: 'GROUP_MESSAGE_CREATE', msgIdx: 'apple-idx', attachments: [{ url: 'https://example.test/private' }],
+  });
+  data.put('poster', '<@LukeBot> Use this as material for a poster', { refMsgIdx: 'apple-idx' });
+  const trial = data.trial();
+  trial.tick();
+  await trial.drain();
+  const expected = { availability: 'received', text: 'Exhausted after work; a glass of apple juice is my idea of rebellion.',
+    attachmentCount: 1 };
+  assert.equal(requests.length, 2);
+  assert.deepEqual(requests[0].current.quote, expected);
+  assert.deepEqual(requests[1].quote, expected);
+  assert.equal(JSON.stringify(requests).includes('https://example.test/private'), false);
+  assert.deepEqual(data.status(), ['queued']);
+  assert.equal(sent.length, 0);
+});
+
+test('ambient messages can use a quote but only the current window supplies reply anchors', async () => {
+  let input;
+  const pilot = hermesPilot({ fast: {
+    async start(request) { input = JSON.parse(request.input.split('\n').at(-1)); return 'run_synthetic'; },
+    async wait() { return JSON.stringify({ natural: null, reply: { target: 'm1', text: 'I can make Tuesday.' } }); },
+  } });
+  const old = { id: 'earlier', speaker: 'first', text: 'Can everyone make Tuesday?' };
+  const event = { channel: 'qqbot', account: 'luke', groupId, messageId: 'current',
+    senderId, mentioned: false, text: 'Who else?', at: clock,
+    quote: { availability: 'received', text: old.text } };
+  assert.deepEqual(await pilot.window([event], [old]), [
+    { mode: 'reply', replyToId: 'current', text: 'I can make Tuesday.' },
+  ]);
+  assert.equal(input.unread[0].quote.text, old.text);
+  assert.equal(input.context[0].target, undefined);
+});
 
 test('trial input preserves natural chat and strips only transport mentions and the optional old prefix', () => {
   assert.equal(trialInput('<@!TOKEN> [Hermes] hi'), 'hi');
