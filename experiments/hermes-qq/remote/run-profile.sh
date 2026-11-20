@@ -13,7 +13,7 @@ image=docker.io/nousresearch/hermes-agent:v0.23.2@sha256:d6746a084e9341baada483e
 
 exec /usr/bin/podman run --pull=never --replace --rm \
   --name "luke-hermes-qq-$lane" --label io.lukesong.scope=luke-qq-pilot \
-  --sdnotify=conmon --memory=2g --cpus=1.5 --pids-limit=160 --security-opt=no-new-privileges \
+  --sdnotify=conmon --memory=2g --pids-limit=160 --security-opt=no-new-privileges \
   --env-file "$root/secrets/$lane.env" \
   -e "HERMES_QQ_LANE=$lane" -e API_SERVER_ENABLED=true -e API_SERVER_HOST=127.0.0.1 \
   -e GLM_BASE_URL=https://open.bigmodel.cn/api/coding/paas/v4 \

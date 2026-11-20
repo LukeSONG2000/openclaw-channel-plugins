@@ -6,6 +6,7 @@ After=network-online.target
 Type=notify
 NotifyAccess=all
 Delegate=yes
+Nice=5
 ExecStart=/usr/bin/bash %h/.local/share/luke-qq-pilot/code/experiments/hermes-qq/remote/run-profile.sh %i
 ExecStop=/usr/bin/podman stop --ignore -t 15 luke-hermes-qq-%i
 Restart=always
