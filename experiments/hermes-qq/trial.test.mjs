@@ -33,6 +33,32 @@ function setup(t, handlers) {
   };
 }
 
+test('chat replies survive a memory outage without writing window context or bot replies', async t => {
+  const observed = [];
+  const data = setup(t, {
+    memberMemory: {
+      async recall(event) {
+        if (event.messageId === 'broken') throw new Error('unreachable');
+        return ['Brief replies'];
+      },
+      async observe(event) { observed.push(event.text); throw new Error('unreachable'); },
+    },
+    async plan(event, context, unread, images, preferences) {
+      assert.deepEqual(preferences, event.messageId === 'broken' ? [] : ['Brief replies']);
+      return { kind: 'chat', source: event, text: 'Final reply' };
+    },
+    send: async () => ({ id: 'sent' }),
+  });
+  const trial = data.trial();
+  data.put('ordinary', 'someone else is speaking', { rawEventType: 'GROUP_MESSAGE_CREATE' });
+  data.put('broken', 'first source message');
+  data.put('working', 'second source message');
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(data.status(), ['accepted', 'accepted']);
+  assert.deepEqual(observed.sort(), ['first source message', 'second source message']);
+});
+
 test('the same quoted conversation reaches the fast planner and the detached work request', async t => {
   const requests = [];
   const sent = [];

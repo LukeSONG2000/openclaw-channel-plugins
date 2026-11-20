@@ -74,3 +74,9 @@ podman pod restart "$pod" >/dev/null
 use_namespace
 start_services
 "${runner[@]}" "${runtime[@]}" timeout 30 "$python" "$probe" verify "$run_id"
+
+if [[ -n "${LUKE_HONCHO_FIXTURE_NODE:-}" ]]; then
+  adapter_test="$(dirname "$probe")/../member-memory.test.mjs"
+  "${runner[@]}" "${runtime[@]}" LUKE_HONCHO_FIXTURE=1 timeout 30 \
+    "$LUKE_HONCHO_FIXTURE_NODE" --test --test-name-pattern='self-hosted Honcho' "$adapter_test"
+fi

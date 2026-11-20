@@ -11,6 +11,7 @@ import { kanbanTasks, makeKanbanBridge, runKanbanCommand, runKanbanMediaUpload }
 import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
+import { makeMemberMemory } from './member-memory.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -96,7 +97,7 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
   always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow,
-  readImages, log = () => {},
+  readImages, memberMemory, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -139,8 +140,8 @@ export function makeTrial({
     if (!text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text.replace(rawMention, '')) ||
       !isLive() || now() - event.at > maxAge) return record(event, 'withheld');
     record(event, 'sending');
-    try { record(event, (await send(event, text))?.id ? 'accepted' : 'uncertain'); }
-    catch { record(event, 'uncertain'); }
+    try { return record(event, (await send(event, text))?.id ? 'accepted' : 'uncertain'); }
+    catch { return record(event, 'uncertain'); }
   }
   async function route(event) {
     try {
@@ -150,14 +151,20 @@ export function makeTrial({
       if (readImages) {
         try { images = await readImages(event.messageId); } catch { log('media_read_failed'); }
       }
-      const decision = await plan(event, recent.messages, unread, images);
+      let preferences = [];
+      if (memberMemory) {
+        try { preferences = await memberMemory.recall(event); } catch { log('memory_read_unavailable'); }
+      }
+      const decision = await plan(event, recent.messages, unread, images, preferences);
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
       const related = new Set(Array.isArray(decision.consumedMessageIds) ? decision.consumedMessageIds : []);
       const relatedRows = unread.filter(row => related.has(row.messageId));
       const consumeRelated = () => { if (relatedRows.length) turnState.markRead(relatedRows, now()); };
       if (decision.kind === 'chat') {
         consumeRelated();
-        await deliver(event, decision);
+        const delivered = await deliver(event, decision);
+        if (memberMemory && delivered === 'accepted') track(Promise.resolve().then(() => memberMemory.observe(event))
+          .catch(() => log('memory_write_unavailable')));
       }
       else if (decision.kind === 'work-intent' || decision.kind === 'work') {
         record(event, 'working');
@@ -300,6 +307,13 @@ async function main() {
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId: account, appSecret, logger });
   const imagesFor = makeGroupImageReader(inbox, groupId);
+  const origin = process.env.LUKE_HONCHO_ORIGIN;
+  const token = process.env.LUKE_HONCHO_TOKEN;
+  let memberMemory;
+  if (always && (origin || token)) {
+    try { memberMemory = makeMemberMemory({ origin, token, account, groupId }); }
+    catch { console.error('qq_trial_memory_config_invalid'); }
+  }
   const stop = new AbortController();
   process.once('SIGTERM', () => stop.abort());
   process.once('SIGINT', () => stop.abort());
@@ -326,7 +340,9 @@ async function main() {
     () => console.log('qq_trial_mention_plain_fallback')));
   const trial = makeTrial({
     inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
-    plan: (event, context, unread, images) => callRuntime(container, 'trial-plan', { events: [event], context, unread, images }),
+    plan: (event, context, unread, images, preferences) =>
+      callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences }),
+    memberMemory,
     readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
     startWork: decision => callRuntime(worker, 'trial-start', { decision }),
     finish: job => callRuntime(worker, 'trial-settle', { job }),

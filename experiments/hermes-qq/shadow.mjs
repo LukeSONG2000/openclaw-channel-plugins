@@ -78,7 +78,8 @@ async function main(mode) {
   }
   if (sample.events.length !== 1) throw new Error('expected one source event');
   const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : [],
-    Array.isArray(sample.unread) ? sample.unread.slice(-12) : [], mode === 'trial-plan' ? sample.images : []);
+    Array.isArray(sample.unread) ? sample.unread.slice(-12) : [], mode === 'trial-plan' ? sample.images : [],
+    mode === 'trial-plan' ? sample.preferences : []);
   console.log(JSON.stringify(mode === 'trial-plan' ? decision
     : { status: 'completed', route: decision.kind === 'work-intent' ? 'work' : decision.kind }));
 }

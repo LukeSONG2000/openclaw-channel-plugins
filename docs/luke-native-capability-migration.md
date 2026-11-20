@@ -19,6 +19,8 @@
 
 随后用固定提交的 Honcho 服务、官方 Python SDK 和独立 PostgreSQL/pgvector 跑通了[远端持久化验收](../experiments/hermes-qq/remote/README.md)。同一会话的两位成员写入相反偏好，Honcho API 和数据库重启后，新进程按指定 peer 读回正确结果；不相关 workspace 复用同样的成员 ID、会话 ID 也没有读到前一组数据。测试结论由脚本显式写入，使用上游 mock embedding，未验证真实推导或语义排序。无外网接口、无真实 QQ 数据，未修改 Luke 或 R2 的运行配置。
 
+Luke 的 [QQ 记忆适配](../experiments/hermes-qq/member-memory.mjs) 已在相同自托管 API 跑通合成写入与召回，默认关闭。启用时只写直接提及、已投递回复的单条纯文本（排除引用、附件、指令和识别出的敏感格式）；召回按可信群和当前作者查四条以内的显式范围记录，历史窗口和后台任务不写入。记忆读超时不阻断聊天，写入不阻塞回复。待实测真实推导、嵌入及数据出口后才接入真实会话，不含权限或新群启用。
+
 最小接入：
 
 1. 由可信 QQ 事件里的 bot account 与 `member_openid` [派生同一 bot 下跨群稳定的 peer ID](../experiments/hermes-qq/member-identity.mjs)，另用群 ID 派生 workspace ID。仅在平台实际给出同一个成员 ID 时自动对应，不靠昵称或聊天文字，也不跨 bot 或渠道合并。即使两个群认出同一个人，仍使用各自的记忆 workspace；身份匹配不等于管理员授权、允许回复新群或共享群记录。
