@@ -11,16 +11,18 @@
 
 ## 2. 成员记忆：原生身份字段 + Honcho
 
-已核对 Luke 固定的 Hermes v0.23.2 镜像：`POST /v1/runs` 接受结构化 `author`，Hermes 会把每轮的作者交给 Memory Provider；作者字段不是权限。镜像插件目录提供 [Honcho](https://hermes-agent.nousresearch.com/docs/user-guide/features/honcho#gateway-identity-mapping)。镜像固定的 Honcho 1.2.0 上游测试覆盖较晚发言者使用独立 peer，而非写进会话首位发言者的记忆。Hermes 自带的 `MEMORY.md` / `USER.md` 用于 Agent 自己的记忆和用户画像，不能作为群成员分表。
+已核对 Luke 固定的 Hermes v0.23.2 镜像：`POST /v1/runs` 接受结构化 `author`，Hermes 会把每轮的作者交给 Memory Provider；作者字段不是权限。[Honcho](https://hermes-agent.nousresearch.com/docs/user-guide/features/honcho#gateway-identity-mapping) 由镜像的插件目录固定在 1.2.0（`894b88321872e01702a1aa638ddfdde6ad60f173`），并未安装在 Luke 聊天 profile。Hermes 自带的 `MEMORY.md` / `USER.md` 用于 Agent 自己的记忆和用户画像，不能作为群成员分表。
 
 隔离镜像已实测：拒绝非对象作者；接受两次不同 ID、同一显示名的合成回合；原生消息 API 可读回两轮。这是接口和会话读取验证，不是 Honcho 写入、召回或真实群成员验证。
+
+另在同一 Hermes 镜像的无网络临时容器运行了固定版本的 Honcho 作者归因测试与 Luke 的[双人回归](../experiments/hermes-qq/remote/test_honcho_peer_probe.py)。用模拟 SDK 验证了两个不同契约：**写入**按当前发言者分开；**自动召回**仍以会话主成员为目标，而显式指定 peer 才能取得另一位成员的偏好。不能在共享群会话直接开启自动召回。这不证明真实 Honcho 服务能跨进程持久化，也不证明语义推导质量。
 
 最小接入：
 
 1. 由可信 QQ 事件里的 bot account 与 `member_openid` 派生稳定的非公开 peer ID；昵称只用于展示，改名不改记忆归属。把群会话键和成员身份键分开，关闭全员共用 peer 的 pin；隔离公开测试群、其他群和私聊，默认不合并跨渠道身份。
 2. 先用合成样本验证原生作者传递和插件读写。真实试点优先独立自托管 Honcho workspace，不把真实群历史批量发送给默认云端；自托管的相关推理、嵌入端点也要核对数据出口。Luke 当前尚未启用该插件。
 3. 只把有原始作者的单条真实发言走原生归因。Luke 的窗口规划和任务规划把多条历史拼进一次模型调用，保留在无记忆的路径，不把拼好的 prompt、工具输出或看板结果归到发起人。普通群发言如确需沉淀，再复用 Honcho 官方接口逐条、按原作者写入；不为记录每条消息额外开模型回合或新建记忆库。
-4. 用两位成员给出相反偏好、同一昵称、改名、进程重启和跨群负例验收。还要检查归因后的记忆实际能按人读回，不只检查标签；暂不放开跨 profile 搜索或在所有聊天回合自动调用慢速记忆推理。
+4. 用可信成员 ID 显式选择召回的 peer，保持共享群会话与个人记忆分开；不要把群的会话摘要作为个人画像，也不要让模型从昵称或用户输入指定另一个人的私有 peer。用两位成员给出相反偏好、同一昵称、改名、进程重启和跨群负例验收。下一道门槛是用自托管服务验证真正写入、跨进程按人读回和数据出口；暂不放开跨 profile 搜索或在所有聊天回合自动调用慢速记忆推理。
 
 ## 3. R2 独立拓展怎么迁
 
