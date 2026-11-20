@@ -62,7 +62,7 @@ const failed = '没有收到生图成品。请发一条新消息后再试。';
 export function imagenJobs({ getTask, allowed, artifacts, directory,
   renderer = createHandler({ authorizeGroup: () => true, inputRoot: context => context.inputRoot,
     render: (body, start, images, options) => generate(body, start, images, { ...options, outputDirectory: directory }),
-    logger: { warn: message => console.error(message) } }) }) {
+    logger: { info: message => console.log(message), warn: message => console.error(message) } }) }) {
   const active = new Map();
   async function execute(task, args, useImages) {
     const { key, source } = task;
