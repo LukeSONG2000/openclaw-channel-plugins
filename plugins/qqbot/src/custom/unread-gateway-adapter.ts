@@ -1,4 +1,5 @@
 import type { QueuedMessage } from "../message-queue.js";
+import { isAddressedToOtherGroupMember } from "../message-gating.js";
 import type { AttachmentSummary, HistoryEntry } from "../group-history.js";
 import type { CustomInboundMessage, CustomPeer } from "./types.js";
 import {
@@ -20,6 +21,7 @@ export function toCustomInboundGroupMessage(params: {
   senderId: string;
   senderName?: string;
   senderIsBot?: boolean;
+  mentions?: QueuedMessage["mentions"];
   content: string;
   messageId: string;
   timestamp: string | number;
@@ -40,6 +42,7 @@ export function toCustomInboundGroupMessage(params: {
     timestamp: typeof params.timestamp === "number" ? params.timestamp : new Date(params.timestamp).getTime(),
     mentionedBot: params.mentionedBot,
     implicitMention: params.implicitMention,
+    addressedElsewhere: isAddressedToOtherGroupMember(params.mentions) || undefined,
     attachments: params.attachments?.map((att) => ({
       contentType: att.content_type,
       filename: att.filename,
@@ -51,8 +54,8 @@ export function toCustomInboundGroupMessage(params: {
 
 export function historyEntryFromCustomUnread(entry: CustomUnreadHistoryEntry): HistoryEntry {
   return {
-    sender: entry.actorLabel ? `${entry.actorLabel} (${entry.actorId})` : entry.actorId,
-    body: entry.body,
+    sender: (entry.actorLabel ? `${entry.actorLabel} (${entry.actorId})` : entry.actorId) + (entry.actorIsBot ? " [机器人]" : ""),
+    body: (entry.addressedElsewhere ? "[向其他成员发言] " : "") + entry.body,
     timestamp: entry.timestamp,
     messageId: entry.messageId,
     attachments: entry.attachments?.map((att) => ({

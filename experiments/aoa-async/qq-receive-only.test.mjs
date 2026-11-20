@@ -54,11 +54,24 @@ test('all-groups needs no handshake and keeps the same platform ID separate acro
     assert.equal(receiver.record(sample()), true);
     assert.equal(receiver.record(sample({ groupOpenid: 'second-group' })), true);
     assert.equal(receiver.record(sample({ kind: 'c2c', messageId: 'dm' })), false);
-    assert.equal(receiver.record(sample({ senderIsBot: true, messageId: 'bot' })), false);
+    assert.equal(receiver.record(sample({ senderIsBot: true, messageId: 'bot' })), true);
     assert.equal(receiver.record(sample({ rawEventType: 'GROUP_ADD_ROBOT', messageId: 'lifecycle' })), false);
     assert.equal(receiver.record(sample()), false);
-    assert.equal(db.prepare('SELECT count(*) AS n FROM events').get().n, 2);
+    assert.equal(db.prepare('SELECT count(*) AS n FROM events').get().n, 3);
     assert.equal(db.prepare('SELECT count(*) AS n FROM group_binding').get().n, 0);
+  } finally { db.close(); }
+});
+
+test('structured mention targets win over event type and bots remain identifiable', () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const receiver = inbox(db, { mode: 'all-groups' });
+    const rawEventType = 'GROUP_AT_MESSAGE_CREATE';
+    receiver.record(sample({ messageId: 'other', rawEventType, mentions: [{ is_you: false }] }));
+    receiver.record(sample({ messageId: 'self', rawEventType, senderIsBot: true,
+      mentions: [{ is_you: false }, { is_you: true }] }));
+    assert.deepEqual(db.prepare('SELECT mentioned, sender_is_bot, addressed_elsewhere FROM events ORDER BY rowid')
+      .all().map(row => Object.values(row)), [[0, 0, 1], [1, 1, 0]]);
   } finally { db.close(); }
 });
 

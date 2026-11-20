@@ -7,6 +7,7 @@ import {
   type HistoryEntry,
 } from "../group-history.js";
 import type { QueuedMessage } from "../message-queue.js";
+import { isAddressedToOtherGroupMember } from "../message-gating.js";
 
 export interface CustomUnreadHistoryContextInput {
   event: Pick<QueuedMessage, "groupOpenid" | "_customUnreadSnapshot">;
@@ -126,7 +127,7 @@ export function applyCustomUnreadHistoryContextToAgentBody(params: {
 }
 
 export function recordLegacyGroupHistoryBeforeDispatch(params: {
-  event: Pick<QueuedMessage, "type" | "groupOpenid" | "senderName" | "senderId" | "senderIsBot" | "timestamp" | "messageId" | "attachments">;
+  event: Pick<QueuedMessage, "type" | "groupOpenid" | "senderName" | "senderId" | "senderIsBot" | "timestamp" | "messageId" | "attachments" | "mentions">;
   groupHistories: Map<string, HistoryEntry[]>;
   historyLimit: number;
   content: string;
@@ -134,17 +135,9 @@ export function recordLegacyGroupHistoryBeforeDispatch(params: {
   if (params.event.type !== "group" || !params.event.groupOpenid) {
     return { pendingCount: 0, attachmentCount: 0, recorded: false };
   }
-  if (params.event.senderIsBot) {
-    return {
-      pendingCount: (params.groupHistories.get(params.event.groupOpenid) ?? []).length,
-      attachmentCount: 0,
-      recorded: false,
-    };
-  }
-
-  const sender = params.event.senderName
+  const sender = (params.event.senderName
     ? `${params.event.senderName} (${params.event.senderId})`
-    : params.event.senderId;
+    : params.event.senderId) + (params.event.senderIsBot ? " [机器人]" : "");
   const attachments = toAttachmentSummaries(params.event.attachments);
   recordPendingHistoryEntry({
     historyMap: params.groupHistories,
@@ -152,7 +145,7 @@ export function recordLegacyGroupHistoryBeforeDispatch(params: {
     limit: params.historyLimit,
     entry: {
       sender,
-      body: params.content,
+      body: (isAddressedToOtherGroupMember(params.event.mentions) ? "[向其他成员发言] " : "") + params.content,
       timestamp: new Date(params.event.timestamp).getTime(),
       messageId: params.event.messageId,
       attachments,

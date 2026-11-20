@@ -50,6 +50,18 @@ function groupEvent(overrides: Partial<QueuedMessage> = {}): QueuedMessage {
   };
 }
 
+{
+  const setup = baseParams({
+    event: groupEvent({ eventType: "GROUP_AT_MESSAGE_CREATE", mentions: [{ is_you: false, bot: true }] }),
+    resolveActivation: () => "always",
+    detectWasMentioned: () => true,
+  });
+  const result = applyCustomGroupDispatchGateway(setup.params);
+  assert.equal(result.action, "stop");
+  assert.equal(result.reason, "drop_other_mention");
+  assert.equal(setup.unread.getState().peers.GROUP_OPENID?.history[0]?.addressedElsewhere, true);
+}
+
 function baseParams(overrides: Record<string, unknown> = {}) {
   const logs: string[] = [];
   const groupHistories = new Map<string, HistoryEntry[]>();

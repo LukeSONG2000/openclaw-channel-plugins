@@ -53,10 +53,12 @@ export function hasAnyCustomGroupMention(params: {
 
 export function resolveCustomGroupImplicitMention(params: {
   refMsgIdx?: string;
-  getRefEntry: (idx: string) => { isBot?: boolean } | null | undefined;
+  accountId: string;
+  getRefEntry: (idx: string) => { isBot?: boolean; senderId?: string } | null | undefined;
 }): boolean {
   if (!params.refMsgIdx) return false;
-  return params.getRefEntry(params.refMsgIdx)?.isBot === true;
+  const ref = params.getRefEntry(params.refMsgIdx);
+  return ref?.isBot === true && ref.senderId === params.accountId;
 }
 
 export function buildCustomGroupMessageGateContext(

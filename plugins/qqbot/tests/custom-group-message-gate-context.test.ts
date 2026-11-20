@@ -17,14 +17,20 @@ assert.equal(hasAnyCustomGroupMention({ content: "hi <@!12345>" }), true);
 assert.equal(hasAnyCustomGroupMention({ content: "plain text" }), false);
 
 assert.equal(resolveCustomGroupImplicitMention({
+  accountId: "self",
   refMsgIdx: "REF_BOT",
-  getRefEntry: (idx) => idx === "REF_BOT" ? { isBot: true } : null,
+  getRefEntry: (idx) => idx === "REF_BOT" ? { isBot: true, senderId: "self" } : null,
 }), true);
 assert.equal(resolveCustomGroupImplicitMention({
+  accountId: "self",
   refMsgIdx: "REF_HUMAN",
   getRefEntry: () => ({ isBot: false }),
 }), false);
-assert.equal(resolveCustomGroupImplicitMention({ getRefEntry: () => ({ isBot: true }) }), false);
+assert.equal(resolveCustomGroupImplicitMention({
+  accountId: "self", refMsgIdx: "REF_OTHER_BOT",
+  getRefEntry: () => ({ isBot: true, senderId: "other-bot" }),
+}), false);
+assert.equal(resolveCustomGroupImplicitMention({ accountId: "self", getRefEntry: () => ({ isBot: true }) }), false);
 
 const baseGateParams = {
   content: "hello",

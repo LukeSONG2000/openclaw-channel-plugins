@@ -10,7 +10,7 @@ const timestamp = new Intl.DateTimeFormat('en-GB', {
 
 function selectRows(db, { groupId, after, through, beforeMessageId = null, ordinaryOnly = false, limit }) {
   return db.prepare(`
-    SELECT message_id, sender_id, mentioned, received_at, body FROM events
+    SELECT message_id, sender_id, mentioned, received_at, body, sender_is_bot, addressed_elsewhere FROM events
     WHERE group_id = ? AND received_at > ? AND received_at <= ?
       AND (? IS NULL OR rowid < (SELECT rowid FROM events WHERE group_id = ? AND message_id = ?))
       AND (? = 0 OR (mentioned = 0 AND length(trim(body)) > 0))
@@ -27,6 +27,8 @@ export function readGroupWindow(db, { account, groupId, after, through, beforeMe
   return selectRows(db, { groupId, after, through, beforeMessageId, ordinaryOnly, limit }).map(row => ({
     channel: 'qqbot', account, groupId, messageId: row.message_id,
     senderId: row.sender_id, mentioned: row.mentioned === 1, text: row.body, at: row.received_at,
+    ...(row.sender_is_bot ? { senderIsBot: true } : {}),
+    ...(row.addressed_elsewhere ? { addressedElsewhere: true } : {}),
   }));
 }
 
@@ -125,7 +127,8 @@ export function readGroupContext(db, { groupId, through, beforeMessageId, hours 
   if (!extended) {
     return { messages: rows.filter(row => !include || include(row.message_id, row.received_at)).slice(-8).map(row => ({
       id: row.message_id, at: row.received_at, speaker: row.sender_id.slice(0, 60), text: row.body.slice(0, 320),
-      quote: quoteFor?.(row.message_id),
+      quote: quoteFor?.(row.message_id), ...(row.sender_is_bot ? { senderIsBot: true } : {}),
+      ...(row.addressed_elsewhere ? { addressedElsewhere: true } : {}),
     })) };
   }
   const buckets = Array.from({ length: bucketCount }, () => []);

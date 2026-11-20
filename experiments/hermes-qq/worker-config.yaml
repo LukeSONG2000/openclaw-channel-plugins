@@ -11,7 +11,10 @@ plugins:
   enabled: [luke-readonly]
 platform_toolsets:
   api_server: [todo, luke-readonly]
-toolsets: [todo, vision, luke-readonly]
+toolsets: [todo, vision, delegation, luke-readonly]
+delegation:
+  max_concurrent_children: 2
+  max_spawn_depth: 1
 kanban:
   dispatch_interval_seconds: 5
   max_in_progress: 2

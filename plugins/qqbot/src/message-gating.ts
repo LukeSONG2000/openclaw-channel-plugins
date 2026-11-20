@@ -188,3 +188,8 @@ export function resolveGroupMessageGate(params: GroupMessageGateParams): GroupMe
     shouldBypassMention: mentionGate.shouldBypassMention,
   };
 }
+
+export function isAddressedToOtherGroupMember(mentions?: readonly { scope?: string; is_you?: boolean }[]): boolean {
+  const personal = mentions?.filter(mention => mention.scope !== "all") ?? [];
+  return personal.some(mention => mention.is_you === false) && !personal.some(mention => mention.is_you === true);
+}

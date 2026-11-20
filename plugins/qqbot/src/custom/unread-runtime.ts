@@ -43,6 +43,8 @@ export type CustomUnreadCatchupSource =
 export interface CustomUnreadHistoryEntry {
   actorId: string;
   actorLabel?: string;
+  actorIsBot?: boolean;
+  addressedElsewhere?: boolean;
   body: string;
   timestamp: number;
   messageId: string;
@@ -105,6 +107,18 @@ interface PeerState {
 export class CustomUnreadRuntime {
   private readonly peers = new Map<string, PeerState>();
   private readonly snapshots = new Map<string, CustomUnreadCatchupSnapshot>();
+  private readonly botReplyTimes = new Map<string, number[]>();
+
+  admitBotReply(peerId: string, now = Date.now()): boolean {
+    const cutoff = now - 60_000;
+    for (const [peer, times] of this.botReplyTimes) {
+      if (times.at(-1)! <= cutoff) this.botReplyTimes.delete(peer);
+    }
+    const recent = (this.botReplyTimes.get(peerId) ?? []).filter(at => at > cutoff);
+    if (recent.length >= 2) return false;
+    this.botReplyTimes.set(peerId, [...recent, now]);
+    return true;
+  }
 
   recordNonMention(params: {
     message: CustomInboundMessage;
@@ -115,7 +129,7 @@ export class CustomUnreadRuntime {
     if (!params.cfg.enabled || params.message.peer.kind !== "group") {
       return { recorded: false, pendingCount: 0, intents: [] };
     }
-    if (params.message.actor.isBot) {
+    if (params.message.actor.id === CUSTOM_UNREAD_ACTOR_ID) {
       return {
         recorded: false,
         pendingCount: this.getPendingCount(params.message.peer.id),
@@ -431,6 +445,8 @@ function toHistoryEntry(message: CustomInboundMessage): CustomUnreadHistoryEntry
   return {
     actorId: message.actor.id,
     actorLabel: message.actor.label,
+    actorIsBot: message.actor.isBot,
+    addressedElsewhere: message.addressedElsewhere,
     body: message.content,
     timestamp: message.timestamp,
     messageId: message.messageId,

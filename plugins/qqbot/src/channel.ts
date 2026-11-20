@@ -20,6 +20,7 @@ import { saveCredentialBackup, loadCredentialBackup } from "./credential-backup.
 import { initApiConfig } from "./api.js";
 import { getApprovalHandler } from "./approval-handler.js";
 import { mapQQBotGroupToolPolicy } from "./group-tool-policy.js";
+import { isAddressedToOtherGroupMember } from "./message-gating.js";
 
 /** 检查 payload 是否为审批消息（与 getExecApprovalReplyMetadata 等效，内联避免版本兼容问题） */
 function isApprovalPayload(payload: unknown): boolean {
@@ -521,11 +522,12 @@ export function stripMentionText(text: string, mentions?: Array<{ member_openid?
 /** 检测消息是否 @了机器人（mentions > eventType > mentionPatterns） */
 export function detectWasMentioned({ eventType, mentions, content, mentionPatterns }: {
   eventType?: string;
-  mentions?: Array<{ is_you?: boolean }>;
+  mentions?: Array<{ scope?: string; is_you?: boolean }>;
   content?: string;
   mentionPatterns?: string[];
 }): boolean {
   if (mentions?.some((m) => m.is_you)) return true;
+  if (isAddressedToOtherGroupMember(mentions)) return false;
   if (eventType === "GROUP_AT_MESSAGE_CREATE") return true;
   if (mentionPatterns?.length && content) {
     for (const pattern of mentionPatterns) {

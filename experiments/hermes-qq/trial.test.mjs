@@ -5,12 +5,24 @@ import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
 import { hermesPilot } from './pilot.mjs';
 import { groupPolicy } from './group-policy.mjs';
-import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
+import { makeTrial, sendAmbientReply, sendMentionReply, trialInput } from './trial.mjs';
 import { qqReceiptPolicy } from './qq-reply-anchor.mjs';
 
 const groupId = 'test-group';
 const senderId = 'test-author';
 const clock = 5_000;
+
+test('ambient native mention targets the selected author rather than the last speaker or a mention inside the message', async () => {
+  const bot = { send: async payload => payload };
+  const options = { bot, always: true, sendMention: (event, text) => sendMentionReply(bot, event, text, Error) };
+  const anchor = { groupId, messageId: 'source', senderId: 'author', text: '<@another>' };
+  const tail = { groupId, messageId: 'tail', senderId: 'last' };
+  const action = { mode: 'mention', replyToId: 'source', text: 'Tuesday works.' };
+  const sent = await sendAmbientReply(options, { groupId, action, tail, anchor });
+  assert.equal(sent.markdown.content, '<qqbot-at-user id="author" /> Tuesday works.');
+  assert.equal(sent.target.msgId, 'source');
+  assert.throws(() => sendAmbientReply(options, { groupId, action, tail, anchor: { ...anchor, groupId: 'other' } }));
+});
 
 function setup(t, handlers) {
   const db = new DatabaseSync(':memory:');

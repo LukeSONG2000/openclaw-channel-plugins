@@ -13,7 +13,7 @@ import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
 import { makeMemberMemory } from './member-memory.mjs';
 import { makeDirectChat, groupMemoryAuthorized } from './direct-chat.mjs';
-import { groupPolicy } from './group-policy.mjs';
+import { conversationPolicy } from './group-policy.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -96,6 +96,19 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
   return receipt;
 }
 
+export function sendAmbientReply({ bot, sendMention, always }, { groupId, action, tail, anchor }) {
+  if (anchor?.groupId !== groupId || tail?.groupId !== groupId ||
+      (action.mode !== 'natural' && anchor.messageId !== action.replyToId)) {
+    throw new Error('ambient reply anchor is outside the window');
+  }
+  if (action.mode === 'mention') return sendMention({ ...anchor, text: '' }, action.text);
+  return bot.send({
+    target: { scope: 'group', targetId: groupId,
+      ...(action.mode === 'reply' || always ? { msgId: anchor.messageId } : {}) },
+    msgType: 0, content: action.text, extra: { msg_seq: always && action.mode === 'natural' ? 2 : 1 },
+  });
+}
+
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
   always = false, now = Date.now, pollIntervalsMs, plan, startWork, finish, queueWork, send, planWindow, sendWindow,
@@ -127,7 +140,15 @@ export function makeTrial({
   let lastMentionAt = startedAt;
   let lastMentionRow = 0;
   let ambient = false;
+  let botReplyTimes = [];
   const isLive = () => !signal?.aborted && now() < until;
+  function admitBotReply(event) {
+    if (!event.senderIsBot) return true;
+    botReplyTimes = botReplyTimes.filter(at => at > now() - 60_000);
+    if (botReplyTimes.length >= 2) return false;
+    botReplyTimes.push(now());
+    return true;
+  }
   const record = (event, status, key = event.messageId) => { mark.run(status, event.groupId, key); log(status); return status; };
   function track(promise) {
     const task = promise.finally(() => active.delete(task));
@@ -154,7 +175,7 @@ export function makeTrial({
         try { images = await readImages(event.messageId); } catch { log('media_read_failed'); }
       }
       let preferences = [];
-      if (memberMemory) {
+      if (memberMemory && !event.senderIsBot) {
         try { preferences = await memberMemory.recall(event); } catch { log('memory_read_unavailable'); }
       }
       const decision = await plan(event, recent.messages, unread, images, preferences);
@@ -165,7 +186,7 @@ export function makeTrial({
       if (decision.kind === 'chat') {
         consumeRelated();
         const delivered = await deliver(event, decision);
-        if (memberMemory && delivered === 'accepted') track(Promise.resolve().then(() => memberMemory.observe(event))
+        if (memberMemory && !event.senderIsBot && delivered === 'accepted') track(Promise.resolve().then(() => memberMemory.observe(event))
           .catch(() => log('memory_write_unavailable')));
       }
       else if (decision.kind === 'work-intent' || decision.kind === 'work') {
@@ -214,8 +235,13 @@ export function makeTrial({
       log('window_read_only');
       return;
     }
-    const tail = events.at(-1);
-    const anchors = new Map(events.map(item => [item.messageId, item]));
+    const candidates = events.filter(item => !item.addressedElsewhere);
+    if (!candidates.length) {
+      turnState.markRead(messages, now(), revision);
+      return;
+    }
+    const tail = candidates.at(-1);
+    const anchors = new Map(candidates.map(item => [item.messageId, item]));
     const isCurrent = () => isLive() && turnState.isCurrent(revision) && currentMention() === mentionAtStart;
     const context = contextAt(at, undefined, { include: (id, receivedAt) =>
       !anchors.has(id) && (turnState.isRead(id, receivedAt) || !canUseQqReplyAnchor(receivedAt, at)) }).messages;
@@ -225,15 +251,16 @@ export function makeTrial({
       if (!Array.isArray(actions) || !isCurrent() || !turnState.markRead(messages, now(), revision)) return;
       for (const action of actions.slice(0, 2)) {
         if (!isCurrent()) break;
-        if (!['natural', 'reply'].includes(action?.mode) ||
-          !eligibleAnchor(action.mode === 'reply' ? anchors.get(action.replyToId) : tail) ||
+        const anchor = action?.mode === 'natural' ? tail : anchors.get(action?.replyToId);
+        if (!['natural', 'reply', 'mention'].includes(action?.mode) ||
+          !eligibleAnchor(anchor) ||
           typeof action.text !== 'string' || !action.text.trim() || action.text.length > 180 ||
-          /[<\r\n]|\[CQ:|[@＠]|\bNO_REPLY\b/i.test(action.text)) continue;
-        const key = 'window:' + tail.messageId + ':' + action.mode;
+          /[<\r\n]|\[CQ:|[@＠]|\bNO_REPLY\b/i.test(action.text) || !admitBotReply(anchor)) continue;
+        const key = 'window:' + tail.messageId + ':' + (action.mode === 'mention' ? 'reply' : action.mode);
         if (!claim.run(groupId, key).changes) continue;
         record(tail, 'sending', key);
         try {
-          if (record(tail, (await sendWindow(groupId, action, tail))?.id ? 'accepted' : 'uncertain', key) !== 'accepted') break;
+          if (record(tail, (await sendWindow(groupId, action, tail, anchor))?.id ? 'accepted' : 'uncertain', key) !== 'accepted') break;
         } catch { record(tail, 'uncertain', key); break; }
       }
     }).catch(() => log('window_failed')).finally(() => { ambient = false; }));
@@ -252,11 +279,12 @@ export function makeTrial({
         const event = withQuote({
           channel: 'qqbot', account, groupId, messageId: row.message_id,
           senderId: row.sender_id, mentioned: true, text, at: row.received_at,
+          ...(row.sender_is_bot ? { senderIsBot: true } : {}),
           ...(row.attachment_count ? { attachmentCount: Math.min(20, row.attachment_count) } : {}),
         });
         turnState.mention(event.at);
         turnState.markRead([event], now());
-        if (!text) { record(event, 'withheld'); continue; }
+        if (!text || !admitBotReply(event)) { record(event, 'withheld'); continue; }
         routing++;
         track(route(event).finally(() => { routing--; }));
       }
@@ -310,7 +338,8 @@ async function main() {
   const bot = new QQBot({ appId: account, appSecret, logger });
   const configured = process.env.LUKE_QQ_GROUP_POLICY;
   const policyConfig = configured ? JSON.parse(readFileSync(configured, 'utf8')) : undefined;
-  const modeFor = groupPolicy(policyConfig, groupId);
+  const policy = conversationPolicy(policyConfig, { pilotGroup: groupId,
+    groupMemory: id => groupMemoryAuthorized(id, process.env.LUKE_HONCHO_APPROVED_GROUPS) });
   const origin = process.env.LUKE_HONCHO_ORIGIN;
   const token = process.env.LUKE_HONCHO_TOKEN;
   const socketPath = process.env.LUKE_HONCHO_SOCKET;
@@ -345,7 +374,7 @@ async function main() {
   const direct = always && process.env.LUKE_QQ_DIRECT === '1' ? makeDirectChat({
     inbox, ledger, account, start, signal: stop.signal,
     memoryFor: sender => {
-      if (!origin || !token) return;
+      if (!origin || !token || !policy.forDirect(sender).memory) return;
       try { return makeMemberMemory({ origin, token, socketPath, account, directSender: sender }); }
       catch { console.error('qq_direct_memory_config_invalid'); }
     },
@@ -357,10 +386,10 @@ async function main() {
     log: status => console.log('qq_direct_' + status),
   }) : null;
   function makeGroup(groupId) {
-    const free = modeFor(groupId) === 'free';
+    const grants = policy.forGroup(groupId);
     const imagesFor = makeGroupImageReader(inbox, groupId);
     let memberMemory;
-    if (always && origin && token && groupMemoryAuthorized(groupId, process.env.LUKE_HONCHO_APPROVED_GROUPS)) {
+    if (always && origin && token && grants.memory) {
       try { memberMemory = makeMemberMemory({ origin, token, socketPath, account, groupId }); }
       catch { console.error('qq_trial_memory_config_invalid'); }
     }
@@ -375,18 +404,15 @@ async function main() {
       startWork: decision => callRuntime(worker, 'trial-start', { decision }),
       finish: job => callRuntime(worker, 'trial-settle', { job }),
       queueWork: bridge?.enqueue,
-      planWindow: free ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
-      sendWindow: (to, action, tail) => safeSend(() => bot.send({
-        target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId }
-          : always ? { msgId: tail.messageId } : {}) },
-        msgType: 0, content: action.text, extra: { msg_seq: always && action.mode === 'natural' ? 2 : 1 },
-      })),
+      planWindow: grants.freeReply ? (events, context, attempt) => callRuntime(container, 'trial-window', { events, context, attempt }) : undefined,
+      sendWindow: (to, action, tail, anchor) => safeSend(() => sendAmbientReply(
+        { bot, sendMention: send, always }, { groupId: to, action, tail, anchor })),
       send,
       log: status => console.log('qq_trial_' + status),
     });
     return { trial, bridge, canDeliver: qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal }) };
   }
-  const initialGroups = always && configured ? [groupId, ...Object.keys(policyConfig?.verifiedNames ?? {})] : [groupId];
+  const initialGroups = always && configured ? [groupId, ...policy.groupIds] : [groupId];
   const groups = new Map([...new Set(initialGroups)].map(id => [id, makeGroup(id)]));
   const recentGroups = inbox.prepare('SELECT DISTINCT group_id FROM events WHERE mentioned=1 AND received_at > ?');
   let nextDiscovery = 0;

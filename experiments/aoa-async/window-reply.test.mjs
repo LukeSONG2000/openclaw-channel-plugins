@@ -2,6 +2,15 @@ import assert from 'node:assert/strict';
 import test from 'node:test';
 import { planWindowReplies } from './window-reply.mjs';
 
+test('native mention only resolves a current-window anchor on a channel that supports it', async () => {
+  const unread = [{ id: 'original', text: 'Can you confirm Tuesday?', speaker: 'a' }];
+  const result = target => JSON.stringify({ natural: null, reply: { target, text: 'Tuesday works.', mode: 'mention' } });
+  assert.deepEqual(await planWindowReplies({ unread, generate: () => result('m1') }), []);
+  assert.deepEqual(await planWindowReplies({ unread, allowMention: true, generate: () => result('m2') }), []);
+  assert.deepEqual(await planWindowReplies({ unread, allowMention: true, generate: () => result('m1') }),
+    [{ mode: 'mention', replyToId: 'original', text: 'Tuesday works.' }]);
+});
+
 const cases = [
   ['a1', '小明', '周末一起吃火锅吗'],
   ['a2', '小李', '我想吃鸳鸯锅'],

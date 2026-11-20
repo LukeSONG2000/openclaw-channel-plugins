@@ -1,6 +1,7 @@
 import type { OpenClawConfig } from "openclaw/plugin-sdk";
 import type { HistoryEntry } from "../group-history.js";
 import type { QueuedMessage } from "../message-queue.js";
+import { isAddressedToOtherGroupMember } from "../message-gating.js";
 import type { CustomUnreadRuntime } from "./unread-runtime.js";
 import type { ResolvedCustomUnreadConfig } from "./runtime.js";
 import type { CustomUnreadGatewayEffect } from "./unread-gateway-adapter.js";
@@ -55,7 +56,7 @@ export interface ApplyCustomGroupDispatchGatewayParams<TConfig extends OpenClawC
   resolveGroupName: (params: { cfg: TConfig; accountId: string; groupOpenid: string }) => string;
   resolveGroupIntroHint?: (params: { cfg: TConfig; accountId: string; groupOpenid: string }) => string | undefined;
   resolveGroupPrompt: (params: { cfg: TConfig; accountId: string; groupOpenid: string }) => string | undefined;
-  getRefEntry: (idx: string) => { isBot?: boolean } | null | undefined;
+  getRefEntry: (idx: string) => { isBot?: boolean; senderId?: string } | null | undefined;
   isControlCommand: (text: string) => boolean;
   applySchedulerEffects?: (effects: CustomUnreadGatewayEffect[], cfg: ResolvedCustomUnreadConfig) => void;
   persistCustomUnreadState?: () => void;
@@ -96,7 +97,8 @@ export function applyCustomGroupDispatchGateway<TConfig extends OpenClawConfig =
   }
 
   const isCustomUnreadSynthetic = Boolean(params.event._customUnreadSnapshotId);
-  let wasMentioned = params.detectWasMentioned({
+  const addressedElsewhere = !isCustomUnreadSynthetic && isAddressedToOtherGroupMember(params.event.mentions);
+  let wasMentioned = !addressedElsewhere && params.detectWasMentioned({
     eventType: params.event.eventType,
     mentions: params.event.mentions,
     content: params.event.content,
@@ -123,10 +125,11 @@ export function applyCustomGroupDispatchGateway<TConfig extends OpenClawConfig =
     cfg: params.cfg,
     event: params.event,
   });
-  const implicitMention = adminGroupBypass || resolveCustomGroupImplicitMention({
+  const implicitMention = !addressedElsewhere && (adminGroupBypass || resolveCustomGroupImplicitMention({
+    accountId: params.accountId,
     refMsgIdx: params.event.refMsgIdx,
     getRefEntry: params.getRefEntry,
-  });
+  }));
   const contentForCommand = normalizeGroupMessageContentForCommand(params.event.content);
   const gateContext = buildCustomGroupMessageGateContext({
     content: params.event.content,
@@ -137,7 +140,7 @@ export function applyCustomGroupDispatchGateway<TConfig extends OpenClawConfig =
     isCustomUnreadSynthetic,
     ignoreOtherMentions: isCustomUnreadSynthetic
       ? false
-      : params.resolveIgnoreOtherMentions({ cfg: params.cfg, accountId: params.accountId, groupOpenid }),
+      : addressedElsewhere || params.resolveIgnoreOtherMentions({ cfg: params.cfg, accountId: params.accountId, groupOpenid }),
     allowTextCommands: shouldHandleCustomTextCommands(params.cfg as Record<string, unknown>),
     isControlCommand: params.isControlCommand(contentForCommand),
     commandAuthorized: params.commandAuthorized,
@@ -169,7 +172,8 @@ export function applyCustomGroupDispatchGateway<TConfig extends OpenClawConfig =
     return { ...base, action: "stop", reason: "block_unauthorized_command" };
   }
 
-  if (gateContext.gate.action === "skip_no_mention") {
+  if (gateContext.gate.action === "skip_no_mention" || (!isCustomUnreadSynthetic && params.event.senderIsBot &&
+      !params.unread.admitBotReply(groupOpenid))) {
     applyCustomGroupSkippedMessageIngress({
       accountId: params.accountId,
       cfg: params.cfg,

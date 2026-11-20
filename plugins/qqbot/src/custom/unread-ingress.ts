@@ -89,6 +89,7 @@ export function recordCustomUnreadNonMentionBeforeDispatch(params: {
     senderId: params.event.senderId,
     senderName: params.event.senderName,
     senderIsBot: params.event.senderIsBot,
+    mentions: params.event.mentions,
     content: params.content,
     messageId: params.event.messageId,
     timestamp: params.event.timestamp,

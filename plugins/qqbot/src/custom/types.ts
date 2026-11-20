@@ -62,6 +62,7 @@ export interface CustomInboundMessage {
   timestamp: number;
   mentionedBot: boolean;
   implicitMention?: boolean;
+  addressedElsewhere?: boolean;
   attachments?: CustomAttachment[];
 }
 

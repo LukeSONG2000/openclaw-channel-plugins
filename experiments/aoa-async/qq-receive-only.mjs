@@ -42,6 +42,9 @@ function migrate(db) {
       throw error;
     }
   } else db.exec(eventsSchema);
+  const eventColumns = new Set(db.prepare('PRAGMA table_info(events)').all().map(row => row.name));
+  if (!eventColumns.has('sender_is_bot')) db.exec('ALTER TABLE events ADD COLUMN sender_is_bot INTEGER NOT NULL DEFAULT 0');
+  if (!eventColumns.has('addressed_elsewhere')) db.exec('ALTER TABLE events ADD COLUMN addressed_elsewhere INTEGER NOT NULL DEFAULT 0');
   db.exec(`
     CREATE INDEX IF NOT EXISTS events_received_at ON events(received_at);
     CREATE INDEX IF NOT EXISTS events_by_group ON events(group_id, received_at);
@@ -73,7 +76,7 @@ export function inbox(db, { mode = 'bound-group', challenge, enableDirect = fals
   migrate(db);
   const binding = db.prepare('SELECT group_id FROM group_binding WHERE singleton = 1');
   const bind = db.prepare('INSERT OR IGNORE INTO group_binding VALUES (1, ?)');
-  const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+  const insert = db.prepare('INSERT OR IGNORE INTO events VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
   const insertQuote = db.prepare('INSERT INTO event_quotes VALUES (?, ?, ?, ?, ?, ?)');
   const insertImage = db.prepare('INSERT INTO event_images VALUES (?, ?, ?, ?, ?)');
   const expire = db.prepare('DELETE FROM events WHERE received_at < ?');
@@ -100,12 +103,15 @@ export function inbox(db, { mode = 'bound-group', challenge, enableDirect = fals
         prune();
         return saved;
       }
-      if (!msg || msg.kind !== 'group' || msg.senderIsBot || !groupEvents.has(msg.rawEventType)
+      if (!msg || msg.kind !== 'group' || !groupEvents.has(msg.rawEventType)
         || !msg.groupOpenid || !msg.senderId || !msg.messageId) return false;
-      const mentioned = msg.rawEventType === 'GROUP_AT_MESSAGE_CREATE' || msg.mentions?.some(m => m.is_you === true);
+      const personalMentions = (msg.mentions ?? []).filter(m => m.scope !== 'all');
+      const directMention = personalMentions.some(m => m.is_you === true);
+      const addressedElsewhere = !directMention && personalMentions.some(m => m.is_you === false);
+      const mentioned = directMention || (!addressedElsewhere && msg.rawEventType === 'GROUP_AT_MESSAGE_CREATE');
       const body = typeof msg.content === 'string' ? msg.content : '';
       if (mode === 'bound-group') {
-        if (!binding.get() && mentioned && challenge
+        if (!binding.get() && mentioned && !msg.senderIsBot && challenge
           && body.replace(/<@!?[^>]+>/g, ' ').split(/\s+/).includes(challenge)) bind.run(msg.groupOpenid);
         if (binding.get()?.group_id !== msg.groupOpenid) return false;
       }
@@ -116,7 +122,8 @@ export function inbox(db, { mode = 'bound-group', challenge, enableDirect = fals
       db.exec('SAVEPOINT group_event');
       try {
         result = insert.run(msg.groupOpenid, msg.messageId, msg.senderId, now(), msg.rawEventType, mentioned ? 1 : 0,
-          body.slice(0, 4096), Array.isArray(msg.attachments) ? msg.attachments.length : 0);
+          body.slice(0, 4096), Array.isArray(msg.attachments) ? msg.attachments.length : 0,
+          msg.senderIsBot === true ? 1 : 0, addressedElsewhere ? 1 : 0);
         if (result.changes && (messageIndex || quotedIndex)) {
           insertQuote.run(msg.groupOpenid, msg.messageId, messageIndex, quotedIndex,
             typeof pushedQuote?.rawContent === 'string' ? pushedQuote.rawContent.slice(0, 4096) : '',

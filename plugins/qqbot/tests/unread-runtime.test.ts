@@ -75,13 +75,18 @@ assert.equal(first.intents.length, 1);
 assert.equal(first.intents[0]!.kind, "schedule-followup");
 assert.equal(first.intents[0]!.dueAt, 302_000);
 
-const botIgnored = runtime.recordNonMention({
+const botRecorded = runtime.recordNonMention({
   message: msg({ actor: { id: "BOT_OPENID", isBot: true }, messageId: "bot-msg" }),
   cfg,
   now: 2_500,
 });
-assert.equal(botIgnored.recorded, false);
-assert.equal(botIgnored.pendingCount, 1);
+assert.equal(botRecorded.recorded, true);
+assert.equal(botRecorded.pendingCount, 2);
+assert.equal(runtime.admitBotReply("GROUP_OPENID", 5_000), true);
+assert.equal(runtime.admitBotReply("GROUP_OPENID", 5_001), true);
+assert.equal(runtime.admitBotReply("GROUP_OPENID", 5_002), false);
+assert.equal(runtime.admitBotReply("OTHER_GROUP", 5_002), true);
+assert.equal(runtime.admitBotReply("GROUP_OPENID", 65_002), true);
 
 runtime.recordNonMention({ message: msg({ messageId: "msg-2", content: "second", timestamp: 3_000 }), cfg, now: 3_000 });
 runtime.recordNonMention({ message: msg({ messageId: "msg-3", content: "third", timestamp: 4_000 }), cfg, now: 4_000 });
