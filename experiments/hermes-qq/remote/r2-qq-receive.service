@@ -1,0 +1,13 @@
+[Unit]
+Description=R2 Hermes QQ receiver
+After=network-online.target
+
+[Service]
+EnvironmentFile=%h/.local/share/r2-qq-hermes/deploy.env
+UMask=0077
+ExecStart=/usr/bin/env ${LUKE_NODE} %h/.local/share/r2-qq-hermes/code/experiments/aoa-async/qq-receive-only.mjs %h/.local/share/r2-qq-hermes/inbox ${LUKE_QQ_SDK} ${LUKE_QQ_APP_ID} %h/.local/share/r2-qq-hermes/secrets/qq-app-secret all-groups
+Restart=always
+RestartSec=10
+
+[Install]
+WantedBy=default.target

@@ -34,6 +34,9 @@ export function conversationPolicy(config, { pilotGroup, groupMemory = () => fal
   if (config !== undefined && !record(config)) throw new Error('invalid conversation policy');
   const haveNames = config && (Object.hasOwn(config, 'verifiedNames') || Object.hasOwn(config, 'namedModes'));
   const mode = groupPolicy(haveNames ? config : undefined, pilotGroup);
+  const directDefaults = config?.directDefaults ?? {};
+  if (!record(directDefaults) || Object.entries(directDefaults).some(([key, value]) =>
+    !['memory', 'imageGeneration'].includes(key) || typeof value !== 'boolean')) throw new Error('invalid direct defaults');
   const overrides = new Map();
   const configured = config?.conversations;
   if (configured !== undefined) {
@@ -56,7 +59,7 @@ export function conversationPolicy(config, { pilotGroup, groupMemory = () => fal
         ...overrides.get('group:' + peer) };
     },
     forDirect(peer) {
-      return { memory: true, imageGeneration: false, ...overrides.get('direct:' + peer) };
+      return { memory: true, imageGeneration: false, ...directDefaults, ...overrides.get('direct:' + peer) };
     },
   });
 }

@@ -35,6 +35,23 @@ Imagen additionally requires `LUKE_QQ_IMAGEN=1`, the shared `plugins/openai-imag
 
 Background acknowledgments reuse Kanban's verified ready/running state. The intent turn can draft one optional user-facing sentence in a dedicated JSON field; only that field, never the brief, intermediate messages, reasoning or tool output, is eligible for posting. Missing or invalid phrasing has no canned fallback. A job already done, an old request, and bot-only chatter get no hint. The final text or image reserves the next passive-reply sequence even if the hint receipt was lost; the original peer, sender, and reply expiry still apply.
 
+## R2 QQ cutover
+
+The `r2-*` systemd units use the same adapter with separate containers, volumes,
+private inbox, policy, persona and credentials. Keep the OpenClaw gateway and
+other channels running; disable only `channels.qqbot.enabled` and verify its
+receiver is no longer connected before starting the R2 Hermes receiver.
+Pause (do not remove) the Luke pilot services. Never run two receivers for
+the R2 app account, even during rollback.
+
+Translate verified same-account group IDs and Imagen grants into the private
+policy. Keep the defaults mention-only, map the former admin group to free
+reply without admin features, and grant group memory only where authorized.
+Optional import of a recent OpenClaw unread snapshot is context-only:
+`import-qq-history.mjs` must run before the first bridge boot. Do not import
+old tools, pending work, cross-channel private memory, or automation.
+Rollback with `r2-qq-rollback.sh`, then verify OpenClaw's QQ channel status.
+
 ### Automatic learning fixture
 
 Run `bash run-honcho-learning-probe.sh <private-probe-workspace> <pinned-honcho-checkout> <private-zhipu-env> [private-bailian-key-file]` on the remote host. The Zhipu file contains `ZAI_API_KEY`; the optional Bailian file contains only a Beijing Model Studio inference key. Both must be mode `0600`. Do not add either file to a checkout.

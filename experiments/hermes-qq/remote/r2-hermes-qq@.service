@@ -1,0 +1,19 @@
+[Unit]
+Description=R2 Hermes QQ profile (%i)
+After=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+Delegate=yes
+Nice=5
+Environment=LUKE_RUNTIME_INSTANCE=r2
+Environment=LUKE_RUNTIME_ROOT=%h/.local/share/r2-qq-hermes
+ExecStart=/usr/bin/bash %h/.local/share/r2-qq-hermes/code/experiments/hermes-qq/remote/run-profile.sh %i
+ExecStop=/usr/bin/podman stop --ignore -t 15 r2-hermes-qq-%i
+Restart=always
+RestartSec=10
+TimeoutStopSec=35
+
+[Install]
+WantedBy=default.target

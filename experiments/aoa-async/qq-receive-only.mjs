@@ -186,7 +186,8 @@ async function main() {
   const configured = process.env.LUKE_QQ_IMAGEN === '1' && configFile ? JSON.parse(readFileSync(configFile, 'utf8')) : null;
   const receiver = inbox(db, { mode, challenge: scope, enableDirect: process.env.LUKE_QQ_DIRECT === '1',
     retainGroupImages: id => configured?.conversations?.['group:' + id]?.imageGeneration === true,
-    retainDirectImages: id => configured?.conversations?.['direct:' + id]?.imageGeneration === true });
+    retainDirectImages: id => (configured?.conversations?.['direct:' + id]?.imageGeneration ??
+      configured?.directDefaults?.imageGeneration) === true });
   const stop = new AbortController();
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };

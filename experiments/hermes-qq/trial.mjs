@@ -342,7 +342,7 @@ async function main() {
   const inbox = new DatabaseSync(join(root, 'inbox.sqlite'), { readOnly: true });
   const ledger = new DatabaseSync(join(trialDir, 'receipts.sqlite'));
   const groupId = inbox.prepare('SELECT group_id FROM group_binding WHERE singleton=1').get()?.group_id;
-  if (!groupId) throw new Error('no verified QQ trial group');
+  if (!groupId && (!always || !process.env.LUKE_QQ_GROUP_POLICY)) throw new Error('no verified QQ trial group');
   let senderId;
   if (!always) {
     const senders = inbox.prepare(`SELECT DISTINCT sender_id FROM events WHERE group_id=? AND mentioned=1 AND instr(body,?)>0`)
@@ -480,7 +480,7 @@ async function main() {
     });
     return { trial, bridge, canDeliver };
   }
-  const initialGroups = always && configured ? [groupId, ...policy.groupIds] : [groupId];
+  const initialGroups = always && configured ? [groupId, ...policy.groupIds].filter(Boolean) : [groupId];
   const groups = new Map([...new Set(initialGroups)].map(id => [id, makeGroup(id)]));
   const recentGroups = inbox.prepare('SELECT DISTINCT group_id FROM events WHERE mentioned=1 AND received_at > ?');
   const closeImagen = withImagen ? await (() => {
