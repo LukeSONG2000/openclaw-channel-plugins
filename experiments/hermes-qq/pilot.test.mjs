@@ -106,7 +106,9 @@ test('calendar requests use the event clock and validate offset-aware intervals'
   const from = '2026-11-20T00:00:00+08:00', to = '2026-11-20T07:30:00Z';
   const plan = fields => hermesPilot({ fast: {
     async start({ input }) {
-      assert.equal(Date.parse(JSON.parse(input.split('\n').at(-1)).current.receivedAt), source.at);
+      const { current } = JSON.parse(input.split('\n').at(-1));
+      assert.equal(Date.parse(current.receivedAt), source.at);
+      assert.equal(current.localDate, '2026-11-20');
       return 'route';
     },
     async wait() { return JSON.stringify({ route: 'work', text: 'Summarize the period', ...fields }); },
