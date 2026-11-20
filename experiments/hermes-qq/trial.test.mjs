@@ -82,6 +82,30 @@ test('activating named groups never replies to backlog and isolates free and men
   assert.deepEqual(delivered, [['unknown', 'new mention']]);
 });
 
+test('a window can mention a bot but cannot use a message addressed to someone else as its reply anchor', async t => {
+  const delivered = [];
+  const data = setup(t, {
+    always: true, pollIntervalsMs: [100],
+    planWindow: async (events) => {
+      assert.equal(events.find(e => e.messageId === 'other').addressedElsewhere, true);
+      assert.equal(events.find(e => e.messageId === 'bot').senderIsBot, true);
+      return [{ mode: 'reply', replyToId: 'other', text: 'Wrong audience' },
+        { mode: 'mention', replyToId: 'bot', text: 'That sounds useful' }];
+    },
+    sendWindow: async (_group, action, _tail, anchor) => {
+      delivered.push([action.mode, anchor.senderId]);
+      return { id: 'sent' };
+    },
+  });
+  const trial = data.trial();
+  data.put('other', 'hello', { rawEventType: 'GROUP_MESSAGE_CREATE', mentions: [{ is_you: false }] });
+  data.put('bot', 'I found a public guide', { rawEventType: 'GROUP_MESSAGE_CREATE', senderId: 'another-bot', senderIsBot: true });
+  data.advance(100);
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(delivered, [['mention', 'another-bot']]);
+});
+
 test('chat replies survive a memory outage without writing window context or bot replies', async t => {
   const observed = [];
   const data = setup(t, {
