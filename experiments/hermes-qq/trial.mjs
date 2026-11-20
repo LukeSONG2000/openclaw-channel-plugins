@@ -6,8 +6,11 @@ import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { readGroupContext, readGroupWindow } from './inbox-view.mjs';
 import { backgroundRequest } from './pilot.mjs';
+import { kanbanTasks, makeKanbanBridge, runKanbanCommand } from './kanban.mjs';
 
 const maxAge = 180_000;
+const passiveWindowMs = 295_000;
+const docker = '/usr/local/bin/docker';
 // The QQ client clipped a 308-byte native-mention payload despite accepting the send.
 const mentionMarkdownBudget = 280;
 const plainTextBudget = 1800;
@@ -89,7 +92,7 @@ export async function sendMentionReply(bot, event, content, ApiError, onDowngrad
 
 export function makeTrial({
   inbox, ledger, account, groupId, senderId, start, until, signal,
-  now = Date.now, windowMs = 60_000, plan, startWork, finish, queueWork, send, planWindow, sendWindow, log = () => {},
+  always = false, now = Date.now, windowMs = 60_000, plan, startWork, finish, queueWork, send, planWindow, sendWindow, log = () => {},
 }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS trial_receipts (
     group_id TEXT NOT NULL, message_id TEXT NOT NULL, state TEXT NOT NULL, PRIMARY KEY(group_id, message_id)
@@ -97,16 +100,21 @@ export function makeTrial({
   const claim = ledger.prepare("INSERT OR IGNORE INTO trial_receipts VALUES (?, ?, 'claimed')");
   const mark = ledger.prepare('UPDATE trial_receipts SET state = ? WHERE group_id = ? AND message_id = ?');
   const known = ledger.prepare('SELECT 1 FROM trial_receipts WHERE group_id = ? AND message_id = ?');
-  const rows = inbox.prepare(`SELECT * FROM events WHERE group_id=? AND sender_id=? AND mentioned=1
-    AND received_at>? AND received_at<=? ORDER BY received_at,rowid LIMIT 32`);
+  const rows = inbox.prepare(`SELECT rowid AS inbox_row, * FROM events WHERE group_id=? AND (? IS NULL OR sender_id=?)
+    AND mentioned=1 AND received_at>? AND received_at<=?
+    AND (received_at>? OR (received_at=? AND rowid>?)) ORDER BY received_at,rowid LIMIT 32`);
   const firstPlain = inbox.prepare(`SELECT MIN(received_at) AS at FROM events
-    WHERE group_id=? AND sender_id=? AND mentioned=0 AND received_at>?
+    WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=0 AND received_at>?
       AND length(trim(body))>0`);
-  const latestMention = inbox.prepare('SELECT MAX(received_at) AS at FROM events WHERE group_id=? AND sender_id=? AND mentioned=1');
+  const latestMention = inbox.prepare(`SELECT MAX(received_at) AS at FROM events
+    WHERE group_id=? AND (? IS NULL OR sender_id=?) AND mentioned=1`);
+  const allowedSender = always ? null : senderId;
   const active = new Set();
   let routing = 0;
-  let budget = 6;
+  let budget = always ? Infinity : 6;
   let coveredThrough = start;
+  let lastMentionAt = start;
+  let lastMentionRow = 0;
   let ambient = false;
   const isLive = () => !signal?.aborted && now() < until;
   const record = (event, status, key = event.messageId) => { mark.run(status, event.groupId, key); log(status); return status; };
@@ -160,12 +168,12 @@ export function makeTrial({
   function startWindow() {
     if (!planWindow || !sendWindow || ambient || !budget || !isLive()) return;
     const since = Math.max(coveredThrough, now() - maxAge);
-    const first = firstPlain.get(groupId, senderId, since)?.at;
+    const first = firstPlain.get(groupId, allowedSender, allowedSender, since)?.at;
     if (!Number.isSafeInteger(first) || now() < first + windowMs) return;
     const through = first + windowMs;
     coveredThrough = through;
     const events = readGroupWindow(inbox, { account, groupId, after: since, through }).filter(item => !item.mentioned);
-    if (!events.some(item => item.senderId === senderId)) return;
+    if (!events.some(item => always || item.senderId === senderId)) return;
     const tail = events.at(-1);
     const anchors = new Set(events.map(item => item.messageId));
     ambient = true;
@@ -173,7 +181,7 @@ export function makeTrial({
     track(Promise.resolve().then(() => planWindow(events, since > 0 ? contextAt(since).messages : [])).then(async actions => {
       if (!Array.isArray(actions)) return;
       for (const action of actions.slice(0, 2)) {
-        if (!isLive() || now() - through > maxAge || latestMention.get(groupId, senderId)?.at >= through) break;
+        if (!isLive() || now() - through > maxAge || latestMention.get(groupId, allowedSender, allowedSender)?.at >= through) break;
         if (!['natural', 'reply'].includes(action?.mode) ||
           (action.mode === 'reply' && !anchors.has(action.replyToId)) ||
           typeof action.text !== 'string' || !action.text.trim() || action.text.length > 180 ||
@@ -182,7 +190,7 @@ export function makeTrial({
         if (!claim.run(groupId, key).changes) continue;
         record(tail, 'sending', key);
         try {
-          if (record(tail, (await sendWindow(groupId, action))?.id ? 'accepted' : 'uncertain', key) !== 'accepted') break;
+          if (record(tail, (await sendWindow(groupId, action, tail))?.id ? 'accepted' : 'uncertain', key) !== 'accepted') break;
         } catch { record(tail, 'uncertain', key); break; }
       }
     }).catch(() => log('window_failed')).finally(() => { ambient = false; }));
@@ -190,8 +198,11 @@ export function makeTrial({
   return {
     tick() {
       if (!budget || signal?.aborted || now() >= until) return;
-      for (const row of rows.all(groupId, senderId, Math.max(start, now() - maxAge), now())) {
+      for (const row of rows.all(groupId, allowedSender, allowedSender, Math.max(start, now() - maxAge), now(),
+        lastMentionAt, lastMentionAt, lastMentionRow)) {
         if (!budget || signal?.aborted || now() >= until || routing >= 3) break;
+        lastMentionAt = row.received_at;
+        lastMentionRow = row.inbox_row;
         const text = trialInput(row.body);
         if (!text || known.get(groupId, row.message_id) || !claim.run(groupId, row.message_id).changes) continue;
         budget--;
@@ -209,9 +220,20 @@ export function makeTrial({
   };
 }
 
+export function qqReceiptPolicy(inbox, { account, groupId, signal, now = Date.now }) {
+  const lookup = inbox.prepare('SELECT sender_id, received_at FROM events WHERE group_id=? AND message_id=? AND mentioned=1');
+  return source => {
+    if (signal?.aborted) return false;
+    if (source.channel !== 'qqbot' || source.account !== account || source.groupId !== groupId) return 'expired';
+    const row = lookup.get(groupId, source.messageId);
+    const age = now() - (row?.received_at ?? 0);
+    return row?.sender_id === source.senderId && age >= 0 && age < passiveWindowMs ? true : 'expired';
+  };
+}
+
 function callRuntime(container, mode, payload) {
   return new Promise((resolve, reject) => {
-    const child = execFile('/usr/local/bin/docker', ['exec', '-i', '-u', 'hermes', container,
+    const child = execFile(docker, ['exec', '-i', '-u', 'hermes', container,
       'node', '/pilot/hermes-qq/shadow.mjs', mode], { timeout: 155_000, maxBuffer: 48_000 }, (error, stdout) => {
       if (error) return reject(new Error('Hermes trial call failed'));
       try { resolve(JSON.parse(stdout)); } catch { reject(new Error('invalid Hermes response')); }
@@ -223,10 +245,11 @@ function callRuntime(container, mode, payload) {
 
 async function main() {
   const [root, sdk, account, keychainService, container, bindPhrase, worker] = process.argv.slice(2);
+  const always = bindPhrase === '--always';
   const containerName = /^[a-z0-9][a-z0-9-]{1,80}$/i;
   if (!root || !sdk || !/^\d+$/.test(account ?? '') || !keychainService
     || !containerName.test(container ?? '') || !containerName.test(worker ?? '') || container === worker
-    || !/^AOA-[A-Z0-9]{8,32}$/.test(bindPhrase ?? '')) {
+    || (!always && !/^AOA-[A-Z0-9]{8,32}$/.test(bindPhrase ?? ''))) {
     throw new Error('invalid QQ trial configuration');
   }
   process.umask(0o077);
@@ -237,11 +260,14 @@ async function main() {
   const inbox = new DatabaseSync(join(root, 'inbox.sqlite'), { readOnly: true });
   const ledger = new DatabaseSync(join(trialDir, 'receipts.sqlite'));
   const groupId = inbox.prepare('SELECT group_id FROM group_binding WHERE singleton=1').get()?.group_id;
-  const senders = inbox.prepare(`SELECT DISTINCT sender_id FROM events WHERE group_id=? AND mentioned=1 AND instr(body,?)>0`)
-    .all(groupId ?? '', bindPhrase);
-  if (!groupId || senders.length !== 1) throw new Error('no verified QQ trial sender');
-  const senderId = senders[0].sender_id;
-  if (!/^[a-z0-9_-]{1,128}$/i.test(senderId)) throw new Error('invalid QQ sender ID');
+  if (!groupId) throw new Error('no verified QQ trial group');
+  let senderId;
+  if (!always) {
+    const senders = inbox.prepare(`SELECT DISTINCT sender_id FROM events WHERE group_id=? AND mentioned=1 AND instr(body,?)>0`)
+      .all(groupId, bindPhrase);
+    senderId = senders.length === 1 ? senders[0].sender_id : null;
+    if (!/^[a-z0-9_-]{1,128}$/i.test(senderId ?? '')) throw new Error('no verified QQ trial sender');
+  }
   const { QQBot, ApiError } = await import(pathToFileURL(sdk));
   const appSecret = execFileSync('/usr/bin/security', ['find-generic-password', '-a', account,
     '-s', keychainService, '-w'], { encoding: 'utf8', timeout: 8000, stdio: ['ignore', 'pipe', 'ignore'] }).trim();
@@ -249,35 +275,69 @@ async function main() {
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
   const bot = new QQBot({ appId: account, appSecret, logger });
-  const start = Date.now();
-  const until = start + 30 * 60_000;
   const stop = new AbortController();
+  process.once('SIGTERM', () => stop.abort());
+  process.once('SIGINT', () => stop.abort());
+  const kanbanCommand = (args, input) => runKanbanCommand(docker, ['exec', '-i', '-u', 'hermes', worker,
+    'hermes', 'kanban', ...args], input);
+  if (always) await Promise.all([callRuntime(container, 'health', {}), kanbanCommand(['diagnostics', '--json'])]);
+  const bridge = always ? makeKanbanBridge({
+    db: ledger, tasks: kanbanTasks({ command: kanbanCommand }), account, groupId,
+    onError: phase => console.error('qq_kanban_error phase=' + phase),
+  }) : null;
+  const start = Date.now();
+  const until = always ? Infinity : start + 30 * 60_000;
+  const safeSend = async operation => {
+    try { return await operation(); }
+    catch (error) {
+      if (error instanceof ApiError) {
+        console.error('qq_send_rejected http=' + (Number(error.httpStatus) || 0) + ' code=' + (Number(error.bizCode) || 0));
+      }
+      throw error;
+    }
+  };
+  const send = (event, content) => safeSend(() => sendMentionReply(bot, event, content, ApiError,
+    () => console.log('qq_trial_mention_plain_fallback')));
   const trial = makeTrial({
-    inbox, ledger, account, groupId, senderId, start, until, signal: stop.signal,
+    inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
     plan: (event, context) => callRuntime(container, 'trial-plan', { events: [event], context }),
     startWork: decision => callRuntime(worker, 'trial-start', { decision }),
     finish: job => callRuntime(worker, 'trial-settle', { job }),
+    queueWork: bridge?.enqueue,
     planWindow: (events, context) => callRuntime(container, 'trial-window', { events, context }),
-    sendWindow: (to, action) => bot.send({
-      target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId } : {}) },
-      msgType: 0, content: action.text, extra: { msg_seq: 1 },
-    }),
-    send: (event, content) => sendMentionReply(bot, event, content, ApiError,
-      () => console.log('qq_trial_mention_plain_fallback')),
+    sendWindow: (to, action, tail) => safeSend(() => bot.send({
+      target: { scope: 'group', targetId: to, ...(action.mode === 'reply' ? { msgId: action.replyToId }
+        : always ? { msgId: tail.messageId } : {}) },
+      msgType: 0, content: action.text, extra: { msg_seq: always && action.mode === 'natural' ? 2 : 1 },
+    })),
+    send,
     log: status => console.log('qq_trial_' + status),
   });
-  process.once('SIGTERM', () => stop.abort());
-  process.once('SIGINT', () => stop.abort());
-  console.log('qq_trial_ready');
+  const canDeliver = qqReceiptPolicy(inbox, { account, groupId, signal: stop.signal });
+  let sweep;
+  let nextSweep = start;
+  console.log('qq_trial_ready mode=' + (always ? 'always' : 'bounded'));
   try {
     while (!stop.signal.aborted && Date.now() < until) {
       trial.tick();
+      if (bridge && !sweep && Date.now() >= nextSweep) {
+        nextSweep = Date.now() + 5_000;
+        sweep = bridge.sweep({
+          canDeliver,
+          deliver: async ({ source, text }) => {
+            const receipt = await send(source, text);
+            console.log('qq_kanban_' + (receipt?.id ? 'accepted' : 'uncertain'));
+            return receipt;
+          },
+        }).catch(() => console.error('qq_kanban_sweep_failed')).finally(() => { sweep = null; });
+      }
       await delay(700, undefined, { signal: stop.signal });
     }
   } catch (error) {
     if (!stop.signal.aborted) throw error;
   } finally {
     await trial.drain();
+    await sweep;
     await bot.stop();
     inbox.close();
     ledger.close();

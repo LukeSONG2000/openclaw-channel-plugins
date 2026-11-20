@@ -3,7 +3,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { makeKanbanBridge } from './kanban.mjs';
-import { makeTrial, sendMentionReply, trialInput } from './trial.mjs';
+import { makeTrial, qqReceiptPolicy, sendMentionReply, trialInput } from './trial.mjs';
 
 const groupId = 'test-group';
 const senderId = 'test-author';
@@ -20,6 +20,7 @@ function setup(t, handlers) {
     now: () => time, ...handlers,
   };
   return {
+    db,
     trial: () => makeTrial(parameters),
     advance: ms => { time += ms; },
     put: (messageId, content, changes = {}) => intake.record({
@@ -244,6 +245,38 @@ test('the durable work adapter receives normal context without replacing quick r
   await bridge.sweep(transport);
   await bridge.sweep(transport);
   assert.deepEqual(sent, ['ping', 'job']);
+});
+
+test('always mode accepts more than six turns from any member of only the bound group', async t => {
+  const sent = [];
+  const data = setup(t, {
+    always: true, until: Infinity,
+    plan: async event => ({ kind: 'chat', source: event, text: 'here' }),
+    send: async event => { sent.push(event.messageId); return { id: 'accepted' }; },
+  });
+  data.put('another-group', 'ignore', { groupOpenid: 'other' });
+  const trial = data.trial();
+  for (let i = 0; i < 8; i++) {
+    data.advance(60_000);
+    data.put('turn-' + i, 'hello', { senderId: 'member-' + i });
+    trial.tick();
+    await trial.drain();
+  }
+  assert.deepEqual(sent, Array.from({ length: 8 }, (_, i) => 'turn-' + i));
+});
+
+test('a delayed receipt requires a recent original mention from the same QQ account and group', t => {
+  const data = setup(t, {});
+  data.put('request', 'research');
+  const source = { channel: 'qqbot', account: 'luke', groupId, senderId, messageId: 'request' };
+  const check = (age, overrides) => qqReceiptPolicy(data.db, {
+    account: 'luke', groupId, now: () => clock + age,
+  })({ ...source, ...overrides });
+  assert.equal(check(294_999), true);
+  assert.equal(check(295_000), 'expired');
+  assert.equal(check(0, { account: 'r2' }), 'expired');
+  assert.equal(check(0, { groupId: 'other' }), 'expired');
+  assert.equal(check(0, { senderId: 'other' }), 'expired');
 });
 
 test('tracing a decision uses older context only from the source group', async t => {

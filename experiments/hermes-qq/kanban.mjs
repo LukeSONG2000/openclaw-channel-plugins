@@ -7,9 +7,9 @@ const titleFor = key => 'QQ background work ' + key.slice(0, 16);
 const tenantFor = (account, groupId) => 'qq-' + createHash('sha256')
   .update(JSON.stringify([account, groupId])).digest('hex').slice(0, 32);
 
-async function cli(args, body) {
+export function runKanbanCommand(file, args, body) {
   return new Promise((resolve, reject) => {
-    const child = execFile('hermes', ['kanban', ...args], { timeout: 12_000, maxBuffer: 256_000 },
+    const child = execFile(file, args, { timeout: 12_000, maxBuffer: 256_000 },
       (error, stdout) => {
         if (error) return reject(new Error('Hermes Kanban command failed'));
         try { resolve(JSON.parse(stdout)); }
@@ -19,6 +19,8 @@ async function cli(args, body) {
     child.stdin.end(body);
   });
 }
+
+const cli = (args, body) => runKanbanCommand('hermes', ['kanban', ...args], body);
 
 export function kanbanTasks({ command = cli, assignee = 'default' } = {}) {
   if (!/^[a-z0-9][a-z0-9_-]{0,63}$/i.test(assignee)) throw new Error('invalid Kanban worker profile');
@@ -90,7 +92,9 @@ export function makeKanbanBridge({ db, tasks, account, groupId, now = Date.now, 
               move.run('withheld', key, 'watching');
               continue;
             }
-            if (!await canDeliver(source) || !move.run('sending', key, 'watching').changes) continue;
+            const available = await canDeliver(source);
+            if (available === 'expired') { move.run('retained', key, 'watching'); continue; }
+            if (available !== true || !move.run('sending', key, 'watching').changes) continue;
             // Do not replay a post whose receipt was lost, including on process restart.
             try { move.run((await deliver({ source, text, receiptKey: key }))?.id ? 'accepted' : 'uncertain', key, 'sending'); }
             catch { move.run('uncertain', key, 'sending'); }

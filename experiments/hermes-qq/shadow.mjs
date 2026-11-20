@@ -38,6 +38,10 @@ async function readSample() {
 async function main(mode) {
   if (!['chat', 'work'].includes(lane)) throw new Error('invalid Hermes lane');
   const enabledTools = await assertTools();
+  if (mode === 'health') {
+    console.log(JSON.stringify({ status: 'ready', lane }));
+    return;
+  }
   if (mode === 'probe') {
     const id = randomUUID();
     const sessionId = 'pilot-probe-' + id;

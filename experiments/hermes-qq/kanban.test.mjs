@@ -107,6 +107,25 @@ test('a card from a different tenant is never treated as the original task', asy
   await assert.rejects(tasks.read({ id: 't_12345678', tenant: 'group', key: 'a'.repeat(64) }), /identity mismatch/);
 });
 
+test('an expired QQ anchor retains the result in Kanban without retrying or posting it', async t => {
+  const db = withLedger(t)();
+  t.after(() => db.close());
+  let reads = 0;
+  const tasks = {
+    async create() { return 't_12345678'; },
+    async read() { reads++; return { status: 'done', result: 'completed in Kanban' }; },
+  };
+  const source = event();
+  const bridge = makeKanbanBridge({ db, tasks, account: source.account, groupId: source.groupId });
+  bridge.enqueue(decision(source));
+  const transport = { canDeliver: () => 'expired', deliver: () => assert.fail('must not post') };
+  await bridge.sweep(transport);
+  await bridge.sweep(transport);
+  await bridge.sweep(transport);
+  assert.equal(state(db), 'retained');
+  assert.equal(reads, 1);
+});
+
 test('real Hermes: a native worker finishes while the QQ bridge is closed; quick chat remains separate', {
   skip: !process.env.HERMES_QQ_FIXTURE_ORIGIN, timeout: 90_000,
 }, async t => {

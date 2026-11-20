@@ -8,6 +8,10 @@ agent:
   max_turns: 8
 platform_toolsets:
   api_server: [todo]
+toolsets: [todo]
+kanban:
+  dispatch_interval_seconds: 5
+  max_in_progress: 2
 memory:
   memory_enabled: false
   user_profile_enabled: false
