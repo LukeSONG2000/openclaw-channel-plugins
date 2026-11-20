@@ -1,6 +1,6 @@
 {
   "id": "luke-openai-image",
-  "name": "Luke OpenAI Image",
+  "name": "Imagen",
   "description": "Scope-gated OpenAI image and GIF generation",
   "activation": {
     "onStartup": true

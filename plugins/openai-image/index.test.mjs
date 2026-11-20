@@ -570,6 +570,8 @@ test('native dispatch, hook and execution can span registries without leaking ac
 
 test('gateway startup loads Imagen before the first reply dispatch', async () => {
   const manifest = JSON.parse(await readFile(new URL('./openclaw.plugin.json', import.meta.url), 'utf8'));
+  assert.equal(manifest.name, 'Imagen');
+  assert.equal(manifest.id, 'luke-openai-image');
   assert.equal(manifest.activation?.onStartup, true);
   assert.deepEqual(manifest.skills, ['./skills']);
   assert.deepEqual(manifest.contracts.tools, ['read_conversation_context', 'luke_imagen']);
