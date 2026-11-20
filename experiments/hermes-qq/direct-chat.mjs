@@ -5,7 +5,8 @@ export function groupMemoryAuthorized(groupId, approvals = '') {
     approvals.split(',').map(v => v.trim()).includes(groupId);
 }
 
-export function makeDirectChat({ inbox, ledger, account, start, signal, plan, send, queueWork, memoryFor, now = Date.now, log = () => {} }) {
+export function makeDirectChat({ inbox, ledger, account, start, signal, plan, send, queueWork, memoryFor, readImages,
+  now = Date.now, log = () => {} }) {
   ledger.exec(`CREATE TABLE IF NOT EXISTS direct_receipts (
     account TEXT NOT NULL, sender_id TEXT NOT NULL, message_id TEXT NOT NULL, at INTEGER NOT NULL,
     PRIMARY KEY (account, sender_id, message_id)
@@ -25,11 +26,14 @@ export function makeDirectChat({ inbox, ledger, account, start, signal, plan, se
     try { if (memory) preferences = await memory.recall(event); } catch { log('memory_read_unavailable'); }
     const context = history.all(event.senderId, row.rowid, row.received_at - 86_400_000, row.received_at)
       .reverse().map(item => item.body.slice(0, 320));
-    const result = await plan(event, context, preferences);
+    if (!event.text.trim()) return;
+    let images = [];
+    try { if (readImages) images = await readImages(event); } catch { log('media_read_failed'); }
+    const result = await plan(event, context, preferences, images);
     if (result?.kind === 'work-request') {
       if (queueWork && !signal?.aborted && result.source?.chatType === 'direct' &&
         ['channel', 'account', 'senderId', 'messageId'].every(k => result.source[k] === event[k])) {
-        await queueWork(result);
+        await queueWork(result, images);
         log('queued');
       }
       return;

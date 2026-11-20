@@ -62,10 +62,11 @@ async function main(mode) {
   }
   const modes = lane === 'work' ? ['trial-start', 'trial-settle'] : ['window', 'mention', 'trial-plan', 'trial-window', 'direct'];
   if (!modes.includes(mode)) throw new Error('invalid shadow mode for Hermes lane');
-  const sample = await readSample(mode === 'trial-plan' ? 6_000_000 : 48_000);
+  const sample = await readSample(['trial-plan', 'direct'].includes(mode) ? 6_000_000 : 48_000);
   const pilot = hermesPilot({ fast: runs });
   if (mode === 'direct') {
-    console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences, sample.allowWork === true)));
+    console.log(JSON.stringify(await pilot.direct(sample.event, sample.context, sample.preferences,
+      sample.allowWork === true, sample.imageGeneration === true, sample.images)));
     return;
   }
   if (mode === 'trial-start') {
@@ -87,7 +88,7 @@ async function main(mode) {
   if (sample.events.length !== 1) throw new Error('expected one source event');
   const decision = await pilot.planMention(sample.events[0], Array.isArray(sample.context) ? sample.context : [],
     Array.isArray(sample.unread) ? sample.unread.slice(-12) : [], mode === 'trial-plan' ? sample.images : [],
-    mode === 'trial-plan' ? sample.preferences : []);
+    mode === 'trial-plan' ? sample.preferences : [], mode === 'trial-plan' && sample.imageGeneration === true);
   console.log(JSON.stringify(mode === 'trial-plan' ? decision
     : { status: 'completed', route: decision.kind === 'work-intent' ? 'work' : decision.kind }));
 }

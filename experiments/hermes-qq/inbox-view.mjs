@@ -81,10 +81,10 @@ export function makeGroupQuoteReader(db, groupId) {
   };
 }
 
-export function makeGroupImageReader(db, groupId) {
+export function makeGroupImageReader(db, groupId, { verified = false } = {}) {
   const quote = prepareQuoteLookup(db);
   const select = db.prepare(`
-    SELECT locator FROM event_images JOIN group_binding USING (group_id)
+    SELECT locator FROM event_images ${verified ? '' : 'JOIN group_binding USING (group_id)'}
     WHERE group_id = ? AND message_id = ? AND origin = ? ORDER BY position
   `);
   const list = (id, origin) => select.all(groupId, id, origin).map(row => row.locator);
@@ -105,6 +105,26 @@ export function makeGroupImageReader(db, groupId) {
       }
     }
     return images;
+  };
+}
+
+export function makeDirectImageReader(db) {
+  const row = db.prepare('SELECT * FROM direct_media WHERE sender_id=? AND message_id=?');
+  const reference = db.prepare(`SELECT m.current_images FROM direct_media m
+    JOIN direct_events e USING(sender_id,message_id)
+    JOIN direct_events current ON current.sender_id=e.sender_id AND current.message_id=?
+    WHERE e.sender_id=? AND (m.message_index=? OR m.message_id=?) AND e.rowid<current.rowid
+    ORDER BY e.rowid DESC LIMIT 1`);
+  return (senderId, messageId) => {
+    const found = row.get(senderId, messageId);
+    if (!found) return [];
+    const current = JSON.parse(found.current_images);
+    let quoted = JSON.parse(found.quoted_images);
+    if (!quoted.length && found.quoted_index) {
+      quoted = JSON.parse(reference.get(messageId, senderId, found.quoted_index, found.quoted_index)?.current_images ?? '[]');
+    }
+    return [...current.map(locator => ({ origin: 'current', locator })),
+      ...quoted.filter(locator => !current.includes(locator)).map(locator => ({ origin: 'quote', locator }))].slice(0, 2);
   };
 }
 

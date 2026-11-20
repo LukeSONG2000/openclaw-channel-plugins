@@ -2,7 +2,7 @@ import assert from 'node:assert/strict';
 import { DatabaseSync } from 'node:sqlite';
 import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
-import { groupHistoryMs, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+import { groupHistoryMs, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 
 test('range reads never cross the retention horizon, request anchor or future', t => {
   const db = new DatabaseSync(':memory:');
@@ -92,4 +92,20 @@ test('direct and quoted image sources use the verified group and expire with the
   now += 86_400_001;
   all.prune();
   assert.equal(db.prepare('SELECT count(*) AS n FROM event_images').get().n, 0);
+});
+test('direct quotes reuse an earlier image from the sender, never another private conversation', t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  const receiver = inbox(db, { enableDirect: true, retainDirectImages: () => true });
+  const put = (senderId, messageId, extra) => receiver.record({
+    kind: 'c2c', rawEventType: 'C2C_MESSAGE_CREATE', senderId, messageId, content: 'image',
+    ...extra,
+  });
+  const locator = 'https://gchat.qpic.cn/reference';
+  put('alice', 'source', { msgIdx: 'index', attachments: [{ content_type: 'image/png', url: locator }] });
+  put('bob', 'quote', { refMsgIdx: 'index' });
+  put('alice', 'quote', { refMsgIdx: 'index' });
+  const read = makeDirectImageReader(db);
+  assert.deepEqual(read('alice', 'quote'), [{ origin: 'quote', locator }]);
+  assert.deepEqual(read('bob', 'quote'), []);
 });

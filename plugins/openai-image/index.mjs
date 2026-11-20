@@ -233,7 +233,7 @@ export async function planPrompt(input, startAt, { signal, deadline, logger } = 
   return brief;
 }
 
-export async function generate(body, startAt, images = [], { signal, deadline, logger } = {}) {
+export async function generate(body, startAt, images = [], { signal, deadline, logger, outputDirectory } = {}) {
   const output = await callProvider({
     phase: 'render', model: body.model, startAt, signal, deadline, logger,
     args: ['images', images.length ? 'edit' : 'generate', '--format', 'json', '--format-error', 'json'],
@@ -247,7 +247,7 @@ export async function generate(body, startAt, images = [], { signal, deadline, l
   const valid = gif ? /^GIF8[79]a$/.test(bytes.subarray(0, 6).toString('ascii'))
     : bytes.subarray(0, 8).equals(PNG);
   if (!valid || bytes.length > 20 * MIB) throw new Error('invalid_media');
-  const dir = join(ROOT, 'media', 'outbound', 'openai-image');
+  const dir = outputDirectory ?? join(ROOT, 'media', 'outbound', 'openai-image');
   await mkdir(dir, { recursive: true, mode: 0o700 });
   const file = join(dir, `${randomUUID()}.${body.output_format}`);
   await writeFile(file, bytes, { flag: 'wx', mode: 0o600 });
@@ -257,6 +257,7 @@ export async function generate(body, startAt, images = [], { signal, deadline, l
 export function createHandler({
   allowedGroups = [], allowAllDingTalkGroups = false, render = generate,
   verify = validateImages, plan = planPrompt, now = Date.now, logger, jobs = createJobPool(),
+  authorizeGroup, inputRoot,
 } = {}) {
   const groups = new Set(allowedGroups.map((value) => value.startsWith('qqbot:') ? value.toLowerCase() : value));
   let nextKey = 0;
@@ -264,7 +265,7 @@ export function createHandler({
   const recentJobs = new Map();
   function allowedScope(context) {
     const scope = resolveScope(context);
-    if (scope && (!scope.group || groups.has(scope.address) ||
+    if (scope && (!scope.group || groups.has(scope.address) || authorizeGroup?.(scope.address) === true ||
         (allowAllDingTalkGroups === true && scope.address.startsWith('ddingtalk:chat:')))) return scope;
   }
   const handle = async (context, signal) => {
@@ -355,7 +356,8 @@ export function createHandler({
           return { text: '没能下载到引用里的原图，请把原图重新附在同一条消息中。' };
         }
       }
-      const root = channel === 'qqbot' ? join(ROOT, 'media', 'qqbot', 'downloads') : join(ROOT, 'media', 'inbound');
+      const root = inputRoot?.(context) ?? (channel === 'qqbot'
+        ? join(ROOT, 'media', 'qqbot', 'downloads') : join(ROOT, 'media', 'inbound'));
       let files;
       try { files = images.length ? await verify(images, root) : []; }
       catch { return { text: '图片无法使用，请上传 PNG、JPEG 或 WebP（每张不超过 10 MB，总计不超过 20 MB）。' }; }

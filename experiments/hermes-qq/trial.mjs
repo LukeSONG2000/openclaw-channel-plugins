@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
-import { makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
+import { makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
 import { backgroundRequest } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand, runKanbanMediaUpload } from './kanban.mjs';
@@ -14,6 +14,7 @@ import { canUseQqReplyAnchor, qqReceiptPolicy } from './qq-reply-anchor.mjs';
 import { makeMemberMemory } from './member-memory.mjs';
 import { makeDirectChat, groupMemoryAuthorized } from './direct-chat.mjs';
 import { conversationPolicy } from './group-policy.mjs';
+import { imagenJobs, imagenReceiptStore, serveImagen } from './imagen.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -244,7 +245,8 @@ export function makeTrial({
     const anchors = new Map(candidates.map(item => [item.messageId, item]));
     const isCurrent = () => isLive() && turnState.isCurrent(revision) && currentMention() === mentionAtStart;
     const context = contextAt(at, undefined, { include: (id, receivedAt) =>
-      !anchors.has(id) && (turnState.isRead(id, receivedAt) || !canUseQqReplyAnchor(receivedAt, at)) }).messages;
+      !anchors.has(id) && (turnState.isRead(id, receivedAt) || !canUseQqReplyAnchor(receivedAt, at)) }).messages
+      .map(row => known.get(groupId, row.id) ? { ...row, handled: true } : row);
     ambient = true;
     budget--;
     track(Promise.resolve().then(() => planWindow(events, context, revision)).then(async actions => {
@@ -340,6 +342,9 @@ async function main() {
   const policyConfig = configured ? JSON.parse(readFileSync(configured, 'utf8')) : undefined;
   const policy = conversationPolicy(policyConfig, { pilotGroup: groupId,
     groupMemory: id => groupMemoryAuthorized(id, process.env.LUKE_HONCHO_APPROVED_GROUPS) });
+  const grantImage = source => source.account === account && source.channel === 'qqbot' &&
+    (source.chatType === 'direct' ? policy.forDirect(source.senderId) : policy.forGroup(source.groupId)).imageGeneration;
+  const withImagen = always && process.env.LUKE_QQ_IMAGEN === '1';
   const origin = process.env.LUKE_HONCHO_ORIGIN;
   const token = process.env.LUKE_HONCHO_TOKEN;
   const socketPath = process.env.LUKE_HONCHO_SOCKET;
@@ -367,10 +372,35 @@ async function main() {
   const sendDirect = (event, content) => safeSend(() => bot.send({ target: {
     scope: 'c2c', targetId: event.senderId, msgId: event.messageId,
   }, msgType: 0, content }));
+  const bindings = withImagen ? (() => {
+    const directory = join(trialDir, 'artifacts');
+    mkdirSync(directory, { recursive: true, mode: 0o700 });
+    const artifacts = imagenReceiptStore(ledger, directory);
+    return { directory, artifacts, keepInput: grantImage,
+      async readArtifact(key, source) {
+        const row = artifacts.lookup(key);
+        if (!row) return;
+        if (!grantImage(source)) return { note: '当前会话未开放生图。' };
+        if (row.status === 'failed') return { note: row.note };
+        if (row.status === 'running') return { note: '没有确认收到生图成品，请发一条新消息后再试。' };
+        return artifacts.read(key);
+      },
+      onTerminal: key => artifacts.lookup(key)?.status === 'ready' ? artifacts.remove(key) : undefined,
+    };
+  })() : {};
+  const sendArtifact = async (source, artifact) => {
+    const target = source.chatType === 'direct'
+      ? { scope: 'c2c', targetId: source.senderId, msgId: source.messageId }
+      : { scope: 'group', targetId: source.groupId, msgId: source.messageId };
+    const result = await safeSend(() => bot.sendImage(target, { buffer: artifact.bytes,
+      fileName: 'imagen.' + artifact.format }));
+    return result.message;
+  };
   const directWork = always && process.env.LUKE_QQ_DIRECT === '1' && process.env.LUKE_QQ_DIRECT_WORK === '1' ? makeKanbanBridge({
-    db: ledger, tasks, account, direct: true, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
+    db: ledger, tasks, account, direct: true, ...bindings, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
   }) : null;
   const directAnchor = directWork ? inbox.prepare('SELECT received_at FROM direct_events WHERE sender_id=? AND message_id=?') : null;
+  const directImages = withImagen ? makeDirectImageReader(inbox) : null;
   const direct = always && process.env.LUKE_QQ_DIRECT === '1' ? makeDirectChat({
     inbox, ledger, account, start, signal: stop.signal,
     memoryFor: sender => {
@@ -378,8 +408,10 @@ async function main() {
       try { return makeMemberMemory({ origin, token, socketPath, account, directSender: sender }); }
       catch { console.error('qq_direct_memory_config_invalid'); }
     },
-    plan: (event, context, preferences) => callRuntime(container, 'direct', {
-      event, context, preferences, allowWork: Boolean(directWork),
+    readImages: directImages && (event => grantImage(event) ?
+      readQqImages(directImages(event.senderId, event.messageId), { getToken: () => bot.api.getToken() }) : []),
+    plan: (event, context, preferences, images) => callRuntime(container, 'direct', {
+      event, context, preferences, images, allowWork: Boolean(directWork), imageGeneration: Boolean(directWork) && withImagen && grantImage(event),
     }),
     queueWork: directWork?.enqueue,
     send: sendDirect,
@@ -387,18 +419,19 @@ async function main() {
   }) : null;
   function makeGroup(groupId) {
     const grants = policy.forGroup(groupId);
-    const imagesFor = makeGroupImageReader(inbox, groupId);
+    const imagesFor = makeGroupImageReader(inbox, groupId, { verified: withImagen && grants.imageGeneration });
     let memberMemory;
     if (always && origin && token && grants.memory) {
       try { memberMemory = makeMemberMemory({ origin, token, socketPath, account, groupId }); }
       catch { console.error('qq_trial_memory_config_invalid'); }
     }
-    const bridge = always ? makeKanbanBridge({ db: ledger, tasks, account, groupId,
+    const bridge = always ? makeKanbanBridge({ db: ledger, tasks, account, groupId, ...bindings,
       onError: phase => console.error('qq_kanban_error phase=' + phase) }) : null;
     const trial = makeTrial({
       inbox, ledger, account, groupId, senderId, start, until, always, signal: stop.signal,
       plan: (event, context, unread, images, preferences) =>
-        callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences }),
+        callRuntime(container, 'trial-plan', { events: [event], context, unread, images, preferences,
+          imageGeneration: withImagen && grantImage(event) }),
       memberMemory,
       readImages: messageId => readQqImages(imagesFor(messageId), { getToken: () => bot.api.getToken() }),
       startWork: decision => callRuntime(worker, 'trial-start', { decision }),
@@ -415,9 +448,22 @@ async function main() {
   const initialGroups = always && configured ? [groupId, ...policy.groupIds] : [groupId];
   const groups = new Map([...new Set(initialGroups)].map(id => [id, makeGroup(id)]));
   const recentGroups = inbox.prepare('SELECT DISTINCT group_id FROM events WHERE mentioned=1 AND received_at > ?');
+  const closeImagen = withImagen ? await (() => {
+    const find = ledger.prepare(`SELECT r.key,r.source,m.images,m.valid_until FROM kanban_receipts r
+      LEFT JOIN kanban_input_media m USING(key) WHERE r.card_id=? AND r.state='watching'`);
+    return serveImagen({ directory: join(root, '..', 'imagen-ipc'), run: imagenJobs({
+      ...bindings, allowed: source => !stop.signal.aborted && grantImage(source), getTask(id) {
+        const row = find.get(id);
+        if (!row) return;
+        return { key: row.key, source: JSON.parse(row.source),
+          images: row.valid_until > Date.now() ? JSON.parse(row.images) : [] };
+      },
+    }) });
+  })() : null;
   let nextDiscovery = 0;
   let sweep;
   let nextSweep = start;
+  let nextPrune = start;
   console.log('qq_trial_ready mode=' + (always ? 'always' : 'bounded'));
   try {
     while (!stop.signal.aborted && Date.now() < until) {
@@ -433,8 +479,8 @@ async function main() {
         nextSweep = Date.now() + 5_000;
         const receipts = [...groups.values()].map(({ bridge, canDeliver }) => bridge.sweep({
           canDeliver,
-          deliver: async ({ source, text }) => {
-            const receipt = await send(source, text);
+          deliver: async ({ source, text, artifact }) => {
+            const receipt = artifact ? await sendArtifact(source, artifact) : await send(source, text);
             console.log('qq_kanban_' + (receipt?.id ? 'accepted' : 'uncertain'));
             return receipt;
           },
@@ -442,8 +488,12 @@ async function main() {
         if (directWork) receipts.push(directWork.sweep({
           canDeliver: source => stop.signal.aborted ? false :
             canUseQqReplyAnchor(directAnchor.get(source.senderId, source.messageId)?.received_at, Date.now()) || 'expired',
-          deliver: ({ source, text }) => sendDirect(source, text),
+          deliver: ({ source, text, artifact }) => artifact ? sendArtifact(source, artifact) : sendDirect(source, text),
         }));
+        if (bindings.artifacts && Date.now() >= nextPrune) {
+          nextPrune = Date.now() + 3_600_000;
+          receipts.push(bindings.artifacts.prune(Date.now() - 86_400_000));
+        }
         sweep = Promise.all(receipts).catch(() => console.error('qq_kanban_sweep_failed')).finally(() => { sweep = null; });
       }
       await delay(700, undefined, { signal: stop.signal });
@@ -453,6 +503,7 @@ async function main() {
   } finally {
     await Promise.all([...groups.values()].map(({ trial }) => trial.drain()).concat(direct?.drain()));
     await sweep;
+    await closeImagen?.();
     await bot.stop();
     inbox.close();
     ledger.close();

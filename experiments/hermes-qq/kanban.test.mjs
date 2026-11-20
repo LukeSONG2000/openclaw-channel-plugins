@@ -107,6 +107,23 @@ test('a card from a different tenant is never treated as the original task', asy
   await assert.rejects(tasks.read({ id: 't_12345678', tenant: 'group', key: 'a'.repeat(64) }), /identity mismatch/);
 });
 
+test('a completed artifact replaces model text and is delivered once to the bound source', async () => {
+  const db = new DatabaseSync(':memory:');
+  try {
+    const source = event();
+    const artifact = { bytes: Buffer.from('fixture'), format: 'gif' };
+    const queue = makeKanbanBridge({ db, account: source.account, groupId: source.groupId,
+      tasks: { create: async () => 't_12345678', read: async () => ({ status: 'done', result: 'unneeded status' }) },
+      readArtifact: async () => artifact });
+    const { key } = queue.enqueue(decision(source));
+    const sent = [];
+    for (let i = 0; i < 3; i++) await queue.sweep({
+      canDeliver: () => true, deliver: async item => { sent.push(item); return { id: 'qq-receipt' }; },
+    });
+    assert.deepEqual(sent, [{ source: decision(source).source, receiptKey: key, text: '', artifact }]);
+  } finally { db.close(); }
+});
+
 test('native image attachments survive a restart without opening an incomplete card or uploading twice', async t => {
   const open = withLedger(t);
   const source = event('media-task');

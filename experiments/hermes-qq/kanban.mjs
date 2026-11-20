@@ -103,8 +103,10 @@ export function kanbanTasks({ command = cli, attachFile = upload, assignee = 'de
   };
 }
 
-export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, now = Date.now, onError = () => {} }) {
+export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, keepInput = () => false,
+  readArtifact, onTerminal, now = Date.now, onError = () => {} }) {
   const tenant = tenantFor(account, direct ? ':private' : groupId);
+  const nativeTenant = source => direct ? tenantFor(account, 'direct:' + source.senderId) : tenant;
   db.exec(`CREATE TABLE IF NOT EXISTS kanban_receipts (
     key TEXT PRIMARY KEY, tenant TEXT NOT NULL, source TEXT NOT NULL, input TEXT, card_id TEXT,
     state TEXT NOT NULL DEFAULT 'pending', checked_at INTEGER NOT NULL DEFAULT 0
@@ -139,6 +141,11 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
     return source?.channel === 'qqbot' && source.account === account &&
       (direct ? source.chatType === 'direct' && !source.groupId : source.chatType !== 'direct' && source.groupId === groupId);
   }
+  const keepRenderInput = row => keepInput(JSON.parse(row.source));
+  async function cleanup(key) {
+    dropMedia.run(key);
+    await onTerminal?.(key);
+  }
   return {
     enqueue(decision, images = []) {
       const { source, request } = validateBackgroundRequest(decision);
@@ -161,31 +168,37 @@ export function makeKanbanBridge({ db, tasks, account, groupId, direct = false, 
           const { key, card_id: id } = row;
           check.run(now(), key);
           try {
+            const source = JSON.parse(row.source);
+            if (!owns(source)) { move.run('withheld', key, id ? 'watching' : 'pending'); await cleanup(key); continue; }
+            const taskTenant = nativeTenant(source);
             if (!id) {
               const media = stagedMedia.get(key);
               if (media?.valid_until <= now()) {
                 transaction(() => { expire.run(key); dropMedia.run(key); });
                 continue;
               }
-              const card = await tasks.create({ key, tenant, input: row.input, ...(media ? { images: JSON.parse(media.images) } : {}) });
-              transaction(() => { attach.run(card, key); dropMedia.run(key); });
+              const card = await tasks.create({ key, tenant: taskTenant, input: row.input, ...(media ? { images: JSON.parse(media.images) } : {}) });
+              transaction(() => { attach.run(card, key); if (!keepRenderInput(row)) dropMedia.run(key); });
               continue;
             }
-            const card = await tasks.read({ key, tenant, id });
-            if (card.status === 'archived') { move.run('withheld', key, 'watching'); continue; }
+            const card = await tasks.read({ key, tenant: taskTenant, id });
+            if (card.status === 'archived') { move.run('withheld', key, 'watching'); await cleanup(key); continue; }
             if (card.status !== 'done') continue;
-            const text = typeof card.result === 'string' ? card.result.trim() : '';
-            const source = JSON.parse(row.source);
-            if (!owns(source) || !text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text)) {
+            const artifact = await readArtifact?.(key, source);
+            if (artifact?.pending) continue;
+            const text = artifact?.bytes ? '' : artifact?.note || (typeof card.result === 'string' ? card.result.trim() : '');
+            if (!artifact?.bytes && (!text || text.length > 1800 || /<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text))) {
               move.run('withheld', key, 'watching');
+              await cleanup(key);
               continue;
             }
             const available = await canDeliver(source);
-            if (available === 'expired') { move.run('retained', key, 'watching'); continue; }
+            if (available === 'expired') { move.run('retained', key, 'watching'); dropMedia.run(key); continue; }
             if (available !== true || !move.run('sending', key, 'watching').changes) continue;
             // Do not replay a post whose receipt was lost, including on process restart.
-            try { move.run((await deliver({ source, text, receiptKey: key }))?.id ? 'accepted' : 'uncertain', key, 'sending'); }
+            try { move.run((await deliver({ source, text, receiptKey: key, ...(artifact?.bytes ? { artifact } : {}) }))?.id ? 'accepted' : 'uncertain', key, 'sending'); }
             catch { move.run('uncertain', key, 'sending'); }
+            finally { await cleanup(key); }
           } catch { onError(id ? 'read' : 'create'); }
         }
       } finally { sweeping = false; }

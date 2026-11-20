@@ -1,5 +1,5 @@
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync, realpathSync, statSync } from 'node:fs';
+import { mkdirSync, readFileSync, realpathSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
 import { readQqAppSecret } from './qq-credential.mjs';
@@ -53,6 +53,11 @@ function migrate(db) {
       body TEXT NOT NULL, has_media INTEGER NOT NULL, PRIMARY KEY (sender_id, message_id)
     );
     CREATE INDEX IF NOT EXISTS direct_events_received ON direct_events(received_at);
+    CREATE TABLE IF NOT EXISTS direct_media (
+      sender_id TEXT NOT NULL, message_id TEXT NOT NULL, message_index TEXT,
+      quoted_index TEXT, current_images TEXT NOT NULL, quoted_images TEXT NOT NULL,
+      PRIMARY KEY (sender_id, message_id)
+    );
     CREATE TABLE IF NOT EXISTS event_quotes (
       group_id TEXT NOT NULL, message_id TEXT NOT NULL, message_index TEXT,
       quoted_index TEXT, quoted_text TEXT NOT NULL, quoted_attachments INTEGER NOT NULL,
@@ -71,7 +76,8 @@ function migrate(db) {
 
 const quoteIndex = value => typeof value === 'string' && value.length <= 256 && value.trim() ? value : null;
 
-export function inbox(db, { mode = 'bound-group', challenge, enableDirect = false, now = Date.now }) {
+export function inbox(db, { mode = 'bound-group', challenge, enableDirect = false, retainGroupImages = () => false,
+  retainDirectImages = () => false, now = Date.now }) {
   if (mode !== 'bound-group' && mode !== 'all-groups') throw new Error('invalid receive mode');
   migrate(db);
   const binding = db.prepare('SELECT group_id FROM group_binding WHERE singleton = 1');
@@ -85,10 +91,14 @@ export function inbox(db, { mode = 'bound-group', challenge, enableDirect = fals
   )`);
   const expireDirect = db.prepare('DELETE FROM direct_events WHERE received_at < ?');
   const putDirect = db.prepare('INSERT OR IGNORE INTO direct_events VALUES (?, ?, ?, ?, ?)');
+  const putDirectMedia = db.prepare('INSERT INTO direct_media VALUES (?, ?, ?, ?, ?, ?)');
+  const expireDirectMedia = db.prepare(`DELETE FROM direct_media WHERE NOT EXISTS (
+    SELECT 1 FROM direct_events e WHERE e.sender_id=direct_media.sender_id AND e.message_id=direct_media.message_id)`);
   const prune = () => {
     const cutoff = now() - day;
     expire.run(cutoff);
     expireDirect.run(cutoff);
+    expireDirectMedia.run();
   };
   prune();
   return {
@@ -97,9 +107,20 @@ export function inbox(db, { mode = 'bound-group', challenge, enableDirect = fals
       if (enableDirect && msg?.kind === 'c2c' && msg.rawEventType === 'C2C_MESSAGE_CREATE' && !msg.senderIsBot &&
         typeof msg.senderId === 'string' && /^[a-z0-9_-]{1,256}$/i.test(msg.senderId) &&
         typeof msg.messageId === 'string' && msg.messageId && msg.messageId.length <= 256 &&
-        typeof msg.content === 'string' && msg.content.trim()) {
-        const saved = putDirect.run(msg.messageId, msg.senderId, now(), msg.content.slice(0, 1600),
-          msg.refMsgIdx || msg.attachments?.length ? 1 : 0).changes === 1;
+        (typeof msg.content === 'string' && msg.content.trim() || msg.attachments?.length)) {
+        db.exec('SAVEPOINT direct_event');
+        let saved;
+        try {
+          saved = putDirect.run(msg.messageId, msg.senderId, now(), (msg.content ?? '').slice(0, 1600),
+            msg.refMsgIdx || msg.attachments?.length ? 1 : 0).changes === 1;
+          if (saved && retainDirectImages(msg.senderId) && (msg.attachments?.length || msg.refMsgIdx)) {
+            const index = quoteIndex(msg.refMsgIdx);
+            const pushed = index && quote?.refKey === index && quote.source === 'msg_elements' ? quote.attachments : null;
+            putDirectMedia.run(msg.senderId, msg.messageId, quoteIndex(msg.msgIdx), index,
+              JSON.stringify(qqImageLocators(msg.attachments)), JSON.stringify(qqImageLocators(pushed)));
+          }
+        } catch (error) { db.exec('ROLLBACK TO direct_event'); throw error; }
+        finally { db.exec('RELEASE direct_event'); }
         prune();
         return saved;
       }
@@ -130,7 +151,7 @@ export function inbox(db, { mode = 'bound-group', challenge, enableDirect = fals
             Array.isArray(pushedQuote?.attachments) ? pushedQuote.attachments.length : 0);
         }
         if (result.changes && (msg.attachments?.length || pushedQuote?.attachments?.length) &&
-          binding.get()?.group_id === msg.groupOpenid) {
+          (binding.get()?.group_id === msg.groupOpenid || retainGroupImages(msg.groupOpenid))) {
           for (const [origin, attachments] of [['current', msg.attachments], ['quote', pushedQuote?.attachments]]) {
             qqImageLocators(attachments).forEach((url, position) => insertImage.run(msg.groupOpenid, msg.messageId, origin, position, url));
           }
@@ -161,7 +182,11 @@ async function main() {
   const { QQBot, quoteRef } = await import(pathToFileURL(sdkPath));
   const appSecret = readQqAppSecret(appId, keychainService);
   const db = new DatabaseSync(join(root, 'inbox.sqlite'));
-  const receiver = inbox(db, { mode, challenge: scope, enableDirect: process.env.LUKE_QQ_DIRECT === '1' });
+  const configFile = process.env.LUKE_QQ_GROUP_POLICY;
+  const configured = process.env.LUKE_QQ_IMAGEN === '1' && configFile ? JSON.parse(readFileSync(configFile, 'utf8')) : null;
+  const receiver = inbox(db, { mode, challenge: scope, enableDirect: process.env.LUKE_QQ_DIRECT === '1',
+    retainGroupImages: id => configured?.conversations?.['group:' + id]?.imageGeneration === true,
+    retainDirectImages: id => configured?.conversations?.['direct:' + id]?.imageGeneration === true });
   const stop = new AbortController();
   const noop = () => {};
   const logger = { debug: noop, info: noop, warn: noop, error: noop, child() { return this; } };
@@ -169,7 +194,7 @@ async function main() {
   // Resolve pushed quote elements using the SDK; stored messages are looked up in SQLite by group.
   const resolveQuote = quoteRef({ store: { get: noop, set: noop } });
   bot.use(async (ctx, next) => {
-    if (ctx.message.kind === 'group' && ctx.message.refMsgIdx) {
+    if (['group', 'c2c'].includes(ctx.message.kind) && ctx.message.refMsgIdx) {
       try { await resolveQuote(ctx, noop); } catch { console.error('qq_receive_quote_error'); }
     }
     await next();

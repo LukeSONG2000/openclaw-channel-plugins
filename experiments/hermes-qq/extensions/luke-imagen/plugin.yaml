@@ -1,0 +1,4 @@
+name: luke-imagen
+version: 1.0.0
+description: "Imagen renderer for the current QQ background task"
+provides_tools: [luke_imagen]

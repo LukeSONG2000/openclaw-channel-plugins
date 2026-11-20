@@ -20,6 +20,12 @@ for asset in "$source/hermes-qq/$config" "$source/hermes-qq/shadow.mjs" "$source
   fi
 done
 
+work_mounts=()
+if [[ "$lane" == work ]]; then
+  work_mounts=(-v "$source/hermes-qq/extensions/luke-imagen:/opt/data/plugins/luke-imagen:ro,z"
+    -v "$root/imagen-ipc:/run/luke-imagen:ro,z")
+fi
+
 exec /usr/bin/podman run --pull=never --replace --rm \
   --name "luke-hermes-qq-$lane" --label io.lukesong.scope=luke-qq-pilot \
   --sdnotify=conmon --memory=2g --pids-limit=160 --security-opt=no-new-privileges \
@@ -32,4 +38,5 @@ exec /usr/bin/podman run --pull=never --replace --rm \
   -v "$source/hermes-qq/pilot.mjs:/pilot/hermes-qq/pilot.mjs:ro,z" \
   -v "$source/aoa-async/window-reply.mjs:/pilot/aoa-async/window-reply.mjs:ro,z" \
   -v "$plugin:/opt/data/plugins/luke-readonly:ro,z" \
+  "${work_mounts[@]}" \
   "$image" gateway run
