@@ -134,6 +134,35 @@ test('a card from a different tenant is never treated as the original task', asy
   await assert.rejects(tasks.read({ id: 't_12345678', tenant: 'group', key: 'a'.repeat(64) }), /identity mismatch/);
 });
 
+test('a natively blocked worker gets one safe failure notice while setup blocking stays silent', async t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  const source = event();
+  let reason = 'initial_status';
+  let data;
+  const tasks = kanbanTasks({ command: async (args, body) => {
+    if (args[0] === 'create') {
+      data = { id: 't_12345678', tenant: args[args.indexOf('--tenant') + 1], title: args[1], assignee: 'default',
+        status: 'blocked', workspace_kind: 'scratch', completion_contract: 'local-only' };
+      return data;
+    }
+    return { task: data, events: [{ kind: 'blocked', payload: { reason } }] };
+  } });
+  const queue = makeKanbanBridge({ db, tasks, account: source.account, groupId: source.groupId });
+  const sent = [];
+  const transport = { canDeliver: () => true, deliver: async item => { sent.push(item); return { id: 'notice' }; } };
+  queue.enqueue(decision(source));
+  await queue.sweep(transport);
+  await queue.sweep(transport);
+  assert.equal(sent.length, 0);
+  reason = 'worker could not continue with private context';
+  await queue.sweep(transport);
+  await queue.sweep(transport);
+  assert.equal(sent.length, 1);
+  assert.match(sent[0].text, /没能完成/);
+  assert.ok(!sent[0].text.includes(reason));
+});
+
 test('a completed artifact replaces model text and is delivered once to the bound source', async () => {
   const db = new DatabaseSync(':memory:');
   try {

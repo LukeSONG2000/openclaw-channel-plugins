@@ -3,6 +3,8 @@ const hour = 3_600_000;
 const bucketCount = 12;
 const perBucket = 6;
 const extendedScanLimit = 2000;
+const adjacentMediaMs = 60_000;
+const mediaOnly = body => typeof body === 'string' && !body.replace(/<faceType=[^<>]{1,300}>/gi, '').trim();
 const timestamp = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -143,12 +145,23 @@ export function makeGroupImageReader(db, groupId, { verified = false } = {}) {
     WHERE group_id = ? AND message_id = ? AND origin = ? ORDER BY position
   `);
   const list = (id, origin) => select.all(groupId, id, origin).map(row => row.locator);
+  const previous = db.prepare(`SELECT prior.message_id, prior.body FROM events AS current
+    JOIN events AS prior ON prior.group_id=current.group_id AND prior.sender_id=current.sender_id
+    WHERE current.group_id=? AND current.message_id=? AND current.attachment_count=0
+      AND (prior.received_at,prior.rowid)<(current.received_at,current.rowid)
+      AND prior.received_at>=current.received_at-? ORDER BY prior.received_at DESC,prior.rowid DESC LIMIT 1`);
   return messageId => {
     const current = list(messageId, 'current');
     let quoted = list(messageId, 'quote');
+    const ref = quote.get(groupId, messageId);
     if (!quoted.length) {
-      const source = quote.get(groupId, messageId)?.source_id;
+      const source = ref?.source_id;
       if (source) quoted = list(source, 'current');
+    }
+    if (!current.length && !quoted.length && !ref) {
+      const prior = previous.get(groupId, messageId, adjacentMediaMs);
+      if (prior && mediaOnly(prior.body)) return list(prior.message_id, 'current').slice(0, 2)
+        .map(locator => ({ origin: 'previous', locator }));
     }
     const unique = new Set();
     const images = [];
@@ -165,6 +178,12 @@ export function makeGroupImageReader(db, groupId, { verified = false } = {}) {
 
 export function makeDirectImageReader(db) {
   const row = db.prepare('SELECT * FROM direct_media WHERE sender_id=? AND message_id=?');
+  const previous = db.prepare(`SELECT prior.body, m.current_images FROM direct_events AS current
+    JOIN direct_events AS prior ON prior.sender_id=current.sender_id
+    LEFT JOIN direct_media AS m ON m.sender_id=prior.sender_id AND m.message_id=prior.message_id
+    WHERE current.sender_id=? AND current.message_id=? AND current.has_media=0
+      AND (prior.received_at,prior.rowid)<(current.received_at,current.rowid)
+      AND prior.received_at>=current.received_at-? ORDER BY prior.received_at DESC,prior.rowid DESC LIMIT 1`);
   const reference = db.prepare(`SELECT m.current_images FROM direct_media m
     JOIN direct_events e USING(sender_id,message_id)
     JOIN direct_events current ON current.sender_id=e.sender_id AND current.message_id=?
@@ -172,7 +191,11 @@ export function makeDirectImageReader(db) {
     ORDER BY e.rowid DESC LIMIT 1`);
   return (senderId, messageId) => {
     const found = row.get(senderId, messageId);
-    if (!found) return [];
+    if (!found) {
+      const prior = previous.get(senderId, messageId, adjacentMediaMs);
+      if (!prior?.current_images || !mediaOnly(prior.body)) return [];
+      return JSON.parse(prior.current_images).slice(0, 2).map(locator => ({ origin: 'previous', locator }));
+    }
     const current = JSON.parse(found.current_images);
     let quoted = JSON.parse(found.quoted_images);
     if (!quoted.length && found.quoted_index) {

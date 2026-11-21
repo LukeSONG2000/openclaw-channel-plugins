@@ -45,7 +45,7 @@ export async function readQqImages(candidates, { getToken, fetchImage = fetch, s
   let token;
   const requests = candidates.slice(0, 2).map(async ({ origin, locator }) => {
     const url = cdnUrl(locator);
-    if (!url || !['current', 'quote'].includes(origin) || signal.aborted) return;
+    if (!url || !['current', 'quote', 'previous'].includes(origin) || signal.aborted) return;
     try {
       const headers = { accept: 'image/*' };
       if (tokenHosts.has(url.hostname)) {

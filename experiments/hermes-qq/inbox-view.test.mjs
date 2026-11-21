@@ -4,6 +4,48 @@ import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { groupHistoryMs, makeDeliveryContext, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 
+test('adjacent standalone media follows its own sender without replacing explicit references', t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  let at = 10_000;
+  const receiver = inbox(db, { mode: 'all-groups', now: () => at, enableDirect: true,
+    retainGroupImages: () => true, retainDirectImages: () => true });
+  const url = 'https://gchat.qpic.cn/media';
+  const attachments = [{ content_type: 'image/png', url }];
+  const group = (id, extra = {}) => receiver.record({ kind: 'group', rawEventType: 'GROUP_MESSAGE_CREATE',
+    groupOpenid: 'room', senderId: 'own', messageId: id, content: 'Request', ...extra });
+  const sticker = '<faceType=6,faceId="0",buf="fixture=">';
+  const read = makeGroupImageReader(db, 'room', { verified: true });
+  group('source', { content: sticker, attachments, msgIdx: 'quote-source' });
+  group('interleaved', { senderId: 'neighbor', content: '', attachments });
+  group('other-group', { groupOpenid: 'other', senderId: 'own', content: '', attachments });
+  at += 9_000;
+  group('other-sender', { senderId: 'stranger' });
+  assert.deepEqual(read('other-sender'), []);
+  group('continued');
+  assert.deepEqual(read('continued'), [{ origin: 'previous', locator: url }]);
+  group('fresh-source', { content: '', attachments });
+  group('explicit-quote', { refMsgIdx: 'quote-source' });
+  assert.deepEqual(read('explicit-quote'), [{ origin: 'quote', locator: url }]);
+  group('cannot-substitute', { refMsgIdx: 'not-received' });
+  assert.deepEqual(read('cannot-substitute'), []);
+  group('current-first', { attachments });
+  assert.deepEqual(read('current-first'), [{ origin: 'current', locator: url }]);
+  group('expired-source', { content: '', attachments });
+  at += 60_001;
+  group('old');
+  assert.deepEqual(read('old'), []);
+
+  const direct = (id, senderId = 'own', extra = {}) => receiver.record({ kind: 'c2c', rawEventType: 'C2C_MESSAGE_CREATE',
+    senderId, messageId: id, content: 'Request', ...extra });
+  direct('direct-source', 'own', { content: '', attachments });
+  direct('direct-other', 'neighbor');
+  direct('direct-continued');
+  const readDirect = makeDirectImageReader(db);
+  assert.deepEqual(readDirect('own', 'direct-continued'), [{ origin: 'previous', locator: url }]);
+  assert.deepEqual(readDirect('neighbor', 'direct-other'), []);
+});
+
 test('only confirmed scoped deliveries enter context, and legacy work does not claim exact quote ownership', t => {
   const ledger = new DatabaseSync(':memory:');
   const db = new DatabaseSync(':memory:');
