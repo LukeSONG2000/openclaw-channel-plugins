@@ -9,7 +9,14 @@ const tenantFor = (account, groupId) => 'qq-' + createHash('sha256')
 const retainedAge = 24 * 60 * 60_000;
 const finalText = card => typeof card.result === 'string' ? card.result.trim() : '';
 const validText = text => text && text.length <= 1800 && !/<[^>]+>|\[CQ:|\bNO_REPLY\b/i.test(text);
-const blockedNotice = '这次后台任务没能完成。需要用到原图或文件的话，可以一起发来再试。';
+const blockedNotice = '这次后台任务没能完成，没发出成品。';
+
+function terminalBlock(task, events) {
+  if (task.status !== 'blocked' || !Array.isArray(events)) return false;
+  const transition = events.findLast(event => ['blocked', 'unblocked', 'gave_up'].includes(event.kind));
+  return transition?.kind === 'gave_up' ||
+    (transition?.kind === 'blocked' && transition.payload?.reason !== 'initial_status');
+}
 
 export function runKanbanCommand(file, args, body, { json = true } = {}) {
   return new Promise((resolve, reject) => {
@@ -105,8 +112,7 @@ export function kanbanTasks({ command = cli, attachFile = upload, exportFiles, a
       if (!cardId.test(id)) throw new Error('invalid Kanban card ID');
       const response = await command(['show', id, '--json']);
       const task = check(response?.task, { key, tenant, id });
-      const block = task.status === 'blocked' && response.events?.findLast(event => event.kind === 'blocked');
-      return block && block.payload?.reason !== 'initial_status' ? { ...task, terminalBlocked: true } : task;
+      return terminalBlock(task, response.events) ? { ...task, terminalBlocked: true } : task;
     },
     ...(exportFiles ? {
       async files({ id }) { return exportFiles(id, await command(['attachments', id, '--json'])); },

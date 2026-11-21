@@ -163,6 +163,39 @@ test('a natively blocked worker gets one safe failure notice while setup blockin
   assert.ok(!sent[0].text.includes(reason));
 });
 
+test('retry exhaustion after a prior attachment block is a terminal failure, unlike a single attempt timing out', async t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  const source = event();
+  let data;
+  const events = [{ kind: 'blocked', payload: { reason: 'initial_status' } }, { kind: 'unblocked' }, { kind: 'timed_out' }];
+  const tasks = kanbanTasks({ command: async args => {
+    if (args[0] === 'create') {
+      data = { id: 't_12345678', tenant: args[args.indexOf('--tenant') + 1], title: args[1], assignee: 'default',
+        status: 'ready', workspace_kind: 'scratch', completion_contract: 'local-only' };
+      return data;
+    }
+    return { task: data, events };
+  } });
+  const queue = makeKanbanBridge({ db, tasks, account: source.account, groupId: source.groupId });
+  const sent = [];
+  const deliver = async item => { sent.push(item.text); return { id: 'notice' }; };
+  const transport = { canDeliver: () => true, deliver };
+  queue.enqueue(decision(source));
+  await queue.sweep(transport);
+  await queue.sweep(transport);
+  assert.equal(sent.length, 0);
+  events.push({ kind: 'gave_up' }, { kind: 'worker_result' });
+  data.status = 'blocked';
+  await queue.sweep({ ...transport, canDeliver: () => 'expired' });
+  assert.equal(state(db), 'retained');
+  assert.equal(sent.length, 0);
+  assert.equal(await queue.retrieve(event('followup'), transport), 'accepted');
+  assert.equal(await queue.retrieve(event('followup-2'), transport), 'not_found');
+  assert.equal(sent.length, 1);
+  assert.match(sent[0], /没能完成/);
+});
+
 test('a completed artifact replaces model text and is delivered once to the bound source', async () => {
   const db = new DatabaseSync(':memory:');
   try {
