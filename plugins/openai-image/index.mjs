@@ -382,6 +382,11 @@ export function createHandler({
       if (planFailure === 'planner_unreachable') {
         return context.intent?.tentative ? undefined : { text: '暂时连不上生图服务，这次没有出图。请稍后再试。' };
       }
+      if (planFailure === 'policy' || planFailure === 'planner_refusal') {
+        return context.intent?.tentative ? undefined : { text: planFailure === 'policy'
+          ? '图像规划服务返回了内容审核拒绝，没有提交渲染。'
+          : '图像规划服务没有接受这次请求，没有提交渲染。' };
+      }
       if (decideIntent) {
         if (!planned) return context.intent?.tentative ? undefined : { text: '暂时没能完成生图请求解析，请稍后再试。' };
         if (planned.intent === 'ignore') return;

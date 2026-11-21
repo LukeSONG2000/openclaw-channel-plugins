@@ -416,6 +416,21 @@ test('subject replacement is not locked to the original identity, and a failed p
   assert.match(outputs[0].prompt, /Keep the office and desk unchanged/);
 });
 
+test('an actual planning rejection does not fall through to rendering or masquerade as a render rejection', async () => {
+  for (const reason of ['policy', 'planner_refusal']) {
+    const run = createHandler({
+      plan: async () => { throw new Error(reason); },
+      render: async () => assert.fail('a refused plan must not render'),
+    });
+    const result = await run(call(user, 'Draw a simple postcard'));
+    assert.match(result.text, /图像规划服务.+没有提交渲染/);
+    assert.equal(result.text.includes('内容审核'), reason === 'policy');
+  }
+  const run = createHandler({ plan: async () => 'A simple postcard', render: async () => { throw new Error('policy'); } });
+  const result = await run(call(user, 'Draw a simple postcard'));
+  assert.match(result.text, /未通过生图服务的内容审核/);
+});
+
 test('attachment validation uses real paths and image bytes', async () => {
   const root = await mkdtemp(join(await realpath(tmpdir()), 'imagen-'));
   const otherRoot = await mkdtemp(join(tmpdir(), 'imagen-outside-'));

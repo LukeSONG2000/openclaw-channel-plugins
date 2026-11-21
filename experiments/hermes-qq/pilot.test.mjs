@@ -116,6 +116,26 @@ test('explicit skill selection preserves the free-form message and quote without
   assert.equal((await pilot.planMention(event('image', '/imagen', { mentioned: true, quote }))).kind, 'chat');
 });
 
+test('image follow-ups use a work brief and leave actual policy outcomes to the tool', async () => {
+  const source = event('refine', '/imagen make the title larger', { mentioned: true,
+    quote: { availability: 'received', self: true, attachmentCount: 1 } });
+  const pilot = hermesPilot({ installedSkills: ['imagen'], fast: {
+    async start({ input }) {
+      const blocks = input[0].content;
+      assert.match(blocks[0].text, /short revisions to a cited output/);
+      assert.match(blocks[0].text, /Only describe a tool rejection if a tool actually reported it/);
+      assert.match(blocks[0].text, /ask the sender to attach or quote the source/);
+      assert.equal(blocks[1].text, 'Image from the cited message:');
+      return 'route';
+    },
+    wait: async () => '{"route":"work","text":"Edit the attached poster and enlarge only the title."}',
+  } });
+  const result = await pilot.planMention(source, [], [], [{ origin: 'quote', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }], [], true);
+  assert.equal(result.kind, 'work-intent');
+  const work = backgroundRequest(source, result, { messages: [] });
+  assert.match(work.request.input, /Report a tool result or refusal only when you have actually received it/);
+});
+
 test('the bridge namespaces groups and jobs without implementing a task runner', async () => {
   const requests = [];
   const fast = {
