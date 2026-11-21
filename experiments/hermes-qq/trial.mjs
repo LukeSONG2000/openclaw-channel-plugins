@@ -15,7 +15,7 @@ import { makeMemberMemory } from './member-memory.mjs';
 import { makeDirectChat, groupMemoryAuthorized } from './direct-chat.mjs';
 import { conversationPolicy } from './group-policy.mjs';
 import { imagenJobs, imagenReceiptStore, serveImagen } from './imagen.mjs';
-import { readCompletionFiles, sendQqFile } from './qq-attachments.mjs';
+import { qqFilePendingNotice, readCompletionFiles, sendQqFile } from './qq-attachments.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -226,6 +226,7 @@ export function makeTrial({
         if (status === 'not_found') return deliver(event, {
           source: event, text: '我没找到你在这个群里还没送达的成品，可能还在做，也可能已经发过了。',
         });
+        if (status === 'retained') return deliver(event, { source: event, text: qqFilePendingNotice });
         return record(event, status);
       }
       if (decision.kind === 'chat') {
@@ -463,7 +464,8 @@ async function main() {
   const deliverFile = ({ source, file, seq, canSend }) => recordSend(source, { text: '附件：' + file.name }, () =>
     sendQqFile(bot, source.chatType === 'direct'
       ? { scope: 'c2c', targetId: source.senderId, msgId: source.messageId }
-      : { scope: 'group', targetId: source.groupId, msgId: source.messageId }, file, seq, canSend));
+      : { scope: 'group', targetId: source.groupId, msgId: source.messageId }, file, seq, canSend,
+    ({ http, code }) => console.error(`qq_file_upload_rejected http=${http} code=${code}`)));
   const directWork = always && process.env.LUKE_QQ_DIRECT === '1' && process.env.LUKE_QQ_DIRECT_WORK === '1' ? makeKanbanBridge({
     db: ledger, tasks, account, direct: true, ...bindings, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
   }) : null;

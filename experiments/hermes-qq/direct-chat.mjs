@@ -1,4 +1,5 @@
 import { qqRouteFailureNotice } from './pilot.mjs';
+import { qqFilePendingNotice } from './qq-attachments.mjs';
 
 const maxAge = 180_000;
 
@@ -44,9 +45,11 @@ export function makeDirectChat({ inbox, ledger, account, start, signal, plan, se
     const matches = result?.source?.chatType === 'direct' &&
       ['channel', 'account', 'senderId', 'messageId'].every(k => result.source[k] === event[k]);
     if (result?.kind === 'retrieve') {
-      if (retrieveWork && matches && !signal?.aborted && await retrieveWork(event) === 'not_found') {
+      if (retrieveWork && matches && !signal?.aborted) {
+        const status = await retrieveWork(event);
         if (!signal?.aborted && now() - row.received_at <= maxAge) {
-          await send(event, '我没找到你还没收到的成品，可能还在做，也可能已经发过了。');
+          if (status === 'not_found') await send(event, '我没找到你还没收到的成品，可能还在做，也可能已经发过了。');
+          if (status === 'retained') await send(event, qqFilePendingNotice);
         }
       }
       return;

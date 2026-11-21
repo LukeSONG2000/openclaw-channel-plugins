@@ -4,6 +4,7 @@ import { posix } from 'node:path';
 const maxBytes = 12 * 1024 * 1024;
 const extensions = /\.(pdf|txt|md|csv|json|zip|docx|xlsx|pptx|png|jpe?g|webp|gif)$/i;
 const store = '/opt/data/kanban/attachments';
+export const qqFilePendingNotice = '附件还没送达，文件仍保留着。';
 
 export function completionFiles(id, rows) {
   if (!/^t_[a-f0-9]{8,32}$/.test(id) || !Array.isArray(rows)) throw new Error('invalid Kanban attachments');
@@ -65,9 +66,12 @@ export function readCompletionFiles(engine, workerArgs, id, rows) {
   });
 }
 
-export async function sendQqFile(bot, target, file, seq, canSend) {
+export async function sendQqFile(bot, target, file, seq, canSend, onUploadError = () => {}) {
   const upload = await bot.uploadMedia({ target, fileType: 4, buffer: file.bytes, fileName: file.name, srvSendMsg: false })
-    .catch(() => null);
+    .catch(error => {
+      onUploadError({ http: Number(error?.httpStatus) || 0, code: Number(error?.bizCode) || 0 });
+      return null;
+    });
   if (!upload?.file_info || !await canSend()) return { retryable: true };
   return bot.send({ target, msgType: 7, media: { file_info: upload.file_info }, extra: { msg_seq: seq } });
 }
