@@ -61,6 +61,38 @@ const event = (messageId, text, overrides = {}) => ({
   messageId, text, mentioned: false, ...overrides,
 });
 
+test('malformed route JSON retries planning once with the same authorized context and no partial result', async () => {
+  const raw = '{"route":"work","text":"Draw a "studio" scene."}';
+  const corrected = '{"route":"work","text":"Draw a studio scene."}';
+  for (const direct of [false, true]) {
+    const source = event('bad-json', '/imagen draw the cited scene', direct
+      ? { chatType: 'direct', groupId: undefined } : { mentioned: true, groupName: 'Test room' });
+    for (const succeeds of [true, false]) {
+      const requests = [];
+      const pilot = hermesPilot({ installedSkills: ['imagen'], fast: {
+        async start(request) { requests.push(request); return 'route'; },
+        async wait() { return succeeds && requests.length === 2 ? corrected : raw; },
+      } });
+      const images = [{ origin: 'quote', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }];
+      const attempt = direct ? pilot.direct(source, [], [], true, true, images)
+        : pilot.planMention(source, [], [], images, [], true);
+      if (succeeds) {
+        const decision = await attempt;
+        assert.equal(decision.kind, direct ? 'work-request' : 'work-intent');
+        assert.equal(decision.source.messageId, source.messageId);
+      } else await assert.rejects(attempt, SyntaxError);
+      assert.equal(requests.length, 2);
+      assert.notEqual(requests[0].sessionId, requests[1].sessionId);
+      assert.notEqual(requests[0].requestKey, requests[1].requestKey);
+      const first = requests[0].input[0].content;
+      const next = requests[1].input[0].content;
+      assert.deepEqual(next.slice(1), first.slice(1));
+      assert.ok(next[0].text.endsWith(first[0].text));
+      assert.ok(!next[0].text.includes(raw));
+    }
+  }
+});
+
 test('explicit skill selection preserves the free-form message and quote without granting generation', async () => {
   const installedSkills = ['imagen', 'goh'];
   assert.equal(requestedSkill('/IMAGEN', installedSkills), 'imagen');

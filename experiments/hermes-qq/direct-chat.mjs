@@ -1,3 +1,5 @@
+import { qqRouteFailureNotice } from './pilot.mjs';
+
 const maxAge = 180_000;
 
 export function groupMemoryAuthorized(groupId, approvals = '') {
@@ -29,7 +31,16 @@ export function makeDirectChat({ inbox, ledger, account, start, signal, plan, se
     if (!event.text.trim()) return;
     let images = [];
     try { if (readImages) images = await readImages(event); } catch { log('media_read_failed'); }
-    const result = await plan(event, context, preferences, images);
+    let result;
+    try { result = await plan(event, context, preferences, images); }
+    catch {
+      log('failed');
+      if (!signal?.aborted && now() - row.received_at <= maxAge) {
+        try { log((await send(event, qqRouteFailureNotice))?.id ? 'route_notice_sent' : 'route_notice_uncertain'); }
+        catch { log('route_notice_uncertain'); }
+      }
+      return;
+    }
     const matches = result?.source?.chatType === 'direct' &&
       ['channel', 'account', 'senderId', 'messageId'].every(k => result.source[k] === event[k]);
     if (result?.kind === 'retrieve') {

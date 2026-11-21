@@ -60,6 +60,32 @@ function setup(t, handlers) {
   };
 }
 
+test('failed addressed routes send one notice, without enqueuing, replaying, or replying to an expired anchor', async t => {
+  const sends = [];
+  let failPlan;
+  const data = setup(t, {
+    always: true, until: Infinity,
+    plan: () => new Promise((_, reject) => { failPlan = reject; }),
+    queueWork: async () => assert.fail('a failed route must not create a task'),
+    send: async (source, text) => { sends.push([source.messageId, text]); return { id: 'notice' }; },
+  });
+  const trial = data.trial();
+  for (const expired of [false, true]) {
+    data.advance(1);
+    data.put(expired ? 'expired' : 'addressed', 'draw something');
+    trial.tick();
+    await new Promise(resolve => setImmediate(resolve));
+    if (expired) data.advance(180_001);
+    failPlan(new SyntaxError('invalid JSON'));
+    await trial.drain();
+  }
+  trial.tick();
+  await trial.drain();
+  assert.deepEqual(sends.map(([id]) => id), ['addressed']);
+  assert.match(sends[0][1], /再发一次/);
+  assert.deepEqual(data.status(), ['failed', 'failed']);
+});
+
 test('activating named groups never replies to backlog and isolates free and mention-only rooms', async t => {
   const db = new DatabaseSync(':memory:');
   const ledger = new DatabaseSync(':memory:');

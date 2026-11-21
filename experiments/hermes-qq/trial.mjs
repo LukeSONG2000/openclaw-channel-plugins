@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { makeDeliveryContext, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
-import { backgroundRequest, qqImageBytes } from './pilot.mjs';
+import { backgroundRequest, qqImageBytes, qqRouteFailureNotice } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand, runKanbanMediaUpload } from './kanban.mjs';
 import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
@@ -207,7 +207,15 @@ export function makeTrial({
       if (memberMemory && !event.senderIsBot) {
         try { preferences = await memberMemory.recall(event); } catch { log('memory_read_unavailable'); }
       }
-      const decision = await plan(event, recent.messages, unread, images, preferences);
+      let decision;
+      try { decision = await plan(event, recent.messages, unread, images, preferences); }
+      catch {
+        record(event, 'failed');
+        if (event.senderIsBot || !isLive() || now() - event.at > maxAge) return;
+        try { log((await send(event, qqRouteFailureNotice))?.id ? 'route_notice_sent' : 'route_notice_uncertain'); }
+        catch { log('route_notice_uncertain'); }
+        return;
+      }
       if (!sameSource(event, decision?.source)) { record(event, 'withheld'); return; }
       const related = new Set(Array.isArray(decision.consumedMessageIds) ? decision.consumedMessageIds : []);
       const relatedRows = unread.filter(row => related.has(row.messageId));
