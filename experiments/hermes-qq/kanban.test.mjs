@@ -23,6 +23,33 @@ function withLedger(t) {
   return () => new DatabaseSync(join(dir, 'receipts.sqlite'));
 }
 
+test('text and file have independent receipts; an undelivered file can be claimed once by its author', async t => {
+  const db = new DatabaseSync(':memory:');
+  t.after(() => db.close());
+  const source = event();
+  const tasks = { create: async () => 't_12345678', read: async () => ({ status: 'done', result: 'Final answer' }),
+    files: async () => ({ name: 'paper.pdf', bytes: Buffer.from('fixture') }) };
+  const open = groupId => makeKanbanBridge({ db, tasks, account: source.account, groupId });
+  let texts = 0, files = 0, outcome = { retryable: true };
+  const transport = { canDeliver: () => true,
+    deliver: async () => { texts++; return { id: 'text' }; },
+    deliverFile: async ({ canSend }) => { assert.equal(await canSend(), true); files++; return outcome; } };
+  const bridge = open(source.groupId);
+  bridge.enqueue(decision(source));
+  await bridge.sweep(transport);
+  await bridge.sweep(transport);
+  assert.equal(state(db), 'accepted');
+  assert.equal(db.prepare('SELECT state FROM kanban_file_deliveries').get().state, 'retained');
+  const retry = { ...source, messageId: 'followup' };
+  assert.equal(await bridge.retrieve({ ...retry, senderId: 'someone-else' }, transport), 'not_found');
+  assert.equal(await open('other').retrieve({ ...retry, groupId: 'other' }, transport), 'not_found');
+  outcome = { id: 'file' };
+  assert.equal(await open(source.groupId).retrieve(retry, transport), 'accepted');
+  assert.equal(await bridge.retrieve(retry, transport), 'not_found');
+  assert.equal(texts, 1);
+  assert.equal(files, 2);
+});
+
 test('the original source survives ambiguous admission and restart without duplicate task or delivery', async t => {
   const source = event();
   const open = withLedger(t);

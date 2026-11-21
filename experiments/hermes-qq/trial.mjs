@@ -15,6 +15,7 @@ import { makeMemberMemory } from './member-memory.mjs';
 import { makeDirectChat, groupMemoryAuthorized } from './direct-chat.mjs';
 import { conversationPolicy } from './group-policy.mjs';
 import { imagenJobs, imagenReceiptStore, serveImagen } from './imagen.mjs';
+import { readCompletionFiles, sendQqFile } from './qq-attachments.mjs';
 
 const maxAge = 180_000;
 const engine = process.platform === 'linux' ? '/usr/bin/podman' : '/usr/local/bin/docker';
@@ -401,7 +402,8 @@ async function main() {
   const kanbanCommand = (args, input, options) => runKanbanCommand(engine, [...workerExec, 'hermes', 'kanban', ...args], input, options);
   if (always) await Promise.all([callRuntime(container, 'health', {}), kanbanCommand(['diagnostics', '--json'])]);
   const tasks = kanbanTasks({ command: kanbanCommand,
-    attachFile: file => runKanbanMediaUpload(engine, [...workerExec, 'node'], file) });
+    attachFile: file => runKanbanMediaUpload(engine, [...workerExec, 'node'], file),
+    exportFiles: (id, rows) => readCompletionFiles(engine, workerExec, id, rows) });
   const start = Date.now();
   const until = always ? Infinity : start + 30 * 60_000;
   const safeSend = async operation => {
@@ -458,6 +460,10 @@ async function main() {
       : { scope: 'group', targetId: source.groupId, msgId: source.messageId };
     return recordSend(source, { artifact: artifact.format, workKey }, () => sendWorkImage(bot, target, artifact, seq, canSend));
   };
+  const deliverFile = ({ source, file, seq, canSend }) => recordSend(source, { text: '附件：' + file.name }, () =>
+    sendQqFile(bot, source.chatType === 'direct'
+      ? { scope: 'c2c', targetId: source.senderId, msgId: source.messageId }
+      : { scope: 'group', targetId: source.groupId, msgId: source.messageId }, file, seq, canSend));
   const directWork = always && process.env.LUKE_QQ_DIRECT === '1' && process.env.LUKE_QQ_DIRECT_WORK === '1' ? makeKanbanBridge({
     db: ledger, tasks, account, direct: true, ...bindings, onError: phase => console.error('qq_kanban_direct_error phase=' + phase),
   }) : null;
@@ -480,7 +486,7 @@ async function main() {
       event, context, preferences, images, allowWork: Boolean(directWork), imageGeneration: Boolean(directWork) && withImagen && grantImage(event),
     }),
     queueWork: directWork?.enqueue,
-    retrieveWork: directWork && (source => directWork.retrieve(source, { canDeliver: canDeliverDirect,
+    retrieveWork: directWork && (source => directWork.retrieve(source, { canDeliver: canDeliverDirect, deliverFile,
       deliver: ({ source, text, artifact, receiptKey }) => artifact
         ? sendArtifact(source, artifact, 1, () => canDeliverDirect(source) === true, receiptKey) : sendDirect(source, text, 1) })),
     send: sendDirect,
@@ -510,7 +516,7 @@ async function main() {
       startWork: decision => callRuntime(worker, 'trial-start', { decision }),
       finish: job => callRuntime(worker, 'trial-settle', { job }),
       queueWork: bridge?.enqueue,
-      retrieveWork: bridge && (source => bridge.retrieve(source, { canDeliver,
+      retrieveWork: bridge && (source => bridge.retrieve(source, { canDeliver, deliverFile,
         deliver: ({ source, text, artifact, receiptKey }) => artifact
           ? sendArtifact(source, artifact, 1, () => canDeliver(source) === true, receiptKey) : send(source, text, 1) })),
       planWindow: grants.freeReply ? (events, context, attempt, recentDeliveries) => callRuntime(container, 'trial-window',
@@ -563,6 +569,7 @@ async function main() {
             return canDeliver(source) === true && row?.sender_is_bot === 0 && freshEnough(row.received_at);
           },
           acknowledge,
+          deliverFile,
           deliver: async ({ source, text, artifact, seq, receiptKey }) => {
             const receipt = artifact ? await sendArtifact(source, artifact, seq, () => canDeliver(source) === true, receiptKey)
               : await send(source, text, seq);
@@ -575,6 +582,7 @@ async function main() {
           canAcknowledge: source => canDeliverDirect(source) === true &&
             freshEnough(directAnchor.get(source.senderId, source.messageId)?.received_at),
           acknowledge,
+          deliverFile,
           deliver: ({ source, text, artifact, seq, receiptKey }) => artifact
             ? sendArtifact(source, artifact, seq, () => canDeliverDirect(source) === true, receiptKey) : sendDirect(source, text, seq),
         }));
