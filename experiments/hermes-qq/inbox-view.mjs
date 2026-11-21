@@ -4,7 +4,6 @@ const bucketCount = 12;
 const perBucket = 6;
 const extendedScanLimit = 2000;
 const adjacentMediaMs = 60_000;
-const mediaOnly = body => typeof body === 'string' && !body.replace(/<faceType=[^<>]{1,300}>/gi, '').trim();
 const timestamp = new Intl.DateTimeFormat('en-GB', {
   timeZone: 'Asia/Shanghai', month: '2-digit', day: '2-digit',
   hour: '2-digit', minute: '2-digit', hourCycle: 'h23',
@@ -145,7 +144,7 @@ export function makeGroupImageReader(db, groupId, { verified = false } = {}) {
     WHERE group_id = ? AND message_id = ? AND origin = ? ORDER BY position
   `);
   const list = (id, origin) => select.all(groupId, id, origin).map(row => row.locator);
-  const previous = db.prepare(`SELECT prior.message_id, prior.body FROM events AS current
+  const previous = db.prepare(`SELECT prior.message_id FROM events AS current
     JOIN events AS prior ON prior.group_id=current.group_id AND prior.sender_id=current.sender_id
     WHERE current.group_id=? AND current.message_id=? AND current.attachment_count=0
       AND (prior.received_at,prior.rowid)<(current.received_at,current.rowid)
@@ -158,9 +157,12 @@ export function makeGroupImageReader(db, groupId, { verified = false } = {}) {
       const source = ref?.source_id;
       if (source) quoted = list(source, 'current');
     }
-    if (!current.length && !quoted.length && !ref) {
+    // Text-only quotes provide conversational context, not a new image source.
+    const textOnlyQuote = ref && ref.pushed_attachments === 0 && !ref.source_attachments &&
+      excerpt(ref.source_text || ref.pushed_text || '');
+    if (!current.length && !quoted.length && (!ref || textOnlyQuote)) {
       const prior = previous.get(groupId, messageId, adjacentMediaMs);
-      if (prior && mediaOnly(prior.body)) return list(prior.message_id, 'current').slice(0, 2)
+      if (prior) return list(prior.message_id, 'current').slice(0, 2)
         .map(locator => ({ origin: 'previous', locator }));
     }
     const unique = new Set();
@@ -178,7 +180,7 @@ export function makeGroupImageReader(db, groupId, { verified = false } = {}) {
 
 export function makeDirectImageReader(db) {
   const row = db.prepare('SELECT * FROM direct_media WHERE sender_id=? AND message_id=?');
-  const previous = db.prepare(`SELECT prior.body, m.current_images FROM direct_events AS current
+  const previous = db.prepare(`SELECT m.current_images FROM direct_events AS current
     JOIN direct_events AS prior ON prior.sender_id=current.sender_id
     LEFT JOIN direct_media AS m ON m.sender_id=prior.sender_id AND m.message_id=prior.message_id
     WHERE current.sender_id=? AND current.message_id=? AND current.has_media=0
@@ -193,7 +195,7 @@ export function makeDirectImageReader(db) {
     const found = row.get(senderId, messageId);
     if (!found) {
       const prior = previous.get(senderId, messageId, adjacentMediaMs);
-      if (!prior?.current_images || !mediaOnly(prior.body)) return [];
+      if (!prior?.current_images) return [];
       return JSON.parse(prior.current_images).slice(0, 2).map(locator => ({ origin: 'previous', locator }));
     }
     const current = JSON.parse(found.current_images);

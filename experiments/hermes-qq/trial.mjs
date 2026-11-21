@@ -6,7 +6,7 @@ import { DatabaseSync } from 'node:sqlite';
 import { setTimeout as delay } from 'node:timers/promises';
 import { makeDeliveryContext, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 import { makeGroupTurnState } from './group-turn-state.mjs';
-import { backgroundRequest, qqImageBytes, qqRouteFailureNotice } from './pilot.mjs';
+import { backgroundRequest, qqImageBytes, qqRouteFailureNotice, workImages } from './pilot.mjs';
 import { kanbanTasks, makeKanbanBridge, runKanbanCommand, runKanbanMediaUpload } from './kanban.mjs';
 import { readQqAppSecret } from '../aoa-async/qq-credential.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
@@ -244,10 +244,11 @@ export function makeTrial({
             : { messages: [...recent.messages, ...relatedRows.map(row => ({
                 speaker: row.senderId, text: row.text.slice(0, 320), at: row.at, quote: row.quote,
               }))].sort((a, b) => a.at - b.at).slice(-12) };
+          const selectedImages = workImages(decision, images);
           const request = decision.kind === 'work-intent' ? backgroundRequest(event, decision,
-            { ...context, recentDeliveries: event.recentDeliveries }) : null;
+            { ...context, recentDeliveries: event.recentDeliveries }, selectedImages) : null;
           if (queueWork && request) {
-            await queueWork(request, images);
+            await queueWork(request, selectedImages);
             consumeRelated();
             return record(event, 'queued');
           }

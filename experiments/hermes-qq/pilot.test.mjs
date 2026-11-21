@@ -5,7 +5,7 @@ import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { readQqImages } from '../aoa-async/qq-image-source.mjs';
 import { boundSample } from './bound-sample.mjs';
 import { readGroupWindow } from './inbox-view.mjs';
-import { backgroundRequest, hermesPilot, hermesRuns, qqImageBytes, requestedSkill } from './pilot.mjs';
+import { backgroundRequest, hermesPilot, hermesRuns, qqImageBytes, requestedSkill, workImages } from './pilot.mjs';
 
 test('QQ quote over the old size limit reaches the native model alongside conversation and delivery context', async () => {
   const bytes = Buffer.alloc(2_271_262);
@@ -134,6 +134,30 @@ test('image follow-ups use a work brief and leave actual policy outcomes to the 
   assert.equal(result.kind, 'work-intent');
   const work = backgroundRequest(source, result, { messages: [] });
   assert.match(work.request.input, /Report a tool result or refusal only when you have actually received it/);
+});
+
+test('a follow-up can carry both quoted text and selected earlier media without sending unrelated images to work', async () => {
+  const source = event('annotate', '/imagen mark it', { mentioned: true,
+    quote: { availability: 'received', text: 'Find the little green mark in the upper section.' } });
+  const images = [{ origin: 'previous', dataUrl: 'data:image/png;base64,iVBORw0KGgo=' }];
+  for (const usePreviousMedia of [true, false]) {
+    const pilot = hermesPilot({ fast: {
+      async start({ input }) {
+        assert.match(input[0].content[0].text, /"usePreviousMedia":true/);
+        assert.match(input[0].content[1].text, /not from the text quote/);
+        return 'route';
+      },
+      wait: async () => JSON.stringify({ route: 'work', text: 'Prepare the requested result.', usePreviousMedia }),
+    } });
+    const decision = await pilot.planMention(source, [], [], images, [], true);
+    const selected = workImages(decision, images);
+    assert.equal(selected.length, usePreviousMedia ? 1 : 0);
+    const request = backgroundRequest(source, decision, { messages: [] }, selected).request;
+    const data = JSON.parse(request.input.split('\n').at(-1));
+    assert.equal(data.quote.text, source.quote.text);
+    assert.deepEqual(data.images, usePreviousMedia ? [{ position: 1, origin: 'previous' }] : undefined);
+    assert.ok(!request.input.includes(images[0].dataUrl));
+  }
 });
 
 test('the bridge namespaces groups and jobs without implementing a task runner', async () => {

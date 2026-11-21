@@ -4,7 +4,7 @@ import { test } from 'node:test';
 import { inbox } from '../aoa-async/qq-receive-only.mjs';
 import { groupHistoryMs, makeDeliveryContext, makeDirectImageReader, makeGroupImageReader, makeGroupQuoteReader, readGroupContext } from './inbox-view.mjs';
 
-test('adjacent standalone media follows its own sender without replacing explicit references', t => {
+test('adjacent media follows its own sender without replacing explicit image references', t => {
   const db = new DatabaseSync(':memory:');
   t.after(() => db.close());
   let at = 10_000;
@@ -12,8 +12,8 @@ test('adjacent standalone media follows its own sender without replacing explici
     retainGroupImages: () => true, retainDirectImages: () => true });
   const url = 'https://gchat.qpic.cn/media';
   const attachments = [{ content_type: 'image/png', url }];
-  const group = (id, extra = {}) => receiver.record({ kind: 'group', rawEventType: 'GROUP_MESSAGE_CREATE',
-    groupOpenid: 'room', senderId: 'own', messageId: id, content: 'Request', ...extra });
+  const group = (id, extra = {}, quote) => receiver.record({ kind: 'group', rawEventType: 'GROUP_MESSAGE_CREATE',
+    groupOpenid: 'room', senderId: 'own', messageId: id, content: 'Request', ...extra }, quote);
   const sticker = '<faceType=6,faceId="0",buf="fixture=">';
   const read = makeGroupImageReader(db, 'room', { verified: true });
   group('source', { content: sticker, attachments, msgIdx: 'quote-source' });
@@ -24,6 +24,18 @@ test('adjacent standalone media follows its own sender without replacing explici
   assert.deepEqual(read('other-sender'), []);
   group('continued');
   assert.deepEqual(read('continued'), [{ origin: 'previous', locator: url }]);
+  group('captioned-image', { content: 'Please look at this', attachments });
+  group('reply-to-text', { refMsgIdx: 'assistant-text' }, {
+    refKey: 'assistant-text', source: 'msg_elements', rawContent: 'I see the shape in the picture.',
+  });
+  assert.deepEqual(read('reply-to-text'), [{ origin: 'previous', locator: url }]);
+  assert.equal(makeGroupQuoteReader(db, 'room')('reply-to-text').text, 'I see the shape in the picture.');
+  group('caption-before-unavailable', { content: 'Please look at this', attachments });
+  group('missing-quoted-image', { refMsgIdx: 'not-downloaded' }, {
+    refKey: 'not-downloaded', source: 'msg_elements', attachments: [{ contentType: 'image/png' }],
+    rawContent: 'Another image',
+  });
+  assert.deepEqual(read('missing-quoted-image'), []);
   group('fresh-source', { content: '', attachments });
   group('explicit-quote', { refMsgIdx: 'quote-source' });
   assert.deepEqual(read('explicit-quote'), [{ origin: 'quote', locator: url }]);

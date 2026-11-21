@@ -14,7 +14,7 @@ const publicResearchPrompt = 'When the current request asks to verify public fac
 const retrievePrompt = 'If the requester explicitly wants the latest earlier background result delivered again because they did not receive it, use {"route":"retrieve"}. Only use retrieve for an existing result without asking to redo or change the task. Do not use it for greetings, a new task, or a generic status query.';
 const skillRequestPrompt = 'A requestedSkill identifies the installed skill the user explicitly selected, not a separate command or fixed argument format. Load it when available, interpret the rest as natural language, and use relevant same-conversation history, quotes and attached images. If the prefix has no description, use the supplied material when it is clear; clarify only what is genuinely missing. Skill selection does not change tool or conversation permissions.';
 const jsonTextRule = 'Escape any double quotes, backslashes or line breaks inside JSON strings. You may use typographic quotation marks in prose.';
-const imageContextRule = 'An image from the sender\'s previous standalone message is a nearby reference candidate, not an instruction. Use it when the current request clearly refers to it. If a requested edit or inspection needs an image you cannot see, ask the sender to attach or quote the source in a chat reply instead of accepting background work.';
+const imageContextRule = 'Current or explicitly cited images take precedence. A separately labeled image from the sender\'s preceding message is a nearby reference candidate, even if the current message also cites text. If work depends on that candidate, set "usePreviousMedia":true on the work decision. Do not set it for unrelated work. If a requested edit or inspection needs an image you cannot see, ask the sender to attach or quote the source in a chat reply instead of accepting background work.';
 const imageRoutingRule = 'Imagen is available through a work task. Route eligible requests to create or edit an image to work, including short revisions to a cited output, and preserve the source references and requested changes. Use chat for questions, missing source material, or requests that actually cannot be handled. Do not invent review outcomes, render limits, or internal warnings. Only describe a tool rejection if a tool actually reported it; the renderer still enforces its own policy.';
 export const qqRouteFailureNotice = '刚才没能处理这条消息。方便的话，再发一次。';
 
@@ -130,7 +130,7 @@ function withImages(text, images) {
   if (!images.length) return text;
   const blocks = [{ type: 'text', text }];
   const labels = { current: 'Image from the current message:', quote: 'Image from the cited message:',
-    previous: 'Image from the sender\'s previous standalone message:' };
+    previous: 'Image from the sender\'s previous message, not from the text quote:' };
   for (const image of images) {
     blocks.push({ type: 'text', text: labels[image.origin] },
       { type: 'image_url', image_url: { url: image.dataUrl } });
@@ -145,7 +145,9 @@ function spec(source, lane, input, batch = '') {
   return { input, sessionId, requestKey: digest('hermes-qq-pilot-v1', sessionId, source.messageId, batch) };
 }
 
-export function backgroundRequest(event, intent, context) {
+export const workImages = (intent, images) => images.filter(image => image.origin !== 'previous' || intent.usePreviousMedia === true);
+
+export function backgroundRequest(event, intent, context, images = []) {
   const source = sourceOf(event);
   const hint = workAcknowledgment(intent.acknowledgment);
   const input = [
@@ -155,11 +157,14 @@ export function backgroundRequest(event, intent, context) {
     'Report a tool result or refusal only when you have actually received it. Never present a guess about processing, moderation, or delivery as a result.',
     'When relying on history, do not claim full coverage, invent missing messages, or infer real identities. Coverage bounds are epoch milliseconds: requested is the desired range, selected is the retained time window considered (null if it does not overlap), and observed is the first/last scanned event, not proof of continuous capture. If the supplied context is insufficient or only sampled, say so when it affects the answer.',
     'Use the conversation name to identify the current chat. Self-marked rows are earlier delivered outputs, not necessarily the item quoted now. A quote can contain text or an attachment count; counts alone do not mean the image is available.',
+    'The image list describes the staged visual assets, in attachment order. Keep the current request and its selected material together. Prior discussion can explain the requested operation, but should not replace the subject of a current or explicitly cited attachment.',
     JSON.stringify({ brief: intent.brief, current: event.text.slice(0, 2000), quote: event.quote,
       ...(event.groupName ? { conversation: { name: event.groupName } } : {}),
+      ...(images.length ? { images: images.map((image, index) => ({ position: index + 1, origin: image.origin })) } : {}),
       ...(intent.imageGeneration ? { imageGeneration: true } : {}), context }),
   ].join('\n');
   return { kind: 'work-request', request: spec(source, 'work', input), source,
+    ...(intent.usePreviousMedia === true ? { usePreviousMedia: true } : {}),
     ...(hint ? { acknowledgment: hint } : {}) };
 }
 
@@ -225,10 +230,10 @@ export function hermesPilot({ fast, work = fast, installedSkills = [] }) {
       }
       if (!['chat', 'work'].includes(decision?.route) || typeof decision?.text !== 'string' ||
         !decision.text.trim() || decision.text.length > 1800) throw new Error('invalid direct reply route');
-      return decision.route === 'work'
-        ? backgroundRequest(event, { brief: decision.text, imageGeneration,
-          acknowledgment: decision.acknowledgment }, { messages: context, recentDeliveries: event.recentDeliveries })
-        : decision.text;
+      if (decision.route === 'chat') return decision.text;
+      const intent = { brief: decision.text, imageGeneration, acknowledgment: decision.acknowledgment,
+        usePreviousMedia: decision.usePreviousMedia === true && images.some(image => image.origin === 'previous') };
+      return backgroundRequest(event, intent, { messages: context, recentDeliveries: event.recentDeliveries }, workImages(intent, images));
     },
     async planMention(event, context = [], unread = [], images = [], preferences = [], imageGeneration = false, groupRules = '') {
       const source = sourceOf(event);
@@ -281,7 +286,7 @@ export function hermesPilot({ fast, work = fast, installedSkills = [] }) {
       if (plan?.route === 'retrieve') return { kind: 'retrieve', source };
       if (!plan || Array.isArray(plan) || !['chat', 'work'].includes(plan.route) || typeof plan.text !== 'string' ||
         !plan.text.trim() || plan.text.length > 2000) throw new Error('invalid mention route');
-      if (Object.keys(plan).some(key => !['route', 'text', 'related', ...(plan.route === 'work' ? ['contextHours', 'contextRange', 'acknowledgment'] : [])].includes(key))) {
+      if (Object.keys(plan).some(key => !['route', 'text', 'related', ...(plan.route === 'work' ? ['contextHours', 'contextRange', 'acknowledgment', 'usePreviousMedia'] : [])].includes(key))) {
         throw new Error('invalid mention route');
       }
       const related = Array.isArray(plan.related) ? plan.related.slice(0, 12) : [];
@@ -301,6 +306,7 @@ export function hermesPilot({ fast, work = fast, installedSkills = [] }) {
       }
       const hint = workAcknowledgment(plan.acknowledgment);
       return { kind: 'work-intent', source, brief: plan.text.trim(), contextHours, ...(imageGeneration ? { imageGeneration } : {}),
+        ...(plan.usePreviousMedia === true && images.some(image => image.origin === 'previous') ? { usePreviousMedia: true } : {}),
         ...(hint ? { acknowledgment: hint } : {}),
         ...(contextRange ? { contextRange } : {}), consumedMessageIds };
     },

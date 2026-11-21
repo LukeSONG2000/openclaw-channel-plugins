@@ -1,4 +1,4 @@
-import { qqRouteFailureNotice } from './pilot.mjs';
+import { qqRouteFailureNotice, workImages } from './pilot.mjs';
 import { qqFilePendingNotice } from './qq-attachments.mjs';
 
 const maxAge = 180_000;
@@ -56,7 +56,7 @@ export function makeDirectChat({ inbox, ledger, account, start, signal, plan, se
     }
     if (result?.kind === 'work-request') {
       if (queueWork && !signal?.aborted && matches) {
-        await queueWork(result, images);
+        await queueWork(result, workImages(result, images));
         log('queued');
       }
       return;
